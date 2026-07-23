@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from __future__ import annotations
 
 import re
@@ -40,11 +27,6 @@ else:
 
 
 class DistributedMixin:
-    """Distributed orchestration hooks for [`PreTrainedModel`].
-
-    Stateless heavy lifting stays in `transformers.distributed.*` and
-    `integrations.tensor_parallel`. This mixin owns orchestration and instance state.
-    """
 
     _device_mesh = None
     _tp_plan: dict[str, str] | None = None
@@ -79,65 +61,23 @@ class DistributedMixin:
 
     @property
     def tp_plan(self) -> dict[str, str]:
-        """The full tp plan for the model's modules."""
-        if hasattr(self.config, "distributed_config") and self.config.distributed_config.enable_expert_parallel:
-            if not self._ep_plan:
-                raise ValueError(
-                    f"Expert parallelism was requested (`enable_expert_parallel=True`), but "
-                    f"`{self.__class__.__name__}` does not define an expert-parallel plan. Add a "
-                    f"`base_model_ep_plan` to its config, or disable expert parallelism."
-                )
-            return self._ep_plan
-        return self._tp_plan
+        pass
 
     @property
     def fsdp_plan(self) -> dict[str, str]:
-        return self._fsdp_plan
+        pass
 
     @property
     def pp_plan(self) -> dict[str, tuple[str, str]]:
-        return self._pp_plan
+        pass
 
     @tp_plan.setter
     def tp_plan(self, plan: dict[str, str] | None):
-        if plan is None:
-            self._tp_plan = {}
-            return
-        if not isinstance(plan, dict):
-            raise ValueError("Can only set a dictionary as `tp_plan`")
-
-        for layer_pattern, parallel_style in plan.items():
-            if parallel_style not in ALL_PARALLEL_STYLES:
-                raise ValueError(
-                    f"Unsupported tensor parallel style '{parallel_style}' for layer '{layer_pattern}'. "
-                    f"Supported styles are {list(ALL_PARALLEL_STYLES.keys())}"
-                )
-
-        model_param_names = [name for name, _ in self.named_parameters()]
-        for layer_pattern in plan.keys():
-            regex_pattern = layer_pattern.replace("*", r"\d+")
-            pattern_matched = False
-            for param_name in model_param_names:
-                if re.match(regex_pattern, param_name):
-                    pattern_matched = True
-                    break
-            if not pattern_matched:
-                warnings.warn(
-                    f"Layer pattern '{layer_pattern}' does not match any parameters in the model. This rule may not "
-                    "be applied during tensor parallelization, or may lead to dimension mismatches"
-                )
-
-        self._tp_plan = plan
+        pass
 
     @pp_plan.setter
     def pp_plan(self, plan: dict[str, tuple[str, str]] | None):
-        if plan is None:
-            self._pp_plan = {}
-            return
-        if not isinstance(plan, dict):
-            raise ValueError("Can only set a dictionary as `pp_plan`")
-
-        self._pp_plan = plan
+        pass
 
     @classmethod
     def prepare_distribute_model(

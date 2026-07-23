@@ -1,16 +1,3 @@
-# Copyright 2023 NllbMoe Authors and HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from collections.abc import Callable
@@ -47,9 +34,6 @@ logger = logging.get_logger(__name__)
 
 
 class NllbMoeScaledWordEmbedding(nn.Embedding):
-    """
-    This module overrides nn.Embeddings' forward by multiplying with embeddings scale.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int, embed_scale: float | None = 1.0):
         super().__init__(num_embeddings, embedding_dim, padding_idx)
@@ -59,9 +43,7 @@ class NllbMoeScaledWordEmbedding(nn.Embedding):
         return super().forward(input_ids) * self.embed_scale
 
 
-# Copied from transformers.models.m2m_100.modeling_m2m_100.M2M100SinusoidalPositionalEmbedding with M2M100->NllbMoe
 class NllbMoeSinusoidalPositionalEmbedding(nn.Module):
-    """This module produces sinusoidal positional embeddings of any length."""
 
     def __init__(self, num_positions: int, embedding_dim: int, padding_idx: int | None = None):
         super().__init__()
@@ -74,7 +56,6 @@ class NllbMoeSinusoidalPositionalEmbedding(nn.Module):
     def make_weights(self, num_embeddings: int, embedding_dim: int, padding_idx: int | None = None):
         emb_weights = self.get_embedding(num_embeddings, embedding_dim, padding_idx)
         if hasattr(self, "weights"):
-            # in forward put the weights on the correct dtype and device of the param
             emb_weights = emb_weights.to(dtype=self.weights.dtype, device=self.weights.device)
 
         self.register_buffer("weights", emb_weights, persistent=False)
@@ -93,7 +74,6 @@ class NllbMoeSinusoidalPositionalEmbedding(nn.Module):
         emb = torch.arange(num_embeddings, dtype=torch.int64).float().unsqueeze(1) * emb.unsqueeze(0)
         emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_embeddings, -1)
         if embedding_dim % 2 == 1:
-            # zero pad
             emb = torch.cat([emb, torch.zeros(num_embeddings, 1)], dim=1)
         if padding_idx is not None:
             emb[padding_idx, :] = 0
@@ -109,7 +89,6 @@ class NllbMoeSinusoidalPositionalEmbedding(nn.Module):
     ):
         if input_ids is not None:
             bsz, seq_len = input_ids.size()
-            # Create the position ids from the input token ids. Any padded tokens remain padded.
             position_ids = self.create_position_ids_from_input_ids(
                 input_ids, self.padding_idx, past_key_values_length
             ).to(input_ids.device)
@@ -119,7 +98,6 @@ class NllbMoeSinusoidalPositionalEmbedding(nn.Module):
                 inputs_embeds, past_key_values_length, self.padding_idx
             )
 
-        # expand embeddings if needed
         max_pos = self.padding_idx + 1 + seq_len + past_key_values_length
         if max_pos > self.weights.size(0):
             self.make_weights(max_pos + self.offset, self.embedding_dim, self.padding_idx)
@@ -145,7 +123,6 @@ class NllbMoeSinusoidalPositionalEmbedding(nn.Module):
         return position_ids.unsqueeze(0).expand(input_shape).contiguous() + past_key_values_length
 
     @staticmethod
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaEmbeddings.create_position_ids_from_input_ids
     def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_length=0):
         """
         Replace non-padding symbols with their position numbers. Position numbers begin at padding_idx+1. Padding symbols
@@ -156,23 +133,12 @@ class NllbMoeSinusoidalPositionalEmbedding(nn.Module):
 
         Returns: torch.Tensor
         """
-        # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
         mask = input_ids.ne(padding_idx).int()
         incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
         return incremental_indices.long() + padding_idx
 
 
 class NllbMoeTop2Router(nn.Module):
-    """
-    Router using tokens choose top-2 experts assignment.
-
-    This router uses the same mechanism as in NLLB-MoE from the fairseq repository. Items are sorted by router_probs
-    and then routed to their choice of expert until the expert's expert_capacity is reached. **There is no guarantee
-    that each token is processed by an expert**, or that each expert receives at least one token.
-
-    The router combining weights are also returned to make sure that the states that are not updated will be masked.
-
-    """
 
     def __init__(self, config: NllbMoeConfig):
         super().__init__()
@@ -214,7 +180,6 @@ class NllbMoeTop2Router(nn.Module):
         capacity.
         """
         nb_tokens = router_logits.shape[0]
-        # Apply Softmax and cast back to the original `dtype`
         router_probs = nn.functional.softmax(router_logits, dim=-1, dtype=self.dtype).to(input_dtype)
         top_1_expert_index = torch.argmax(router_probs, dim=-1)
         top_1_mask = torch.nn.functional.one_hot(top_1_expert_index, num_classes=self.num_experts)
@@ -223,7 +188,6 @@ class NllbMoeTop2Router(nn.Module):
             gumbel = torch.distributions.gumbel.Gumbel(0, 1).rsample
             router_logits += gumbel(router_logits.shape).to(router_logits.device)
 
-        # replace top_1_expert_index with min values
         logits_except_top_1 = router_logits.masked_fill(top_1_mask.bool(), float("-inf"))
         top_2_expert_index = torch.argmax(logits_except_top_1, dim=-1)
         top_2_mask = torch.nn.functional.one_hot(top_2_expert_index, num_classes=self.num_experts)
@@ -240,15 +204,12 @@ class NllbMoeTop2Router(nn.Module):
 
         if padding_mask is not None and not self.router_ignore_padding_tokens:
             if len(padding_mask.shape) == 4:
-                # only get the last causal mask
                 padding_mask = padding_mask[:, :, -1, :].reshape(-1)[-nb_tokens:]
             non_padding = ~padding_mask.bool()
             top_1_mask = top_1_mask * non_padding.unsqueeze(-1).to(top_1_mask.dtype)
             top_2_mask = top_2_mask * non_padding.unsqueeze(-1).to(top_1_mask.dtype)
 
         if self.batch_prioritized_routing:
-            # sort tokens based on their routing probability
-            # to make sure important tokens are routed, first
             importance_scores = -1 * router_probs.max(dim=1)[0]
             sorted_top_1_mask = top_1_mask[importance_scores.argsort(dim=0)]
             sorted_cumsum1 = (torch.cumsum(sorted_top_1_mask, dim=0) - 1) * sorted_top_1_mask
@@ -257,13 +218,11 @@ class NllbMoeTop2Router(nn.Module):
             sorted_top_2_mask = top_2_mask[importance_scores.argsort(dim=0)]
             sorted_cumsum2 = (torch.cumsum(sorted_top_2_mask, dim=0) - 1) * sorted_top_2_mask
             locations2 = sorted_cumsum2[importance_scores.argsort(dim=0).argsort(dim=0)]
-            # Update 2nd's location by accounting for locations of 1st
             locations2 += torch.sum(top_1_mask, dim=0, keepdim=True)
 
         else:
             locations1 = torch.cumsum(top_1_mask, dim=0) - 1
             locations2 = torch.cumsum(top_2_mask, dim=0) - 1
-            # Update 2nd's location by accounting for locations of 1st
             locations2 += torch.sum(top_1_mask, dim=0, keepdim=True)
 
         if not self.training and self.moe_eval_capacity_token_fraction > 0:
@@ -272,7 +231,6 @@ class NllbMoeTop2Router(nn.Module):
             capacity = 2 * math.ceil(nb_tokens / self.num_experts)
             self.expert_capacity = capacity if self.expert_capacity is None else self.expert_capacity
 
-        # Remove locations outside capacity from ( cumsum < capacity = False will not be routed)
         top_1_mask = top_1_mask * torch.lt(locations1, self.expert_capacity)
         top_2_mask = top_2_mask * torch.lt(locations2, self.expert_capacity)
 
@@ -281,7 +239,6 @@ class NllbMoeTop2Router(nn.Module):
                 router_probs, top_1_mask, top_2_mask
             )
 
-        # Calculate combine_weights and dispatch_mask
         gates1 = top_1_max_probs[:, None] * top_1_mask
         gates2 = top_2_max_probs[:, None] * top_2_mask
         router_probs = gates1 + gates2
@@ -365,9 +322,6 @@ class NllbMoeExperts(nn.ModuleDict):
 
 
 class NllbMoeSparseMLP(nn.Module):
-    r"""
-    Implementation of the NLLB-MoE sparse MLP module.
-    """
 
     def __init__(self, config: NllbMoeConfig, ffn_dim: int):
         super().__init__()
@@ -383,7 +337,6 @@ class NllbMoeSparseMLP(nn.Module):
         return hidden_states.reshape(batch_size, sequence_length, hidden_dim)
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -397,7 +350,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -413,7 +365,6 @@ def eager_attention_forward(
 
 
 class NllbMoeAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -466,7 +417,6 @@ class NllbMoeAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_layer from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -475,7 +425,6 @@ class NllbMoeAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -484,9 +433,7 @@ class NllbMoeAttention(nn.Module):
             value_states = self.v_proj(current_states).view(kv_shape).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all key/value_states to cache to be re-used for fast auto-regressive generation
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -600,7 +547,6 @@ class NllbMoeDecoderLayer(GradientCheckpointingLayer):
         residual = hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             past_key_values=past_key_values,
@@ -634,7 +580,6 @@ class NllbMoeDecoderLayer(GradientCheckpointingLayer):
         hidden_states = self.ff_dropout(hidden_states)
         hidden_states = residual + hidden_states
 
-        # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16 and torch.isinf(hidden_states).any():
             clamp_value = torch.finfo(hidden_states.dtype).max - 1000
             hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
@@ -648,9 +593,6 @@ class NllbMoePreTrainedModel(PreTrainedModel):
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
     _no_split_modules = ["NllbMoeEncoderLayer", "NllbMoeDecoderLayer"]
-    # TODO: If anyone is up to it to make sure tests pass etc
-    # Flash attention has problems due to not preparing masks the same way as eager/sdpa
-    # SDPA has more flaky logits which requires more time to look into tests
     _supports_flash_attn = False
     _supports_sdpa = False
     _supports_flex_attn = False
@@ -727,7 +669,6 @@ class NllbMoeEncoder(NllbMoePreTrainedModel):
         )
 
         for encoder_layer in self.layers:
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             dropout_probability = torch.rand([])
             if self.training and (dropout_probability < self.layerdrop):  # skip the layer
                 continue
@@ -739,15 +680,6 @@ class NllbMoeEncoder(NllbMoePreTrainedModel):
 
 
 class NllbMoeDecoder(NllbMoePreTrainedModel):
-    """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a [`NllbMoeDecoderLayer`]
-
-    Args:
-        config:
-            NllbMoeConfig
-        embed_tokens (nn.Embedding):
-            output embedding
-    """
 
     _can_record_outputs = {
         "hidden_states": NllbMoeDecoderLayer,
@@ -783,7 +715,6 @@ class NllbMoeDecoder(NllbMoePreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -803,7 +734,6 @@ class NllbMoeDecoder(NllbMoePreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # initialize `past_key_values`
         if use_cache and past_key_values is None:
             past_key_values = EncoderDecoderCache(DynamicCache(config=self.config), DynamicCache(config=self.config))
 
@@ -822,7 +752,6 @@ class NllbMoeDecoder(NllbMoePreTrainedModel):
             encoder_hidden_states=encoder_hidden_states,
         )
 
-        # embed positions
         positions = self.embed_positions(input_ids, inputs_embeds, past_key_values_length)
         positions = positions.to(inputs_embeds.device)
 
@@ -832,7 +761,6 @@ class NllbMoeDecoder(NllbMoePreTrainedModel):
         synced_gpus = is_deepspeed_zero3_enabled() or is_fsdp_managed_module(self)
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             dropout_probability = torch.rand([])
             skip_the_layer = self.training and dropout_probability < self.layerdrop
             if not skip_the_layer or synced_gpus:
@@ -873,7 +801,6 @@ class NllbMoeModel(NllbMoePreTrainedModel):
         self.encoder = NllbMoeEncoder(config)
         self.decoder = NllbMoeDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -907,7 +834,6 @@ class NllbMoeModel(NllbMoePreTrainedModel):
                 **kwargs,
             )
 
-        # decoder outputs consists of (dec_features, past_key_values, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -976,16 +902,13 @@ def load_balancing_loss_func(
     expert_mask = torch.nn.functional.one_hot(selected_experts, num_experts)
 
     if attention_mask is None:
-        # Compute the percentage of tokens routed to each experts
         tokens_per_expert = torch.mean(expert_mask.float(), dim=0)
 
-        # Compute the average probability of routing to these experts
         router_prob_per_expert = torch.mean(routing_weights, dim=0)
     else:
         batch_size, sequence_length = attention_mask.shape
         num_hidden_layers = concatenated_gate_logits.shape[0] // (batch_size * sequence_length)
 
-        # Compute the mask that masks all padding tokens as 0 with the same shape of expert_mask
         expert_attention_mask = (
             attention_mask[None, :, :, None, None]
             .expand((num_hidden_layers, batch_size, sequence_length, top_k, num_experts))
@@ -993,12 +916,10 @@ def load_balancing_loss_func(
             .to(compute_device)
         )
 
-        # Compute the percentage of tokens routed to each experts
         tokens_per_expert = torch.sum(expert_mask.float() * expert_attention_mask, dim=0) / torch.sum(
             expert_attention_mask, dim=0
         )
 
-        # Compute the mask that masks all padding tokens as 0 with the same shape of tokens_per_expert
         router_per_expert_attention_mask = (
             attention_mask[None, :, :, None]
             .expand((num_hidden_layers, batch_size, sequence_length, num_experts))
@@ -1006,7 +927,6 @@ def load_balancing_loss_func(
             .to(compute_device)
         )
 
-        # Compute the average probability of routing to these experts
         router_prob_per_expert = torch.sum(routing_weights * router_per_expert_attention_mask, dim=0) / torch.sum(
             router_per_expert_attention_mask, dim=0
         )
@@ -1025,7 +945,6 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("self.model.config.pad_token_id has to be defined.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
@@ -1049,7 +968,6 @@ class NllbMoeForConditionalGeneration(NllbMoePreTrainedModel, GenerationMixin):
         self.num_experts = config.num_experts
         self.router_z_loss_coef = config.router_z_loss_coef
         self.router_aux_loss_coef = config.router_aux_loss_coef
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1099,7 +1017,6 @@ class NllbMoeForConditionalGeneration(NllbMoePreTrainedModel, GenerationMixin):
 
         if labels is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-100)
-            # todo check in the config if router loss enables
 
             if output_router_logits:
                 encoder_router_logits = outputs.encoder_router_logits

@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from typing import TYPE_CHECKING, Optional
 
 from .base import HfQuantizer
@@ -32,9 +19,6 @@ logger = logging.get_logger(__name__)
 
 
 class FPQuantHfQuantizer(HfQuantizer):
-    """
-    Quantizer for the FP-Quant method. Enables the loading of prequantized models and in-flight quantization of full-precision models.
-    """
 
     requires_calibration = False
     is_qat_trainable = True
@@ -104,7 +88,6 @@ class FPQuantHfQuantizer(HfQuantizer):
 
         module, tensor_name = get_module_from_name(model, param_name)
         if isinstance(module, FPQuantLinear) and tensor_name in ["weight", "qweight", "dqweight"]:
-            # Only quantize weights of FPQuantLinear modules that are not already quantized
             return True
         else:
             return False
@@ -125,12 +108,7 @@ class FPQuantHfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self, model: Optional["PreTrainedModel"] = None):
-        trainable = self.quantization_config.store_master_weights
-        if not trainable:
-            logger.warning(
-                "You are attempting to train a model with FPQuant quantization. This is only supported when `store_master_weights=True`. Please set `store_master_weights=True` to train the model."
-            )
-        return trainable
+        pass
 
     def is_serializable(self):
         return True

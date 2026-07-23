@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from dataclasses import dataclass
@@ -38,7 +25,6 @@ from .configuration_ovis2 import Ovis2Config, Ovis2VisionConfig
 
 def hard_softmax(logits: torch.Tensor, dim: int):
     y_soft = logits.softmax(dim)
-    # Straight through.
     index = y_soft.max(dim, keepdim=True)[1]
     y_hard = torch.zeros_like(logits, memory_format=torch.legacy_contiguous_format).scatter_(dim, index, 1.0)
     ret = y_hard - y_soft.detach() + y_soft
@@ -49,10 +35,6 @@ def hard_softmax(logits: torch.Tensor, dim: int):
 @auto_docstring
 @dataclass
 class BaseModelOutputWithVisualIndicatorFeatures(BaseModelOutputWithPooling):
-    r"""
-    visual_indicator_features (`torch.FloatTensor` of shape `(batch_size, visual_indicator_size)`):
-        Visual indicator features extracted from the model, which can be used for auxiliary tasks or further processing.
-    """
 
     visual_indicator_features: torch.FloatTensor | None = None
 
@@ -422,7 +404,6 @@ class Ovis2ForConditionalGeneration(LlavaForConditionalGeneration, GenerationMix
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

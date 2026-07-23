@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for LayoutLMv3."""
 
 import numpy as np
 import torch
@@ -63,7 +49,6 @@ def apply_tesseract(
     """Applies Tesseract OCR on a document image, and returns recognized words + normalized bounding boxes."""
     requires_backends(apply_tesseract, ["pytesseract"])
 
-    # Convert torch tensor to numpy if needed
     if hasattr(image, "cpu"):
         image = image.cpu().numpy()
     elif not isinstance(image, np.ndarray):
@@ -71,13 +56,11 @@ def apply_tesseract(
 
     tesseract_config = tesseract_config if tesseract_config is not None else ""
 
-    # apply OCR
     pil_image = to_pil_image(image, input_data_format=input_data_format)
     image_width, image_height = pil_image.size
     data = pytesseract.image_to_data(pil_image, lang=lang, output_type="dict", config=tesseract_config)
     words, left, top, width, height = data["text"], data["left"], data["top"], data["width"], data["height"]
 
-    # filter empty words and corresponding coordinates
     irrelevant_indices = [idx for idx, word in enumerate(words) if not word.strip()]
     words = [word for idx, word in enumerate(words) if idx not in irrelevant_indices]
     left = [coord for idx, coord in enumerate(left) if idx not in irrelevant_indices]
@@ -85,13 +68,11 @@ def apply_tesseract(
     width = [coord for idx, coord in enumerate(width) if idx not in irrelevant_indices]
     height = [coord for idx, coord in enumerate(height) if idx not in irrelevant_indices]
 
-    # turn coordinates into (left, top, left+width, top+height) format
     actual_boxes = []
     for x, y, w, h in zip(left, top, width, height):
         actual_box = [x, y, x + w, y + h]
         actual_boxes.append(actual_box)
 
-    # finally, normalize the bounding boxes
     normalized_boxes = []
     for box in actual_boxes:
         normalized_boxes.append(normalize_box(box, image_width, image_height))
@@ -102,18 +83,6 @@ def apply_tesseract(
 
 
 class LayoutLMv3ImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    apply_ocr (`bool`, *optional*, defaults to `True`):
-        Whether to apply the Tesseract OCR engine to get words + normalized bounding boxes. Can be overridden by
-        the `apply_ocr` parameter in the `preprocess` method.
-    ocr_lang (`str`, *optional*):
-        The language, specified by its ISO code, to be used by the Tesseract OCR engine. By default, English is
-        used. Can be overridden by the `ocr_lang` parameter in the `preprocess` method.
-    tesseract_config (`str`, *optional*):
-        Any additional custom configuration flags that are forwarded to the `config` parameter when calling
-        Tesseract. For example: '--psm 6'. Can be overridden by the `tesseract_config` parameter in the
-        `preprocess` method.
-    """
 
     apply_ocr: bool
     ocr_lang: str | None
@@ -161,7 +130,6 @@ class LayoutLMv3ImageProcessor(TorchvisionBackend):
         tesseract_config: str | None = None,
         **kwargs,
     ) -> BatchFeature:
-        # Tesseract OCR to get words + normalized bounding boxes
         if apply_ocr:
             requires_backends(self, "pytesseract")
             words_batch = []
@@ -177,7 +145,6 @@ class LayoutLMv3ImageProcessor(TorchvisionBackend):
                 words_batch.append(words)
                 boxes_batch.append(boxes)
 
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -186,14 +153,11 @@ class LayoutLMv3ImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_center_crop:
                 stacked_images = self.center_crop(stacked_images, crop_size)
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )

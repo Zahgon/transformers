@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for BEiT."""
 
 from typing import TYPE_CHECKING
 
@@ -37,21 +23,13 @@ from ...utils import TensorType, auto_docstring
 from ...utils.import_utils import requires
 
 
-# Adapted from transformers.models.beit.image_processing_beit.BeitImageProcessorKwargs
 class BeitImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    do_reduce_labels (`bool`, *optional*, defaults to `self.do_reduce_labels`):
-        Whether or not to reduce all label values of segmentation maps by 1. Usually used for datasets where 0
-        is used for background, and background itself is not included in all classes of a dataset (e.g.
-        ADE20k). The background label will be replaced by 255.
-    """
 
     do_reduce_labels: bool
 
 
 @auto_docstring
 class BeitImageProcessorPil(PilBackend):
-    """PIL backend for BEiT with reduce_label support."""
 
     valid_kwargs = BeitImageProcessorKwargs
 
@@ -101,7 +79,6 @@ class BeitImageProcessorPil(PilBackend):
         data = {}
         data["pixel_values"] = self._preprocess(images, **images_kwargs)
 
-        # Prepare segmentation maps if provided
         if segmentation_maps is not None:
             processed_segmentation_maps = self._prepare_image_like_inputs(
                 images=segmentation_maps,
@@ -110,14 +87,12 @@ class BeitImageProcessorPil(PilBackend):
                 input_data_format=ChannelDimension.FIRST,
             )
 
-            # Process segmentation maps with do_normalize=False and do_rescale=False
             segmentation_maps_kwargs = kwargs.copy()
             segmentation_maps_kwargs.update({"do_normalize": False, "do_rescale": False})
             processed_segmentation_maps = self._preprocess(
                 images=processed_segmentation_maps, **segmentation_maps_kwargs
             )
 
-            # Convert to int64 and squeeze channel dimension
             data["labels"] = [
                 processed_segmentation_map.squeeze(0).astype(np.int64)
                 for processed_segmentation_map in processed_segmentation_maps
@@ -127,7 +102,6 @@ class BeitImageProcessorPil(PilBackend):
 
     def reduce_label(self, image: np.ndarray) -> np.ndarray:
         """Reduce label values by 1, replacing 0 with 255."""
-        # Avoid using underflow conversion
         image[image == 0] = 255
         image = image - 1
         image[image == 254] = 255
@@ -197,7 +171,6 @@ class BeitImageProcessorPil(PilBackend):
 
         logits = outputs.logits
 
-        # Resize logits and compute semantic segmentation maps
         if target_sizes is not None:
             if len(logits) != len(target_sizes):
                 raise ValueError(

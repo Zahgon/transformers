@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Data2VecText configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,21 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="facebook/data2vec-text-base")
 @strict
 class Data2VecTextConfig(PreTrainedConfig):
-    r"""
-    Examples:
-
-    ```python
-    >>> from transformers import Data2VecTextConfig, Data2VecTextModel
-
-    >>> # Initializing a Data2VecText facebook/data2vec-text-base style configuration
-    >>> configuration = Data2VecTextConfig()
-
-    >>> # Initializing a model (with random weights) from the facebook/data2vec-text-base style configuration
-    >>> model = Data2VecTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "data2vec-text"
 

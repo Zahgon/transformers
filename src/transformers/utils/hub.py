@@ -1,19 +1,3 @@
-# Copyright 2022 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Hub utilities: utilities related to download and cache models
-"""
 
 import json
 import os
@@ -100,9 +84,6 @@ class DownloadKwargs(TypedDict, total=False):
     tqdm_class: type | None
 
 
-# Determine default cache directory.
-# The best way to set the cache path is with the environment variable HF_HOME. For more details, check out this
-# documentation page: https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables.
 
 HF_MODULES_CACHE = os.getenv("HF_MODULES_CACHE", os.path.join(constants.HF_HOME, "modules"))
 TRANSFORMERS_DYNAMIC_MODULE_NAME = "transformers_modules"
@@ -119,7 +100,6 @@ def _get_cache_file_to_return(
     revision: str | None = None,
     repo_type: str | None = None,
 ):
-    # We try to see if we have a cached version (not up to date):
     resolved_file = try_to_load_from_cache(
         path_or_repo_id, full_filename, cache_dir=cache_dir, revision=revision, repo_type=repo_type
     )
@@ -160,7 +140,6 @@ def list_repo_templates(
         except (HfHubHTTPError, OfflineModeIsEnabled, httpx.NetworkError):
             pass  # offline mode, internet down, etc. => try local files
 
-    # check local files
     try:
         snapshot_dir = hf_api().snapshot_download(
             repo_id=repo_id, revision=revision, cache_dir=cache_dir, local_files_only=True
@@ -211,7 +190,6 @@ def http_user_agent(user_agent: dict | str | None = None) -> str:
         return ua + "; telemetry/off"
     if is_training_run_on_sagemaker():
         ua += "; " + "; ".join(f"{k}/{v}" for k, v in define_sagemaker_information().items())
-    # CI will set this value to True
     if os.environ.get("TRANSFORMERS_IS_CI", "").upper() in ENV_VARS_TRUE_VALUES:
         ua += "; is_ci/true"
     if isinstance(user_agent, dict):
@@ -381,7 +359,6 @@ def cached_files(
     if subfolder is None:
         subfolder = ""
 
-    # Add folder to filenames
     full_filenames = [os.path.join(subfolder, file) for file in filenames]
 
     path_or_repo_id = str(path_or_repo_id)
@@ -412,7 +389,6 @@ def cached_files(
     file_counter = 0
     if _commit_hash is not None and not force_download:
         for filename in full_filenames:
-            # If the file is cached under that commit hash, we return it directly.
             resolved_file = try_to_load_from_cache(
                 path_or_repo_id, filename, cache_dir=cache_dir, revision=_commit_hash, repo_type=repo_type
             )
@@ -425,15 +401,12 @@ def cached_files(
                 else:
                     raise OSError(f"Could not locate {filename} inside {path_or_repo_id}.")
 
-    # Either all the files were found, or some were _CACHED_NO_EXIST but we do not raise for missing entries
     if file_counter == len(full_filenames):
         return existing_files if len(existing_files) > 0 else None
 
     user_agent = http_user_agent(user_agent)
-    # download the files if needed
     try:
         if len(full_filenames) == 1:
-            # This is slightly better for only 1 file
             hf_hub_download(
                 path_or_repo_id,
                 filenames[0],
@@ -464,7 +437,6 @@ def cached_files(
             )
 
     except Exception as e:
-        # We cannot recover from them
         if isinstance(e, RepositoryNotFoundError) and not isinstance(e, GatedRepoError):
             raise OSError(
                 f"{path_or_repo_id} is not a local folder and is not a valid model identifier "
@@ -487,7 +459,6 @@ def cached_files(
         elif isinstance(e, ValueError):
             raise OSError(f"{e}") from e
 
-        # Now we try to recover if we can find all files correctly in the cache
         resolved_files = [
             _get_cache_file_to_return(path_or_repo_id, filename, cache_dir, revision, repo_type)
             for filename in full_filenames
@@ -495,8 +466,6 @@ def cached_files(
         if all(file is not None for file in resolved_files):
             return resolved_files
 
-        # Raise based on the flags. Note that we will raise for missing entries at the very end, even when
-        # not entering this Except block, as it may also happen when `snapshot_download` does not raise
         if isinstance(e, GatedRepoError):
             if not _raise_exceptions_for_gated_repo:
                 return None
@@ -507,35 +476,26 @@ def cached_files(
         elif isinstance(e, LocalEntryNotFoundError):
             if not _raise_exceptions_for_connection_errors:
                 return None
-            # Here we only raise if both flags for missing entry and connection errors are True (because it can be raised
-            # even when `local_files_only` is True, in which case raising for connections errors only would not make sense)
             elif _raise_exceptions_for_missing_entries:
                 raise OSError(
                     f"We couldn't connect to '{constants.ENDPOINT}' to load the files, and couldn't find them in the"
                     f" cached files.\nCheck your internet connection or see how to run the library in offline mode at"
                     " 'https://huggingface.co/docs/transformers/installation#offline-mode'."
                 ) from e
-        # snapshot_download will not raise EntryNotFoundError, but hf_hub_download can. If this is the case, it will be treated
-        # later on anyway and re-raised if needed
         elif isinstance(e, HfHubHTTPError) and not isinstance(e, EntryNotFoundError):
             if not _raise_exceptions_for_connection_errors:
                 return None
             raise OSError(f"There was a specific connection error when trying to load {path_or_repo_id}:\n{e}") from e
-        # Any other Exception type should now be re-raised, in order to provide helpful error messages and break the execution flow
-        # (EntryNotFoundError will be treated outside this block and correctly re-raised if needed)
         elif not isinstance(e, EntryNotFoundError):
             raise e
 
     resolved_files = [
         _get_cache_file_to_return(path_or_repo_id, filename, cache_dir, revision) for filename in full_filenames
     ]
-    # If there are any missing file and the flag is active, raise
     if any(file is None for file in resolved_files) and _raise_exceptions_for_missing_entries:
         missing_entries = [original for original, resolved in zip(full_filenames, resolved_files) if resolved is None]
-        # Last escape
         if len(resolved_files) == 1 and missing_entries[0] == os.path.join(subfolder, "config.json"):
             return None
-        # Now we raise for missing entries
         revision_ = "main" if revision is None else revision
         msg = (
             f"a file named {missing_entries[0]}" if len(missing_entries) == 1 else f"files named {(*missing_entries,)}"
@@ -545,9 +505,7 @@ def cached_files(
             " for available files."
         )
 
-    # Remove potential missing entries (we can silently remove them at this point based on the flags)
     resolved_files = [file for file in resolved_files if file is not None]
-    # Return `None` if the list is empty, coherent with other Exception when the flag is not active
     resolved_files = None if len(resolved_files) == 0 else resolved_files
 
     return resolved_files
@@ -577,14 +535,10 @@ def has_file(
 
     </Tip>
     """
-    # If path to local directory, check if the file exists
     if os.path.isdir(path_or_repo):
         return os.path.isfile(os.path.join(path_or_repo, filename))
 
-    # Else it's a repo => let's check if the file exists in local cache or on the Hub
 
-    # Check if file exists in cache
-    # This information might be outdated so it's best to also make a HEAD call (if allowed).
     cached_path = try_to_load_from_cache(
         repo_id=path_or_repo,
         filename=filename,
@@ -594,11 +548,9 @@ def has_file(
     )
     has_file_in_cache = isinstance(cached_path, str)
 
-    # If local_files_only, don't try the HEAD call
     if local_files_only:
         return has_file_in_cache
 
-    # Check if the file exists
     try:
         response = get_session().head(
             hf_hub_url(path_or_repo, filename=filename, revision=revision, repo_type=repo_type),
@@ -607,7 +559,6 @@ def has_file(
             timeout=10,
         )
     except httpx.ProxyError:
-        # Actually raise for those subclasses of ConnectionError
         raise
     except (httpx.ConnectError, httpx.TimeoutException, OfflineModeIsEnabled):
         return has_file_in_cache
@@ -634,14 +585,10 @@ def has_file(
     except EntryNotFoundError:
         return False  # File does not exist
     except HfHubHTTPError:
-        # Any authentication/authorization error will be caught here => default to cache
         return has_file_in_cache
 
 
 class PushToHubMixin:
-    """
-    A Mixin containing the functionality to push a model or tokenizer to the hub.
-    """
 
     def _get_files_timestamps(self, working_dir: str | os.PathLike):
         """
@@ -682,7 +629,6 @@ class PushToHubMixin:
             if f not in files_timestamps or os.path.getmtime(os.path.join(working_dir, f)) > files_timestamps[f]
         ]
 
-        # filter for actual files + folders at the root level
         modified_files = [
             f
             for f in modified_files
@@ -690,10 +636,8 @@ class PushToHubMixin:
         ]
 
         operations = []
-        # upload standalone files
         for file in modified_files:
             if os.path.isdir(os.path.join(working_dir, file)):
-                # go over individual files of folder
                 for f in os.listdir(os.path.join(working_dir, file)):
                     operations.append(
                         CommitOperationAdd(
@@ -710,9 +654,6 @@ class PushToHubMixin:
                 hf_api().create_branch(repo_id=repo_id, branch=revision, token=token, exist_ok=True)
             except HfHubHTTPError as e:
                 if e.response.status_code == 403 and create_pr:
-                    # If we are creating a PR on a repo we don't have access to, we can't create the branch.
-                    # so let's assume the branch already exists. If it's not the case, an error will be raised when
-                    # calling `create_commit` below.
                     pass
                 else:
                     raise
@@ -729,22 +670,18 @@ class PushToHubMixin:
         )
 
     def save_pretrained(self, *args, **kwargs):
-        # explicit contract
         raise NotImplementedError(f"{self.__class__.__name__} must implement `save_pretrained` to use `push_to_hub`.")
 
     def push_to_hub(
         self,
         repo_id: str,
         *,
-        # Commit details
         commit_message: str | None = None,
         commit_description: str | None = None,
-        # Repo / upload details
         private: bool | None = None,
         token: bool | str | None = None,
         revision: str | None = None,
         create_pr: bool = False,
-        # Serialization details
         max_shard_size: int | str | None = "50GB",
         tags: list[str] | None = None,
     ) -> str:
@@ -789,20 +726,15 @@ class PushToHubMixin:
         {object}.push_to_hub("huggingface/my-finetuned-bert")
         ```
         """
-        # Create repo if it doesn't exist yet
         repo_id = hf_api().create_repo(repo_id, private=private, token=token, exist_ok=True).repo_id
 
-        # Load model card or create a new one + eventually tag it
         model_card = create_and_tag_model_card(repo_id, tags, token=token)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            # Save all files.
             self.save_pretrained(tmp_dir, max_shard_size=max_shard_size)
 
-            # Update model card
             model_card.save(os.path.join(tmp_dir, "README.md"))
 
-            # Upload
             return self._upload_modified_files(
                 tmp_dir,
                 repo_id,
@@ -884,13 +816,10 @@ def get_checkpoint_shard_files(
     sharded_metadata["all_checkpoint_keys"] = list(index["weight_map"].keys())
     sharded_metadata["weight_map"] = index["weight_map"].copy()
 
-    # First, let's deal with local folder.
     if os.path.isdir(pretrained_model_name_or_path):
         shard_filenames = [os.path.join(pretrained_model_name_or_path, subfolder, f) for f in shard_filenames]
         return shard_filenames, sharded_metadata
 
-    # At this stage pretrained_model_name_or_path is a model identifier on the Hub. Try to get everything from cache,
-    # or download the files
     cached_filenames = cached_files(
         pretrained_model_name_or_path,
         shard_filenames,
@@ -922,16 +851,13 @@ def create_and_tag_model_card(repo_id: str, tags: list[str] | None = None, token
             Authentication token, obtained with `huggingface_hub.HfApi.login` method. Will default to the stored token.
     """
     try:
-        # Check if the model card is present on the remote repo
         model_card = ModelCard.load(repo_id, token=token)
     except EntryNotFoundError:
-        # Otherwise create a simple model card from template
         model_description = "This is the model card of a 🤗 transformers model that has been pushed on the Hub. This model card has been automatically generated."
         card_data = ModelCardData(tags=[] if tags is None else tags, library_name="transformers")
         model_card = ModelCard.from_template(card_data, model_description=model_description)
 
     if tags is not None:
-        # Ensure model_card.data.tags is a list and not None
         if model_card.data.tags is None:
             model_card.data.tags = []
         for model_tag in tags:
@@ -942,9 +868,6 @@ def create_and_tag_model_card(repo_id: str, tags: list[str] | None = None, token
 
 
 class PushInProgress:
-    """
-    Internal class to keep track of a push in progress (which might contain multiple `Future` jobs).
-    """
 
     def __init__(self, jobs: futures.Future | None = None) -> None:
         self.jobs = [] if jobs is None else jobs
@@ -959,6 +882,5 @@ class PushInProgress:
         self.jobs = [
             job
             for job in self.jobs
-            # Cancel the job if it wasn't started yet and remove cancelled/done jobs from the list
             if not (job.cancel() or job.done())
         ]

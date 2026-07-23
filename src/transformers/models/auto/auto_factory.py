@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Factory function to build auto-model classes."""
 
 import copy
 import importlib
@@ -45,7 +31,6 @@ if is_torch_available():
 logger = logging.get_logger(__name__)
 
 _T = TypeVar("_T")
-# Tokenizers will depend on packages installed, too much variance and there are no common base or Protocol
 _LazyAutoMappingValue = tuple[type[Any] | None, type[Any] | None]
 
 CLASS_DOCSTRING = """
@@ -186,13 +171,10 @@ def _get_model_class(config, model_mapping):
         if arch in name_to_model:
             return name_to_model[arch]
 
-    # If not architecture is set in the config or match the supported models, the first element of the tuple is the
-    # defaults.
     return supported_models[0]
 
 
 class _BaseAutoModelClass:
-    # Base class for auto models.
     _model_mapping = None
 
     def __init__(self, *args, **kwargs) -> None:
@@ -234,14 +216,9 @@ class _BaseAutoModelClass:
         elif has_local_code:
             model_class = _get_model_class(config, cls._model_mapping)
             text_config_class = config.sub_configs.get("text_config", None)
-            # getattr avoids AttributeError, as registered remote-code model classes may lack config_class
             if text_config_class is not None and getattr(model_class, "config_class", None) == text_config_class:
-                # TODO: Validate that copying the parent quantization config to the text sub-config preserves
-                # modules_to_not_convert and skip-module matching when composite-model module prefixes differ.
                 parent_config = config
                 config = config.get_text_config()
-                # Check both `quantization_config` being present and also not null,
-                # as a `config.json` can have `"quantization_config": null` in it
                 parent_quant = getattr(parent_config, "quantization_config", None)
                 if parent_quant is not None:
                     config.quantization_config = parent_quant
@@ -254,8 +231,7 @@ class _BaseAutoModelClass:
 
     @classmethod
     def _prepare_config_for_auto_class(cls, config: PreTrainedConfig) -> PreTrainedConfig:
-        """Additional autoclass-specific config post-loading manipulation. May be overridden in subclasses."""
-        return config
+        pass
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path: str | os.PathLike[str], *model_args, **kwargs):
@@ -283,7 +259,6 @@ class _BaseAutoModelClass:
 
         if commit_hash is None:
             if not isinstance(config, PreTrainedConfig):
-                # We make a call to the config file first (which may be absent) to get the commit hash as soon as possible
                 resolved_config_file = cached_file(
                     pretrained_model_name_or_path,
                     CONFIG_NAME,
@@ -312,10 +287,6 @@ class _BaseAutoModelClass:
                     adapter_config = json.load(f)
 
                     adapter_kwargs["_adapter_model_path"] = pretrained_model_name_or_path
-                    # Only override the model name/path if the current value doesn't point to a
-                    # complete model with an embedded adapter so that local models with embedded
-                    # adapters will load from the local base model rather than pull the base
-                    # model named in the adapter's config from the hub.
                     if not os.path.exists(pretrained_model_name_or_path) or not os.path.exists(
                         os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
                     ):
@@ -323,13 +294,10 @@ class _BaseAutoModelClass:
 
         if not isinstance(config, PreTrainedConfig):
             kwargs_orig = copy.deepcopy(kwargs)
-            # ensure not to pollute the config object with dtype="auto" - since it's
-            # meaningless in the context of the config object - torch.dtype values are acceptable
             if kwargs.get("torch_dtype") == "auto":
                 _ = kwargs.pop("torch_dtype")
             if kwargs.get("dtype") == "auto":
                 _ = kwargs.pop("dtype")
-            # to not overwrite the quantization_config if config has a quantization_config
             if kwargs.get("quantization_config") is not None:
                 _ = kwargs.pop("quantization_config")
 
@@ -342,9 +310,6 @@ class _BaseAutoModelClass:
                 **kwargs,
             )
 
-            # A concrete dtype is absorbed into the config above and then dropped at the composite
-            # `get_text_config()` swap, so re-inject the user's value as an explicit kwarg to force the model's
-            # `from_pretrained` to honor it over the config's saved dtype (#46459).
             if kwargs_orig.get("torch_dtype", None) is not None:
                 kwargs["torch_dtype"] = kwargs_orig["torch_dtype"]
             if kwargs_orig.get("dtype", None) is not None:
@@ -371,7 +336,6 @@ class _BaseAutoModelClass:
         )
         kwargs["trust_remote_code"] = trust_remote_code
 
-        # Set the adapter kwargs
         kwargs["adapter_kwargs"] = adapter_kwargs
 
         if has_remote_code and trust_remote_code and not explicit_local_code:
@@ -388,14 +352,9 @@ class _BaseAutoModelClass:
         elif has_local_code:
             model_class = _get_model_class(config, cls._model_mapping)
             text_config_class = config.sub_configs.get("text_config", None)
-            # getattr avoids AttributeError, as registered remote-code model classes may lack config_class
             if text_config_class is not None and getattr(model_class, "config_class", None) == text_config_class:
-                # TODO: Validate that copying the parent quantization config to the text sub-config preserves
-                # modules_to_not_convert and skip-module matching when composite-model module prefixes differ.
                 parent_config = config
                 config = config.get_text_config()
-                # Check both `quantization_config` being present and also not null,
-                # as a `config.json` can have `"quantization_config": null` in it
                 parent_quant = getattr(parent_config, "quantization_config", None)
                 if parent_quant is not None:
                     config.quantization_config = parent_quant
@@ -428,7 +387,6 @@ class _BaseAutoModelClass:
 
 
 class _BaseAutoBackboneClass(_BaseAutoModelClass):
-    # Base class for auto backbone models.
     _model_mapping = None
 
     @classmethod
@@ -453,7 +411,6 @@ class _BaseAutoBackboneClass(_BaseAutoModelClass):
             features_only=features_only,
             out_indices=out_indices,
         )
-        # Always load a pretrained model when `from_pretrained` is called
         kwargs.pop("use_pretrained_backbone", None)
         return super().from_config(config, pretrained=True, **kwargs)
 
@@ -478,14 +435,11 @@ def insert_head_doc(docstring, head_doc: str = ""):
 
 
 def auto_class_update(cls, checkpoint_for_example: str = "google-bert/bert-base-cased", head_doc: str = ""):
-    # Create a new class with the right name from the base class
     model_mapping = cls._model_mapping
     name = cls.__name__
     class_docstring = insert_head_doc(CLASS_DOCSTRING, head_doc=head_doc)
     cls.__doc__ = class_docstring.replace("BaseAutoModelClass", name)
 
-    # Now we need to copy and re-register `from_config` and `from_pretrained` as class methods otherwise we can't
-    # have a specific docstrings for them.
     from_config = copy_func(_BaseAutoModelClass.from_config)
     from_config_docstring = insert_head_doc(FROM_CONFIG_DOCSTRING, head_doc=head_doc)
     from_config_docstring = from_config_docstring.replace("BaseAutoModelClass", name)
@@ -527,8 +481,6 @@ def getattribute_from_module(module, attr):
         return {k: getattribute_from_module(module, v) for k, v in attr.items()}
     if hasattr(module, attr):
         return getattr(module, attr)
-    # Some of the mappings have entries model_type -> object of another model type. In that case we try to grab the
-    # object at the top level.
     transformers_module = importlib.import_module("transformers")
 
     if module != transformers_module:
@@ -548,16 +500,12 @@ def add_generation_mixin_to_remote_model(model_class):
     `PreTrainedModel` stop inheriting from `GenerationMixin`. Without this function, older models dynamically loaded
     from the Hub may not have the `generate` method after we remove the inheritance.
     """
-    # 1. If it is not a PT model (i.e. doesn't inherit Module), do nothing
     if "torch.nn.modules.module.Module" not in str(model_class.__mro__):
         return model_class
 
-    # 2. If it already **directly** inherits from GenerationMixin, do nothing
     if "GenerationMixin" in str(model_class.__bases__):
         return model_class
 
-    # 3. Prior to v4.45, we could detect whether a model was `generate`-compatible if it had its own `generate` and/or
-    # `prepare_inputs_for_generation` method.
     has_custom_generate_in_class = hasattr(model_class, "generate") and "GenerationMixin" not in str(
         getattr(model_class, "generate")
     )
@@ -573,13 +521,6 @@ def add_generation_mixin_to_remote_model(model_class):
 
 
 class _LazyAutoMapping(OrderedDict[type[PreTrainedConfig], _LazyAutoMappingValue]):
-    """
-    A mapping config to object (model or tokenizer for instance) that will load keys and values when it is accessed.
-
-    Args:
-        - config_mapping: The map model type to config class
-        - model_mapping: The map model type to model (or tokenizer) class
-    """
 
     def __init__(self, config_mapping, model_mapping) -> None:
         self._config_mapping = config_mapping
@@ -601,7 +542,6 @@ class _LazyAutoMapping(OrderedDict[type[PreTrainedConfig], _LazyAutoMappingValue
             model_name = self._model_mapping[model_type]
             return self._load_attr_from_module(model_type, model_name)
 
-        # Maybe there was several model types associated with this config.
         model_types = [k for k, v in self._config_mapping.items() if v == key.__name__]
         for mtype in model_types:
             if mtype in self._model_mapping:
@@ -671,16 +611,9 @@ class _LazyAutoMapping(OrderedDict[type[PreTrainedConfig], _LazyAutoMappingValue
             if model_type in self._model_mapping and not exist_ok:
                 raise ValueError(f"'{key}' is already used by a Transformers model.")
 
-        # Some remote code may simply register a new custom model/processor/..., while using a native Transformers config. In such
-        # cases, we should skip registering, as we will otherwise always remap the native config to the custom model/processor/... in
-        # the same session, even if `trust_remote_code=False` is specified by the user (in which case we should use the native
-        # Transformers model/processor/... corresponding to the config)
-        # This is because remote/native is indistinguisable from the config class only in such cases, as they both use the same class - then
-        # `from_pretrained`/`from_config` are responsible to grab the correct class depending on whether `trust_remote_code` is True/False
         if getattr(key, "__module__", "").startswith("transformers."):
             return
 
-        # Register the new mapping (this will always take precedence in __getattr__ and __contains__ compared to base mapping)
         self._extra_content[key] = value
 
 

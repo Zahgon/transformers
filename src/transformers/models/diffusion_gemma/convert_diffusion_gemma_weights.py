@@ -1,25 +1,4 @@
-# Copyright 2026 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-r"""Utility to convert DiffusionGemma models from Orbax to HF Transformers checkpoint.
-
-python src/transformers/models/diffusion_gemma/convert_diffusion_gemma_weights.py \
-    --include_chat_template \
-    --checkpoint_path="$HOME/diffusion_gemma/checkpoints/diffusion_gemma_orbax" \
-    --output_path="$HOME/diffusion_gemma/checkpoints/diffusion_gemma_safetensors"
-"""
 
 import ast
 import json
@@ -35,7 +14,6 @@ import tree
 from absl import app, flags, logging
 from jax.sharding import SingleDeviceSharding
 
-# version used: orbax-checkpoint==0.11.33 (0.11.34-0.11.36 fail)
 from orbax import checkpoint as obc
 from orbax.checkpoint import args as obc_args
 from orbax.checkpoint import type_handlers
@@ -179,12 +157,10 @@ def convert_vision_encoder_weights(
     if path == f"{_VISION_ENCODER_ENTRY}/input_projection":
         if param == "w":
             converted_paths.append("patch_embedder.input_proj.weight")
-            # Shape: (768, 768) -> transpose to (768, 768) for nn.Linear
             converted_weights.append(weights.transpose())
     elif path == _VISION_ENCODER_ENTRY:
         if param == "pos_emb":
             converted_paths.append("patch_embedder.position_embedding_table")
-            # Shape: (10240, 2, 768) -> transpose to (2, 10240, 768)
             converted_weights.append(weights.transpose(1, 0, 2))
     elif path == _VISION_ENCODER_STANDARDIZE:
         if param == "bias":
@@ -194,23 +170,17 @@ def convert_vision_encoder_weights(
             converted_paths.append("std_scale")
             converted_weights.append(weights)
 
-    # Transformer Layers (stacked format)
     elif path.startswith(_VISION_ENCODER_TRANSFORMER):
-        # All vision transformer layers are stacked in dimension 0
         num_layers = weights.shape[0]
         assert num_layers == config.num_hidden_layers, f"Expected {config.num_hidden_layers} layers, got {num_layers}"
 
         for i, matrix in enumerate(weights):
             base_path = f"encoder.layers.{i}"
 
-            # Handle clipped einsum states (`ClippedEinsum_0` target paths).
             if path.endswith("attn_vec_einsum/ClippedEinsum_0"):
                 converted_paths.append(f"{base_path}.self_attn.o_proj.{param.removeprefix('clip_')}")
                 converted_weights.append(matrix)
             elif path.endswith("kv_einsum/ClippedEinsum_0"):
-                # NOTE: In JAX reference implementations of Gemma, k_proj and v_proj are performed with a single einsum
-                # operation. We split this into two operations in Transformers, but they are passed the same input and
-                # share the same activation bounds for clipping, thus we re-use the same matrix for both.
                 converted_paths.append(f"{base_path}.self_attn.k_proj.{param.removeprefix('clip_')}")
                 converted_weights.append(matrix)
                 converted_paths.append(f"{base_path}.self_attn.v_proj.{param.removeprefix('clip_')}")
@@ -219,9 +189,6 @@ def convert_vision_encoder_weights(
                 converted_paths.append(f"{base_path}.self_attn.q_proj.{param.removeprefix('clip_')}")
                 converted_weights.append(matrix)
             elif path.endswith("gating_einsum/ClippedEinsum_0"):
-                # NOTE: In JAX reference implementations of Gemma, gate_proj and up_proj are performed with a single
-                # einsum operation. We split this into two operations in Transformers, but they are passed the same
-                # input and share the same activation bounds for clipping, thus we re-use the same matrix for both.
                 converted_paths.append(f"{base_path}.mlp.gate_proj.{param.removeprefix('clip_')}")
                 converted_weights.append(matrix)
                 converted_paths.append(f"{base_path}.mlp.up_proj.{param.removeprefix('clip_')}")
@@ -230,9 +197,6 @@ def convert_vision_encoder_weights(
                 converted_paths.append(f"{base_path}.mlp.down_proj.{param.removeprefix('clip_')}")
                 converted_weights.append(matrix)
 
-            # Handle clipped einsum states (`compression_einsum` target paths).
-            # The target path specifies the activation direction (`input` or `output`),
-            # and the parameter holds `clip_min` or `clip_max`.
             elif "/compression_einsum/" in path:
                 direction = path.split("/")[-1].split("_")[0]  # Extracts "input" or "output"
                 hf_suffix = f"{direction}_{param.removeprefix('clip_')}"
@@ -261,13 +225,11 @@ def convert_vision_encoder_weights(
                     logging.warning(f"Possibly unused path in vision encoder: {path}. (param: {param})")
 
             elif path.endswith("attn/attn_vec_einsum"):
-                # Shape: (12, 64, 768) -> reshape to (768, 768) for o_proj
                 converted_paths.append(f"{base_path}.self_attn.o_proj.linear.weight")
                 converted_weights.append(
                     matrix.transpose(2, 0, 1).reshape(config.hidden_size, config.num_attention_heads * config.head_dim)
                 )
             elif path.endswith("attn/kv_einsum"):
-                # Shape: (2, 12, 768, 64) -> split into k_proj and v_proj
                 converted_paths.extend(
                     [
                         f"{base_path}.self_attn.k_proj.linear.weight",
@@ -283,7 +245,6 @@ def convert_vision_encoder_weights(
                     ]
                 )
             elif path.endswith("attn/q_einsum"):
-                # Shape: (12, 768, 64) -> reshape to (768, 768) for q_proj
                 converted_paths.append(f"{base_path}.self_attn.q_proj.linear.weight")
                 converted_weights.append(
                     matrix.transpose(1, 0, 2)
@@ -291,7 +252,6 @@ def convert_vision_encoder_weights(
                     .transpose()
                 )
             elif path.endswith("mlp/gating_einsum"):
-                # Shape: (2, 3072, 768) -> split into gate_proj and up_proj
                 converted_paths.extend(
                     [
                         f"{base_path}.mlp.gate_proj.linear.weight",
@@ -301,7 +261,6 @@ def convert_vision_encoder_weights(
                 gate_proj_weight, up_proj_weight = matrix
                 converted_weights.extend([gate_proj_weight, up_proj_weight])
             elif path.endswith("mlp/linear"):
-                # Shape: (3072, 768) -> transpose for down_proj
                 converted_paths.append(f"{base_path}.mlp.down_proj.linear.weight")
                 converted_weights.append(matrix.transpose())
             elif path.endswith("post_attention_norm"):
@@ -317,11 +276,6 @@ def convert_vision_encoder_weights(
                 converted_paths.append(f"{base_path}.pre_feedforward_layernorm.weight")
                 converted_weights.append(matrix)
             elif path.endswith("attn/query_norm/scale") or path.endswith("attn/query_norm"):
-                # Vision Q/K norms: JAX trained scale values (~-0.6) are not directly
-                # usable because the OSS modules expect different shapes and the HF
-                # RMSNorm uses scale_shift=1.0 (formula: weight + 1.0).
-                # We use zeros to get identity: (0 + 1.0) = 1.0, matching the blaze
-                # reference which also uses zeros(head_dim) -> (1+0) = 1.0 identity.
                 converted_paths.append(f"{base_path}.self_attn.q_norm.weight")
                 converted_weights.append(matrix)
             elif path.endswith("attn/key_norm/scale") or path.endswith("attn/key_norm"):
@@ -352,7 +306,6 @@ def convert_self_conditioner_weights(
     matrix = weights
 
     if path.endswith("gating_einsum"):
-        # Dense MLP: matrix shape [2, intermediate_size, hidden_size]
         converted_paths.extend(
             ["model.decoder.self_conditioning.gate_proj.weight", "model.decoder.self_conditioning.up_proj.weight"]
         )
@@ -385,30 +338,22 @@ def convert_transformer_weights(
     converted_paths: list[str] = []
     converted_weights: list[Any] = []
 
-    # Handle new checkpoint format: transformer/layer_N/...
-    # TODO(philculliton):Direct handling for unstacked checkpoint type, needs to be merged to allow for unified tensor handling
     if path.startswith(f"{_TRANSFORMER_PARAMETER}/layer_"):
-        # Extract layer number from path like "transformer/layer_0/attn/q_einsum"
         layer_str = path.split("/")[1]  # "layer_0"
         layer_idx = int(layer_str.replace("layer_", ""))  # 0
         base_path = f"layers.{layer_idx}"
 
-        # Determine head_dim from actual checkpoint weight dimensions
-        # For q_einsum/key_norm, the last dimension tells us the head_dim
-        # Otherwise fall back to config
         if path.endswith("attn/key_norm") or path.endswith("attn/query_norm"):
             head_dim = weights.shape[0]  # The norm dimension IS the head_dim
         elif path.endswith("attn/q_einsum"):
             head_dim = weights.shape[-1]  # Last dimension is head_dim
         else:
-            # Fall back to config-based determination
             head_dim = (
                 config.global_head_dim
                 if config.layer_types[layer_idx] == "full_attention" and config.global_head_dim
                 else config.head_dim
             )
 
-        # Note: In new format, weights are per-layer (not batched), so no enumerate loop needed
         matrix = weights
 
         if path.endswith("attn/attn_vec_einsum"):
@@ -452,23 +397,13 @@ def convert_transformer_weights(
             converted_paths.append(f"{base_path}.self_attn.k_norm.weight")
             converted_weights.append(matrix)
         elif path.endswith("mlp/gating_einsum"):
-            # NOTE: The JAX implementations changes the type of the primary `mlp` for MOE models and adds a new
-            # `mlp2` that operates _before_ `mlp`. In Hugging Face Transformers we keep the type of `mlp` constant
-            # and add an `experts` that operates after `mlp`, so we need to invert this assignment when using MOE arch.
 
-            # MoE expert weights: matrix shape [num_experts, 2, moe_intermediate_size, hidden_size]
-            # -> experts.gate_up_proj (nn.Parameter, shape [E, 2*moe_inter, hidden])
             num_experts, _, expert_inter, hidden_size = matrix.shape
             gate_up_proj_weight = matrix.reshape(num_experts, 2 * expert_inter, hidden_size)
             converted_paths.append(f"{base_path}.experts.gate_up_proj")
             converted_weights.append(gate_up_proj_weight)
         elif path.endswith("mlp/linear"):
-            # NOTE: The JAX implementations changes the type of the primary `mlp` for MOE models and adds a new
-            # `mlp2` that operates _before_ `mlp`. In Hugging Face Transformers we keep the type of `mlp` constant
-            # and add an `experts` that operates after `mlp`, so we need to invert this assignment when using MOE arch.
 
-            # MoE expert down_proj: matrix shape [num_experts, moe_inter, hidden]
-            # -> experts.down_proj (nn.Parameter, shape [E, hidden, moe_inter])
             converted_paths.append(f"{base_path}.experts.down_proj")
             converted_weights.append(matrix.transpose(0, 2, 1))
         elif path.endswith("post_attention_norm"):
@@ -481,38 +416,26 @@ def convert_transformer_weights(
             converted_paths.append(f"{base_path}.input_layernorm.weight")
             converted_weights.append(matrix)
         elif path.endswith("pre_ffw_norm"):
-            # NOTE: The JAX implementations changes the type of the primary `mlp` for MOE models and adds a new
-            # `mlp2` that operates _before_ `mlp`. In Hugging Face Transformer we keep the type of `mlp` constant
-            # and add an `mlp2` that operates after `mlp`, so we need to invert this assignment when using MOE arch.
 
-            # pre_ffw_norm is the pre-norm for ffw1 (MoE); in HF, MoE is mlp_2
             converted_paths.append(f"{base_path}.pre_feedforward_layernorm_2.weight")
             converted_weights.append(matrix)
         elif path.endswith(layer_str) and param == "skip_scale":
             converted_paths.append(f"{base_path}.layer_scalar")
             converted_weights.append(matrix)
         elif param == "router_scale" and path.endswith("mlp"):
-            # MoE router scale: shape [hidden_size]
             converted_paths.append(f"{base_path}.router.scale")
             converted_weights.append(matrix)
         elif param == "per_expert_scale" and path.endswith("mlp"):
-            # MoE per-expert scale: shape [num_experts]
             converted_paths.append(f"{base_path}.router.per_expert_scale")
             converted_weights.append(matrix)
         elif path.endswith("mlp2/gating_einsum"):
-            # Shared expert: matrix shape [2, intermediate_size, hidden_size]
-            # -> mlp.gate_proj.weight + mlp.up_proj.weight (nn.Linear)
             converted_paths.extend([f"{base_path}.mlp.gate_proj.weight", f"{base_path}.mlp.up_proj.weight"])
             gate_proj_weight, up_proj_weight = matrix
             converted_weights.extend([gate_proj_weight, up_proj_weight])
         elif path.endswith("mlp2/linear"):
-            # Shared expert down_proj: matrix shape [intermediate_size, hidden_size]
-            # -> mlp.down_proj.weight (nn.Linear, needs transpose)
             converted_paths.append(f"{base_path}.mlp.down_proj.weight")
             converted_weights.append(matrix.transpose())
         elif path.endswith("mlp/router_logits"):
-            # MoE router: matrix shape [hidden_size, num_experts]
-            # -> router.proj.weight (nn.Linear, shape [num_experts, hidden_size])
             converted_paths.append(f"{base_path}.router.proj.weight")
             converted_weights.append(matrix.transpose())
         elif path.endswith("post_ffw1_norm"):
@@ -560,7 +483,6 @@ def _restore_checkpoint(checkpoint_path: str) -> dict:
 
     tree_metadata = metadata["tree_metadata"]
 
-    # Build a nested dict matching the checkpoint's tree structure
     target = {}
     for key_str in tree_metadata:
         keys = ast.literal_eval(key_str)
@@ -594,8 +516,6 @@ def convert(checkpoint_path: str, config: DiffusionGemmaConfig) -> dict[str, tor
     text_path_prefix = "model.encoder.language_model"
 
     def update_tree(path: str, weights: np.ndarray, target_dtype: torch.dtype) -> None:
-        # Convert directly to float32 in a single step to avoid an extra intermediate copy.
-        # The old code did np.asarray(weights) then .astype("float32"), keeping two full copies alive.
         weights_f32 = np.asarray(weights, dtype=np.float32)
         del weights  # allow GC of the input (JAX array or numpy view)
         t = torch.from_numpy(weights_f32)  # shares memory with weights_f32
@@ -635,7 +555,6 @@ def convert(checkpoint_path: str, config: DiffusionGemmaConfig) -> dict[str, tor
         else:
             logging.warning(f"Possibly unused path in Diffusion Gemma 4: {path}. (param: {param})")
 
-    # tied weights -> make a pointer copy (buffers within these blocks need a deep copy)
     decoder_dict = {}
     for key, value in hf_tree.items():
         if key.startswith(text_path_prefix):
@@ -661,8 +580,6 @@ def main(*args):
         config.vision_config.dtype = getattr(torch, _VISION_DTYPE.value)
 
     if _INCLUDE_CHAT_TEMPLATE.value:
-        # Chat template is included for instruction tuned models, which treat
-        # both "<eos>" and "<end_of_turn>" as generation stoppers.
         config.eos_token_id = [1, 106]
 
     logging.info(
@@ -690,7 +607,6 @@ def main(*args):
     del model
     del state_tree
 
-    # We take a copy of the Gemma4 MoE processor -- it's the same as in DiffusionGemma
     processor = AutoProcessor.from_pretrained("google/gemma-4-26B-A4B-it")
     processor.save_pretrained(output_path)
     logging.info("Saved Gemma4Processor to %s", output_path)

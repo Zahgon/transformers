@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import logging
 import re
 import shutil
@@ -44,7 +31,6 @@ def update_key_name(mapping: dict[str, Any]) -> dict[str, Any]:
     BUT only merge together keys that have the exact same value.
     Returns a new dict {merged_key: value}.
     """
-    # (pattern, value) -> list[set[int]] (per-star index values)
     not_mapping = False
     if not isinstance(mapping, dict):
         mapping = {k: k for k in mapping}
@@ -97,7 +83,6 @@ def _pad(text, width):
 
 
 def _make_table(rows, headers):
-    # compute display widths while ignoring ANSI codes
     cols = list(zip(*([headers] + rows))) if rows else [headers]
     widths = [max(len(_strip_ansi(x)) for x in col) for col in cols]
     header_line = " | ".join(_pad(h, w) for h, w in zip(headers, widths))
@@ -135,22 +120,6 @@ def _get_terminal_width(default=80):
 
 @dataclass
 class LoadStateDictInfo:
-    """
-    Mutable container for state-dict loading results and diagnostics. Each entry in this structure is mutable,
-    and will usually be mutated in-place during the loading pipeline.
-
-    Attributes:
-        missing_keys (`set[str]`):
-            Keys that are missing from the loaded checkpoints but expected in the model's architecture.
-        unexpected_keys (`set[str]`):
-            Keys that are found in the checkpoints, but not expected in the model's architecture.
-        mismatched_keys (`set[tuple[str, tuple[int], tuple[int]]]`):
-            Keys that are found in the checkpoints and are expected in the model's architecture, but with a different shape.
-        error_msgs ( `list[str]`):
-            Some potential error messages.
-        conversion_errors (`dict[str, str]`):
-            Errors happening during the on-the-fly weight conversion process.
-    """
 
     missing_keys: set[str]
     unexpected_keys: set[str]
@@ -163,7 +132,6 @@ class LoadStateDictInfo:
         return self.missing_keys | {k[0] for k in self.mismatched_keys}
 
     def to_dict(self):
-        # Does not include the `conversion_errors` to be coherent with legacy reporting in the tests
         return {
             "missing_keys": self.missing_keys,
             "unexpected_keys": self.unexpected_keys,
@@ -218,7 +186,6 @@ class LoadStateDictInfo:
                 _details = f"\n\n{v}\n\n"
                 rows.append([k, status, _details])
 
-        # If nothing is wrong, return None
         if len(rows) == 0:
             return None
 
@@ -249,7 +216,6 @@ def log_state_dict_report(
     if logger is None:
         logger = logging.getLogger(__name__)
 
-    # Re-raise errors early if needed
     if loading_info.error_msgs:
         error_msg = "\n\t".join(loading_info.error_msgs)
         if "size mismatch" in error_msg:
@@ -258,17 +224,14 @@ def log_state_dict_report(
             )
         raise RuntimeError(f"Error(s) in loading state_dict for {model.__class__.__name__}:\n\t{error_msg}")
 
-    # Create the report table
     report = loading_info.create_loading_report()
     if report is None:
         return
 
     prelude = f"{PALETTE['bold']}{model.__class__.__name__} LOAD REPORT{PALETTE['reset']} from: {pretrained_model_name_or_path}\n"
 
-    # Log the report as warning
     logger.warning(prelude + report)
 
-    # Re-raise in those case, after the report
     if loading_info.conversion_errors:
         raise RuntimeError(
             "We encountered some issues during automatic conversion of the weights. For details look at the `CONVERSION` entries of "

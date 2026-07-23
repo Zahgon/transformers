@@ -1,17 +1,3 @@
-# Copyright 2025 Johns Hopkins University, LightOn, and the HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import math
 from collections.abc import Callable
 from typing import Literal
@@ -50,39 +36,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="blab-jhu/test-32m-dec")
 @strict
 class ModernBertDecoderConfig(PreTrainedConfig):
-    r"""
-    initializer_cutoff_factor (`float`, *optional*, defaults to 2.0):
-        The cutoff factor for the truncated_normal_initializer for initializing all weight matrices.
-    norm_eps (`float`, *optional*, defaults to 1e-05):
-        The epsilon used by the rms normalization layers.
-    norm_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use bias in the normalization layers.
-    mlp_dropout (`float`, *optional*, defaults to 0.0):
-        The dropout ratio for the MLP layers.
-    decoder_bias (`bool`, *optional*, defaults to `True`):
-        Whether to use bias in the decoder layers.
-    classifier_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use bias in the classifier.
-    classifier_activation (`str`, *optional*, defaults to `"gelu"`):
-        The activation function for the classifier.
-    local_attention (`int`, *optional*, defaults to 128):
-        The sliding window size for local attention. Only used for layers that use local attention. Note that for
-        the decoder to match ModernBERT this is actually half of the sliding window size, so 128 => 64.
-
-    Examples:
-
-    ```python
-    >>> from transformers import ModernBertDecoderModel, ModernBertDecoderConfig
-
-    >>> # Initializing a ModernBert decoder style configuration
-    >>> configuration = ModernBertDecoderConfig()
-
-    >>> # Initializing a model from the modernbert-base decoder style configuration
-    >>> model = ModernBertDecoderModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "modernbert-decoder"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -120,7 +73,6 @@ class ModernBertDecoderConfig(PreTrainedConfig):
     rope_parameters: dict[Literal["full_attention", "sliding_attention"], dict] | None = None
 
     def __post_init__(self, **kwargs):
-        # BC -> the pattern used to be a simple int, and it's still present in configs on the Hub
         global_attn_every_n_layers = kwargs.get("global_attn_every_n_layers", 3)
         if self.layer_types is None:
             self.layer_types = []
@@ -130,15 +82,12 @@ class ModernBertDecoderConfig(PreTrainedConfig):
                 else:
                     self.layer_types.append("full_attention")
 
-        # NOTE: sliding window numbers matches ModernBERT but is only half of it
         self.sliding_window = self.local_attention // 2 if self.local_attention else -1
         super().__post_init__(**kwargs)
 
     def convert_rope_params_to_dict(self, **kwargs):
         rope_scaling = kwargs.pop("rope_scaling", None)
 
-        # Try to set `rope_scaling` if available, otherwise use `rope_parameters`. If we find `rope_parameters`
-        # as arg in the inputs, we can safely assume that it is in the new format. New naming used -> new format
         default_rope_params = {
             "sliding_attention": {"rope_type": "default"},
             "full_attention": {"rope_type": "default"},
@@ -148,7 +97,6 @@ class ModernBertDecoderConfig(PreTrainedConfig):
             self.rope_parameters["full_attention"].update(rope_scaling)
             self.rope_parameters["sliding_attention"].update(rope_scaling)
 
-        # Set default values if not present
         if self.rope_parameters.get("full_attention") is None:
             self.rope_parameters["full_attention"] = {"rope_type": "default"}
         self.rope_parameters["full_attention"].setdefault(
@@ -160,7 +108,6 @@ class ModernBertDecoderConfig(PreTrainedConfig):
             "rope_theta", kwargs.pop("local_rope_theta", self.default_theta["local"])
         )
 
-        # Standardize and validate the correctness of rotary position embeddings parameters
         self.standardize_rope_params()
         return kwargs
 
@@ -192,13 +139,10 @@ def eager_attention_forward(
     if scaling is None:
         scaling = module.head_dim**-0.5
 
-    # Compute attention scores
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
-    # Use the pre-computed attention mask
     attn_weights = attn_weights + attention_mask
 
-    # upcast attention to fp32
     attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
     attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
     attn_output = torch.matmul(attn_weights, value)
@@ -207,10 +151,6 @@ def eager_attention_forward(
 
 
 class ModernBertDecoderAttention(nn.Module):
-    """Performs causal multi-headed self attention for ModernBERT decoder.
-
-    It supports both local attention (sliding window) and global attention patterns.
-    """
 
     def __init__(self, config: ModernBertDecoderConfig, layer_idx: int | None = None):
         super().__init__()
@@ -229,7 +169,6 @@ class ModernBertDecoderAttention(nn.Module):
                 f"The hidden size ({config.hidden_size}) is not a multiple of the number of attention heads ({config.num_attention_heads})"
             )
 
-        # NOTE: this is different than ModernBERT (separated QKV) so be sure to adapt to this
         self.q_proj = nn.Linear(self.config.hidden_size, self.all_head_size, bias=self.config.attention_bias)
         self.k_proj = nn.Linear(self.config.hidden_size, self.all_head_size, bias=self.config.attention_bias)
         self.v_proj = nn.Linear(self.config.hidden_size, self.all_head_size, bias=self.config.attention_bias)
@@ -306,7 +245,6 @@ class ModernBertDecoderLayer(GradientCheckpointingLayer):
         residual = hidden_states
         hidden_states = self.attn_norm(hidden_states)
 
-        # Self Attention
         attn_outputs = self.attn(
             hidden_states=hidden_states,
             position_embeddings=position_embeddings,
@@ -316,10 +254,8 @@ class ModernBertDecoderLayer(GradientCheckpointingLayer):
         )
         hidden_states = attn_outputs[0]
 
-        # Add residual connection
         hidden_states = residual + hidden_states
 
-        # MLP
         residual = hidden_states
         hidden_states = self.mlp_norm(hidden_states)
         mlp_output = self.mlp(hidden_states)
@@ -433,10 +369,8 @@ class ModernBertDecoderModel(ModernBertDecoderPreTrainedModel):
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        # Calculate embeddings
         hidden_states = self.embeddings(input_ids=input_ids, inputs_embeds=inputs_embeds)
 
-        # Handle past_key_values and cache setup
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache(config=self.config)
 
@@ -446,9 +380,7 @@ class ModernBertDecoderModel(ModernBertDecoderPreTrainedModel):
             position_ids = torch.arange(hidden_states.shape[1], device=hidden_states.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": hidden_states,
@@ -499,7 +431,6 @@ class ModernBertDecoderForCausalLM(ModernBertDecoderPreTrainedModel, GenerationM
         self.lm_head = ModernBertDecoderPredictionHead(config)
         self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=config.decoder_bias)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -560,16 +491,13 @@ class ModernBertDecoderForCausalLM(ModernBertDecoderPreTrainedModel, GenerationM
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.decoder(self.lm_head(hidden_states[:, slice_indices, :]))
 
         loss = None
         if labels is not None:
-            # Shift so that tokens < n predict n
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
-            # Flatten the tokens
             loss_fct = CrossEntropyLoss()
             shift_logits = shift_logits.view(-1, self.config.vocab_size)
             shift_labels = shift_labels.view(-1)
@@ -609,7 +537,6 @@ class ModernBertDecoderForSequenceClassification(ModernBertDecoderPreTrainedMode
         self.classifier = nn.Linear(config.hidden_size, config.num_labels, bias=config.classifier_bias)
         self.drop = torch.nn.Dropout(config.classifier_dropout)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -654,7 +581,6 @@ class ModernBertDecoderForSequenceClassification(ModernBertDecoderPreTrainedMode
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)

@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -56,30 +43,6 @@ from ..voxtral.modeling_voxtral import VoxtralPreTrainedModel
 @auto_docstring(checkpoint="HKUSTAudio/xcodec2-hf")
 @strict
 class Xcodec2Config(LlamaConfig):
-    r"""
-    downsampling_ratios (`list[int]`, *optional*, defaults to `[2, 2, 4, 4, 5]`):
-        Ratios for downsampling in the encoder.
-    semantic_model_config (`Union[Dict, Wav2Vec2BertConfig]`, *optional*):
-        An instance of the configuration object for the semantic (Wav2Vec2BertConfig) model.
-    quantization_dim (`int`, *optional*, defaults to 2048):
-        Dimension for the vector quantization codebook.
-    quantization_levels (`list[int]`, *optional*, defaults to `[4, 4, 4, 4, 4, 4, 4, 4]`):
-        Levels for the vector quantization codebook.
-
-    Example:
-
-    ```python
-    >>> from transformers import Xcodec2Config, Xcodec2Model
-
-    >>> # Initializing configuration
-    >>> configuration = Xcodec2Config()
-
-    >>> # Initializing a model (with random weights) from the configuration
-    >>> model = Xcodec2Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "xcodec2"
     sub_configs = {"semantic_model_config": AutoConfig}
@@ -120,28 +83,16 @@ class Xcodec2Config(LlamaConfig):
 
     @property
     def hop_length(self) -> int:
-        return int(np.prod(self.downsampling_ratios))
+        pass
 
     @property
     def n_fft(self) -> int:
-        return self.hop_length * 4
+        pass
 
 
 @auto_docstring
 @dataclass
 class Xcodec2Output(ModelOutput):
-    r"""
-    audio_values (`torch.FloatTensor` of shape `(batch_size, 1, sequence_length)`, *optional*):
-        Decoded audio waveform values in the time domain, obtained using the decoder
-        part of Xcodec2. These represent the reconstructed audio signal.
-    audio_codes (`torch.LongTensor` of shape `(batch_size, 1, codes_length)`, *optional*):
-        Discrete code embeddings computed using `model.encode`. These are the quantized
-        representations of the input audio used for further processing or generation.
-    latents (`torch.Tensor` of shape `(batch_size, dimension, time_steps)`):
-        Quantized continuous representation of input's embedding.
-    audio_codes_mask (`torch.int32` of shape `(batch_size, 1, codes_length)`, *optional*):
-        Downsampled `padding_mask` for indicating valid audio codes in `audio_codes`.
-    """
 
     audio_values: torch.FloatTensor | None = None
     audio_codes: torch.LongTensor | None = None
@@ -152,16 +103,6 @@ class Xcodec2Output(ModelOutput):
 @auto_docstring
 @dataclass
 class Xcodec2EncoderOutput(ModelOutput):
-    r"""
-    audio_codes (`torch.LongTensor` of shape `(batch_size, 1, codes_length)`, *optional*):
-        Discrete code embeddings computed using `model.encode`. These represent
-        the compressed, quantized form of the input audio signal that can be
-        used for storage, transmission, or generation.
-    latents (`torch.Tensor` of shape `(batch_size, dimension, time_steps)`):
-        Quantized continuous representation of input's embedding.
-    audio_codes_mask (`torch.int32` of shape `(batch_size, 1, codes_length)`, *optional*):
-        Downsampled `padding_mask` for indicating valid audio codes in `audio_codes`.
-    """
 
     audio_codes: torch.LongTensor | None = None
     latents: torch.Tensor | None = None
@@ -171,12 +112,6 @@ class Xcodec2EncoderOutput(ModelOutput):
 @auto_docstring
 @dataclass
 class Xcodec2DecoderOutput(ModelOutput):
-    r"""
-    audio_values (`torch.FloatTensor` of shape `(batch_size, 1, segment_length)`, *optional*):
-        Decoded audio waveform values in the time domain, obtained by converting
-        the discrete codes back into continuous audio signals. This represents
-        the reconstructed audio that can be played back.
-    """
 
     audio_values: torch.FloatTensor | None = None
 
@@ -213,9 +148,6 @@ class Xcodec2Attention(LlamaAttention):
         value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         cos, sin = position_embeddings
-        # Xcodec2 uses position_ids of shape (1, num_attention_heads) so cos/sin have shape
-        # (batch, num_attention_heads, head_dim). unsqueeze_dim=2 broadcasts correctly against
-        # q/k of shape (batch, num_heads, seq_len, head_dim), unlike Llama's default of 1.
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, unsqueeze_dim=2)
 
         if past_key_values is not None:
@@ -255,7 +187,6 @@ class Xcodec2DownSample1d(Qwen2_5OmniDownSample1d):
         hidden_states = F.pad(hidden_states, (self.pad_left, self.pad_right), mode="replicate")
         out = F.conv1d(
             hidden_states,
-            # add casting to avoid dtype mismatch for SDPA
             self.filter.to(hidden_states.dtype).expand(channels, -1, -1),
             stride=self.stride,
             groups=channels,
@@ -269,7 +200,6 @@ class Xcodec2UpSample1d(Qwen2_5OmniUpSample1d):
         hidden_states = F.pad(hidden_states, (self.pad, self.pad), mode="replicate")
         hidden_states = self.ratio * F.conv_transpose1d(
             hidden_states,
-            # add casting to avoid dtype mismatch for SDPA
             self.filter.to(hidden_states.dtype).expand(channels, -1, -1),
             stride=self.stride,
             groups=channels,
@@ -344,13 +274,6 @@ class Xcodec2ResNetBlock(nn.Module):
 
 
 class Xcodec2FiniteScalarQuantization(nn.Module):
-    """
-    Finite Scalar Quantization (FSQ) module that quantizes continuous latent representations into discrete codes.
-    Original code: https://github.com/lucidrains/vector-quantize-pytorch/blob/353d46027888dfb140c3c65a67a7356f1492d71d/vector_quantize_pytorch/finite_scalar_quantization.py#L64
-
-    Original modeling uses `ResidualFSQ` with a single quantizer: https://huggingface.co/HKUSTAudio/xcodec2/blob/main/vq/codec_decoder_vocos.py#L389
-    But we can directly use FSQ since a main feature of Xcodec2 is that it uses a single codebook.
-    """
 
     def __init__(self, config: Xcodec2Config):
         super().__init__()
@@ -373,14 +296,7 @@ class Xcodec2FiniteScalarQuantization(nn.Module):
         return levels, basis, codebook
 
     def _indices_to_codes(self, indices: torch.Tensor) -> torch.Tensor:
-        """
-        Convert integer codebook indices to normalized per-dimension codes in [-1, 1].
-        """
-        indices = indices.unsqueeze(-1)
-        level_indices = (indices // self.basis) % self.levels
-        half_width = self.levels // 2
-        codes = (level_indices - half_width) / half_width
-        return codes
+        pass
 
     def bound(self, hidden_states: torch.Tensor, eps: float = 1e-3) -> torch.Tensor:
         """
@@ -405,7 +321,6 @@ class Xcodec2FiniteScalarQuantization(nn.Module):
         return (hidden_states + shift).tanh() * half_range - offset
 
     def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        # NOTE: could rerwite to pass tensor to a decorator such that device type is handled internally
         original_dtype = hidden_states.dtype
         device_type = (
             hidden_states.device.type
@@ -415,24 +330,16 @@ class Xcodec2FiniteScalarQuantization(nn.Module):
         with maybe_autocast(device_type=device_type, enabled=False):  # Force float32
             hidden_states = hidden_states.float()
             half_width = self.levels // 2
-            # Quantize: bound and round with straight-through gradient
             hidden_states = self.bound(hidden_states)
             rounded = hidden_states.round()
             codes = hidden_states + (rounded - hidden_states).detach()
             codes = codes / half_width
-            # Code to indices
             code_scaled = (codes * half_width) + half_width
             indices = (code_scaled * self.basis).sum(dim=-1).to(torch.int32)
         return codes.to(original_dtype), indices
 
 
 class Xcodec2ISTFTHead(nn.Module):
-    """
-    Head for converting decoder outputs to waveform via STFT projection and ISTFT.
-
-    Uses custom "same" padding ISTFT from Vocos:
-    https://github.com/gemelo-ai/vocos/blob/c859e3b7b534f3776a357983029d34170ddd6fc3/vocos/spectral_ops.py#L47
-    """
 
     def __init__(self, config: Xcodec2Config):
         super().__init__()
@@ -446,15 +353,11 @@ class Xcodec2ISTFTHead(nn.Module):
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         stft_pred = self.linear(hidden_states).transpose(1, 2)
         magnitude, phase = stft_pred.chunk(2, dim=1)
-        # Cast to float32: complex exponential and irfft are not supported for fp16 (ComplexHalf)
         magnitude = magnitude.float()
         phase = phase.float()
-        # Clamp like original: https://huggingface.co/HKUSTAudio/xcodec2/blob/main/vq/codec_decoder_vocos.py#L138
         magnitude = torch.exp(magnitude).clamp(max=1e2)
         spectrogram_complex = magnitude * torch.exp(1j * phase)
 
-        # Back to audio (ISTFT with manual "same" padding: torch.istft lacks a native same-padding mode,
-        # so we use irfft + fold with explicit pre-computed padding to replicate it)
         time_frames = torch.fft.irfft(spectrogram_complex, self.n_fft, dim=1, norm="backward")
         time_frames = time_frames * self.window[None, :, None]
         num_frames = spectrogram_complex.shape[-1]
@@ -466,14 +369,12 @@ class Xcodec2ISTFTHead(nn.Module):
             stride=(1, self.hop_length),
         )[:, 0, 0, self.padding : -self.padding]
 
-        # Normalize
         window_envelope = F.fold(
             self.window.square().expand(1, num_frames, -1).transpose(1, 2),
             output_size=(1, output_size),
             kernel_size=(1, self.n_fft),
             stride=(1, self.hop_length),
         ).squeeze()[self.padding : -self.padding]
-        # Clamp as expected by original: https://huggingface.co/HKUSTAudio/xcodec2/blob/main/vq/codec_decoder_vocos.py#L82
         window_envelope = window_envelope.clamp(min=1e-11)
         audio = audio / window_envelope
         return audio.unsqueeze(1)
@@ -502,7 +403,6 @@ class Xcodec2Quantizer(nn.Module):
 
 
 class Xcodec2Decoder(nn.Module):
-    """Vocos-based decoder with ResNet, Transformer, and ISTFT head for audio reconstruction."""
 
     def __init__(self, config: Xcodec2Config):
         super().__init__()
@@ -524,21 +424,14 @@ class Xcodec2Decoder(nn.Module):
         hidden_states = self.embed(hidden_states)
         hidden_states = hidden_states.transpose(1, 2)
 
-        # Conv ResNet
         for layer in self.prior_net:
             hidden_states = layer(hidden_states)
 
-        # Transformer: (batch, time, hidden)
-        # position_ids uses num_attention_heads so that RoPE produces cos/sin of shape (batch, num_heads, head_dim),
-        # which broadcasts correctly against q/k of shape (batch, num_heads, seq_len, head_dim) via unsqueeze_dim=2
-        # in `apply_rotary_pos_emb`. NOTE: this is non-standard and could be unsafe under tensor parallelism
-        # (TP shards see only a subset of heads), but TP is not used for this model in practice.
         position_ids = torch.arange(self.num_attention_heads, device=hidden_states.device).unsqueeze(0)
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
         for layer in self.layers:
             hidden_states = layer(hidden_states, position_embeddings=position_embeddings, **kwargs)
 
-        # Conv ResNet
         for layer in self.post_net:
             hidden_states = layer(hidden_states)
 
@@ -665,23 +558,19 @@ class Xcodec2Model(Xcodec2PreTrainedModel):
             Whether to return the continuous latent representation from the quantizer.
         """
 
-        # Semantic embedding
         with torch.no_grad():
             semantic_output = self.semantic_encoder(input_features, attention_mask=input_features_mask)
         semantic_hidden_states = semantic_output.last_hidden_state.transpose(1, 2)
         semantic_hidden_states = self.semantic_adapter(semantic_hidden_states)
 
-        # Acoustic embedding and concatenate
         acoustic_hidden_states = self.acoustic_encoder(input_values)
         hidden_states = torch.cat([semantic_hidden_states, acoustic_hidden_states], dim=1)
         hidden_states = self.fc_encoder(hidden_states.transpose(1, 2))
 
-        # Quantize
         latents, audio_codes = self.quantizer(hidden_states)
         latents = latents.transpose(1, 2)
         audio_codes = audio_codes.transpose(1, 2)
 
-        # If provided, compute corresponding padding mask for audio codes
         audio_codes_mask = None
         if padding_mask is not None:
             audio_length = padding_mask.sum(dim=-1, keepdim=True)
@@ -762,7 +651,6 @@ class Xcodec2Model(Xcodec2PreTrainedModel):
         >>> audio_codes = outputs.audio_codes
         >>> audio_values = outputs.audio_values
         ```"""
-        # for truncating output audio to original length
         length = input_values.shape[-1]
 
         encoder_outputs = self.encode(

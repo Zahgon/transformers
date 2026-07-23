@@ -1,16 +1,3 @@
-# Copyright 2025 Deepseek AI and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -75,24 +62,6 @@ DEEPSEEK_VL_COMMON_CUSTOM_ARGS = r"""
 @auto_docstring(checkpoint="deepseek-community/deepseek-vl-7b-chat")
 @strict
 class DeepseekVLHybridConfig(DeepseekVLConfig):
-    r"""
-    high_res_vision_config (`Union[AutoConfig, dict]`,  *optional*, defaults to `SamVisionConfig`):
-        The config object or dictionary of the high resolution vision backbone.
-
-    Example:
-
-    ```python
-    >>> from transformers import DeepseekVLHybridConfig, DeepseekVLHybridModel
-
-    >>> # Initializing a DeepseekVLHybrid deepseek-community/deepseek-vl-7b-chat style configuration
-    >>> configuration = DeepseekVLHybridConfig()
-
-    >>> # Initializing a model (with random weights) from the deepseek-community/deepseek-vl-7b-chat style configuration
-    >>> model = DeepseekVLHybridModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "deepseek_vl_hybrid"
     sub_configs = {"text_config": AutoConfig, "vision_config": AutoConfig, "high_res_vision_config": AutoConfig}
@@ -118,21 +87,6 @@ class DeepseekVLHybridConfig(DeepseekVLConfig):
 @auto_docstring
 @dataclass
 class BaseModelOutputWithHighResVisionEncodings(BaseModelOutputWithPooling):
-    r"""
-    high_res_vision_last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the high resolution vision model.
-    high_res_vision_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the high resolution vision model has an embedding layer, +
-        one for the output of each layer) of shape `(batch_size, sequence_length, hidden_size)`.
-
-        Hidden-states of the high resolution vision model at the output of each layer plus the optional initial embedding outputs.
-    high_res_vision_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)` from the high resolution vision model.
-
-        Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
-        heads.
-    """
 
     high_res_vision_last_hidden_state: torch.FloatTensor | None = None
     high_res_vision_hidden_states: tuple[torch.FloatTensor] | None = None
@@ -263,7 +217,6 @@ class DeepseekVLHybridModel(DeepseekVLModel):
 
         output = last_hidden_state + global_hidden_state * self.high_res_vision_alpha
 
-        # batch_size, hidden_size, height, width -> batch_size, seq_len, hidden_size
         output = output.permute(0, 2, 3, 1)
         output = output.reshape(output.shape[0], -1, output.shape[-1])
         high_res_outputs.last_hidden_state = output
@@ -387,7 +340,6 @@ class DeepseekVLHybridForConditionalGeneration(DeepseekVLForConditionalGeneratio
             **kwargs,
         )
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -429,10 +381,6 @@ class DeepseekVLHybridForConditionalGeneration(DeepseekVLForConditionalGeneratio
         )
 
         if is_first_iteration or not kwargs.get("use_cache", True):
-            # Pixel values are used only in the first iteration if available
-            # In subsequent iterations, they are already merged with text and cached
-            # NOTE: first iteration doesn't have to be prefill, it can be the first
-            # iteration with a question and cached system prompt (continue generate from cache)
             model_inputs["pixel_values"] = pixel_values
             model_inputs["high_res_pixel_values"] = high_res_pixel_values
 
@@ -440,23 +388,6 @@ class DeepseekVLHybridForConditionalGeneration(DeepseekVLForConditionalGeneratio
 
 
 class DeepseekVLHybridImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    min_size (`int`, *optional*, defaults to 14):
-        The minimum allowed size for the resized image. Ensures that neither the height nor width
-        falls below this value after resizing.
-     high_res_size (`dict`, *optional*, defaults to `{"height": 1024, "width": 1024}`):
-        Size of the high resolution output image after resizing. Can be overridden by the `high_res_size` parameter in the `preprocess`
-        method.
-    high_res_resample (`PILImageResampling`, *optional*, defaults to `Resampling.BICUBIC`):
-        Resampling filter to use if resizing the image. Only has an effect if `do_resize` is set to `True`. Can be
-        overridden by the `high_res_resample` parameter in the `preprocess` method.
-    high_res_image_mean (`float` or `list[float]`, *optional*, defaults to `OPENAI_CLIP_MEAN`):
-        Mean to use if normalizing the high resolution image. This is a float or list of floats the length of the number of
-        channels in the image. Can be overridden by the `high_res_image_mean` parameter in the `preprocess` method.
-    high_res_image_std (`float` or `list[float]`, *optional*, defaults to `OPENAI_CLIP_STD`):
-        Standard deviation to use if normalizing the high resolution image. This is a float or list of floats the length of the
-        number of channels in the image. Can be overridden by the `high_res_image_std` parameter in the `preprocess` method.
-    """
 
     min_size: int
     high_res_size: dict
@@ -547,8 +478,6 @@ class DeepseekVLHybridImageProcessorPil(DeepseekVLImageProcessorPil):
         high_res_processed_images = []
         processed_images = []
         for image in images:
-            # high_res_image: resize (high) -> rescale -> normalize (high)
-            # low_res_image:  resize (high) -> rescale -> resize (low) -> normalize (low)
             high_res_image = image
             if do_resize:
                 high_res_image = self.resize(
@@ -656,7 +585,6 @@ class DeepseekVLHybridImageProcessor(DeepseekVLImageProcessor):
         do_pad: bool = True,
         **kwargs,
     ) -> BatchFeature:
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         high_res_resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -667,8 +595,6 @@ class DeepseekVLHybridImageProcessor(DeepseekVLImageProcessor):
             high_res_resized_images_grouped[shape] = stacked_high_res_images
         high_res_resized_images = reorder_images(high_res_resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_high_res_images, grouped_high_res_images_index = group_images_by_shape(
             high_res_resized_images, disable_grouping=disable_grouping
         )
@@ -680,7 +606,6 @@ class DeepseekVLHybridImageProcessor(DeepseekVLImageProcessor):
                     stacked_high_res_images, background_color=self.high_res_background_color
                 )
                 high_res_padded_images[shape] = stacked_high_res_images
-            # Fused rescale and normalize
             stacked_high_res_images = self.rescale_and_normalize(
                 stacked_high_res_images,
                 do_rescale,
@@ -708,7 +633,6 @@ class DeepseekVLHybridImageProcessor(DeepseekVLImageProcessor):
         for shape, stacked_images in grouped_resized_images.items():
             if do_pad:
                 stacked_images = self.pad_to_square(stacked_images, background_color=self.background_color)
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -762,7 +686,6 @@ class DeepseekVLHybridProcessor(DeepseekVLProcessor):
 
         data = self.tokenizer(prompt_strings, **output_kwargs["text_kwargs"])
 
-        # process images if pixel_values are provided
         if images is not None:
             inputs = self.image_processor(images, **output_kwargs["images_kwargs"])
             data["pixel_values"] = inputs["pixel_values"]

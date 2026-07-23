@@ -1,17 +1,3 @@
-# Copyright 2023 The Kakao Enterprise Authors and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch VITS model."""
 
 import math
 from dataclasses import dataclass
@@ -43,15 +29,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class VitsModelOutput(ModelOutput):
-    r"""
-    waveform (`torch.FloatTensor` of shape `(batch_size, sequence_length)`):
-        The final audio waveform predicted by the model.
-    sequence_lengths (`torch.FloatTensor` of shape `(batch_size,)`):
-        The length in samples of each element in the `waveform` batch.
-    spectrogram (`torch.FloatTensor` of shape `(batch_size, sequence_length, num_bins)`):
-        The log-mel spectrogram predicted at the output of the flow model. This spectrogram is passed to the Hi-Fi
-        GAN decoder model to obtain the final audio waveform.
-    """
 
     waveform: torch.FloatTensor | None = None
     sequence_lengths: torch.FloatTensor | None = None
@@ -67,12 +44,6 @@ class VitsModelOutput(ModelOutput):
 )
 @dataclass
 class VitsTextEncoderOutput(ModelOutput):
-    r"""
-    prior_means (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        The predicted mean values of the prior distribution for the latent text variables.
-    prior_log_variances (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        The predicted log-variance values of the prior distribution for the latent text variables.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     prior_means: torch.FloatTensor | None = None
@@ -275,7 +246,6 @@ def _rational_quadratic_spline(
         log_abs_det = torch.log(derivative_numerator) - 2 * torch.log(denominator)
         return outputs, log_abs_det
     else:
-        # find the roots of a quadratic equation
         intermediate2 = inputs - input_cumheights
         intermediate3 = intermediate2 * intermediate1
         a = input_heights * (input_delta - input_derivatives) + intermediate3
@@ -334,7 +304,6 @@ class VitsWaveNet(torch.nn.Module):
             in_layer = weight_norm(in_layer, name="weight")
             self.in_layers.append(in_layer)
 
-            # last one is not necessary
             if i < num_layers - 1:
                 res_skip_channels = 2 * config.hidden_size
             else:
@@ -400,7 +369,6 @@ class VitsPosteriorEncoder(nn.Module):
         return sampled, mean, log_stddev
 
 
-# Copied from transformers.models.speecht5.modeling_speecht5.HifiGanResidualBlock
 class HifiGanResidualBlock(nn.Module):
     def __init__(self, channels, kernel_size=3, dilation=(1, 3, 5), leaky_relu_slope=0.1):
         super().__init__()
@@ -842,7 +810,6 @@ class VitsDurationPredictor(nn.Module):
 
 
 class VitsAttention(nn.Module):
-    """Multi-headed attention with relative positional representation."""
 
     def __init__(self, config: VitsConfig):
         super().__init__()
@@ -881,15 +848,11 @@ class VitsAttention(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
 
         bsz, tgt_len, _ = hidden_states.size()
 
-        # get query proj
         query_states = self.q_proj(hidden_states) * self.scaling
 
-        # self_attention
         key_states = self._shape(self.k_proj(hidden_states), -1, bsz)
         value_states = self._shape(self.v_proj(hidden_states), -1, bsz)
 
@@ -924,10 +887,6 @@ class VitsAttention(nn.Module):
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
         if output_attentions:
-            # this operation is a bit awkward, but it's required to
-            # make sure that attn_weights keeps its gradient.
-            # In order to do so, attn_weights have to be reshaped
-            # twice and have to be reused in the following
             attn_weights_reshaped = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
             attn_weights = attn_weights_reshaped.view(bsz * self.num_heads, tgt_len, src_len)
         else:
@@ -952,8 +911,6 @@ class VitsAttention(nn.Module):
         attn_output = attn_output.view(bsz, self.num_heads, tgt_len, self.head_dim)
         attn_output = attn_output.transpose(1, 2)
 
-        # Use the `embed_dim` from the config (stored in the class) rather than `hidden_state` because `attn_output` can be
-        # partitioned across GPUs when using tensor-parallelism.
         attn_output = attn_output.reshape(bsz, tgt_len, self.embed_dim)
 
         attn_output = self.out_proj(attn_output)
@@ -972,14 +929,11 @@ class VitsAttention(nn.Module):
     def _relative_position_to_absolute_position(self, x):
         batch_heads, length, _ = x.size()
 
-        # Concat columns of pad to shift from relative to absolute indexing.
         x = nn.functional.pad(x, [0, 1, 0, 0, 0, 0])
 
-        # Concat extra elements so to add up to shape (len+1, 2*len-1).
         x_flat = x.view([batch_heads, length * 2 * length])
         x_flat = nn.functional.pad(x_flat, [0, length - 1, 0, 0])
 
-        # Reshape and slice out the padded elements.
         x_final = x_flat.view([batch_heads, length + 1, 2 * length - 1])
         x_final = x_final[:, :length, length - 1 :]
         return x_final
@@ -987,11 +941,9 @@ class VitsAttention(nn.Module):
     def _absolute_position_to_relative_position(self, x):
         batch_heads, length, _ = x.size()
 
-        # Pad along column
         x = nn.functional.pad(x, [0, length - 1, 0, 0, 0, 0])
         x_flat = x.view([batch_heads, length * (2 * length - 1)])
 
-        # Add 0's in the beginning that will skew the elements after reshape
         x_flat = nn.functional.pad(x_flat, [length, 0, 0, 0])
         x_final = x_flat.view([batch_heads, length, 2 * length])[:, :, 1:]
         return x_final
@@ -1112,12 +1064,10 @@ class VitsEncoder(nn.Module):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             dropout_probability = np.random.uniform(0, 1)
 
             skip_the_layer = self.training and (dropout_probability < self.layerdrop)
             if not skip_the_layer or synced_gpus:
-                # under fsdp or deepspeed zero3 all gpus must run in sync
                 layer_outputs = encoder_layer(
                     hidden_states,
                     attention_mask=attention_mask,
@@ -1148,9 +1098,6 @@ class VitsEncoder(nn.Module):
 
 
 class VitsTextEncoder(nn.Module):
-    """
-    Transformer encoder that uses relative positional representation instead of absolute positional encoding.
-    """
 
     def __init__(self, config: VitsConfig):
         super().__init__()
@@ -1244,15 +1191,12 @@ class VitsModel(VitsPreTrainedModel):
         if config.num_speakers > 1:
             self.embed_speaker = nn.Embedding(config.num_speakers, config.speaker_embedding_size)
 
-        # This is used only for training.
         self.posterior_encoder = VitsPosteriorEncoder(config)
 
-        # These parameters control the synthesised speech properties
         self.speaking_rate = config.speaking_rate
         self.noise_scale = config.noise_scale
         self.noise_scale_duration = config.noise_scale_duration
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1351,12 +1295,10 @@ class VitsModel(VitsPreTrainedModel):
         duration = torch.ceil(torch.exp(log_duration) * input_padding_mask * length_scale)
         predicted_lengths = torch.clamp_min(torch.sum(duration, [1, 2]), 1).long()
 
-        # Create a padding mask for the output lengths of shape (batch, 1, max_output_length)
         indices = torch.arange(predicted_lengths.max(), dtype=predicted_lengths.dtype, device=predicted_lengths.device)
         output_padding_mask = indices.unsqueeze(0) < predicted_lengths.unsqueeze(1)
         output_padding_mask = output_padding_mask.unsqueeze(1).to(input_padding_mask.dtype)
 
-        # Reconstruct an attention tensor of shape (batch, 1, out_length, in_length)
         attn_mask = torch.unsqueeze(input_padding_mask, 2) * torch.unsqueeze(output_padding_mask, -1)
         batch_size, _, output_length, input_length = attn_mask.shape
         cum_duration = torch.cumsum(duration, -1).view(batch_size * input_length, 1)
@@ -1366,7 +1308,6 @@ class VitsModel(VitsPreTrainedModel):
         padded_indices = valid_indices - nn.functional.pad(valid_indices, [0, 0, 1, 0, 0, 0])[:, :-1]
         attn = padded_indices.unsqueeze(1).transpose(2, 3) * attn_mask
 
-        # Expand prior distribution
         prior_means = torch.matmul(attn.squeeze(1), prior_means).transpose(1, 2)
         prior_log_variances = torch.matmul(attn.squeeze(1), prior_log_variances).transpose(1, 2)
 

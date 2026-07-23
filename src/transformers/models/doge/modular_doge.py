@@ -1,19 +1,3 @@
-# Copyright 2025 Jingze Shi and the HuggingFace Inc. team. All rights reserved.
-#
-# The Doge family of small language models is trained by SmallDoge Team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Doge model."""
 
 import math
 from collections.abc import Callable
@@ -58,28 +42,9 @@ if is_torch_flex_attn_available():
 @auto_docstring(checkpoint="SmallDoge/Doge-320M")
 @strict
 class DogeConfig(PreTrainedConfig):
-    r"""
-    keep_window_size (`int`, *optional*, defaults to 2048):
-        The window size of tokens that are not dynamically masked, and dynamic masking is only performed when the sequence length exceeds this value.
-    is_moe (`bool`, *optional*, defaults to `False`):
-        Whether to use the Cross Domain Mixture of Experts, if `True`, the MoE will inherit the MLP to initialize.
-
-    ```python
-    >>> from transformers import DogeConfig, DogeModel
-
-    >>> # Initializing a Doge-320M style configuration
-    >>> configuration = DogeConfig()
-
-    >>> # Initializing a model from the Doge-320M style configuration
-    >>> model = DogeModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "doge"
     keys_to_ignore_at_inference = ["past_key_values"]
-    # Default tensor parallel plan for base model `DogeModel`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",
@@ -129,7 +94,6 @@ class DogeConfig(PreTrainedConfig):
     eos_token_id: int | list[int] | None = None
 
     def __post_init__(self, **kwargs):
-        # for backward compatibility
         if self.num_key_value_heads is None:
             self.num_key_value_heads = self.num_attention_heads
 
@@ -154,40 +118,7 @@ def flex_attention_forward(
     softcap: float | None = None,
     **kwargs,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    block_mask = None
-    causal_mask = None
-    if isinstance(attention_mask, BlockMask):
-        block_mask = attention_mask
-    else:
-        causal_mask = attention_mask
-
-    if causal_mask is not None:
-        causal_mask = causal_mask[:, :, :, : key.shape[-2]]
-
-    def score_mod(score, batch_idx, head_idx, q_idx, kv_idx):
-        if softcap is not None:
-            score = softcap * torch.tanh(score / softcap)
-        if causal_mask is not None:
-            score = score + causal_mask[batch_idx][head_idx][q_idx][kv_idx]
-        return score
-
-    attn_output, attention_weights = compile_friendly_flex_attention(
-        query,
-        key,
-        value,
-        score_mod=score_mod,
-        block_mask=block_mask,
-        enable_gqa=True,
-        scale=scaling,
-        # Last time checked on PyTorch == 2.5.1: Flex Attention always computes the lse regardless.
-        # For simplification, we thus always return it as no additional computations are introduced.
-        return_lse=True,
-    )
-    # lse is returned in float32
-    attention_weights = attention_weights.to(value.dtype)
-    attn_output = attn_output.transpose(1, 2).contiguous()
-
-    return attn_output, attention_weights
+    pass
 
 
 ALL_ATTENTION_FUNCTIONS = AttentionInterface()
@@ -214,7 +145,6 @@ class DogeAttention(nn.Module):
         self.v_proj = nn.Linear(
             config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
         )
-        # dynamic mask for the QK^T attention weights matrix
         self.A = nn.Parameter(torch.zeros(config.num_key_value_heads))
         self.dt_proj = nn.Linear(
             config.num_key_value_heads * self.head_dim, config.num_key_value_heads, bias=config.attention_bias
@@ -246,7 +176,6 @@ class DogeAttention(nn.Module):
         if past_key_values is not None:
             key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx)
 
-        # calculate dynamic mask from value_states
         dt_states = self.dt_proj(
             value_states.transpose(1, 2).reshape(value_states.shape[0], value_states.shape[-2], -1)
         )
@@ -332,15 +261,12 @@ class DogeCDMoE(nn.Module):
         self.top_k = config.num_experts_per_tok
         self.norm_topk_prob = config.norm_topk_prob
 
-        # shared expert
         self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
         self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
         self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=config.mlp_bias)
 
-        # router gate for retrieval experts
         self.router_gate = nn.Linear(self.hidden_size, self.num_keys * 2, bias=False)
 
-        # routed experts
         self.down_embed = nn.Embedding(self.num_experts, self.hidden_size)
         self.up_embed = nn.Embedding(self.num_experts, self.hidden_size)
 
@@ -351,10 +277,8 @@ class DogeCDMoE(nn.Module):
     ) -> torch.Tensor:
         bsz, seq_len, _ = hidden_states.shape
 
-        # get routing logits with router gate
         router_logits = self.router_gate(hidden_states).view(2, bsz * seq_len, -1)
 
-        # get experts with the highest routing logits
         (scores_x, scores_y), (indices_x, indices_y) = router_logits.topk(self.num_keys, dim=-1)
         all_scores = scores_x.unsqueeze(-1) + scores_y.unsqueeze(-2)
         all_indices = indices_x.unsqueeze(-1) * self.num_keys + indices_y.unsqueeze(-2)
@@ -366,7 +290,6 @@ class DogeCDMoE(nn.Module):
         if self.norm_topk_prob:
             routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
 
-        # mix routed experts states with shared expert states
         down_embed = self.down_embed(indices)
         up_embed = self.up_embed(indices)
         experts_weights = torch.matmul(down_embed, hidden_states.view(bsz * seq_len, -1, 1)).view(bsz * seq_len, -1)
@@ -400,7 +323,6 @@ class DogeDecoderLayer(GradientCheckpointingLayer):
         use_cache: bool | None = False,
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
-        # sequence transformation
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
         hidden_states, self_attn_weights = self.self_attn(
@@ -415,7 +337,6 @@ class DogeDecoderLayer(GradientCheckpointingLayer):
         hidden_states = F.dropout(hidden_states, p=self.hidden_dropout, training=self.training)
         hidden_states = self.input_residual * residual + hidden_states
 
-        # state transformation
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -513,19 +434,16 @@ def load_balancing_loss_func(
     all_routing_weights = torch.cat(all_routing_weights, dim=0)
 
     if attention_mask is None:
-        # Compute the percentage of tokens routed to each experts
         all_expert_indices = all_expert_indices.view(-1)
         tokens_per_expert = torch.zeros(num_experts, dtype=compute_dtype, device=compute_device)
         pad = torch.ones_like(all_expert_indices, dtype=compute_dtype, device=compute_device)
         tokens_per_expert = tokens_per_expert.scatter_add_(0, all_expert_indices, pad) / all_expert_indices.shape[0]
 
-        # Compute the average probability of routing to these experts
         router_prob_per_expert = torch.mean(all_routing_weights, dim=0)
     else:
         batch_size, sequence_length = attention_mask.shape
         num_hidden_layers = len(gate_logits)
 
-        #  Compute the mask that masks all padding tokens as 0 with the same shape of expert_mask
         expert_attention_mask = (
             attention_mask[None, :, :, None]
             .expand((num_hidden_layers, batch_size, sequence_length, top_k))
@@ -534,14 +452,12 @@ def load_balancing_loss_func(
         )
         all_expert_indices = all_expert_indices.view(-1)[expert_attention_mask.bool()]
 
-        # Compute the percentage of tokens routed to each experts
         tokens_per_expert = torch.zeros(num_experts, dtype=compute_dtype, device=compute_device)
         pad = torch.ones_like(all_expert_indices, dtype=compute_dtype, device=compute_device)
         tokens_per_expert = tokens_per_expert.scatter_add_(0, all_expert_indices, pad) / torch.sum(
             expert_attention_mask
         )
 
-        # Compute the mask that masks all padding tokens as 0 with the same shape of tokens_per_expert
         router_per_expert_attention_mask = (
             attention_mask[None, :, :, None]
             .expand((num_hidden_layers, batch_size, sequence_length, num_experts))
@@ -549,7 +465,6 @@ def load_balancing_loss_func(
             .to(compute_device)
         )
 
-        # Compute the average probability of routing to these experts
         router_prob_per_expert = torch.sum(all_routing_weights * router_per_expert_attention_mask, dim=0) / torch.sum(
             router_per_expert_attention_mask, dim=0
         )
@@ -603,7 +518,6 @@ class DogeForCausalLM(MixtralForCausalLM):
             output_router_logits if output_router_logits is not None else self.config.output_router_logits
         )
 
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs: MoeModelOutputWithPast = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -615,7 +529,6 @@ class DogeForCausalLM(MixtralForCausalLM):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

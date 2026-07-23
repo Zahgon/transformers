@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""DAB-DETR model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -24,46 +10,6 @@ from ..auto import AutoConfig
 @auto_docstring(checkpoint="IDEA-Research/dab-detr-resnet-50")
 @strict
 class DabDetrConfig(PreTrainedConfig):
-    r"""
-    num_queries (`int`, *optional*, defaults to 300):
-        Number of object queries, i.e. detection slots. This is the maximal number of objects
-        [`DabDetrModel`] can detect in a single image. For COCO, we recommend 100 queries.
-    dilation (`bool`, *optional*, defaults to `False`):
-        Whether to replace stride with dilation in the last convolutional block (DC5). Only supported when `use_timm_backbone` = `True`.
-    temperature_height (`int`, *optional*, defaults to 20):
-        Temperature parameter to tune the flatness of positional attention (HEIGHT)
-    temperature_width (`int`, *optional*, defaults to 20):
-        Temperature parameter to tune the flatness of positional attention (WIDTH)
-    query_dim (`int`, *optional*, defaults to 4):
-        Query dimension parameter represents the size of the output vector.
-    random_refpoints_xy (`bool`, *optional*, defaults to `False`):
-        Whether to fix the x and y coordinates of the anchor boxes with random initialization.
-    keep_query_pos (`bool`, *optional*, defaults to `False`):
-        Whether to concatenate the projected positional embedding from the object query into the original query (key) in every decoder layer.
-    num_patterns (`int`, *optional*, defaults to 0):
-        Number of pattern embeddings.
-    normalize_before (`bool`, *optional*, defaults to `False`):
-        Whether we use a normalization layer in the Encoder or not.
-    sine_position_embedding_scale (`float`, *optional*, defaults to 'None'):
-        Scaling factor applied to the normalized positional encodings.
-    initializer_bias_prior_prob (`float`, *optional*):
-        The prior probability used by the bias initializer to initialize biases for `enc_score_head` and `class_embed`.
-        If `None`, `prior_prob` computed as `prior_prob = 1 / (num_labels + 1)` while initializing model weights.
-
-    Examples:
-
-    ```python
-    >>> from transformers import DabDetrConfig, DabDetrModel
-
-    >>> # Initializing a DAB-DETR IDEA-Research/dab-detr-resnet-50 style configuration
-    >>> configuration = DabDetrConfig()
-
-    >>> # Initializing a model (with random weights) from the IDEA-Research/dab-detr-resnet-50 style configuration
-    >>> model = DabDetrModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "dab-detr"
     sub_configs = {"backbone_config": AutoConfig}
@@ -110,7 +56,6 @@ class DabDetrConfig(PreTrainedConfig):
     tie_word_embeddings: bool = True
 
     def __post_init__(self, **kwargs):
-        # Init timm backbone with hardcoded values for BC
         timm_default_kwargs = {
             "num_channels": 3,
             "features_only": True,
@@ -132,9 +77,7 @@ class DabDetrConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.query_dim != 4:
-            raise ValueError("The query dimensions has to be 4.")
+        pass
 
 
 __all__ = ["DabDetrConfig"]

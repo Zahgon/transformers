@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team and the AI-Sweden team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert GPT-SW3 megatron checkpoints to pytorch"""
 
 import argparse
 import os
@@ -23,14 +9,12 @@ from transformers import GPT2Config
 
 
 def recursive_print(name, val, spaces=0):
-    # Format the message.
     if name is None:
         msg = None
     else:
         fmt = "." * max(0, spaces - 2) + "# {:" + str(50 - spaces) + "s}"
         msg = fmt.format(name)
 
-    # Print and recurse (if needed).
     if isinstance(val, dict):
         if msg is not None:
             print(msg)
@@ -43,14 +27,7 @@ def recursive_print(name, val, spaces=0):
 
 
 def fix_query_key_value_ordering(param, num_splits, num_heads, hidden_size):
-    # Permutes layout of param tensor to [num_splits * num_heads * hidden_size, :]
-    # for compatibility with later versions of NVIDIA Megatron-LM.
-    # The inverse operation is performed inside Megatron-LM to read checkpoints:
-    # https://github.com/NVIDIA/Megatron-LM/blob/v2.4/megatron/checkpointing.py#L209
-    # If param is the weight tensor of the self-attention block, the returned tensor
-    # will have to be transposed one more time to be read by HuggingFace GPT2.
     input_shape = param.size()
-    # other versions store [num_heads * num_splits * hidden_size, :]
     saved_shape = (num_heads, num_splits, hidden_size) + input_shape[1:]
     param = param.view(*saved_shape)
     param = param.transpose(0, 1).contiguous()
@@ -107,7 +84,6 @@ def convert_megatron_checkpoint(sd_megatron, config):
         )
         sd_hf[f"transformer.h.{i}.mlp.c_proj.bias"] = sd_megatron[f"{pf}{i}.mlp.dense_4h_to_h.bias"]
 
-    # For LM head, transformers' wants the matrix to weight embeddings.
     sd_hf["lm_head.weight"] = word_embeddings
 
     return sd_hf
@@ -131,7 +107,6 @@ def copy_config(config_hf, config_megatron):
     config_hf.normalize_attention_scores = True
     config_hf.use_cache = True
 
-    # This identifies the 6.7B (7B) model which uses a different tokenizer
     if config_megatron["hidden_size"] == 4096:
         config_hf.bos_token_id = 1  # <|endoftext|>
         config_hf.eos_token_id = 1  # <|endoftext|>
@@ -152,10 +127,8 @@ def main(args):
     if isfile(checkpoint_path):
         raise FileNotFoundError(f"ERROR! could not find file {checkpoint_path}")
 
-    # Load the model.
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
 
-    # Load the config.
     config_megatron = checkpoint["hyper_parameters"]["cfg"]
     config_hf = GPT2Config()
     config_hf = copy_config(config_hf=config_hf, config_megatron=config_megatron)
@@ -163,21 +136,17 @@ def main(args):
 
     sd_megatron = checkpoint["state_dict"]
 
-    # Convert.
     print("Converting")
     sd_hf = convert_megatron_checkpoint(sd_megatron, config_hf)
 
-    # Print the structure of converted state dict.
     if args.print_checkpoint_structure:
         recursive_print(None, sd_hf)
 
     config_hf.tokenizer_class = "GPTSw3Tokenizer"
 
-    # Store the config to file.
     print("Saving config")
     config_hf.save_pretrained(save_path)
 
-    # Store the state_dict to file.
     output_checkpoint_file = os.path.join(save_path, "pytorch_model.bin")
     print(f'Saving checkpoint to "{output_checkpoint_file}"')
     torch.save(sd_hf, output_checkpoint_file)

@@ -1,46 +1,3 @@
-# Copyright 2026 EleutherAI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Convert OLMo Hybrid model checkpoints (with FLA layers) to HuggingFace format.
-
-This script handles OLMo Hybrid models that mix standard attention layers with
-linear attention (GatedDeltaNet) layers.
-
-UPDATED: Now aligned with the OLMo-core conversion script, including support for:
-- Configurable dtype (defaults to bfloat16)
-- Configurable max_sequence_length via CLI
-- Device selection
-
-Sample usage:
-
-```bash
-TRUST_REMOTE_CODE=True python src/transformers/models/olmo_hybrid/convert_olmo_hybrid_weights_to_hf.py \
-    --input_dir /path/to/downloaded/olmo_hybrid/weights \
-    --output_dir /output/path
-```
-
-Thereafter, models can be loaded via:
-
-```python
-from transformers import OlmoHybridForCausalLM, AutoTokenizer
-
-model = OlmoHybridForCausalLM.from_pretrained("/output/path")
-tokenizer = AutoTokenizer.from_pretrained("/output/path")
-```
-
-Important note: you need to be able to host the whole model in RAM to execute this script.
-"""
 
 from __future__ import annotations
 
@@ -67,7 +24,6 @@ from torch.futures import Future
 from transformers import AutoTokenizer, OlmoHybridConfig
 
 
-# Mapping from string dtype names to torch dtypes
 DTYPE_MAP = {
     "bfloat16": torch.bfloat16,
     "float16": torch.float16,
@@ -113,25 +69,15 @@ def generate_uuid() -> str:
 
 
 def get_bytes_range(path: Path | str, bytes_start: int, num_bytes: int) -> bytes:
-    with open(path, "rb") as f:
-        f.seek(bytes_start)
-        return f.read(num_bytes)
+    pass
 
 
 def _narrow_tensor_by_index(tensor: torch.Tensor, offsets: Sequence[int], sizes: Sequence[int]) -> torch.Tensor:
-    """
-    Narrow the tensor according to ``offsets`` and ``sizes``.
-    """
-    narrowed_tensor = tensor
-    for idx, (offset, size) in enumerate(zip(offsets, sizes)):
-        if size < tensor.size(idx):
-            narrowed_tensor = narrowed_tensor.narrow(idx, offset, size)
-    return narrowed_tensor
+    pass
 
 
 @dataclass
 class _StorageInfo:
-    """This is the per entry storage info."""
 
     relative_path: str
     offset: int
@@ -144,10 +90,6 @@ class _StoragePrefix:
 
 
 class RemoteFileSystemReader(dist_cp.StorageReader):
-    """
-    A :class:`~torch.distributed.checkpoint.StorageReader` based on :class:`~torch.distributed.checkpoint.FileSystemReader`
-    that can read data directly from cloud storage as well as a local directory.
-    """
 
     def __init__(
         self,
@@ -169,13 +111,10 @@ class RemoteFileSystemReader(dist_cp.StorageReader):
         self._metadata: Metadata | None = None
 
     def _get_bytes(self, relative_path: str, offset: int, length: int) -> bytes:
-        full_path = f"{self.path}/{relative_path}"
-        return get_bytes_range(full_path, offset, length)
+        pass
 
     def _get_content_for_read(self, read_item: ReadItem) -> tuple[ReadItem, bytes]:
-        sinfo = self.storage_data[read_item.storage_index]
-        content = self._get_bytes(sinfo.relative_path, sinfo.offset, sinfo.length)
-        return (read_item, content)
+        pass
 
     def reset(self, checkpoint_id: Path | str | None = None) -> None:
         self.storage_data = {}
@@ -184,104 +123,37 @@ class RemoteFileSystemReader(dist_cp.StorageReader):
         self.load_id = generate_uuid()
 
     def read_data(self, plan: dist_cp.LoadPlan, planner: dist_cp.LoadPlanner) -> Future[None]:
-        with ThreadPoolExecutor(max_workers=self.thread_count) as executor:
-            read_item_content_futures = []
-            for read_item in plan.items:
-                read_item_content_futures.append(executor.submit(self._get_content_for_read, read_item))
-            read_item_content_results = []
-            for f in as_completed(read_item_content_futures):
-                try:
-                    read_item_content_results.append(f.result())
-                except BaseException:
-                    raise RuntimeError(f"Original error:\n{traceback.format_exc()}")
-
-        for read_item, content in read_item_content_results:
-            bytes_io = io.BytesIO(content)
-            bytes_io.seek(0)
-            if read_item.type == LoadItemType.BYTE_IO:
-                planner.load_bytes(read_item, bytes_io)
-            else:
-                tensor = cast(torch.Tensor, torch.load(bytes_io, map_location="cpu", weights_only=False))
-                tensor = _narrow_tensor_by_index(tensor, read_item.storage_offsets, read_item.lengths)
-                target_tensor = planner.resolve_tensor(read_item).detach()
-
-                assert target_tensor.size() == tensor.size(), (
-                    f"req {read_item.storage_index} mismatch sizes {target_tensor.size()} vs {tensor.size()}"
-                )
-                target_tensor.copy_(tensor)
-                planner.commit_tensor(read_item, target_tensor)
-
-        fut: Future = Future()
-        fut.set_result(None)
-        return fut
+        pass
 
     def read_metadata(self) -> Metadata:
-        if self._metadata is None:
-            try:
-                if not strtobool(os.environ.get("TRUST_REMOTE_CODE", "False")):
-                    raise ValueError(
-                        "This part uses `pickle.load` which is insecure and will execute arbitrary code that is potentially "
-                        "malicious. It's recommended to never unpickle data that could have come from an untrusted source, or "
-                        "that could have been tampered with. If you already verified the pickle data and decided to use it, "
-                        "you can set the environment variable `TRUST_REMOTE_CODE` to `True` to allow it."
-                    )
-                with (Path(self.path) / ".metadata").open("rb") as metadata_file:
-                    metadata = restricted_load(metadata_file)
-            except FileNotFoundError as exc:
-                msg = f"'{self.path}' is not a distributed checkpoint folder."
-                suggested_dir = os.path.join(self.path, "model_and_optim")
-                if Path(os.path.join(suggested_dir, ".metadata")).exists():
-                    msg += f" Did you mean to use '{suggested_dir}'?"
-                raise FileNotFoundError(msg) from exc
-
-            if getattr(metadata, "storage_meta", None) is None:
-                metadata.storage_meta = StorageMeta()
-            metadata.storage_meta.load_id = self.load_id
-
-            self._metadata = metadata
-
-        return self._metadata
+        pass
 
     def set_up_storage_reader(self, metadata: Metadata, is_coordinator: bool) -> None:
-        del is_coordinator
-        self.storage_data = metadata.storage_data
-        assert self.storage_data is not None
+        pass
 
     def prepare_local_plan(self, plan: dist_cp.LoadPlan) -> dist_cp.LoadPlan:
-        return plan
+        pass
 
     def prepare_global_plan(self, global_plan: list[dist_cp.LoadPlan]) -> list[dist_cp.LoadPlan]:
-        return global_plan
+        pass
 
     @property
     def checkpoint_id(self) -> str:
-        return self.path
+        pass
 
     @classmethod
     def validate_checkpoint_id(cls, checkpoint_id: Path | str) -> bool:
-        del checkpoint_id
-        return True
+        pass
 
 
 class _RestrictedUnpickler(pickle.Unpickler):
-    """
-    Custom unpickler that handles missing olmo_core module references.
-    This allows loading checkpoints saved with olmo_core without having it installed.
-    """
 
     def find_class(self, module, name):
-        if module.startswith("torch"):
-            return super().find_class(module, name)
-        if module in ("collections", "builtins", "_collections_abc"):
-            return super().find_class(module, name)
-        if module.startswith("olmo_core"):
-            return super().find_class("builtins", "dict") if name == "dict" else type(name, (), {})
-        return super().find_class(module, name)
+        pass
 
 
 def restricted_loads(data):
-    """Load pickle data with restricted unpickler."""
-    return _RestrictedUnpickler(io.BytesIO(data)).load()
+    pass
 
 
 def restricted_load(file):
@@ -438,7 +310,6 @@ def write_model(
     if rope_config is not None:
         rope_theta = rope_config.get("theta", 500000.0)
 
-        # Build unified rope_parameters dict
         rope_parameters = {"rope_theta": rope_theta}
 
         rope_scaling_config = rope_config.get("scaling")
@@ -452,8 +323,6 @@ def write_model(
     else:
         rope_parameters = None
 
-    # Resolve max_position_embeddings with priority:
-    # CLI arg > train_module.max_sequence_length > dataset.sequence_length > fallback
     if max_sequence_length is None:
         max_sequence_length = olmo_config.get("train_module", {}).get("max_sequence_length")
     if max_sequence_length is None:
@@ -493,7 +362,6 @@ def write_model(
         param_count += sum(v.numel() for v in layer_state.values())
         print(f"Converted layer {layer_i} ({layer_type})")
 
-    # Add embeddings and lm_head
     full_state_dict["model.embed_tokens.weight"] = loaded["embeddings.weight"]
     full_state_dict["model.norm.weight"] = loaded["lm_head.norm.weight"]
     full_state_dict["lm_head.weight"] = loaded["lm_head.w_out.weight"]
@@ -501,8 +369,6 @@ def write_model(
         v.numel() for v in [loaded["embeddings.weight"], loaded["lm_head.norm.weight"], loaded["lm_head.w_out.weight"]]
     )
 
-    # Cast all tensors to target dtype (matches OLMo-core behavior which casts everything,
-    # including buffers like A_log and dt_bias)
     full_state_dict = {k: v.to(dtype) if torch.is_tensor(v) else v for k, v in full_state_dict.items()}
 
     print(f"Total parameters: {param_count}")
@@ -533,12 +399,8 @@ def write_model(
         config.rope_parameters = None
         config.rope_theta = None
 
-    # Explicitly set architectures (normally set by model.save_pretrained, but we
-    # save directly without the model roundtrip)
     config.architectures = ["OlmoHybridForCausalLM"]
 
-    # Save config and weights directly (no from_pretrained roundtrip, which can
-    # corrupt embeddings and fail to cast buffers like A_log)
     config.save_pretrained(model_path)
 
     from safetensors.torch import save_file
@@ -556,7 +418,6 @@ def write_model(
         if tokenizer_id:
             _write_tokenizer(model_path, tokenizer_id, max_sequence_length, tokenizer_config)
 
-    # Update config with tokenizer info
     hf_config_path = Path(model_path) / "config.json"
     with open(hf_config_path, "r") as f:
         config_dict = json.load(f)

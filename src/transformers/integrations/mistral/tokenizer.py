@@ -1,18 +1,4 @@
-# Copyright 2026 Mistral AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Conversion between Mistral tekken tokenizers and HuggingFace tokenizer formats."""
 
 import base64
 import json
@@ -36,7 +22,6 @@ _MAP_SPECIALS = {
 
 
 class MistralConverter:
-    """Converter from Mistral tekken BPE vocab to a HuggingFace `tokenizers.Tokenizer`."""
 
     def __init__(self, vocab_file: str, add_prefix_space: bool = False, **kwargs):
         """Parse a raw `tekken.json` file into a ready-to-use converter.
@@ -56,7 +41,6 @@ class MistralConverter:
 
         special_tokens_dicts = untyped.get("special_tokens")
         if special_tokens_dicts is None:
-            # Old tekken format has no special_tokens key; use mistral-common's defaults.
             requires_backends(self, ["mistral-common"])
             from mistral_common.tokens.tokenizers.tekken import Tekkenizer
 
@@ -79,7 +63,6 @@ class MistralConverter:
 
         additional_special_tokens = [AddedToken(entry["token_str"], special=True) for entry in special_tokens_dicts]
 
-        # Drop padded vocab: keep only the real tokens (matches mistral-common).
         bpe_ranks_raw = untyped["vocab"]
         if vocab_size is not None:
             inner_vocab_size = vocab_size - num_special_tokens

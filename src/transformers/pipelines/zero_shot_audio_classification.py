@@ -1,16 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections import UserDict
 from typing import Any
 
@@ -30,34 +17,6 @@ logger = logging.get_logger(__name__)
 
 @add_end_docstrings(build_pipeline_init_args(has_feature_extractor=True, has_tokenizer=True))
 class ZeroShotAudioClassificationPipeline(Pipeline):
-    """
-    Zero shot audio classification pipeline using `ClapModel`. This pipeline predicts the class of an audio when you
-    provide an audio and a set of `candidate_labels`.
-
-    <Tip warning={true}>
-
-    The default `hypothesis_template` is : `"This is a sound of {}."`. Make sure you update it for your usage.
-
-    </Tip>
-
-    Example:
-    ```python
-    >>> from transformers import pipeline
-    >>> from datasets import load_dataset
-
-    >>> dataset = load_dataset("ashraq/esc50")
-    >>> audio = next(iter(dataset["train"]["audio"]))["array"]
-    >>> classifier = pipeline(task="zero-shot-audio-classification", model="laion/clap-htsat-unfused")
-    >>> classifier(audio, candidate_labels=["Sound of a dog", "Sound of vacuum cleaner"])
-    [{'score': 0.9996, 'label': 'Sound of a dog'}, {'score': 0.0004, 'label': 'Sound of vacuum cleaner'}]
-    ```
-
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial) This audio
-    classification pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"zero-shot-audio-classification"`. See the list of available models on
-    [huggingface.co/models](https://huggingface.co/models?filter=zero-shot-audio-classification).
-    """
 
     _load_processor = False
     _load_image_processor = False
@@ -104,8 +63,6 @@ class ZeroShotAudioClassificationPipeline(Pipeline):
     def preprocess(self, audio, candidate_labels=None, hypothesis_template="This is a sound of {}."):
         if isinstance(audio, str):
             if audio.startswith("http://") or audio.startswith("https://"):
-                # We need to actually check for a real protocol, otherwise it's impossible to use a local file
-                # like http_huggingface_co.png
                 audio = httpx.get(audio, follow_redirects=True).content
             else:
                 with open(audio, "rb") as f:
@@ -135,7 +92,6 @@ class ZeroShotAudioClassificationPipeline(Pipeline):
         if isinstance(text_inputs[0], UserDict):
             text_inputs = text_inputs[0]
         else:
-            # Batching case.
             text_inputs = text_inputs[0][0]
 
         outputs = self.model(**text_inputs, **model_inputs)

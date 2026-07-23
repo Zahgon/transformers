@@ -1,24 +1,9 @@
-# Copyright 2025 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""AutoVideoProcessor class."""
 
 import importlib
 import os
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
-# Build the list of all video processors
 from ...configuration_utils import PreTrainedConfig
 from ...dynamic_module_utils import get_class_from_dynamic_module, resolve_trust_remote_code
 from ...utils import (
@@ -47,11 +32,8 @@ logger = logging.get_logger(__name__)
 
 
 if TYPE_CHECKING:
-    # This significantly improves completion suggestion performance when
-    # the transformers package is used with Microsoft's Pylance language server.
     VIDEO_PROCESSOR_MAPPING_NAMES: OrderedDict[str, tuple[str | None, str | None]] = OrderedDict()
 else:
-    # Merge non-standard mapping names with auto-inferred `VIDEO_PROCESSOR_MAPPING_NAMES`
     MISSING_VIDEO_PROCESSOR_MAPPING_NAMES = OrderedDict(
         [
             ("cosmos3_omni", "Qwen3VLVideoProcessor"),
@@ -72,7 +54,6 @@ else:
 for model_type, video_processors in VIDEO_PROCESSOR_MAPPING_NAMES.items():
     fast_video_processor_class = video_processors
 
-    # If the torchvision is not available, we set it to None
     if not is_torchvision_available():
         fast_video_processor_class = None
 
@@ -96,8 +77,6 @@ def video_processor_class_from_name(class_name: str):
         if getattr(extractor, "__name__", None) == class_name:
             return extractor
 
-    # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
-    # init and we return the proper dummy to get an appropriate error message.
     main_module = importlib.import_module("transformers")
     if hasattr(main_module, class_name):
         return getattr(main_module, class_name)
@@ -170,7 +149,6 @@ def get_video_processor_config(
     video_processor.save_pretrained("video-processor-test")
     video_processor = get_video_processor_config("video-processor-test")
     ```"""
-    # Load with a priority given to the nested processor config, if available in repo
     resolved_processor_file = cached_file(
         pretrained_model_name_or_path,
         filename=PROCESSOR_NAME,
@@ -205,14 +183,10 @@ def get_video_processor_config(
     ]
     resolved_video_processor_file = resolved_video_processor_files[0] if resolved_video_processor_files else None
 
-    # An empty list if none of the possible files is found in the repo
     if not resolved_video_processor_file and not resolved_processor_file:
         logger.info("Could not locate the video processor configuration file.")
         return {}
 
-    # Load video_processor dict. Priority goes as (nested config if found -> video processor config -> image processor config)
-    # We are downloading both configs because almost all models have a `processor_config.json` but
-    # not all of these are nested. We need to check if it was saved recebtly as nested or if it is legacy style
     video_processor_dict = {}
     if resolved_processor_file is not None:
         processor_dict = safe_load_json_file(resolved_processor_file)
@@ -227,12 +201,6 @@ def get_video_processor_config(
 
 @requires(backends=("vision", "torchvision"))
 class AutoVideoProcessor:
-    r"""
-    This is a generic video processor class that will be instantiated as one of the video processor classes of the
-    library when created with the [`AutoVideoProcessor.from_pretrained`] class method.
-
-    This class cannot be instantiated directly using `__init__()` (throws an error).
-    """
 
     def __init__(self):
         raise OSError(
@@ -320,22 +288,17 @@ class AutoVideoProcessor:
         if "AutoVideoProcessor" in config_dict.get("auto_map", {}):
             video_processor_auto_map = config_dict["auto_map"]["AutoVideoProcessor"]
 
-        # If we still don't have the video processor class, check if we're loading from a previous image processor config
-        # and if so, infer the video processor class from there.
         if video_processor_class is None and video_processor_auto_map is None:
             image_processor_class = config_dict.pop("image_processor_type", None)
             if image_processor_class is not None:
                 video_processor_class_inferred = image_processor_class.replace("ImageProcessor", "VideoProcessor")
 
-                # Some models have different image processors, e.g. InternVL uses GotOCRImageProcessor
-                # We cannot use GotOCRVideoProcessor when falling back for BC and should try to infer from config later on
                 if video_processor_class_from_name(video_processor_class_inferred) is not None:
                     video_processor_class = video_processor_class_inferred
             if "AutoImageProcessor" in config_dict.get("auto_map", {}):
                 image_processor_auto_map = config_dict["auto_map"]["AutoImageProcessor"]
                 video_processor_auto_map = image_processor_auto_map.replace("ImageProcessor", "VideoProcessor")
 
-        # If we don't find the video processor class in the video processor config, let's try the model config.
         if video_processor_class is None:
             try:
                 if not isinstance(config, PreTrainedConfig):
@@ -343,13 +306,10 @@ class AutoVideoProcessor:
                         pretrained_model_name_or_path, trust_remote_code=trust_remote_code, **kwargs
                     )
 
-                # It could be in `config.video_processor_type``
                 video_processor_class = getattr(config, "video_processor_type", None)
                 if hasattr(config, "auto_map") and "AutoVideoProcessor" in config.auto_map:
                     video_processor_auto_map = config.auto_map["AutoVideoProcessor"]
             except ValueError:
-                # Config loading failed (unrecognized model_type, invalid config, etc.)
-                # Continue to fallback logic below (AutoTokenizer, AutoImageProcessor, etc.)
                 pass
 
         if video_processor_class is not None:
@@ -377,13 +337,11 @@ class AutoVideoProcessor:
             return video_processor_class.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
         elif video_processor_class is not None:
             return video_processor_class.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
-        # Last try: we use the VIDEO_PROCESSOR_MAPPING.
         elif type(config) in VIDEO_PROCESSOR_MAPPING:
             video_processor_class = VIDEO_PROCESSOR_MAPPING[type(config)]
             if video_processor_class is not None:
                 return video_processor_class.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
 
-        # Raise a more informative error message if torchvision isn't found, otherwise just fallback to default
         if not is_torchvision_available():
             raise ValueError(
                 f"{pretrained_model_name_or_path} requires `torchvision` to be installed. Please install `torchvision` and try again."

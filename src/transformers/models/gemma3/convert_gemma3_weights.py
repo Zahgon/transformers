@@ -1,27 +1,4 @@
-# Copyright 2025 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-r"""Utility to convert Gemma models from Orbax to HF Transformers checkpoint.
-
-python src/transformers/models/gemma3/convert_gemma3_weights.py \
-    --variant='gemma3_4b' \
-    --tokenizer_path="$HOME/gemma3/tokenizer/gemma3_cleaned_262144_v2.spiece.model" \
-    --checkpoint_path="$HOME/gemma3/gemma3_4b_pt_orbax/" \
-    --output_path="$HOME/gemma3/gemma3_4b_pt_safetensors/"
-    --include_vision_encoder
-"""
 
 from collections.abc import Iterator, Sequence
 from typing import Any
@@ -49,7 +26,6 @@ from transformers.image_utils import PILImageResampling
 from transformers.tokenization_utils_sentencepiece import SentencePieceExtractor
 
 
-# ==== Internal Constants and Classes ====
 
 
 _CHAT_TEMPLATE = """{{ bos_token }}
@@ -246,7 +222,6 @@ _VARIANTS = {
     ),
 }
 
-# ==== Flags ====
 
 _CHAT_TEMPLATE_PATH = flags.DEFINE_string(
     name="chat_template_path",
@@ -439,11 +414,9 @@ def convert_transformer_weights(
 
     if path.endswith(_TRANSFORMER_EMBEDDER):
         if prop == "input_embedding":
-            # Tied to language_model.lm_head.weight, assigned at the end.
             converted_paths = ["model.language_model.embed_tokens.weight"]
 
             if _INCLUDE_VISION_ENCODER.value:
-                # Gemma3 model doesn't have image soft token in input and output embeddings, resize to avoid bugs we had with Mllama
                 pre_expansion_embeddings = weights
                 mu = np.mean(pre_expansion_embeddings, axis=0)
                 sigma = np.cov(pre_expansion_embeddings, rowvar=False, bias=True)
@@ -566,16 +539,9 @@ def convert(
         else:
             for path, weights in convert_transformer_weights(config=config.text_config, paths=paths, weights=value):
                 if not _INCLUDE_VISION_ENCODER.value:
-                    # Paths generated during weights conversion assume it is targeting a Gemma3ForConditionalGeneration
-                    # model, which has a Gemma3TextModel at "model.language_model". If _INCLUDE_VISION_ENCODER.value is
-                    # False, then this is targeting a Gemma3ForCausalLM, which has its Gemma3TextModel at "model", so
-                    # the "language_model." portion of the path needs to be removed prior to calling load_state_dict().
                     path = path.replace("language_model.", "")
 
                 if variant == _VARIANT_EMBEDDINGGEMMA:
-                    # EmbeddingGemma only the Gemma3TextModel instead of an LLM of VLM class for loading weights, and
-                    # defers final model construction to SentenceTransformers, so the "model." portion of the path
-                    # needs to be removed prior to calling load_state_dict().
                     path = path[len("model.") :]
 
                 update_tree(path, weights, config.text_config.dtype)
@@ -606,8 +572,6 @@ def main(*args):
         config.vision_config = None
 
     if _INCLUDE_CHAT_TEMPLATE.value:
-        # Chat template is included for instruction tuned models, which treat
-        # both "<eos>" and "<end_of_turn>" as generation stoppers.
         config.eos_token_id = [1, 106]
 
     logging.info(
@@ -695,11 +659,6 @@ def main(*args):
     if variant == _VARIANT_EMBEDDINGGEMMA:
         from sentence_transformers import SentenceTransformer, models
 
-        # TODO: Support Retrieval tasks where we use `"title: {title} | text: {passage}"` internally and construct this
-        # from split-records cached data, but externally these come through as a single string with components
-        # separated by a newline. This should be used for `passage` for SentenceTransformers and the relevant MTEB
-        # Retrieval tasks.
-        # https://github.com/embeddings-benchmark/mteb/blob/main/docs/usage/usage.md#running-sentencetransformer-model-with-prompts
         task_prompts = {
             "query": "task: search result | query: ",
             "document": "title: none | text: ",

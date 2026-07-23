@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from ..utils import PushToHubMixin
 
@@ -43,7 +30,6 @@ def infer_device(model):
 
     dev_type = param.device.type
     if dev_type == "cuda":
-        # Refine based on actual platform
         from ..utils import is_torch_available
 
         if is_torch_available():
@@ -97,9 +83,6 @@ def add_to_mapping_local(layer_name, device, repo_name, mode, compatible_mapping
 
 
 class KernelConfig(PushToHubMixin):
-    """
-    Kernel configuration class. This class is used to configure the kernel mapping for a model.
-    """
 
     def __init__(self, kernel_mapping=None, use_local_kernel=False):
         self.kernel_mapping = kernel_mapping if kernel_mapping is not None else {}
@@ -109,19 +92,7 @@ class KernelConfig(PushToHubMixin):
     def update_kernel(
         self, repo_id, registered_name, layer_name, device, mode, revision=None, version=1, trust_remote_code=False
     ):
-        from kernels import LayerRepository
-
-        self.kernel_mapping[registered_name] = {
-            device: {
-                mode: LayerRepository(
-                    repo_id=repo_id,
-                    layer_name=layer_name,
-                    revision=revision,
-                    version=version,
-                    trust_remote_code=trust_remote_code,
-                )
-            }
-        }
+        pass
 
     def store_registered_layer_names(self, model):
         for name, module in model.named_modules():
@@ -191,7 +162,6 @@ class KernelConfig(PushToHubMixin):
         }
         """
         self.store_registered_layer_names(model)
-        # Validate that the kernel mapping is a dict
         if not isinstance(self.kernel_mapping, dict):
             raise ValueError(
                 f"Kernel mapping must be a dict of the following format: {MAPPING_FORMAT}, got: {type(self.kernel_mapping)}"
@@ -214,7 +184,6 @@ class KernelConfig(PushToHubMixin):
                     if not skip_device_check and device not in ["cuda", "rocm", "xpu", "npu", "neuron", "tpu"]:
                         raise ValueError(f"Only cuda, rocm, xpu, npu, neuron and tpu devices supported, got: {device}")
 
-                    # Check case where metadata (revision/version/trust_remote_code) is explicitly passed
                     if isinstance(repo, tuple):
                         repo_name, metadata = repo
 
@@ -300,7 +269,6 @@ class KernelConfig(PushToHubMixin):
         compatible_mapping = {}
         current_device = infer_device(model)
         for layer_name, kernel in self.kernel_mapping.items():
-            # Infer Mode: use Mode.TRAINING if model is training, else use Mode.INFERENCE
             mode = Mode.TRAINING if model.training else Mode.INFERENCE
             if compile:
                 mode = mode | Mode.TORCH_COMPILE
@@ -316,7 +284,6 @@ class KernelConfig(PushToHubMixin):
                     add_to_mapping_local(layer_name, device, repo, mode, compatible_mapping)
                     continue
 
-                # Infer metadata (revision/version/trust_remote_code)
                 if isinstance(repo, tuple):
                     repo_name, metadata = repo
                     revision = metadata.get("revision", None)

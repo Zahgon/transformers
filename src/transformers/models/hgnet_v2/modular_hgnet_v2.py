@@ -1,16 +1,3 @@
-# Copyright 2025 Baidu Inc and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from collections.abc import Sequence
@@ -36,47 +23,9 @@ from ...utils.generic import can_return_tuple
 from ..rt_detr.modeling_rt_detr_resnet import RTDetrResNetConvLayer
 
 
-# TODO: Modular conversion for resnet must be fixed as
-# it provides incorrect import for configuration like resnet_resnet
 @auto_docstring(checkpoint="ustc-community/dfine_x_coco")
 @strict
 class HGNetV2Config(BackboneConfigMixin, PreTrainedConfig):
-    r"""
-    stem_channels (`list[int]`, *optional*, defaults to `[3, 32, 48]`):
-        Channel dimensions for the stem layers:
-        - First number (3) is input image channels
-        - Second number (32) is intermediate stem channels
-        - Third number (48) is output stem channels
-    stem_strides (`Sequence[int | list[int] | tuple[int, ...]]`, *optional*, defaults to `(2, 1, 1, 2, 1)`):
-        Stride patterns for the stem layers.
-    stage_in_channels (`list[int]`, *optional*, defaults to `[48, 128, 512, 1024]`):
-        Input channel dimensions for each stage of the backbone.
-        This defines how many channels the input to each stage will have.
-    stage_mid_channels (`list[int]`, *optional*, defaults to `[48, 96, 192, 384]`):
-        Mid-channel dimensions for each stage of the backbone.
-        This defines the number of channels used in the intermediate layers of each stage.
-    stage_out_channels (`list[int]`, *optional*, defaults to `[128, 512, 1024, 2048]`):
-        Output channel dimensions for each stage of the backbone.
-        This defines how many channels the output of each stage will have.
-    stage_num_blocks (`list[int]`, *optional*, defaults to `[1, 1, 3, 1]`):
-        Number of blocks to be used in each stage of the backbone.
-        This controls the depth of each stage by specifying how many convolutional blocks to stack.
-    stage_downsample (`list[bool]`, *optional*, defaults to `[False, True, True, True]`):
-        Indicates whether to downsample the feature maps at each stage.
-        If `True`, the spatial dimensions of the feature maps will be reduced.
-    stage_downsample_strides (`Sequence[int | list[int] | tuple[int, ...]]`, *optional*, defaults to `(2, 2, 2, 2)`):
-        Stride patterns for each stage layer.
-    stage_light_block (`list[bool]`, *optional*, defaults to `[False, False, True, True]`):
-        Indicates whether to use light blocks in each stage.
-        Light blocks are a variant of convolutional blocks that may have fewer parameters.
-    stage_kernel_size (`list[int]`, *optional*, defaults to `[3, 3, 5, 5]`):
-        Kernel sizes for the convolutional layers in each stage.
-    stage_numb_of_layers (`list[int]`, *optional*, defaults to `[6, 6, 6, 6]`):
-        Number of layers to be used in each block of the stage.
-    use_learnable_affine_block (`bool`, *optional*, defaults to `False`):
-        Whether to use Learnable Affine Blocks (LAB) in the network.
-        LAB adds learnable scale and bias parameters after certain operations.
-    """
 
     model_type = "hgnet_v2"
 
@@ -110,21 +59,9 @@ class HGNetV2Config(BackboneConfigMixin, PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if not (
-            len(self.stage_in_channels)
-            == len(self.stage_mid_channels)
-            == len(self.stage_out_channels)
-            == len(self.stage_num_blocks)
-            == len(self.stage_downsample)
-            == len(self.stage_light_block)
-            == len(self.stage_kernel_size)
-            == len(self.stage_numb_of_layers)
-        ):
-            raise ValueError("All stage configuration lists must have the same length.")
+        pass
 
 
-# General docstring
 
 
 @auto_docstring
@@ -137,7 +74,6 @@ class HGNetV2PreTrainedModel(PreTrainedModel):
 
     def _init_weights(self, module):
         super()._init_weights(module)
-        # We need to check it like that as d_fine models replace the BatchNorm2d by their own
         if "BatchNorm" in module.__class__.__name__:
             init.ones_(module.weight)
             init.zeros_(module.bias)
@@ -318,7 +254,6 @@ class HGNetV2BasicLayer(nn.Module):
                 )
             self.layers.append(block)
 
-        # feature aggregation
         total_channels = in_channels + layer_num * middle_channels
         aggregation_squeeze_conv = HGNetV2ConvLayer(
             total_channels,
@@ -439,7 +374,6 @@ class HGNetV2Backbone(BackboneMixin, HGNetV2PreTrainedModel):
         self.embedder = HGNetV2Embeddings(config)
         self.encoder = HGNetV2Encoder(config)
 
-        # initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -516,10 +450,8 @@ class HGNetV2ForImageClassification(HGNetV2PreTrainedModel):
         self.flatten = nn.Flatten()
         self.fc = nn.Linear(config.hidden_sizes[-1], config.num_labels) if config.num_labels > 0 else nn.Identity()
 
-        # classification head
         self.classifier = nn.ModuleList([self.avg_pool, self.flatten])
 
-        # initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

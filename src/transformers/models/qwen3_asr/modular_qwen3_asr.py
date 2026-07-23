@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import torch
 import torch.nn.functional as F
@@ -43,18 +30,6 @@ from ..voxtral.modeling_voxtral import VoxtralMultiModalProjector
 @auto_docstring(checkpoint="Qwen/Qwen3-ASR-1.7B-hf")
 @strict
 class Qwen3ASREncoderConfig(Qwen3OmniMoeAudioEncoderConfig):
-    r"""
-    n_window (`int`, *optional*, defaults to 50):
-        Half the number of mel frames in one encoder chunk. Each chunk processed by the conv stack has
-        ``2 * n_window`` mel frames (1 second of audio at 16 kHz with a 10 ms hop).
-    output_dim (`int`, *optional*, defaults to 3584):
-        Dimensionality of the output.
-    n_window_infer (`int`, *optional*, defaults to 800):
-        Number of mel frames worth of audio over which each attention window spans. Must be a multiple
-        of ``n_window * 2`` so attention windows align with encoder chunks.
-    downsample_hidden_size (`int`, *optional*, defaults to 480):
-        Hidden size of the convolutional downsampling stack.
-    """
 
     model_type = "qwen3_asr_encoder"
     encoder_layers: int = 24
@@ -69,29 +44,6 @@ class Qwen3ASREncoderConfig(Qwen3OmniMoeAudioEncoderConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3-ASR-1.7B-hf")
 @strict
 class Qwen3ASRConfig(PreTrainedConfig):
-    r"""
-    audio_token_id (`int`, *optional*, defaults to 151676):
-        The audio token id to encode the audio prompt.
-    timestamp_token_id (`int`, *optional*, defaults to 151705):
-        Token ID of the ``<timestamp>`` marker in the tokenizer vocabulary. These markers
-        delimit word boundaries in the forced-alignment input sequence.
-    token_classification_bias (`bool`, *optional*, defaults to False):
-        Whether the token classification head for forced alignment should have a bias term.
-
-    Example:
-
-    ```python
-    >>> from transformers import Qwen3ASRForConditionalGeneration, Qwen3ASRConfig
-
-    >>> # Initializing a Qwen3ASR style configuration
-    >>> configuration = Qwen3ASRConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = Qwen3ASRForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qwen3_asr"
     sub_configs = {"audio_config": AutoConfig, "text_config": AutoConfig}
@@ -199,7 +151,6 @@ class Qwen3ASREncoder(Qwen3OmniMoeAudioEncoder):
 
         num_chunks = padded_feature_length // chunk_len
 
-        # Compute cu_seqlens for windowed attention
         feature_lens = input_features_mask.sum(-1).to(torch.long)
         chunk_lengths = (
             input_features_mask.view(batch_size, num_chunks, chunk_len).sum(dim=-1).reshape(-1).to(torch.long)
@@ -209,7 +160,6 @@ class Qwen3ASREncoder(Qwen3OmniMoeAudioEncoder):
         )
         max_seqlen = get_max_seqlen(cu_seqlens, self.config, kwargs=kwargs)
 
-        # Chunk and process through CNN
         chunked = (
             input_features.view(batch_size, num_mel_bins, num_chunks, chunk_len)
             .permute(0, 2, 1, 3)
@@ -225,7 +175,6 @@ class Qwen3ASREncoder(Qwen3OmniMoeAudioEncoder):
         )
         conv_out += self.positional_embedding.positional_embedding[:time_steps].to(conv_out.dtype)
 
-        # Select only valid (non-padding) post-CNN positions into a flat packed sequence
         chunk_post_cnn_lens = self._post_cnn_length(
             input_features_mask.view(batch_size, num_chunks, chunk_len).sum(dim=-1).reshape(-1).to(torch.long)
         )

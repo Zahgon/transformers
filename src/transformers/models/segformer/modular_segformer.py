@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from collections.abc import Callable
@@ -82,7 +69,6 @@ class SegformerImageProcessor(BeitImageProcessor):
         data = {}
         data["pixel_values"] = self._preprocess(images, **images_kwargs)
 
-        # Prepare segmentation maps if provided
         if segmentation_maps is not None:
             processed_segmentation_maps = self._prepare_image_like_inputs(
                 images=segmentation_maps,
@@ -96,7 +82,6 @@ class SegformerImageProcessor(BeitImageProcessor):
                 {
                     "do_normalize": False,
                     "do_rescale": False,
-                    # Nearest resample is used for segmentation maps instead of BILINEAR.
                     "resample": tvF.InterpolationMode.NEAREST_EXACT,
                 }
             )
@@ -104,7 +89,6 @@ class SegformerImageProcessor(BeitImageProcessor):
                 images=processed_segmentation_maps, **segmentation_maps_kwargs
             )
 
-            # Convert to int64 and squeeze channel dimension
             processed_segmentation_maps = [
                 processed_segmentation_map.squeeze(0).to(torch.int64)
                 for processed_segmentation_map in processed_segmentation_maps
@@ -131,7 +115,6 @@ class SegformerImageProcessor(BeitImageProcessor):
         if do_reduce_labels:
             images = self.reduce_label(images)  # Apply reduction if needed
 
-        # Group images by size for batched resizing
         resized_images = images
         if do_resize:
             grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
@@ -141,12 +124,9 @@ class SegformerImageProcessor(BeitImageProcessor):
                 resized_images_grouped[shape] = resized_stacked_images
             resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing (rescale/normalize)
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -189,7 +169,6 @@ class SegformerImageProcessorPil(BeitImageProcessorPil):
         data = {}
         data["pixel_values"] = self._preprocess(images, **images_kwargs)
 
-        # Prepare segmentation maps if provided
         if segmentation_maps is not None:
             processed_segmentation_maps = self._prepare_image_like_inputs(
                 images=segmentation_maps,
@@ -203,7 +182,6 @@ class SegformerImageProcessorPil(BeitImageProcessorPil):
                 {
                     "do_normalize": False,
                     "do_rescale": False,
-                    # Nearest resample is used for segmentation maps instead of BILINEAR.
                     "resample": tvF.InterpolationMode.NEAREST_EXACT,
                 }
             )
@@ -211,7 +189,6 @@ class SegformerImageProcessorPil(BeitImageProcessorPil):
                 images=processed_segmentation_maps, **segmentation_maps_kwargs
             )
 
-            # Convert to int64 and squeeze channel dimension
             processed_segmentation_maps = [
                 processed_segmentation_map.squeeze(0).astype(np.int64)
                 for processed_segmentation_map in processed_segmentation_maps
@@ -252,22 +229,6 @@ class SegformerImageProcessorPil(BeitImageProcessorPil):
 
 @auto_docstring
 class SegFormerImageClassifierOutput(ImageClassifierOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Classification (or regression if config.num_labels==1) loss.
-    logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Classification (or regression if config.num_labels==1) scores (before SoftMax).
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
-        one for the output of each stage) of shape `(batch_size, num_channels, height, width)`. Hidden-states (also
-        called feature maps) of the model at the output of each stage.
-    attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, patch_size,
-        sequence_length)`.
-
-        Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
-        heads.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -276,7 +237,6 @@ class SegFormerImageClassifierOutput(ImageClassifierOutput):
 
 
 class SegformerOverlapPatchEmbeddings(nn.Module):
-    """Overlapping patch embeddings via strided convolution with symmetric padding."""
 
     def __init__(self, patch_size, stride, num_channels, hidden_size):
         super().__init__()
@@ -298,11 +258,6 @@ class SegformerOverlapPatchEmbeddings(nn.Module):
 
 
 class SegformerSequenceReduction(nn.Module):
-    """Spatially reduces key/value tokens via a strided convolution.
-
-    Projects the sequence from (B, H*W, C) → (B, H'*W', C) where H' = H / sr_ratio.
-    This reduces the O(N²) attention cost of the original sequence.
-    """
 
     def __init__(self, hidden_size: int, sequence_reduction_ratio: int):
         super().__init__()
@@ -313,7 +268,6 @@ class SegformerSequenceReduction(nn.Module):
 
     def forward(self, hidden_states: torch.Tensor, height: int, width: int) -> torch.Tensor:
         batch_size, seq_len, num_channels = hidden_states.shape
-        # (B, N, C) → (B, C, H, W) → strided conv → (B, C, H', W') → (B, H'W', C)
         hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, num_channels, height, width)
         hidden_states = self.sequence_reduction(hidden_states)
         hidden_states = hidden_states.reshape(batch_size, num_channels, -1).transpose(1, 2)
@@ -322,18 +276,11 @@ class SegformerSequenceReduction(nn.Module):
 
 
 class SegformerAttention(ViTAttention):
-    """Efficient self-attention where keys/values are spatially reduced via strided convolution.
-
-    Introduced in [PvT](https://huggingface.co/papers/2102.12122): queries attend to the full
-    sequence while key/value tokens are downsampled, reducing the O(N²) attention cost.
-    """
 
     def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio):
         super().__init__(config)
-        # Override with per-stage dimensions: each Segformer stage has varying hidden sizes
         self.num_attention_heads = num_attention_heads
         self.head_dim = hidden_size // num_attention_heads
-        # No qkv_bias in Segformer (unlike ViT)
         self.q_proj = nn.Linear(hidden_size, num_attention_heads * self.head_dim)
         self.k_proj = nn.Linear(hidden_size, num_attention_heads * self.head_dim)
         self.v_proj = nn.Linear(hidden_size, num_attention_heads * self.head_dim)
@@ -385,7 +332,6 @@ class SegformerAttention(ViTAttention):
 
 
 class SegformerDepthWiseConv(nn.Module):
-    """Depthwise convolution used in the Mix-FFN to implicitly encode positional information."""
 
     def __init__(self, dim=768):
         super().__init__()
@@ -400,11 +346,6 @@ class SegformerDepthWiseConv(nn.Module):
 
 
 class SegformerMixMLP(nn.Module):
-    """Mix-FFN: fc1 → DWConv → activation → fc2.
-
-    The depthwise convolution implicitly encodes positional information, replacing the explicit
-    position embedding used in standard ViT/BeiT MLPs.
-    """
 
     def __init__(self, config, in_features, hidden_features=None, out_features=None):
         super().__init__()
@@ -430,7 +371,6 @@ class SegformerDropPath(SwinDropPath):
 
 
 class SegformerLayer(GradientCheckpointingLayer):
-    """Transformer block with DropPath on both branches and a MixFFN instead of a plain MLP."""
 
     def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
         super().__init__()
@@ -468,12 +408,10 @@ class SegformerLayer(GradientCheckpointingLayer):
 
 
 class SegformerStage(nn.Module):
-    """One encoder stage: OverlapPatchEmbeddings → SegformerLayer blocks → LayerNorm."""
 
     def __init__(self, config, stage_idx: int, drop_path_decays: list[float]):
         super().__init__()
         depth_start = sum(config.depths[:stage_idx])
-        # All stages reshape to (B, C, H, W); only the last stage skips it when reshape_last_stage=False.
         self.reshape = stage_idx < config.num_encoder_blocks - 1 or config.reshape_last_stage
         self.patch_embeddings = SegformerOverlapPatchEmbeddings(
             patch_size=config.patch_sizes[stage_idx],
@@ -516,7 +454,6 @@ class SegformerStage(nn.Module):
 class SegformerPreTrainedModel(ViTPreTrainedModel):
     _no_split_modules = ["SegformerStage"]
     _can_record_outputs = {
-        # capture_initial_hidden_state=False: stage 0's input is raw pixel values, not a meaningful embedding.
         "hidden_states": OutputRecorder(SegformerStage, capture_initial_hidden_state=False),
         "attentions": SegformerAttention,
     }
@@ -567,10 +504,8 @@ class SegformerForImageClassification(SegformerPreTrainedModel):
         self.num_labels = config.num_labels
         self.segformer = SegformerModel(config)
 
-        # Classifier head
         self.classifier = nn.Linear(config.hidden_sizes[-1], config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -591,14 +526,11 @@ class SegformerForImageClassification(SegformerPreTrainedModel):
 
         sequence_output = outputs.last_hidden_state
 
-        # convert last hidden states to (batch_size, height*width, hidden_size)
         batch_size = sequence_output.shape[0]
         if self.config.reshape_last_stage:
-            # (batch_size, num_channels, height, width) -> (batch_size, height, width, num_channels)
             sequence_output = sequence_output.permute(0, 2, 3, 1)
         sequence_output = sequence_output.reshape(batch_size, -1, self.config.hidden_sizes[-1])
 
-        # global average pooling
         sequence_output = sequence_output.mean(dim=1)
 
         logits = self.classifier(sequence_output)
@@ -616,7 +548,6 @@ class SegformerForImageClassification(SegformerPreTrainedModel):
 
 
 class SegformerMLP(nn.Module):
-    """Projects each encoder stage's feature map to a common `decoder_hidden_size`."""
 
     def __init__(self, config: SegformerConfig, input_dim):
         super().__init__()
@@ -631,13 +562,11 @@ class SegformerMLP(nn.Module):
 class SegformerDecodeHead(nn.Module):
     def __init__(self, config):
         super().__init__()
-        # linear layers which will unify the channel dimension of each of the encoder blocks to the same config.decoder_hidden_size
         linear_projections = []
         for stage_idx in range(config.num_encoder_blocks):
             linear_projections.append(SegformerMLP(config, input_dim=config.hidden_sizes[stage_idx]))
         self.linear_projections = nn.ModuleList(linear_projections)
 
-        # the following 3 layers implement the ConvModule of the original implementation
         self.linear_fuse = nn.Conv2d(
             in_channels=config.decoder_hidden_size * config.num_encoder_blocks,
             out_channels=config.decoder_hidden_size,
@@ -663,12 +592,10 @@ class SegformerDecodeHead(nn.Module):
                     encoder_hidden_state.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
                 )
 
-            # unify channel dimension
             height, width = encoder_hidden_state.shape[2], encoder_hidden_state.shape[3]
             encoder_hidden_state = linear_proj(encoder_hidden_state)
             encoder_hidden_state = encoder_hidden_state.transpose(1, 2)
             encoder_hidden_state = encoder_hidden_state.reshape(batch_size, -1, height, width)
-            # upsample
             encoder_hidden_state = nn.functional.interpolate(
                 encoder_hidden_state, size=encoder_hidden_states[0].size()[2:], mode="bilinear", align_corners=False
             )
@@ -679,7 +606,6 @@ class SegformerDecodeHead(nn.Module):
         hidden_states = self.activation(hidden_states)
         hidden_states = self.dropout(hidden_states)
 
-        # logits are of shape (batch_size, num_labels, height/4, width/4)
         logits = self.classifier(hidden_states)
 
         return logits
@@ -696,7 +622,6 @@ class SegformerForSemanticSegmentation(SegformerPreTrainedModel):
         self.segformer = SegformerModel(config)
         self.decode_head = SegformerDecodeHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -737,7 +662,6 @@ class SegformerForSemanticSegmentation(SegformerPreTrainedModel):
         if labels is not None and self.config.num_labels < 1:
             raise ValueError(f"Number of labels should be >=0: {self.config.num_labels}")
 
-        # The decode head always needs all stage outputs, so force hidden_states on internally.
         outputs = self.segformer(pixel_values, **kwargs)
 
         encoder_hidden_states = outputs.hidden_states
@@ -746,7 +670,6 @@ class SegformerForSemanticSegmentation(SegformerPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # upsample logits to the images' original size
             upsampled_logits = nn.functional.interpolate(
                 logits, size=labels.shape[-2:], mode="bilinear", align_corners=False
             )

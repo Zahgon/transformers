@@ -1,17 +1,3 @@
-# Copyright (C) 2025 THL A29 Limited, a Tencent company and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch HunYuanDenseV1 model."""
 
 from collections.abc import Callable
 
@@ -120,7 +106,6 @@ class HunYuanDenseV1PreTrainedModel(LlamaPreTrainedModel, PreTrainedModel):
     def _init_weights(self, module):
         PreTrainedModel._init_weights(self, module)
 
-        # DynamicNTKAlphaRotary - unique to this model
         if "RotaryEmbedding" in module.__class__.__name__ and hasattr(module, "original_inv_freq"):
             if module.rope_type == "dynamic" and module.config.rope_parameters.get("alpha"):
                 dim = module.config.head_dim
@@ -150,7 +135,6 @@ class HunYuanDenseV1RotaryEmbedding(LlamaRotaryEmbedding):
 
         self.rope_type = self.config.rope_parameters["rope_type"]
 
-        # Diff from Llama - DynamicNTKAlphaRotary
         if self.rope_type == "dynamic" and self.config.rope_parameters.get("alpha"):
             self.dim = config.head_dim
             base = self.config.rope_parameters["rope_theta"] * self.config.rope_parameters["alpha"] ** (

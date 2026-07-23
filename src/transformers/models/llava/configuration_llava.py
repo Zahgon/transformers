@@ -1,16 +1,3 @@
-# Copyright 2023 Microsoft Research & University of Wisconsin-Madison and the HuggingFace Inc. team. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Llava model configuration"""
 
 from typing import Literal
 
@@ -24,27 +11,6 @@ from ..auto import CONFIG_MAPPING, AutoConfig
 @auto_docstring(checkpoint="llava-hf/llava-1.5-7b-hf")
 @strict
 class LlavaConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import LlavaForConditionalGeneration, LlavaConfig, CLIPVisionConfig, LlamaConfig
-
-    >>> # Initializing a CLIP-vision config
-    >>> vision_config = CLIPVisionConfig()
-
-    >>> # Initializing a Llama config
-    >>> text_config = LlamaConfig()
-
-    >>> # Initializing a Llava llava-1.5-7b style configuration
-    >>> configuration = LlavaConfig(vision_config, text_config)
-
-    >>> # Initializing a model from the llava-1.5-7b style configuration
-    >>> model = LlavaForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "llava"
     attribute_map = {
@@ -84,9 +50,6 @@ class LlavaConfig(PreTrainedConfig):
         elif self.text_config is None:
             self.text_config = CONFIG_MAPPING["llama"]()
 
-        # The default value is `False` but this config is used with many model types
-        # Attr `tie_word_embeddings` was saved in text config for those models, so we
-        # need an ugly workaround and forward-pass the attr from text config
         if not self.tie_word_embeddings and self.text_config.tie_word_embeddings:
             self.tie_word_embeddings = self.text_config.tie_word_embeddings
 

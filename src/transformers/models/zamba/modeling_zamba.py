@@ -1,22 +1,3 @@
-# Copyright 2024 Zyphra Technologies and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Zamba model."""
 
 import math
 from collections.abc import Callable
@@ -45,7 +26,6 @@ from .configuration_zamba import ZambaConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRMSNorm with Llama->Zamba
 class ZambaRMSNorm(nn.Module):
     def __init__(self, hidden_size, eps: float = 1e-6) -> None:
         """
@@ -63,10 +43,9 @@ class ZambaRMSNorm(nn.Module):
         return self.weight * hidden_states.to(input_dtype)
 
     def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
+        pass
 
 
-# Copied from transformers.models.llama.modeling_llama.repeat_kv
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -105,18 +84,6 @@ def eager_attention_forward(
 
 
 class ZambaAttention(nn.Module):
-    """
-    Multi-headed attention from 'Attention Is All You Need' paper. Modified to use sliding window attention: Longformer
-    and "Generating Long Sequences with Sparse Transformers".
-
-    Adapted from transformers.models.mistral.modeling_mistral.MistralAttention:
-    The input dimension here is attention_hidden_size = 2 * hidden_size, and head_dim = attention_hidden_size // num_heads.
-    The extra factor of 2 comes from the input being the concatenation of original_hidden_states with the output of the previous (mamba) layer
-    (see fig. 2 in https://huggingface.co/papers/2405.16712).
-    Additionally, replaced
-    attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim) with
-    attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim/2)
-    """
 
     def __init__(self, config: ZambaConfig, layer_idx: int):
         super().__init__()
@@ -175,17 +142,6 @@ class ZambaAttention(nn.Module):
 
 
 class ZambaMambaMixer(nn.Module):
-    """
-    Compute ∆, A, B, C, and D the state space parameters and compute the `contextualized_states`.
-    A, D are input independent (see Mamba paper [1] Section 3.5.2 "Interpretation of A" for why A isn't selective)
-    ∆, B, C are input-dependent (this is a key difference between Mamba and the linear time invariant S4,
-    and is why Mamba is called **selective** state spaces)
-
-    This module differs from `transformers.models.mamba.modeling_mamba.MambaMixer` in two ways:
-    - Added multi-head: the output of `self.in_proj` is split into `self.n_mamba_heads` heads, and each head
-    undergoes an independent forward pass, identical to the original `MambaMixer`, up until the pre-activations of
-    `self.out_proj`. The pre-activations, coming from different mamba heads, are then concatenated and fed into `self.out_proj`.
-    """
 
     def __init__(self, config: ZambaConfig, layer_idx):
         super().__init__()
@@ -214,10 +170,7 @@ class ZambaMambaMixer(nn.Module):
 
         self.use_fast_kernels = config.use_mamba_kernels
 
-        # projection of the input hidden states
         self.in_proj = nn.Linear(self.hidden_size, self.intermediate_size * 2, bias=self.use_bias)
-        # weight associated to the selective projection used to make dt, B and C input dependent
-        # each mamba head is processed independently
         self.x_proj_weight = nn.Parameter(
             torch.zeros(
                 self.n_mamba_heads,
@@ -225,7 +178,6 @@ class ZambaMambaMixer(nn.Module):
                 self.mamba_head_dim,
             )
         )
-        # time step projection (discretization)
         self.dt_proj_weight = nn.Parameter(
             (torch.zeros(self.n_mamba_heads, self.mamba_head_dim, self.time_step_rank) - 0.5)
             * 2
@@ -233,8 +185,6 @@ class ZambaMambaMixer(nn.Module):
         )
         self.dt_proj_bias = nn.Parameter(torch.zeros(self.n_mamba_heads, self.mamba_head_dim))
 
-        # S4D real initialization. These are not discretized!
-        # The core is to load them, compute the discrete states, then write the updated state. Keeps the memory bounded
         A = torch.arange(1, self.ssm_state_size + 1, dtype=torch.float32)[None, :]
         A = A.expand(self.intermediate_size, -1).contiguous()
         self.A_log = nn.Parameter(torch.log(A).reshape(self.n_mamba_heads, self.mamba_head_dim, -1))
@@ -276,7 +226,6 @@ class ZambaMambaMixer(nn.Module):
             cache_params is not None and cache_params.has_previous_state(self.layer_idx) and seq_len == 1
         )
 
-        # 1. Gated linear projection
         projected_states = self.in_proj(hidden_states).transpose(1, 2)
 
         hidden_states, gate = projected_states.view(batch_size, -1, 2, seq_len).chunk(2, dim=2)
@@ -284,7 +233,6 @@ class ZambaMambaMixer(nn.Module):
         gate = gate.squeeze(2)
         gate = gate.reshape(batch_size, self.n_mamba_heads, -1, seq_len).transpose(0, 1)
 
-        # 2. Convolution sequence transformation
         conv_weights = self.conv1d.weight.view(self.conv1d.weight.size(0), self.conv1d.weight.size(2))
         if use_precomputed_states:
             hidden_states = causal_conv1d_update(
@@ -307,8 +255,6 @@ class ZambaMambaMixer(nn.Module):
             if attention_mask is not None and not torch.all(attention_mask == 1):
                 hidden_states = hidden_states * attention_mask.unsqueeze(1)
 
-        # 3. SSM sequence transformation
-        # 3.a. input varying initialization of time_step, B and C
 
         hidden_states = hidden_states.reshape(-1, self.n_mamba_heads, self.mamba_head_dim, seq_len).transpose(0, 1)
         ssm_parameters = (self.x_proj_weight[:, None, :, :] @ hidden_states).transpose(-1, -2)
@@ -321,7 +267,6 @@ class ZambaMambaMixer(nn.Module):
 
         A = -torch.exp(self.A_log.float())
 
-        # 3.c perform the recurrence y ← SSM(A, B, C)(x)
         time_proj_bias = self.dt_proj_bias.float() if self.dt_proj_bias is not None else None
         scan_outputs = torch.empty((batch_size, 0, seq_len), device=hidden_states.device, dtype=hidden_states.dtype)
 
@@ -365,14 +310,12 @@ class ZambaMambaMixer(nn.Module):
             if ssm_state is not None and cache_params is not None:
                 cache_params.update_recurrent_state(ssm_state, self.layer_idx)
 
-        # 4. Final linear projection
         contextualized_states = self.out_proj(scan_outputs.transpose(1, 2))
         return contextualized_states
 
     def slow_forward(self, input_states, cache_params: Cache | None = None, attention_mask=None):
         batch_size, seq_len, _ = input_states.shape
         dtype = input_states.dtype
-        # 1. Gated linear projection
         projected_states = self.in_proj(input_states).transpose(1, 2)
 
         hidden_states, gate = projected_states.view(batch_size, -1, 2, seq_len).chunk(2, dim=2)
@@ -381,7 +324,6 @@ class ZambaMambaMixer(nn.Module):
         gate = gate.reshape(batch_size, self.n_mamba_heads, -1, seq_len).transpose(0, 1)
 
         if cache_params is not None and cache_params.has_previous_state(self.layer_idx):
-            # In training mode, we don't want to perform in-place operations on ssm_state so we can compute the backwards pass
             ssm_state = cache_params.layers[self.layer_idx].recurrent_states[0].clone()
         else:
             ssm_state = torch.zeros(
@@ -390,7 +332,6 @@ class ZambaMambaMixer(nn.Module):
                 dtype=dtype,
             )
 
-        # 2. Convolution sequence transformation
         if cache_params is not None:
             if cache_params.has_previous_state(self.layer_idx) and seq_len == 1:
                 conv_state = cache_params.update_conv_state(hidden_states, self.layer_idx)[
@@ -415,8 +356,6 @@ class ZambaMambaMixer(nn.Module):
             if attention_mask is not None:
                 hidden_states = hidden_states * attention_mask.unsqueeze(1)
 
-        # 3. State Space Model sequence transformation
-        # 3.a. Selection:  [batch, seq_len, self.time_step_rank + self.ssm_state_size * 2]
         hidden_states = hidden_states.reshape(-1, self.n_mamba_heads, self.mamba_head_dim, seq_len).transpose(0, 1)
         ssm_parameters = (self.x_proj_weight[:, None, :, :] @ hidden_states).transpose(-1, -2)
 
@@ -429,12 +368,10 @@ class ZambaMambaMixer(nn.Module):
 
         discrete_time_step = nn.functional.softplus(discrete_time_step)
 
-        # 3.b. Discretization: B and C to [batch, seq_len, intermediate_size, ssm_state_size] (SRAM)
         A = -torch.exp(self.A_log.float())
         discrete_A = torch.exp(A[:, None, :, None, :] * discrete_time_step[:, :, :, :, None])
         discrete_B = discrete_time_step[:, :, :, :, None] * B[:, :, None, :, :].float()
         deltaB_u = discrete_B * hidden_states[:, :, :, :, None].float()
-        # 3.c perform the recurrence y ← SSM(A, B, C)(x)
         scan_outputs = []
         for i in range(seq_len):
             ssm_state = discrete_A[:, :, :, i, :].transpose(0, 1) * ssm_state + deltaB_u[:, :, :, i, :].transpose(0, 1)
@@ -447,7 +384,6 @@ class ZambaMambaMixer(nn.Module):
         if cache_params is not None:
             cache_params.update_recurrent_state(ssm_state, self.layer_idx)
 
-        # 4. Final linear projection
         contextualized_states = self.out_proj(
             scan_output.transpose(0, 1).reshape(batch_size, -1, seq_len).transpose(1, 2)
         )
@@ -469,7 +405,6 @@ class ZambaMambaMixer(nn.Module):
         return self.slow_forward(hidden_states, cache_params, attention_mask=attention_mask)
 
 
-# Copied from transformers.models.mistral.modeling_mistral.MistralMLP with Mistral->Zamba
 class ZambaMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -530,7 +465,6 @@ class ZambaAttentionDecoderLayer(nn.Module):
             use_cache=use_cache,
             **kwargs,
         )
-        # feed-forward (MLP)
         hidden_states = self.pre_ff_layernorm(hidden_states)
         hidden_states = self.feed_forward(hidden_states)
 
@@ -570,8 +504,6 @@ class ZambaMambaDecoderLayer(GradientCheckpointingLayer):
 
         residual = hidden_states
 
-        # `transformer_hidden_states` is the output from shared transformer + linear layer (see fig. 2 in https://huggingface.co/papers/2405.16712).
-        # `transformer_hidden_states` is then added to the input to the mamba layer below (as described in eq. (6) of https://huggingface.co/papers/2405.16712).
         hidden_states = (
             hidden_states + transformer_hidden_states if transformer_hidden_states is not None else hidden_states
         )
@@ -583,7 +515,6 @@ class ZambaMambaDecoderLayer(GradientCheckpointingLayer):
             attention_mask=attention_mask,
             **kwargs,
         )
-        # residual connection after mamba
         hidden_states = residual + hidden_states
 
         return hidden_states
@@ -674,7 +605,6 @@ class ZambaPreTrainedModel(PreTrainedModel):
                 * (math.log(self.config.time_step_max) - math.log(self.config.time_step_min))
                 + math.log(self.config.time_step_min)
             ).clamp(min=self.config.time_step_floor)
-            # # Inverse of softplus: https://github.com/pytorch/pytorch/issues/72759
             inv_dt = dt + torch.log(-torch.expm1(-dt))
             init.copy_(module.dt_proj_bias, inv_dt)
 
@@ -686,12 +616,6 @@ class ZambaPreTrainedModel(PreTrainedModel):
 
 @auto_docstring
 class ZambaModel(ZambaPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`ZambaDecoderLayer`]
-
-    Args:
-        config: ZambaConfig
-    """
 
     def __init__(self, config: ZambaConfig):
         super().__init__(config)
@@ -718,7 +642,6 @@ class ZambaModel(ZambaPreTrainedModel):
         self.final_layernorm = ZambaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -745,7 +668,6 @@ class ZambaModel(ZambaPreTrainedModel):
         hidden_states = inputs_embeds
 
         original_hidden_states = torch.clone(inputs_embeds)
-        # original_hidden_states: word embedding output that will be concatenated with hidden activations to form the input of the shared transformer layer
 
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache(config=self.config)
@@ -783,7 +705,6 @@ class ZambaModel(ZambaPreTrainedModel):
         )
 
 
-# Adapted from transformers.models.jamba.modeling_jamba.JambaForCausalLM with Jamba->Zamba, JAMBA->ZAMBA
 class ZambaForCausalLM(ZambaPreTrainedModel, GenerationMixin):
     _tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}
 
@@ -793,7 +714,6 @@ class ZambaForCausalLM(ZambaPreTrainedModel, GenerationMixin):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -843,7 +763,6 @@ class ZambaForCausalLM(ZambaPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -911,7 +830,6 @@ class ZambaForSequenceClassification(ZambaPreTrainedModel):
         self.model = ZambaModel(config)
         self.score = nn.Linear(config.hidden_size, self.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -955,7 +873,6 @@ class ZambaForSequenceClassification(ZambaPreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)

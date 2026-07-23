@@ -1,17 +1,3 @@
-# Copyright 2025 Baidu and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Ernie4.5-VL model."""
 
 import itertools
 from collections.abc import Callable
@@ -91,10 +77,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="baidu/ERNIE-4.5-VL-28B-A3B-PT")
 @strict
 class Ernie4_5_VLMoeVisionConfig(Qwen2VLVisionConfig):
-    r"""
-    temporal_merge_size (`int`, *optional*, defaults to 2):
-        The size used for merge along the temporal dimension.
-    """
 
     model_type = "ernie4_5_vl_moe_vision"
 
@@ -118,20 +100,6 @@ class Ernie4_5_VLMoeVisionConfig(Qwen2VLVisionConfig):
 @auto_docstring(checkpoint="baidu/ERNIE-4.5-VL-28B-A3B-PT")
 @strict
 class Ernie4_5_VLMoeTextConfig(Ernie4_5_MoeConfig):
-    r"""
-    use_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use a bias in any of the projections including mlp and attention for example
-    moe_k (`int`, *optional*, defaults to 6):
-        Number of selected experts.
-    moe_num_experts (`int`, *optional*, defaults to 64):
-        Number of routed experts.
-    moe_num_shared_experts (`int`, *optional*, defaults to 2):
-        The number of experts that are shared for all MoE forwards.
-    moe_norm_min (`float`, *optional*, defaults to 1e-12):
-        Minimum division value during routing normalization.
-    mlp_layer_types (`list`, *optional*):
-        MLP (Moe vs Dense) pattern for each layer.
-    """
 
     model_type = "ernie4_5_vl_moe_text"
     base_config_key = "text_config"
@@ -172,34 +140,6 @@ class Ernie4_5_VLMoeTextConfig(Ernie4_5_MoeConfig):
 @auto_docstring(checkpoint="baidu/ERNIE-4.5-VL-28B-A3B-PT")
 @strict
 class Ernie4_5_VLMoeConfig(PreTrainedConfig):
-    r"""
-    image_start_token_id (`int`, *optional*, defaults to 101304):
-        The image token index to encode the start of image.
-    image_end_token_id (`int`, *optional*, defaults to 101305):
-        The image token index to encode the end of image.
-    image_token_id (`int`, *optional*, defaults to 100295):
-        The image token index to encode the image prompt.
-    video_start_token_id (`int`, *optional*, defaults to 101306):
-        The video token index to encode the start of video.
-    video_end_token_id (`int`, *optional*, defaults to 101307):
-        The video token index to encode the end of video.
-    video_token_id (`int`, *optional*, defaults to 103367):
-        The video token index to encode the video prompt.
-
-    Example:
-
-    ```python
-    >>> from transformers import Ernie4_5_VLMoeForConditionalGeneration, Ernie4_5_VLMoeConfig
-
-    >>> # Initializing a Ernie4_5_VLMoe style configuration
-    >>> configuration = Ernie4_5_VLMoeConfig()
-
-    >>> # Initializing a model from the Ernie 4.5 VL 28B A3B configuration
-    >>> model = Ernie4_5_VLMoeForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "ernie4_5_vl_moe"
     sub_configs = {"vision_config": Ernie4_5_VLMoeVisionConfig, "text_config": Ernie4_5_VLMoeTextConfig}
@@ -274,18 +214,15 @@ class Ernie4_5_VLMoeTextRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
 
-        # Special to ernie, we prerotate on the hw dim
         mrope_section = config.rope_parameters.get("mrope_section", [22, 22, 20])
         hw_dim = mrope_section[0] + mrope_section[1]
         t_dim = mrope_section[2]
 
         inv_freq_3d = torch.empty_like(inv_freq)
-        # (Pre-)Rotate to avoid another rotation during the forward
         inv_freq_3d[:hw_dim] = torch.cat([inv_freq[:-t_dim][0::2], inv_freq[:-t_dim][1::2]])
         inv_freq_3d[-t_dim:] = inv_freq[-t_dim:]
 
@@ -400,18 +337,10 @@ class Ernie4_5_VLMoeSparseMoeBlock(nn.Module):
         router_logits, top_k_weights, top_k_index = self.gate(hidden_states)
         final_hidden_states = self.experts(hidden_states, top_k_index, top_k_weights)
 
-        # moe results are changed to a flattened shape to ease the modality isolated assigning of results
         return final_hidden_states.flatten(), router_logits.flatten()
 
 
 class Ernie4_5_VLMoeMoeBlock(nn.Module):
-    """
-    Similar to `Ernie4_5_Moe` where we have modality isolated experts:
-        - A set of text experts that are only run on text tokens
-        - A set of vision experts that are only run on vision (image/video) tokens
-
-    This modality isolation is unique to the Ernie 4.5 VL Moe models.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -433,7 +362,6 @@ class Ernie4_5_VLMoeMoeBlock(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
 
-        # (Optional) shared experts
         if self.shared_experts is not None:
             shared_output = self.shared_experts(hidden_states)
 
@@ -445,12 +373,10 @@ class Ernie4_5_VLMoeMoeBlock(nn.Module):
                 dtype=torch.float,
             )
 
-            # True (1 or 2) == vision, False (0) == text tokens
             moe_mm_token_type_ids = moe_mm_token_type_ids.bool()
             token_type_ids_router = moe_mm_token_type_ids.reshape(-1)[:, None].expand(-1, self.num_experts)
             token_type_ids_states = moe_mm_token_type_ids[..., None].expand(-1, -1, hidden_dim)
 
-            # Run moe on each modality and assign their results to the original token positions
             final_hidden_states[~token_type_ids_states], router_logits[~token_type_ids_router] = self.text_moe(
                 hidden_states[~token_type_ids_states]
             )
@@ -462,7 +388,6 @@ class Ernie4_5_VLMoeMoeBlock(nn.Module):
             final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
             router_logits = router_logits.reshape(-1, self.num_experts)
 
-        # Add (optional) shared experts to the result
         if self.shared_experts is not None:
             final_hidden_states = final_hidden_states + shared_output
 
@@ -498,7 +423,6 @@ class Ernie4_5_VLMoeDecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             position_embeddings=position_embeddings,
@@ -509,7 +433,6 @@ class Ernie4_5_VLMoeDecoderLayer(GradientCheckpointingLayer):
         )
         hidden_states = hidden_states + residual
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         if isinstance(self.mlp, Ernie4_5_VLMoeMoeBlock):
@@ -595,7 +518,6 @@ class Ernie4_5_VLMoeTextModel(Ernie4_5_MoeModel):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # the hard coded `3` is for temporal, height and width.
         if position_ids is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
@@ -603,17 +525,10 @@ class Ernie4_5_VLMoeTextModel(Ernie4_5_MoeModel):
         elif position_ids.ndim == 2:
             position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
 
-        # NOTE: we need to pass text position ids for packing. Ernie 4.5 VL uses 3D positions
-        # where each dim indicates visual spatial positions for temporal/height/width grids.
-        # There are is only one scenario when FA2-like packed masking might be activated.
-        # 1. User specifically passed packed `position_ids` and no attention mask.
-        #    In this case we expect the user to create correct position ids for all 3 grids
-        #    and prepend text-only position ids to it. The final tensor will be [4, bs, seq-len]
         if position_ids.ndim == 3 and position_ids.shape[0] == 4:
             text_position_ids = position_ids[0]
             position_ids = position_ids[1:]
         else:
-            # If inputs are not packed (usual 3D positions), do not prepare mask from position_ids
             text_position_ids = None
 
         attention_mask = create_causal_mask(
@@ -626,7 +541,6 @@ class Ernie4_5_VLMoeTextModel(Ernie4_5_MoeModel):
 
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
@@ -755,9 +669,7 @@ class Ernie4_5_VLMoeVariableResolutionResamplerModel(nn.Module):
         self.spatial_merge_size = config.vision_config.spatial_merge_size
         self.temporal_merge_size = config.vision_config.temporal_merge_size
 
-        # compress 2d conv(picture) to 1d
         self.spatial_dim = self.in_dim * self.spatial_merge_size**2
-        # compress 3d conv(video) to 1d
         self.temporal_dim = self.in_dim * self.spatial_merge_size**2 * self.temporal_merge_size
 
         self.spatial_linear = Ernie4_5_VLMoeVisionMLP(config, self.spatial_dim, self.spatial_dim)
@@ -781,11 +693,9 @@ class Ernie4_5_VLMoeVariableResolutionResamplerModel(nn.Module):
 
         NOTE: This is hard-coded for `temporal_merge_size == 2` and won't work otherwise.
         """
-        # Calculating offsets on spatial dim (based on flattened tensors)
         grid_t, grid_hw = grid_thw[:, 0], grid_thw[:, 1:]
         grid_hw_after_conv = grid_hw.prod(-1) // (self.spatial_merge_size**2)
 
-        # Calculating offsets on batch dim (based on flattened tensors)
         tokens_per_img_or_vid = (grid_thw.prod(-1) // (self.spatial_merge_size**2)).flatten()
         batch_offsets = torch.empty(tokens_per_img_or_vid.size(), dtype=tokens_per_img_or_vid.dtype)
         batch_offsets[0] = 0
@@ -794,9 +704,6 @@ class Ernie4_5_VLMoeVariableResolutionResamplerModel(nn.Module):
         first_slice_offsets = []
         second_slice_offsets = []
         for temporal_size, spatial_size, batch_offset in zip(grid_t, grid_hw_after_conv, batch_offsets):
-            # Depending on temporal, we may interleave:
-            #   - Images have temporal == 1 --> same offsets (duplicate "frame" image)
-            #   - Videos have temporal > 1 --> different offsets (even, odd)
             first_offset_range = range(0, temporal_size, 2)
             second_offset_range = range(1 if temporal_size > 1 else 0, temporal_size, 2)
 
@@ -814,13 +721,9 @@ class Ernie4_5_VLMoeVariableResolutionResamplerModel(nn.Module):
                     )
                 )
 
-        # Input: [1, -1, 2, -2, 3, -3] or [1]
-        # Indices: [0, 2, 4] (even) or [0] (duplicate)
         first_slice_offsets = torch.cat(first_slice_offsets, dim=-1).to(hidden_states.device)
-        # Indices: [1, 3, 5] (odd) or [0] (duplicate)
         second_slice_offsets = torch.cat(second_slice_offsets, dim=-1).to(hidden_states.device)
 
-        # Output: [1, 2, 3, -1, -2, -3] or [1, 1]
         return torch.concat(
             [
                 torch.index_select(hidden_states, dim=0, index=first_slice_offsets),
@@ -830,16 +733,12 @@ class Ernie4_5_VLMoeVariableResolutionResamplerModel(nn.Module):
         )
 
     def forward(self, hidden_states, grid_thw):
-        # image spatial
-        # reshape imitates convolution via linear projection
         hidden_states = hidden_states.reshape([-1, hidden_states.shape[-1] * (self.spatial_merge_size**2)])
         hidden_states = self.spatial_linear(hidden_states)
 
-        # video temporal
         hidden_states = self._temporal_slicing(hidden_states, grid_thw)
         hidden_states = self.temporal_linear(hidden_states)
 
-        # final mlp
         hidden_states = self.mlp(hidden_states)
         hidden_states = self.after_norm(hidden_states)
 
@@ -938,14 +837,12 @@ class Ernie4_5_VLMoeModel(Qwen2VLModel):
             current_pos = 0
             llm_pos_ids_list = []
             for modality_type, start_idx, end_idx in input_type_group:
-                # text == 0
                 if modality_type == 0:
                     text_len = end_idx - start_idx
                     llm_pos_ids_list.append(
                         torch.arange(text_len, device=input_ids.device).view(1, -1).expand(3, -1) + current_pos
                     )
                     current_pos += text_len
-                # image == 1, video == 2
                 else:
                     grid_thw = next(grid_iters[modality_type])
                     t_merge_size = 1 if modality_type == 1 else temporal_merge_size
@@ -1192,7 +1089,6 @@ class Ernie4_5_VLMoeForConditionalGeneration(Glm4vForConditionalGeneration, Gene
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -1223,14 +1119,7 @@ class Ernie4_5_VLMoeForConditionalGeneration(Glm4vForConditionalGeneration, Gene
 
 
 class Ernie4_5_VLMoeImageProcessorKwargs(Glm4vImageProcessorKwargs):
-    r"""
-    patch_size (`int`, *optional*, defaults to 14):
-        The spatial patch size of the vision encoder.
-    temporal_patch_size (`int`, *optional*):
-        The temporal patch size of the vision encoder. Unused in the image processor, only used for videos.
-    merge_size (`int`, *optional*, defaults to 2):
-        The merge size of the vision encoder to llm encoder.
-    """
+    pass
 
 
 class Ernie4_5_VLMoeImageProcessorPil(Glm4vImageProcessorPil):
@@ -1275,13 +1164,11 @@ class Ernie4_5_VLMoeImageProcessorPil(Glm4vImageProcessorPil):
                     resample=resample,
                 )
 
-            # Rescale and normalize
             if do_rescale:
                 image = self.rescale(image, rescale_factor)
             if do_normalize:
                 image = self.normalize(image, image_mean, image_std)
 
-            # Ensure float32 for patch processing
             image_array = np.asarray(image, dtype=np.float32)
             if image_array.ndim == 3:  # (C, H, W)
                 image_array = np.expand_dims(image_array, axis=0)  # (1, C, H, W)
@@ -1303,8 +1190,6 @@ class Ernie4_5_VLMoeImageProcessorPil(Glm4vImageProcessorPil):
                 merge_size,
                 patch_size,
             )
-            # Reorder dimensions to group grid and patch information for subsequent flattening.
-            # [batch, grid_t, grid_h/merge, grid_w/merge, merge, merge, channel, patch, patch]
             patches = np.transpose(patches, (0, 1, 3, 6, 4, 7, 2, 5, 8))
 
             flatten_patches = patches.reshape(
@@ -1313,11 +1198,9 @@ class Ernie4_5_VLMoeImageProcessorPil(Glm4vImageProcessorPil):
                 channel * patch_size * patch_size,
             )
 
-            # Remove batch dimension and append: shape is (seq_len, hidden_dim)
             processed_images.append(flatten_patches.squeeze(0))
             processed_grids.append([grid_t, grid_h, grid_w])
 
-        # Concatenate all images along sequence dimension: (total_seq_len, hidden_dim)
         pixel_values = np.concatenate(processed_images, axis=0)
         image_grid_thw = np.array(processed_grids)
 
@@ -1326,33 +1209,7 @@ class Ernie4_5_VLMoeImageProcessorPil(Glm4vImageProcessorPil):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None):
-        """
-        A utility that returns number of image patches for a given image size.
-
-        Note: Do not remove this method! It is used by vLLM to infer the number of patches and placeholders
-        without an image input.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`, *optional*)
-                Any kwargs to override defaults of the image processor.
-        Returns:
-            `int`: Number of image patches per image.
-        """
-        min_pixels = self.size["shortest_edge"]
-        max_pixels = self.size["longest_edge"]
-        patch_size = images_kwargs.get("patch_size", self.patch_size)
-        merge_size = images_kwargs.get("merge_size", self.merge_size)
-
-        factor = patch_size * merge_size
-        resized_height, resized_width = smart_resize(
-            height, width, factor, min_pixels=min_pixels, max_pixels=max_pixels
-        )
-        grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
-        return grid_h * grid_w
+        pass
 
 
 class Ernie4_5_VLMoeImageProcessor(Glm4vImageProcessor):
@@ -1376,7 +1233,6 @@ class Ernie4_5_VLMoeImageProcessor(Glm4vImageProcessor):
         return_tensors: str | TensorType | None,
         **kwargs,
     ):
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -1397,14 +1253,11 @@ class Ernie4_5_VLMoeImageProcessor(Glm4vImageProcessor):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         processed_grids = {}
         for shape, stacked_images in grouped_images.items():
             resized_height, resized_width = stacked_images.shape[-2:]
-            # Fused rescale and normalize
             patches = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -1422,8 +1275,6 @@ class Ernie4_5_VLMoeImageProcessor(Glm4vImageProcessor):
                 merge_size,
                 patch_size,
             )
-            # Reorder dimensions to group grid and patch information for subsequent flattening.
-            # [batch, grid_h/merge, grid_w/merge, merge, merge, channel, patch, patch]
             patches = patches.permute(0, 2, 5, 3, 6, 1, 4, 7)
 
             flatten_patches = patches.reshape(
@@ -1445,36 +1296,9 @@ class Ernie4_5_VLMoeImageProcessor(Glm4vImageProcessor):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None):
-        """
-        A utility that returns number of image patches for a given image size.
-
-        Note: Do not remove this method! It is used by vLLM to infer the number of patches and placeholders
-        without an image input.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`, *optional*)
-                Any kwargs to override defaults of the image processor.
-        Returns:
-            `int`: Number of image patches per image.
-        """
-        min_pixels = self.size["shortest_edge"]
-        max_pixels = self.size["longest_edge"]
-        patch_size = images_kwargs.get("patch_size", self.patch_size)
-        merge_size = images_kwargs.get("merge_size", self.merge_size)
-
-        factor = patch_size * merge_size
-        resized_height, resized_width = smart_resize(
-            height, width, factor, min_pixels=min_pixels, max_pixels=max_pixels
-        )
-        grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
-        return grid_h * grid_w
+        pass
 
 
-# Keep aliases for BC
 class Ernie4_5_VL_MoeForConditionalGeneration(Ernie4_5_VLMoeForConditionalGeneration):
     def __init__(self, *args, **kwargs):
         logger.warning_once(

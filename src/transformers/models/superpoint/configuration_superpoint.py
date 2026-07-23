@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -22,33 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="magic-leap-community/superpoint")
 @strict
 class SuperPointConfig(PreTrainedConfig):
-    r"""
-    encoder_hidden_sizes (`List`, *optional*, defaults to `[64, 64, 128, 128]`):
-        The number of channels in each convolutional layer in the encoder.
-    keypoint_decoder_dim (`int`, *optional*, defaults to 65):
-        The output dimension of the keypoint decoder.
-    descriptor_decoder_dim (`int`, *optional*, defaults to 256):
-        The output dimension of the descriptor decoder.
-    keypoint_threshold (`float`, *optional*, defaults to 0.005):
-        The threshold to use for extracting keypoints.
-    max_keypoints (`int`, *optional*, defaults to -1):
-        The maximum number of keypoints to extract. If `-1`, will extract all keypoints.
-    nms_radius (`int`, *optional*, defaults to 4):
-        The radius for non-maximum suppression.
-    border_removal_distance (`int`, *optional*, defaults to 4):
-        The distance from the border to remove keypoints.
-
-    Example:
-    ```python
-    >>> from transformers import SuperPointConfig, SuperPointForKeypointDetection
-
-    >>> # Initializing a SuperPoint superpoint style configuration
-    >>> configuration = SuperPointConfig()
-    >>> # Initializing a model from the superpoint style configuration
-    >>> model = SuperPointForKeypointDetection(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "superpoint"
 

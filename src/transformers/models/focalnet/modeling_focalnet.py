@@ -1,17 +1,3 @@
-# Copyright 2023 Microsoft Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch FocalNet model."""
 
 import collections.abc
 import math
@@ -41,14 +27,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class FocalNetEncoderOutput(ModelOutput):
-    r"""
-    reshaped_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, hidden_size, height, width)`.
-
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs reshaped to
-        include the spatial dimensions.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     hidden_states: tuple[torch.FloatTensor] | None = None
@@ -62,16 +40,6 @@ class FocalNetEncoderOutput(ModelOutput):
 )
 @dataclass
 class FocalNetModelOutput(ModelOutput):
-    r"""
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, hidden_size)`, *optional*, returned when `add_pooling_layer=True` is passed):
-        Average pooling of the last layer hidden-state.
-    reshaped_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, hidden_size, height, width)`.
-
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs reshaped to
-        include the spatial dimensions.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     pooler_output: torch.FloatTensor | None = None
@@ -86,18 +54,6 @@ class FocalNetModelOutput(ModelOutput):
 )
 @dataclass
 class FocalNetMaskedImageModelingOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `bool_masked_pos` is provided):
-        Masked image modeling (MLM) loss.
-    reconstruction (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
-        Reconstructed pixel values.
-    reshaped_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, hidden_size, height, width)`.
-
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs reshaped to
-        include the spatial dimensions.
-    """
 
     loss: torch.FloatTensor | None = None
     reconstruction: torch.FloatTensor | None = None
@@ -112,18 +68,6 @@ class FocalNetMaskedImageModelingOutput(ModelOutput):
 )
 @dataclass
 class FocalNetImageClassifierOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Classification (or regression if config.num_labels==1) loss.
-    logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Classification (or regression if config.num_labels==1) scores (before SoftMax).
-    reshaped_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, hidden_size, height, width)`.
-
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs reshaped to
-        include the spatial dimensions.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -132,9 +76,6 @@ class FocalNetImageClassifierOutput(ModelOutput):
 
 
 class FocalNetEmbeddings(nn.Module):
-    """
-    Construct the patch embeddings and layernorm. Optionally, also the mask token.
-    """
 
     def __init__(self, config, use_mask_token=False):
         super().__init__()
@@ -163,7 +104,6 @@ class FocalNetEmbeddings(nn.Module):
 
         if bool_masked_pos is not None:
             mask_tokens = self.mask_token.expand(batch_size, seq_len, -1)
-            # replace the masked visual tokens by mask_tokens
             mask = bool_masked_pos.unsqueeze(-1).type_as(mask_tokens)
             embeddings = embeddings * (1.0 - mask) + mask_tokens * mask
 
@@ -194,7 +134,6 @@ class FocalNetPatchEmbeddings(nn.Module):
         self.grid_size = (image_size[0] // patch_size[0], image_size[1] // patch_size[1])
 
         if use_conv_embed:
-            # if we choose to use conv embedding, then we treat the stem and non-stem differently
             if is_stem:
                 kernel_size = 7
                 padding = 2
@@ -229,7 +168,6 @@ class FocalNetPatchEmbeddings(nn.Module):
             raise ValueError(
                 "Make sure that the channel dimension of the pixel values match with the one set in the configuration."
             )
-        # pad the input to be divisible by self.patch_size, if needed
         pixel_values = self.maybe_pad(pixel_values, height, width)
         embeddings = self.projection(pixel_values)
         _, _, height, width = embeddings.shape
@@ -284,11 +222,9 @@ class FocalNetModulation(nn.Module):
         """
         num_channels = hidden_state.shape[-1]
 
-        # pre linear projection
         x = self.projection_in(hidden_state).permute(0, 3, 1, 2).contiguous()
         q, ctx, gates = torch.split(x, (num_channels, num_channels, self.focal_level + 1), 1)
 
-        # context aggregation
         ctx_all = 0
         for level in range(self.focal_level):
             ctx = self.focal_layers[level](ctx)
@@ -296,18 +232,15 @@ class FocalNetModulation(nn.Module):
         ctx_global = self.activation(ctx.mean(2, keepdim=True).mean(3, keepdim=True))
         ctx_all = ctx_all + ctx_global * gates[:, self.focal_level :]
 
-        # normalize context
         if self.normalize_modulator:
             ctx_all = ctx_all / (self.focal_level + 1)
 
-        # focal modulation
         modulator = self.projection_context(ctx_all)
         x_out = q * modulator
         x_out = x_out.permute(0, 2, 3, 1).contiguous()
         if self.use_post_layernorm_in_modulation:
             x_out = self.layernorm(x_out)
 
-        # post linear projection
         x_out = self.projection_out(x_out)
         x_out = self.projection_dropout(x_out)
         return x_out
@@ -332,13 +265,7 @@ class FocalNetMlp(nn.Module):
         return hidden_state
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->FocalNetDropPath
 class FocalNetDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -354,35 +281,19 @@ class FocalNetDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class FocalNetLayer(nn.Module):
-    r"""Focal Modulation Network layer (block).
-
-    Args:
-        config (`FocalNetConfig`):
-            Model config.
-        index (`int`):
-            Layer index.
-        dim (`int`):
-            Number of input channels.
-        input_resolution (`tuple[int]`):
-            Input resolution.
-        drop_path (`float`, *optional*, defaults to 0.0):
-            Stochastic depth rate.
-    """
 
     def __init__(self, config, index, dim, input_resolution, drop_path=0.0):
         super().__init__()
 
         self.config = config
 
-        # layer-specific attributes
         self.dim = dim
         self.input_resolution = input_resolution
 
-        # general attributes
         self.drop = config.hidden_dropout_prob
         self.use_post_layernorm = config.use_post_layernorm
 
@@ -410,13 +321,11 @@ class FocalNetLayer(nn.Module):
         batch_size, _, num_channels = hidden_state.shape
         shortcut = hidden_state
 
-        # Focal Modulation
         hidden_state = hidden_state if self.use_post_layernorm else self.norm1(hidden_state)
         hidden_state = hidden_state.view(batch_size, height, width, num_channels)
         hidden_state = self.modulation(hidden_state).view(batch_size, height * width, num_channels)
         hidden_state = hidden_state if not self.use_post_layernorm else self.norm1(hidden_state)
 
-        # FFN
         hidden_state = shortcut + self.drop_path(self.gamma_1 * hidden_state)
         hidden_state = hidden_state + self.drop_path(
             self.gamma_2
@@ -438,7 +347,6 @@ class FocalNetStage(GradientCheckpointingLayer):
         out_dim = embed_dim[index + 1] if (index < self.num_stages - 1) else None
         downsample = FocalNetPatchEmbeddings if (index < self.num_stages - 1) else None
 
-        # stochastic depth decay rule
         dpr = [x.item() for x in torch.linspace(0, config.drop_path_rate, sum(config.depths), device="cpu")]
         drop_path = dpr[sum(config.depths[:index]) : sum(config.depths[: index + 1])]
 
@@ -524,7 +432,6 @@ class FocalNetEncoder(nn.Module):
 
         if output_hidden_states:
             batch_size, _, hidden_size = hidden_states.shape
-            # rearrange b (h w) c -> b c h w
             reshaped_hidden_state = hidden_states.view(batch_size, *input_dimensions, hidden_size)
             reshaped_hidden_state = reshaped_hidden_state.permute(0, 3, 1, 2)
             all_hidden_states += (hidden_states,)
@@ -541,8 +448,6 @@ class FocalNetEncoder(nn.Module):
 
             if output_hidden_states and output_hidden_states_before_downsampling:
                 batch_size, _, hidden_size = hidden_states_before_downsampling.shape
-                # rearrange b (h w) c -> b c h w
-                # here we use the original (not downsampled) height and width
                 reshaped_hidden_state = hidden_states_before_downsampling.view(
                     batch_size, *(output_dimensions[0], output_dimensions[1]), hidden_size
                 )
@@ -551,7 +456,6 @@ class FocalNetEncoder(nn.Module):
                 all_reshaped_hidden_states += (reshaped_hidden_state,)
             elif output_hidden_states and not output_hidden_states_before_downsampling:
                 batch_size, _, hidden_size = hidden_states.shape
-                # rearrange b (h w) c -> b c h w
                 reshaped_hidden_state = hidden_states.view(batch_size, *input_dimensions, hidden_size)
                 reshaped_hidden_state = reshaped_hidden_state.permute(0, 3, 1, 2)
                 all_hidden_states += (hidden_states,)
@@ -608,7 +512,6 @@ class FocalNetModel(FocalNetPreTrainedModel):
         self.layernorm = nn.LayerNorm(self.num_features, eps=config.layer_norm_eps)
         self.pooler = nn.AdaptiveAvgPool1d(1) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -694,7 +597,6 @@ class FocalNetForMaskedImageModeling(FocalNetPreTrainedModel):
             nn.PixelShuffle(config.encoder_stride),
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -746,13 +648,11 @@ class FocalNetForMaskedImageModeling(FocalNetPreTrainedModel):
         )
 
         sequence_output = outputs[0]
-        # Reshape to (batch_size, num_channels, height, width)
         sequence_output = sequence_output.transpose(1, 2)
         batch_size, num_channels, sequence_length = sequence_output.shape
         height = width = math.floor(sequence_length**0.5)
         sequence_output = sequence_output.reshape(batch_size, num_channels, height, width)
 
-        # Reconstruct pixel values
         reconstructed_pixel_values = self.decoder(sequence_output)
 
         masked_im_loss = None
@@ -787,19 +687,16 @@ class FocalNetForMaskedImageModeling(FocalNetPreTrainedModel):
     """
 )
 class FocalNetForImageClassification(FocalNetPreTrainedModel):
-    # Copied from transformers.models.swin.modeling_swin.SwinForImageClassification.__init__ with Swin->FocalNet, swin->focalnet
     def __init__(self, config):
         super().__init__(config)
 
         self.num_labels = config.num_labels
         self.focalnet = FocalNetModel(config)
 
-        # Classifier head
         self.classifier = (
             nn.Linear(self.focalnet.num_features, config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -859,7 +756,6 @@ class FocalNetBackbone(BackboneMixin, FocalNetPreTrainedModel):
         self.num_features = [config.embed_dim] + config.hidden_sizes
         self.focalnet = FocalNetModel(config)
 
-        # initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

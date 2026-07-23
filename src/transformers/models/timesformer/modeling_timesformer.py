@@ -1,17 +1,3 @@
-# Copyright 2022 Meta and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch TimeSformer model."""
 
 import collections
 
@@ -34,9 +20,7 @@ from .configuration_timesformer import TimesformerConfig
 logger = logging.get_logger(__name__)
 
 
-# Adapted from https://github.com/facebookresearch/TimeSformer/blob/a5ef29a7b7264baff199a30b3306ac27de901133/timesformer/models/vit.py#L155
 class TimesformerPatchEmbeddings(nn.Module):
-    """Image to Patch Embedding"""
 
     def __init__(self, config):
         super().__init__()
@@ -65,9 +49,6 @@ class TimesformerPatchEmbeddings(nn.Module):
 
 
 class TimesformerEmbeddings(nn.Module):
-    """
-    Construct the patch and position embeddings.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -81,7 +62,6 @@ class TimesformerEmbeddings(nn.Module):
         self.patch_embeddings = TimesformerPatchEmbeddings(config)
         self.num_patches = self.patch_embeddings.num_patches
 
-        # Positional Embeddings
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.position_embeddings = nn.Parameter(torch.zeros(1, self.num_patches + 1, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
@@ -92,13 +72,11 @@ class TimesformerEmbeddings(nn.Module):
     def forward(self, pixel_values):
         batch_size = pixel_values.shape[0]
 
-        # create patch embeddings
         embeddings, num_frames, patch_width = self.patch_embeddings(pixel_values)
 
         cls_tokens = self.cls_token.expand(embeddings.size(0), -1, -1)
         embeddings = torch.cat((cls_tokens, embeddings), dim=1)
 
-        # resizing the positional embeddings in case they don't match the input at inference
         if embeddings.size(1) != self.position_embeddings.size(1):
             position_embeddings = self.position_embeddings
             cls_pos_embed = position_embeddings[0, 0, :].unsqueeze(0).unsqueeze(1)
@@ -117,7 +95,6 @@ class TimesformerEmbeddings(nn.Module):
             embeddings = embeddings + self.position_embeddings
         embeddings = self.pos_drop(embeddings)
 
-        # Time Embeddings
         if self.attention_type != "space_only":
             cls_tokens = embeddings[:batch_size, 0, :].unsqueeze(1)
             embeddings = embeddings[:, 1:]
@@ -127,7 +104,6 @@ class TimesformerEmbeddings(nn.Module):
                 .permute(0, 2, 1, 3)
                 .reshape(batch_size * patch_height, num_frames, patch_width)
             )
-            # Resizing time embeddings in case they don't match
             if num_frames != self.time_embeddings.size(1):
                 time_embeddings = self.time_embeddings.transpose(1, 2)
                 new_time_embeddings = nn.functional.interpolate(time_embeddings, size=(num_frames), mode="nearest")
@@ -144,7 +120,6 @@ class TimesformerEmbeddings(nn.Module):
         return embeddings
 
 
-# Adapted from https://github.com/facebookresearch/TimeSformer/blob/a5ef29a7b7264baff199a30b3306ac27de901133/timesformer/models/vit.py#L57
 class TimesformerSelfAttention(nn.Module):
     def __init__(self, config: TimesformerConfig):
         super().__init__()
@@ -180,10 +155,6 @@ class TimesformerSelfAttention(nn.Module):
 
 
 class TimesformerSelfOutput(nn.Module):
-    """
-    The residual connection is defined in TimesformerLayer instead of here (as is the case with other models), due to
-    the layernorm applied before each block.
-    """
 
     def __init__(self, config: TimesformerConfig) -> None:
         super().__init__()
@@ -216,7 +187,6 @@ class TimeSformerAttention(nn.Module):
         return outputs
 
 
-# Adapted from https://github.com/facebookresearch/TimeSformer/blob/a5ef29a7b7264baff199a30b3306ac27de901133/timesformer/models/vit.py#L39
 class TimesformerIntermediate(nn.Module):
     def __init__(self, config: TimesformerConfig) -> None:
         super().__init__()
@@ -249,13 +219,7 @@ class TimesformerOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->TimesformerDropPath
 class TimesformerDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -271,10 +235,9 @@ class TimesformerDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
-# Adapted from https://github.com/facebookresearch/TimeSformer/blob/a5ef29a7b7264baff199a30b3306ac27de901133/timesformer/models/vit.py#L89
 class TimesformerLayer(GradientCheckpointingLayer):
     def __init__(self, config: TimesformerConfig, layer_index: int) -> None:
         super().__init__()
@@ -298,7 +261,6 @@ class TimesformerLayer(GradientCheckpointingLayer):
         if attention_type not in ["divided_space_time", "space_only", "joint_space_time"]:
             raise ValueError(f"Unknown attention type: {attention_type}")
 
-        # Temporal Attention Parameters
         if self.attention_type == "divided_space_time":
             self.temporal_layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
             self.temporal_attention = TimeSformerAttention(config)
@@ -330,7 +292,6 @@ class TimesformerLayer(GradientCheckpointingLayer):
             return outputs
 
         elif self.attention_type == "divided_space_time":
-            # Temporal
             temporal_embedding = hidden_states[:, 1:, :]
             temporal_embedding = temporal_embedding.reshape(
                 batch_size, num_patch_height, num_patch_width, num_frames, temporal_embedding.shape[2]
@@ -349,7 +310,6 @@ class TimesformerLayer(GradientCheckpointingLayer):
             residual_temporal = self.temporal_dense(residual_temporal)
             temporal_embedding = hidden_states[:, 1:, :] + residual_temporal
 
-            # Spatial
             init_cls_token = hidden_states[:, 0, :].unsqueeze(1)
             cls_token = init_cls_token.repeat(1, num_frames, 1)
             cls_token = cls_token.reshape(batch_size * num_frames, 1, cls_token.shape[2])
@@ -371,7 +331,6 @@ class TimesformerLayer(GradientCheckpointingLayer):
 
             residual_spatial = self.drop_path(attention_output)
 
-            # Taking care of CLS token
             cls_token = residual_spatial[:, 0, :]
             cls_token = cls_token.reshape(batch_size, num_frames, cls_token.shape[1])
             cls_token = torch.mean(cls_token, 1, True)  # averaging for every frame
@@ -386,7 +345,6 @@ class TimesformerLayer(GradientCheckpointingLayer):
             residual = residual_spatial
             hidden_states = temporal_embedding
 
-            # Mlp
             hidden_states = torch.cat((init_cls_token, hidden_states), 1) + torch.cat((cls_token, residual), 1)
             layer_output = self.layernorm_after(hidden_states)
             layer_output = self.intermediate(layer_output)
@@ -470,7 +428,6 @@ class TimesformerModel(TimesformerPreTrainedModel):
 
         self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -600,10 +557,8 @@ class TimesformerForVideoClassification(TimesformerPreTrainedModel):
         self.num_labels = config.num_labels
         self.timesformer = TimesformerModel(config)
 
-        # Classifier head
         self.classifier = nn.Linear(config.hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Donut."""
 
 import torch
 from torchvision.transforms.v2 import functional as tvF
@@ -31,12 +17,6 @@ from ...utils import TensorType, auto_docstring
 
 
 class DonutImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    do_thumbnail (`bool`, *optional*, defaults to `self.do_thumbnail`):
-        Whether to resize the image using thumbnail method.
-    do_align_long_axis (`bool`, *optional*, defaults to `self.do_align_long_axis`):
-        Whether to align the long axis of the image with the long axis of `size` by rotating by 90 degrees.
-    """
 
     do_thumbnail: bool
     do_align_long_axis: bool
@@ -44,7 +24,6 @@ class DonutImageProcessorKwargs(ImagesKwargs, total=False):
 
 @auto_docstring
 class DonutImageProcessor(TorchvisionBackend):
-    """Torchvision backend for Donut with align_long_axis, thumbnail, and pad_image."""
 
     valid_kwargs = DonutImageProcessorKwargs
 

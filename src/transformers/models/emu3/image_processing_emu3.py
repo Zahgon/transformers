@@ -1,17 +1,3 @@
-# Copyright 2024 HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from collections.abc import Iterable
@@ -45,18 +31,9 @@ if is_vision_available():
 logger = logging.get_logger(__name__)
 
 
-# NOTE: this file is not consistent with image processing backends and is still using an old format.
-# Emu3 needs a fast image processor after which we can add the new backends. We keep it current way
-# for now so there's one model to test BC.
 
 
 class Emu3ImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    ratio (`str`, *optional*, defaults to `"1:1"`):
-        The ratio of the image to resize the image.
-    image_area (`int`, *optional*, defaults to `518400`):
-        The area of the image to resize the image.
-    """
 
     ratio: str
     image_area: int
@@ -92,36 +69,6 @@ def smart_resize(
 
 
 class Emu3ImageProcessor(BaseImageProcessor):
-    r"""
-    Constructs a Emu3 image processor that dynamically resizes images based on the original images.
-
-    Args:
-        do_resize (`bool`, *optional*, defaults to `True`):
-            Whether to resize the image's (height, width) dimensions.
-        resample (`PILImageResampling`, *optional*, defaults to `Resampling.BICUBIC`):
-            Resampling filter to use when resizing the image.
-        do_rescale (`bool`, *optional*, defaults to `True`):
-            Whether to rescale the image by the specified scale `rescale_factor`.
-        rescale_factor (`int` or `float`, *optional*, defaults to `1/255`):
-            Scale factor to use if rescaling the image.
-        do_normalize (`bool`, *optional*, defaults to `True`):
-            Whether to normalize the image.
-        image_mean (`float` or `list[float]`, *optional*, defaults to `[0.48145466, 0.4578275, 0.40821073]`):
-            Mean to use if normalizing the image. This is a float or list of floats for each channel in the image.
-        image_std (`float` or `list[float]`, *optional*, defaults to `[0.26862954, 0.26130258, 0.27577711]`):
-            Standard deviation to use if normalizing the image. This is a float or list of floats for each channel in the image.
-        do_convert_rgb (`bool`, *optional*, defaults to `True`):
-            Whether to convert the image to RGB.
-        do_pad (`bool`, *optional*, defaults to `True`):
-                Whether to pad the image. If `True`, will pad the patch dimension of the images in the batch to the largest
-                number of patches in the batch. Padding will be applied to the bottom and right with zeros.
-        min_pixels (`int`, *optional*, defaults to `512 * 512`):
-            The min pixels of the image to resize the image.
-        max_pixels (`int`, *optional*, defaults to `1024 * 1024`):
-            The max pixels of the image to resize the image.
-        spatial_factor (`int`, *optional*, defaults to 8):
-            The spatial downsample factor the image will be downsampled in feature extracting phase
-    """
 
     model_input_names = ["pixel_values", "image_sizes"]
     valid_kwargs = Emu3ImageProcessorKwargs
@@ -210,7 +157,6 @@ class Emu3ImageProcessor(BaseImageProcessor):
         if do_convert_rgb:
             images = [convert_to_rgb(image) for image in images]
 
-        # All transformations expect numpy arrays.
         images = [to_numpy_array(image) for image in images]
 
         if is_scaled_image(images[0]) and do_rescale:
@@ -219,7 +165,6 @@ class Emu3ImageProcessor(BaseImageProcessor):
                 " images have pixel values between 0 and 1, set `do_rescale=False` to avoid rescaling them again."
             )
         if input_data_format is None:
-            # We assume that all images have the same channel dimension format.
             input_data_format = infer_channel_dimension_format(images[0])
 
         processed_images = []
@@ -464,7 +409,6 @@ class Emu3ImageProcessor(BaseImageProcessor):
             return images if len(images) > 1 else images[0]
 
         if input_data_format is None:
-            # We assume that all images have the same channel dimension format.
             input_data_format = infer_channel_dimension_format(images[0])
 
         pixel_values = []

@@ -1,17 +1,3 @@
-# Copyright 2025 Arcee AI and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""AFMoE model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -29,33 +15,10 @@ from ...utils import auto_docstring
     checkpoint="arcee-ai/Trinity-Mini",
 )
 class AfmoeConfig(PreTrainedConfig):
-    r"""
-    global_attn_every_n_layers (`int`, *optional*, defaults to 4):
-        The frequency of full attention layers. Every Nth layer will use full attention, while others use sliding
-        window attention.
-    mup_enabled (`bool`, *optional*, defaults to `False`):
-        Whether to enable muP (Maximal Update Parametrization) input scaling. When enabled, input embeddings
-        are scaled by `sqrt(hidden_size)`.
-
-    Example:
-    ```python
-    >>> from transformers import AfmoeModel, AfmoeConfig
-
-    >>> # Initializing an AFMoE configuration
-    >>> configuration = AfmoeConfig()
-
-    >>> # Initializing a model from the afmoe-small-sft-v1 style configuration
-    >>> model = AfmoeModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "afmoe"
     keys_to_ignore_at_inference = ["past_key_values"]
 
-    # Default pipeline parallel plan for base model
     base_model_pp_plan = {
         "embed_tokens": (["input_ids"], ["inputs_embeds"]),
         "layers": (["hidden_states", "attention_mask"], ["hidden_states"]),

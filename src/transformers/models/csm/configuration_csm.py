@@ -1,16 +1,3 @@
-# Copyright 2025 Sesame and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -27,22 +14,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="sesame/csm-1b")
 @strict
 class CsmDepthDecoderConfig(PreTrainedConfig):
-    r"""
-    backbone_hidden_size (`int`, *optional*, defaults to 2048):
-        Dimension of the hidden representations of the backbone model used with this depth decoder.
-
-    Example:
-
-    ```python
-    >>> from transformers import CsmDepthDecoder, CsmDepthDecoderConfig
-
-    >>> # Initializing a CsmDepthDecoder
-    >>> configuration = CsmDepthDecoderConfig()
-    >>> model = CsmDepthDecoderModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "csm_depth_decoder_model"
     base_config_key = "depth_decoder_config"
@@ -78,7 +49,6 @@ class CsmDepthDecoderConfig(PreTrainedConfig):
         if kwargs.pop("tie_word_embeddings", False):
             raise ValueError("`tie_word_embeddings=True` is not supported for CsmDepthDecoderConfig")
 
-        # for backward compatibility
         if self.num_key_value_heads is None:
             self.num_key_value_heads = self.num_attention_heads
         self.head_dim = self.head_dim if self.head_dim is not None else self.hidden_size // self.num_attention_heads
@@ -88,35 +58,6 @@ class CsmDepthDecoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="sesame/csm-1b")
 @strict
 class CsmConfig(PreTrainedConfig):
-    r"""
-    codebook_pad_token_id (`int`, *optional*, defaults to 2050):
-        Padding token id for codebook tokens.
-    codebook_eos_token_id (`int`, *optional*, defaults to 0):
-        End of stream token id for codebook tokens.
-    audio_token_id (`int`, *optional*, defaults to 128002):
-        Audio token id in the text input.
-    audio_eos_token_id (`int`, *optional*, defaults to 128003):
-        End of stream token id for audio in the text input.
-    tie_codebooks_embeddings (`bool`, *optional*, defaults to `True`):
-        Whether to tie the codebook tokens embeddings of the backbone model to the codebook tokens embeddings of the depth decoder.
-    depth_decoder_config (`CsmDepthDecoderConfig`, *optional*):
-        Configuration for the depth decoder.
-    codec_config (`PreTrainedConfig`, *optional*):
-        Configuration for the codec.
-
-    ```python
-    >>> from transformers import CsmForConditionalGeneration, CsmConfig
-
-    >>> # Initializing a CsmConfig
-    >>> configuration = CsmConfig()
-
-    >>> # Initializing a model
-    >>> model = CsmForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "csm"
     base_config_key = "csm_config"

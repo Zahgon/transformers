@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from typing import TYPE_CHECKING
 
 from .base import HfQuantizer
@@ -31,12 +18,6 @@ logger = logging.get_logger(__name__)
 
 
 class BitNetHfQuantizer(HfQuantizer):
-    """
-    1.58-bit quantization from BitNet quantization method:
-    Before loading: it converts the linear layers into BitLinear layers during loading.
-
-    Check out the paper introducing this method: https://huggingface.co/papers/2402.17764
-    """
 
     requires_calibration = True
     quantization_config: "BitNetQuantConfig"
@@ -93,18 +74,11 @@ class BitNetHfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self) -> bool:
-        return (
-            self.quantization_config.linear_class == "autobitlinear"
-            and self.quantization_config.quantization_mode == "online"
-        )
+        pass
 
     @property
     def is_qat_trainable(self) -> bool:
-        """Flag indicating whether the quantized model can carry out quantization aware training"""
-        return (
-            self.quantization_config.linear_class == "autobitlinear"
-            and self.quantization_config.quantization_mode == "online"
-        )
+        pass
 
     def get_weight_conversions(self):
         from ..core_model_loading import WeightConverter

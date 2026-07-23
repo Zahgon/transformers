@@ -1,16 +1,3 @@
-# Copyright 2023-present the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from .integrations import (
     is_optuna_available,
@@ -47,14 +34,11 @@ class HyperParamSearchBackendBase:
         raise NotImplementedError
 
     def ensure_available(self):
-        if not self.is_available():
-            raise RuntimeError(
-                f"You picked the {self.name} backend, but it is not installed. Run {self.pip_install()}."
-            )
+        pass
 
     @classmethod
     def pip_install(cls):
-        return f"`pip install {cls.pip_package or cls.name}`"
+        pass
 
 
 class OptunaBackend(HyperParamSearchBackendBase):
@@ -68,7 +52,7 @@ class OptunaBackend(HyperParamSearchBackendBase):
         return run_hp_search_optuna(trainer, n_trials, direction, **kwargs)
 
     def default_hp_space(self, trial):
-        return default_hp_space_optuna(trial)
+        pass
 
 
 class RayTuneBackend(HyperParamSearchBackendBase):
@@ -83,7 +67,7 @@ class RayTuneBackend(HyperParamSearchBackendBase):
         return run_hp_search_ray(trainer, n_trials, direction, **kwargs)
 
     def default_hp_space(self, trial):
-        return default_hp_space_ray(trial)
+        pass
 
 
 class WandbBackend(HyperParamSearchBackendBase):
@@ -97,7 +81,7 @@ class WandbBackend(HyperParamSearchBackendBase):
         return run_hp_search_wandb(trainer, n_trials, direction, **kwargs)
 
     def default_hp_space(self, trial):
-        return default_hp_space_wandb(trial)
+        pass
 
 
 ALL_HYPERPARAMETER_SEARCH_BACKENDS = {
@@ -106,18 +90,4 @@ ALL_HYPERPARAMETER_SEARCH_BACKENDS = {
 
 
 def default_hp_search_backend() -> str:
-    available_backends = [backend for backend in ALL_HYPERPARAMETER_SEARCH_BACKENDS.values() if backend.is_available()]
-    if len(available_backends) > 0:
-        name = available_backends[0].name
-        if len(available_backends) > 1:
-            logger.info(
-                f"{len(available_backends)} hyperparameter search backends available. Using {name} as the default."
-            )
-        return name
-    raise RuntimeError(
-        "No hyperparameter search backend available.\n"
-        + "\n".join(
-            f" - To install {backend.name} run {backend.pip_install()}"
-            for backend in ALL_HYPERPARAMETER_SEARCH_BACKENDS.values()
-        )
-    )
+    pass

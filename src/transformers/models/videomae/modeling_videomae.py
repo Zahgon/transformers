@@ -1,17 +1,3 @@
-# Copyright 2022 Multimedia Computing Group, Nanjing University and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch VideoMAE (masked autoencoder) model."""
 
 import collections.abc
 from collections.abc import Callable
@@ -45,10 +31,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class VideoMAEDecoderOutput(ModelOutput):
-    r"""
-    logits (`torch.FloatTensor` of shape `(batch_size, patch_size ** 2 * num_channels)`):
-        Pixel reconstruction logits.
-    """
 
     logits: torch.FloatTensor | None = None
     hidden_states: tuple[torch.FloatTensor] | None = None
@@ -62,12 +44,6 @@ class VideoMAEDecoderOutput(ModelOutput):
 )
 @dataclass
 class VideoMAEForPreTrainingOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`):
-        Pixel reconstruction loss.
-    logits (`torch.FloatTensor` of shape `(batch_size, patch_size ** 2 * num_channels)`):
-        Pixel reconstruction logits.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -76,11 +52,9 @@ class VideoMAEForPreTrainingOutput(ModelOutput):
 
 
 # sin-cos position encoding
-# https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/master/transformer/Models.py#L31
 def get_sinusoid_encoding_table(n_position, d_hid):
     """Sinusoid position encoding table"""
 
-    # TODO: make it with torch instead of numpy
     def get_position_angle_vec(position):
         return [position / np.power(10000, 2 * (hid_j // 2) / d_hid) for hid_j in range(d_hid)]
 
@@ -92,30 +66,21 @@ def get_sinusoid_encoding_table(n_position, d_hid):
 
 
 class VideoMAEEmbeddings(nn.Module):
-    """
-    Construct the patch and position embeddings.
-
-    """
 
     def __init__(self, config):
         super().__init__()
 
         self.patch_embeddings = VideoMAEPatchEmbeddings(config)
         self.num_patches = self.patch_embeddings.num_patches
-        # fixed sin-cos embedding
         self.position_embeddings = get_sinusoid_encoding_table(self.num_patches, config.hidden_size)
         self.config = config
 
     def forward(self, pixel_values, bool_masked_pos):
-        # create patch embeddings
         embeddings = self.patch_embeddings(pixel_values)
 
-        # add position embeddings
         embeddings = embeddings + self.position_embeddings.detach().type_as(embeddings).to(
             device=embeddings.device, copy=True
         )
-        # only keep visible patches
-        # ~bool_masked_pos means visible
         if bool_masked_pos is not None:
             batch_size, _, num_channels = embeddings.shape
             embeddings = embeddings[~bool_masked_pos]
@@ -125,14 +90,6 @@ class VideoMAEEmbeddings(nn.Module):
 
 
 class VideoMAEPatchEmbeddings(nn.Module):
-    """
-    Video to Patch Embedding. This module turns a batch of videos of shape (batch_size, num_frames, num_channels,
-    height, width) into a tensor of shape (batch_size, seq_len, hidden_size) to be consumed by a Transformer encoder.
-
-    The seq_len (the number of patches) equals (number of frames // tubelet_size) * (height // patch_size) * (width //
-    patch_size).
-
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -171,13 +128,11 @@ class VideoMAEPatchEmbeddings(nn.Module):
             raise ValueError(
                 f"Input image size ({height}*{width}) doesn't match model ({self.image_size[0]}*{self.image_size[1]})."
             )
-        # permute to (batch_size, num_channels, num_frames, height, width)
         pixel_values = pixel_values.permute(0, 2, 1, 3, 4)
         embeddings = self.projection(pixel_values).flatten(2).transpose(1, 2)
         return embeddings
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -191,7 +146,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -257,12 +211,7 @@ class VideoMAESelfAttention(nn.Module):
         return context_layer, attention_probs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->VideoMAE
 class VideoMAESelfOutput(nn.Module):
-    """
-    The residual connection is defined in VideoMAELayer instead of here (as is the case with other models), due to the
-    layernorm applied before each block.
-    """
 
     def __init__(self, config: VideoMAEConfig):
         super().__init__()
@@ -275,7 +224,6 @@ class VideoMAESelfOutput(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->VideoMAE
 class VideoMAEAttention(nn.Module):
     def __init__(self, config: VideoMAEConfig):
         super().__init__()
@@ -292,7 +240,6 @@ class VideoMAEAttention(nn.Module):
         return output
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTMLP ViT->VideoMAE
 class VideoMAEIntermediate(nn.Module):
     def __init__(self, config: VideoMAEConfig):
         super().__init__()
@@ -308,7 +255,6 @@ class VideoMAEIntermediate(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTMLP ViT->VideoMAE
 class VideoMAEOutput(nn.Module):
     def __init__(self, config: VideoMAEConfig):
         super().__init__()
@@ -322,9 +268,7 @@ class VideoMAEOutput(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTLayer with ViT->VideoMAE,VIT->VIDEOMAE
 class VideoMAELayer(GradientCheckpointingLayer):
-    """This corresponds to the Block class in the timm implementation."""
 
     def __init__(self, config: VideoMAEConfig):
         super().__init__()
@@ -344,20 +288,16 @@ class VideoMAELayer(GradientCheckpointingLayer):
         hidden_states_norm = self.layernorm_before(hidden_states)
         attention_output = self.attention(hidden_states_norm, **kwargs)
 
-        # first residual connection
         hidden_states = attention_output + hidden_states
 
-        # in VideoMAE, layernorm is also applied after self-attention
         layer_output = self.layernorm_after(hidden_states)
         layer_output = self.intermediate(layer_output)
 
-        # second residual connection is done here
         layer_output = self.output(layer_output, hidden_states)
 
         return layer_output
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTEncoder with ViT->VideoMAE
 class VideoMAEEncoder(nn.Module):
     def __init__(self, config: VideoMAEConfig):
         super().__init__()
@@ -408,7 +348,6 @@ class VideoMAEModel(VideoMAEPreTrainedModel):
         else:
             self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -490,13 +429,11 @@ class VideoMAEDecoder(nn.Module):
         self.config = decoder_config
 
     def forward(self, hidden_states: torch.Tensor, return_token_num: int):
-        # Apply transformer layers
         for layer_module in self.decoder_layers:
             hidden_states = layer_module(hidden_states)
 
         hidden_states = hidden_states[:, -return_token_num:]
 
-        # predictor projection
         hidden_states = self.norm(hidden_states)
         logits = self.head(hidden_states)
 
@@ -523,7 +460,6 @@ class VideoMAEForPreTraining(VideoMAEPreTrainedModel):
 
         self.decoder = VideoMAEDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -566,10 +502,8 @@ class VideoMAEForPreTraining(VideoMAEPreTrainedModel):
         sequence_output = outputs.last_hidden_state
         sequence_output = self.encoder_to_decoder(sequence_output)
 
-        # [batch_size, num_visible_patches, decoder_hidden_size]
         batch_size, _, num_channels = sequence_output.shape
 
-        # we don't unshuffle the correct visible token order, but shuffle the position embeddings accordingly.
         if bool_masked_pos is None:
             raise ValueError("One must provided a boolean mask ")
 
@@ -578,21 +512,16 @@ class VideoMAEForPreTraining(VideoMAEPreTrainedModel):
         pos_emb_visible = expanded_position_embeddings[~bool_masked_pos].reshape(batch_size, -1, num_channels)
         pos_emb_mask = expanded_position_embeddings[bool_masked_pos].reshape(batch_size, -1, num_channels)
 
-        # [batch_size, num_patches, decoder_hidden_size]
         x_full = torch.cat([sequence_output + pos_emb_visible, self.mask_token + pos_emb_mask], dim=1)
 
-        # [batch_size, num_masked_patches, num_channels * patch_size * patch_size]
         decoder_outputs: VideoMAEDecoderOutput = self.decoder(x_full, pos_emb_mask.shape[1])
         logits = decoder_outputs.logits
 
         loss = None
         with torch.no_grad():
-            # calculate the labels to be predicted
             if self.config.num_channels != 3:
-                # Can't unnormalize with default means/stds
                 frames = pixel_values
             else:
-                # first, unnormalize the frames
                 device = pixel_values.device
                 dtype = pixel_values.dtype
                 mean = torch.as_tensor(IMAGENET_DEFAULT_MEAN).to(device=device, dtype=dtype)[None, None, :, None, None]
@@ -602,7 +531,6 @@ class VideoMAEForPreTraining(VideoMAEPreTrainedModel):
             batch_size, time, num_channels, height, width = frames.shape
             tubelet_size, patch_size = self.config.tubelet_size, self.config.patch_size
             if self.config.norm_pix_loss:
-                # step 1: split up dimensions (time by tubelet_size, height by patch_size, width by patch_size)
                 frames = frames.view(
                     batch_size,
                     time // tubelet_size,
@@ -613,20 +541,16 @@ class VideoMAEForPreTraining(VideoMAEPreTrainedModel):
                     width // patch_size,
                     patch_size,
                 )
-                # step 2: move dimensions to concatenate:
                 frames = frames.permute(0, 1, 4, 6, 2, 5, 7, 3).contiguous()
-                # step 3: concatenate:
                 frames = frames.view(
                     batch_size,
                     time // tubelet_size * height // patch_size * width // patch_size,
                     tubelet_size * patch_size * patch_size,
                     num_channels,
                 )
-                # step 4: normalize. The authors find that the mean is about 0.48 and standard deviation is about 0.08.
                 frames_norm = (frames - frames.mean(dim=-2, keepdim=True)) / (
                     frames.var(dim=-2, unbiased=True, keepdim=True).sqrt() + 1e-6
                 )
-                # step 5: reshape to (batch_size, T//ts * H//ps * W//ps, ts * ps * ps * C)
                 videos_patch = frames_norm.view(
                     batch_size,
                     time // tubelet_size * height // patch_size * width // patch_size,
@@ -637,7 +561,6 @@ class VideoMAEForPreTraining(VideoMAEPreTrainedModel):
                     raise ValueError(
                         "Can't unnormalize non-RGB images. Consider setting config.norm_pix_loss to False."
                     )
-                # step 1: split up dimensions (time by tubelet_size, height by patch_size, width by patch_size)
                 frames = frames.view(
                     batch_size,
                     time // tubelet_size,
@@ -648,9 +571,7 @@ class VideoMAEForPreTraining(VideoMAEPreTrainedModel):
                     width // patch_size,
                     patch_size,
                 )
-                # step 2: move dimensions to concatenate: (batch_size, T//ts, H//ps, W//ps, ts, ps, ps, C)
                 frames = frames.permute(0, 1, 4, 6, 2, 5, 7, 3).contiguous()
-                # step 3: concatenate
                 videos_patch = frames.view(
                     batch_size,
                     time // tubelet_size * height // patch_size * width // patch_size,
@@ -684,11 +605,9 @@ class VideoMAEForVideoClassification(VideoMAEPreTrainedModel):
         self.num_labels = config.num_labels
         self.videomae = VideoMAEModel(config)
 
-        # Classifier head
         self.fc_norm = nn.LayerNorm(config.hidden_size) if config.use_mean_pooling else None
         self.classifier = nn.Linear(config.hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

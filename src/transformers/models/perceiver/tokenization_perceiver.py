@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization class for Perceiver."""
 
 from ...tokenization_python import AddedToken, PreTrainedTokenizer
 from ...utils import logging
@@ -21,35 +7,6 @@ logger = logging.get_logger(__name__)
 
 
 class PerceiverTokenizer(PreTrainedTokenizer):
-    """
-    Construct a Perceiver tokenizer. The Perceiver simply uses raw bytes utf-8 encoding.
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        pad_token (`str`, *optional*, defaults to `"[PAD]"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        bos_token (`str`, *optional*, defaults to `"[BOS]"`):
-            The BOS token (reserved in the vocab, but not actually used).
-        eos_token (`str`, *optional*, defaults to `"[EOS]"`):
-            The end of sequence token (reserved in the vocab, but not actually used).
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the end of sequence.
-            The token used is the `sep_token`.
-
-            </Tip>
-
-        mask_token (`str`, *optional*, defaults to `"[MASK]"`):
-            The MASK token, useful for masked language modeling.
-        cls_token (`str`, *optional*, defaults to `"[CLS]"`):
-            The CLS token (reserved in the vocab, but not actually used).
-        sep_token (`str`, *optional*, defaults to `"[SEP]"`):
-            The separator token, which is used when building a sequence from two sequences.
-
-    """
 
     model_input_names = ["input_ids", "attention_mask"]
 
@@ -73,7 +30,6 @@ class PerceiverTokenizer(PreTrainedTokenizer):
 
         self._utf_vocab_size = 2**8  # utf is 8 bits
 
-        # Since these tokens are not part of the vocabulary, we manually add them
         self._added_tokens_decoder: dict[str, int] = {
             0: pad_token,
             1: bos_token,
@@ -104,7 +60,7 @@ class PerceiverTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        return self._utf_vocab_size
+        pass
 
     def get_special_tokens_mask(
         self, token_ids_0: list[int], token_ids_1: list[int] | None = None, already_has_special_tokens: bool = False
@@ -129,7 +85,6 @@ class PerceiverTokenizer(PreTrainedTokenizer):
                 token_ids_0=token_ids_0, token_ids_1=token_ids_1, already_has_special_tokens=True
             )
 
-        # normal case: some special tokens
         if token_ids_1 is None:
             return [1] + [0] * len(token_ids_0) + [1]
         return [1] + ([0] * len(token_ids_0)) + [1] + ([0] * len(token_ids_1)) + [1]
@@ -176,7 +131,6 @@ class PerceiverTokenizer(PreTrainedTokenizer):
         token = chr(index - self._num_special_tokens)
         return token
 
-    # TODO @ArthurZ refactor this as well....
     def convert_tokens_to_string(self, tokens):
         """Converts a sequence of tokens (string) in a single string."""
         bstring = b""
@@ -189,7 +143,6 @@ class PerceiverTokenizer(PreTrainedTokenizer):
         string = bstring.decode("utf-8", errors="replace")
         return string
 
-    # PerceiverTokenizer has no vocab file
     def save_vocabulary(self, save_directory: str, filename_prefix: str | None = None) -> tuple[str]:
         return ()
 

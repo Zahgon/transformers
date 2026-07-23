@@ -1,16 +1,3 @@
-# Copyright 2025 Westlake Representational Learning Lab (Fajie Yuan Lab) team and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -77,14 +64,10 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Repeat key/value heads to match the number of query heads for grouped-query attention
-    # (the text decoder uses GQA). For the SaProt encoder there is no `num_key_value_groups`,
-    # so `n_rep` defaults to 1 and this is a no-op.
     n_rep = getattr(module, "num_key_value_groups", 1)
     key = repeat_kv(key, n_rep)
     value = repeat_kv(value, n_rep)
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -102,7 +85,6 @@ def eager_attention_forward(
 class EvollaSaProtEmbeddings(EsmEmbeddings):
     def __init__(self, config):
         super().__init__(config)
-        # remove the position_ids in EsmEmbeddings
         self.position_ids = None
 
 
@@ -266,7 +248,6 @@ class EvollaSequenceCompressorAttention(nn.Module):
         v = v.view(v.size(0), v.size(1), h, -1).permute(0, 2, 1, 3)
         q = q * self.scale  # batch_size, num_heads, num_latents, dim_head
 
-        # attention
         sim = torch.matmul(q, k.transpose(-1, -2))
         sim = sim - sim.amax(dim=-1, keepdim=True).detach()
         bs, nh, skd, okd = sim.shape
@@ -280,7 +261,6 @@ class EvollaSequenceCompressorAttention(nn.Module):
         out = torch.matmul(attn, v)
         out = out.permute(0, 2, 1, 3)
 
-        # [batch, seq, head, features] -> [batch, seq, head*features]
         out = out.reshape(out.size(0), out.size(1), -1)
 
         return self.to_out(out)
@@ -329,7 +309,6 @@ class EvollaSequenceCompressorResampler(nn.Module):
         latent_mask = torch.ones(bs, self.num_latents).to(mask.device)
         mask = torch.cat((mask, latent_mask), dim=1)  # bs, max_protein_length + num_latents
 
-        # blocks
         ones = torch.ones(b).to(self.latents.device)
         latents = self.latents[None] * ones.view(-1, 1, 1)  # [b,n,d]
         latents = latents.to(embeds.dtype)
@@ -345,11 +324,6 @@ class EvollaSequenceCompressorResampler(nn.Module):
 @auto_docstring
 @dataclass
 class EvollaProteinEncoderModelOutput(ModelOutput):
-    r"""
-    sequence_compressor_output (`torch.FloatTensor` of shape `(batch_size, compressed_seq_len, hidden_size)`, *optional*):
-        Compressed sequence representation produced by the sequence compressor module. The sequence length is
-        reduced from the original input length to `compressed_seq_len` via learned compression.
-    """
 
     sequence_compressor_output: torch.FloatTensor | None = None
     last_hidden_state: torch.FloatTensor | None = None
@@ -447,7 +421,6 @@ class EvollaSequenceAlignerCrossAttention(nn.Module):
         kv_attn_mask: [bs, kv_seq_len]
         """
 
-        # Concatenate protein and structure
         kv_attn_mask = [protein_kv_attn_mask, structure_kv_attn_mask, msa_kv_attn_mask]
         kv_attn_mask = [_ for _ in kv_attn_mask if _ is not None]
         if not kv_attn_mask:
@@ -456,10 +429,6 @@ class EvollaSequenceAlignerCrossAttention(nn.Module):
 
         query_layer = self.attention_norm(query_states)
 
-        # Warning: This place might cause issues, refers to
-        # https://discuss.pytorch.org/t/cuda-error-cublas-status-not-supported-when-calling-cublasltmatmul-from-torch-nn-functional-linear/170214/13
-        # Solution: add `DISABLE_ADDMM_CUDA_LT=1` as environment variable
-        # Apply linear transformation to input_query, input_key, and input_value
         query_layer = self.query(query_layer)  # [bs, querylength, dim]
 
         if self.key_protein is not None and self.value_protein is not None:
@@ -514,11 +483,9 @@ class EvollaSequenceAlignerCrossAttention(nn.Module):
 
         query_layer = query_layer * self.scale
 
-        # attention_mask: [bs, 1, querylength, keylength]
         if query_attn_mask is None:
             query_attn_mask = torch.ones(query_states.size(0), query_states.size(1)).to(query_states.device)
         attention_mask = query_attn_mask[:, None, :, None] * kv_attn_mask[:, None, None, :]
-        # Compute the scaled dot-product attention scores
         attn_weights = torch.matmul(query_layer, key_layer.transpose(-1, -2))  # [bs, numheads, querylength, keylength]
         attn_weights = attn_weights - attn_weights.amax(dim=-1, keepdim=True).detach()  # To stabilize score
         attention_scores = attn_weights.masked_fill(
@@ -527,7 +494,6 @@ class EvollaSequenceAlignerCrossAttention(nn.Module):
 
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
-        # attention_probs_dropped = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)  # [bs, numheads, querylength, dim/numheads]
 
@@ -584,7 +550,6 @@ class EvollaSequenceAlignerCrossAttention(nn.Module):
         else:
             msa_kv_attn_mask = None
         hidden_states = query_states
-        # only when there's at least one valid modality, crossattention will be performed
         if (
             (protein_kv_states is not None and protein_kv_attn_mask.any())
             or (structure_kv_states is not None and structure_kv_attn_mask.any())
@@ -601,7 +566,6 @@ class EvollaSequenceAlignerCrossAttention(nn.Module):
                 structure_kv_attn_mask=structure_kv_attn_mask,
                 msa_kv_attn_mask=msa_kv_attn_mask,
             )  # [bs, query_seq_len, dim]
-            # tanh gate
             hidden_states = torch.tanh(self.gate_attention) * hidden_states
 
             hidden_states = residual + hidden_states  # input_query
@@ -659,7 +623,6 @@ class EvollaDecoderLayer(LlamaDecoderLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -671,7 +634,6 @@ class EvollaDecoderLayer(LlamaDecoderLayer):
         )
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -792,7 +754,6 @@ class EvollaModel(EvollaPreTrainedModel):
 
         protein_feats = None
         protein_batch_mask = None
-        # If provided, actually compute them
         if protein_input_ids is not None and protein_attention_mask is not None:
             protein_outputs = self.protein_encoder(
                 input_ids=protein_input_ids,
@@ -910,7 +871,6 @@ class EvollaForProteinText2Text(EvollaPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

@@ -1,17 +1,3 @@
-# Copyright 2025 Meta AI and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""SAM3 model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -25,18 +11,6 @@ from ..auto import CONFIG_MAPPING, AutoConfig
 @auto_docstring(checkpoint="facebook/sam3")
 @strict
 class Sam3ViTConfig(PreTrainedConfig):
-    r"""
-    rope_theta (`float`, *optional*, defaults to 10000.0):
-        Base frequency for RoPE.
-    window_size (`int`, *optional*, defaults to 24):
-        Window size for windowed attention.
-    global_attn_indexes (`list[int]`, *optional*, defaults to `[7, 15, 23, 31]`):
-        Indexes of layers with global attention.
-    pretrain_image_size (`int`, *optional*, defaults to 336):
-        Pretrained model image size for position embedding initialization.
-    hidden_dropout (`float`, *optional*, defaults to 0.0):
-        Dropout probability for hidden states.
-    """
 
     base_config_key = "backbone_config"
     model_type = "sam3_vit_model"
@@ -68,14 +42,6 @@ class Sam3ViTConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/sam3")
 @strict
 class Sam3VisionConfig(PreTrainedConfig):
-    r"""
-    fpn_hidden_size (`int`, *optional*, defaults to 256):
-        The hidden dimension of the FPN.
-    backbone_feature_sizes (`List[List[int]]`, *optional*, defaults to `[[288, 288], [144, 144], [72, 72]]`):
-        The spatial sizes (height, width) of the feature maps from the backbone at different scales.
-    scale_factors (`list[float]`, *optional*, defaults to `[4.0, 2.0, 1.0, 0.5]`):
-        Scale factors for FPN multi-scale features. List of scaling factors for each FPN level.
-    """
 
     base_config_key = "vision_config"
     model_type = "sam3_vision_model"
@@ -106,22 +72,16 @@ class Sam3VisionConfig(PreTrainedConfig):
 
     @property
     def image_size(self):
-        """Image size for the vision encoder."""
-        return self.backbone_config.image_size
+        pass
 
     @image_size.setter
     def image_size(self, value):
-        """Set the image size and propagate to backbone."""
-        self.backbone_config.image_size = value
+        pass
 
 
 @auto_docstring(checkpoint="facebook/sam3")
 @strict
 class Sam3GeometryEncoderConfig(PreTrainedConfig):
-    r"""
-    roi_size (`int`, *optional*, defaults to 7):
-        ROI size for box pooling operations.
-    """
 
     model_type = "sam3_geometry_encoder"
 
@@ -140,10 +100,6 @@ class Sam3GeometryEncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/sam3")
 @strict
 class Sam3DETREncoderConfig(PreTrainedConfig):
-    r"""
-    hidden_dropout (`float`, *optional*, defaults to 0.0):
-        Dropout probability for hidden states.
-    """
 
     model_type = "sam3_detr_encoder"
 
@@ -161,10 +117,6 @@ class Sam3DETREncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/sam3")
 @strict
 class Sam3DETRDecoderConfig(PreTrainedConfig):
-    r"""
-    num_queries (`int`, *optional*, defaults to 200):
-        Number of object queries.
-    """
 
     model_type = "sam3_detr_decoder"
 
@@ -183,10 +135,6 @@ class Sam3DETRDecoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/sam3")
 @strict
 class Sam3MaskDecoderConfig(PreTrainedConfig):
-    r"""
-    num_upsampling_stages (`int`, *optional*, defaults to 3):
-        Number of upsampling stages in the pixel decoder (FPN).
-    """
 
     model_type = "sam3_mask_decoder"
 
@@ -201,30 +149,6 @@ class Sam3MaskDecoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/sam3")
 @strict
 class Sam3Config(PreTrainedConfig):
-    r"""
-    geometry_encoder_config (`dict` or `Sam3GeometryEncoderConfig`, *optional*):
-        Configuration for the geometry encoder.
-    detr_encoder_config (`dict` or `Sam3DETREncoderConfig`, *optional*):
-        Configuration for the DETR encoder.
-    detr_decoder_config (`dict` or `Sam3DETRDecoderConfig`, *optional*):
-        Configuration for the DETR decoder.
-    mask_decoder_config (`dict` or `Sam3MaskDecoderConfig`, *optional*):
-        Configuration for the mask decoder.
-
-    Example:
-    ```python
-    >>> from transformers import Sam3Config, Sam3Model
-
-    >>> # Initializing a SAM3 configuration
-    >>> configuration = Sam3Config()
-
-    >>> # Initializing a model from the configuration
-    >>> model = Sam3Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "sam3"
     is_composition = True
@@ -291,13 +215,11 @@ class Sam3Config(PreTrainedConfig):
 
     @property
     def image_size(self):
-        """Image size for the SAM3 model."""
-        return self.vision_config.image_size
+        pass
 
     @image_size.setter
     def image_size(self, value):
-        """Set the image size and propagate to vision config."""
-        self.vision_config.image_size = value
+        pass
 
 
 __all__ = [

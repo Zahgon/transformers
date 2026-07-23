@@ -1,16 +1,3 @@
-# Copyright 2020 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import json
 import os
 import warnings
@@ -38,68 +25,10 @@ VOCAB_FILES_NAMES = {
 
 SPIECE_UNDERLINE = "▁"
 
-# Example URL https://huggingface.co/Helsinki-NLP/opus-mt-en-de/resolve/main/vocab.json
 
 
 @requires(backends=("sentencepiece",))
 class MarianTokenizer(PreTrainedTokenizer):
-    r"""
-    Construct a Marian tokenizer. Based on [SentencePiece](https://github.com/google/sentencepiece).
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        source_spm (`str`):
-            [SentencePiece](https://github.com/google/sentencepiece) file (generally has a .spm extension) that
-            contains the vocabulary for the source language.
-        target_spm (`str`):
-            [SentencePiece](https://github.com/google/sentencepiece) file (generally has a .spm extension) that
-            contains the vocabulary for the target language.
-        source_lang (`str`, *optional*):
-            A string representing the source language.
-        target_lang (`str`, *optional*):
-            A string representing the target language.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        model_max_length (`int`, *optional*, defaults to 512):
-            The maximum sentence length the model accepts.
-        additional_special_tokens (`list[str]`, *optional*, defaults to `["<eop>", "<eod>"]`):
-            Additional special tokens used by the tokenizer.
-        sp_model_kwargs (`dict`, *optional*):
-            Will be passed to the `SentencePieceProcessor.__init__()` method. The [Python wrapper for
-            SentencePiece](https://github.com/google/sentencepiece/tree/master/python) can be used, among other things,
-            to set:
-
-            - `enable_sampling`: Enable subword regularization.
-            - `nbest_size`: Sampling parameters for unigram. Invalid for BPE-Dropout.
-
-              - `nbest_size = {0,1}`: No sampling is performed.
-              - `nbest_size > 1`: samples from the nbest_size results.
-              - `nbest_size < 0`: assuming that nbest_size is infinite and samples from the all hypothesis (lattice)
-                using forward-filtering-and-backward-sampling algorithm.
-
-            - `alpha`: Smoothing parameter for unigram sampling, and dropout probability of merge operations for
-              BPE-dropout.
-
-    Examples:
-
-    ```python
-    >>> from transformers import MarianForCausalLM, MarianTokenizer
-
-    >>> model = MarianForCausalLM.from_pretrained("Helsinki-NLP/opus-mt-en-de")
-    >>> tokenizer = MarianTokenizer.from_pretrained("Helsinki-NLP/opus-mt-en-de")
-    >>> src_texts = ["I am a small frog.", "Tom asked his teacher for advice."]
-    >>> tgt_texts = ["Ich bin ein kleiner Frosch.", "Tom bat seinen Lehrer um Rat."]  # optional
-    >>> inputs = tokenizer(src_texts, text_target=tgt_texts, return_tensors="pt", padding=True)
-
-    >>> outputs = model(**inputs)  # should work
-    ```"""
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -141,20 +70,17 @@ class MarianTokenizer(PreTrainedTokenizer):
         self.target_lang = target_lang
         self.spm_files = [source_spm, target_spm]
 
-        # load SentencePiece model for pre-processing
         self.spm_source = load_spm(source_spm, self.sp_model_kwargs)
         self.spm_target = load_spm(target_spm, self.sp_model_kwargs)
         self.current_spm = self.spm_source
         self.current_encoder = self.encoder
 
-        # Multilingual target side: default to using first supported language code.
 
         self._setup_normalizer()
 
         self._decode_use_source_tokenizer = False
 
         super().__init__(
-            # bos_token=bos_token,  unused. Start decoding with config.decoder_start_token_id
             source_lang=source_lang,
             target_lang=target_lang,
             unk_token=unk_token,
@@ -183,8 +109,6 @@ class MarianTokenizer(PreTrainedTokenizer):
     def _convert_token_to_id(self, token):
         if token in self.current_encoder:
             return self.current_encoder[token]
-        # The Marian vocab is not aligned with the SentencePiece IDs, so falling back to raw
-        # SentencePiece indices would map to unrelated tokens. Treat such pieces as unknown.
         return self.current_encoder[self.unk_token]
 
     def remove_language_code(self, text: str):
@@ -204,7 +128,6 @@ class MarianTokenizer(PreTrainedTokenizer):
         """Converts an index (integer) in a token (str) using the decoder."""
         if index in self.decoder:
             return self.decoder[index]
-        # Fall back to SPM model for IDs not in external vocab
         spm_model = self.spm_source if self._decode_use_source_tokenizer else self.spm_target
         piece = spm_model.IdToPiece(index)
         return piece if piece else self.unk_token
@@ -282,7 +205,6 @@ class MarianTokenizer(PreTrainedTokenizer):
         current_sub_tokens = []
         out_string = ""
         for token in tokens:
-            # make sure that special tokens are not decoded using sentencepiece model
             if token in all_special_tokens:
                 out_string += sp_model.decode_pieces(current_sub_tokens) + token + " "
                 current_sub_tokens = []
@@ -296,21 +218,17 @@ class MarianTokenizer(PreTrainedTokenizer):
         """Build model inputs from a sequence by appending eos_token_id."""
         if token_ids_1 is None:
             return token_ids_0 + [self.eos_token_id]
-        # We don't expect to process pairs, but leave the pair logic for API consistency
         return token_ids_0 + token_ids_1 + [self.eos_token_id]
 
     def _switch_to_input_mode(self):
-        self.current_spm = self.spm_source
-        self.current_encoder = self.encoder
+        pass
 
     def _switch_to_target_mode(self):
-        self.current_spm = self.spm_target
-        if self.separate_vocabs:
-            self.current_encoder = self.target_encoder
+        pass
 
     @property
     def vocab_size(self) -> int:
-        return len(self.encoder)
+        pass
 
     def save_vocabulary(self, save_directory: str, filename_prefix: str | None = None) -> tuple[str]:
         if not os.path.isdir(save_directory):
@@ -364,7 +282,7 @@ class MarianTokenizer(PreTrainedTokenizer):
         return dict(self.encoder, **self.added_tokens_encoder)
 
     def get_tgt_vocab(self):
-        return dict(self.target_encoder, **self.added_tokens_decoder)
+        pass
 
     def __getstate__(self) -> dict:
         state = self.__dict__.copy()
@@ -376,7 +294,6 @@ class MarianTokenizer(PreTrainedTokenizer):
     def __setstate__(self, d: dict) -> None:
         self.__dict__ = d
 
-        # for backward compatibility
         if not hasattr(self, "sp_model_kwargs"):
             self.sp_model_kwargs = {}
         if not hasattr(self, "_decode_use_source_tokenizer"):

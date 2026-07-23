@@ -1,19 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for PaliGemma.
-"""
 
 import numpy as np
 
@@ -37,11 +21,6 @@ EXTRA_TOKENS = [f"<loc{i:0>4}>" for i in range(1024)] + [f"<seg{i:0>3}>" for i i
 
 
 class PaliGemmaTextKwargs(TextKwargs):
-    """
-    suffix (`str`, `list[str]`, `list[list[str]]`):
-        The suffixes or batch of suffixes to be encoded. Only necessary for finetuning. See https://github.com/google-research/big_vision/blob/main/big_vision/configs/proj/paligemma/README.md
-        for more information. If your prompt is "<image> What is on the image", the suffix corresponds to the expected prediction "a cow sitting on a bench".
-    """
 
     suffix: TextInput | PreTokenizedInput | list[TextInput] | list[PreTokenizedInput] | None
 
@@ -59,18 +38,16 @@ class PaliGemmaProcessorKwargs(ProcessingKwargs, total=False):
     }
 
 
-# Copied from transformers.models.idefics2.processing_idefics2.is_url
 def is_url(val) -> bool:
-    return isinstance(val, str) and val.startswith("http")
+    pass
 
 
-# Copied from transformers.models.idefics2.processing_idefics2.is_image_or_image_url
 def is_image_or_image_url(elem):
-    return is_url(elem) or is_valid_image(elem)
+    pass
 
 
 def _is_str_or_image(elem):
-    return isinstance(elem, (str)) or is_image_or_image_url(elem)
+    pass
 
 
 def build_string_from_input(prompt, bos_token, image_seq_len, image_token, num_images):
@@ -182,7 +159,6 @@ class PaliGemmaProcessor(ProcessorMixin):
                             f"Received {len(images)} images for {len(text)} prompts. Each prompt should be associated with an image or list of images."
                         )
 
-                # make a nested list of lists to be able to iterate over the images and text below
                 if is_valid_image(images):
                     images = [[images]]
                 elif isinstance(images, (list, tuple)) and is_valid_image(images[0]):
@@ -234,7 +210,6 @@ class PaliGemmaProcessor(ProcessorMixin):
 
         return_data = {**inputs, "pixel_values": pixel_values}
 
-        # TODO: ideally we would control label generation separately, now that we always return token_type_ids.
         if return_token_type_ids:
             labels = np.array(inputs["input_ids"])
             labels[np.array(inputs["token_type_ids"]) == 0] = -100
@@ -245,28 +220,11 @@ class PaliGemmaProcessor(ProcessorMixin):
         return BatchFeature(data=return_data, tensor_type=return_tensors)
 
     def _get_num_multimodal_tokens(self, image_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-
-        Args:
-            image_sizes (list[list[str]], *optional*):
-                The input sizes formatted as (height, width) per each image.
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-        vision_data = {}
-        if image_sizes is not None:
-            num_image_tokens = [self.image_seq_length] * len(image_sizes)
-            num_image_patches = [1] * len(image_sizes)
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-        return MultiModalData(**vision_data)
+        pass
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names + ["token_type_ids", "labels"]
-        image_processor_input_names = self.image_processor.model_input_names
-        return list(tokenizer_input_names + image_processor_input_names)
+        pass
 
 
 __all__ = ["PaliGemmaProcessor"]

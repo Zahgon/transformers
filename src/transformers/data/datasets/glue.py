@@ -1,16 +1,3 @@
-# Copyright 2020 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import os
 import time
@@ -33,12 +20,6 @@ logger = logging.get_logger(__name__)
 
 @dataclass
 class GlueDataTrainingArguments:
-    """
-    Arguments pertaining to what data we are going to input our model for training and eval.
-
-    Using `HfArgumentParser` we can turn this class into argparse arguments to be able to specify them on the command
-    line.
-    """
 
     task_name: str = field(metadata={"help": "The name of the task to train on: " + ", ".join(glue_processors.keys())})
     data_dir: str = field(
@@ -94,7 +75,6 @@ class GlueDataset(Dataset):
                 mode = Split[mode]
             except KeyError:
                 raise KeyError("mode is not a valid split name")
-        # Load data features from cache or dataset file
         cached_features_file = os.path.join(
             cache_dir if cache_dir is not None else args.data_dir,
             f"cached_{mode.value}_{tokenizer.__class__.__name__}_{args.max_seq_length}_{args.task_name}",
@@ -106,12 +86,9 @@ class GlueDataset(Dataset):
             "BartTokenizer",
             "BartTokenizerFast",
         ):
-            # HACK(label indices are swapped in RoBERTa pretrained model)
             label_list[1], label_list[2] = label_list[2], label_list[1]
         self.label_list = label_list
 
-        # Make sure only the first process in distributed training processes the dataset,
-        # and the others will use the cache.
         lock_path = cached_features_file + ".lock"
         with FileLock(lock_path):
             if os.path.exists(cached_features_file) and not args.overwrite_cache:
@@ -141,7 +118,6 @@ class GlueDataset(Dataset):
                 )
                 start = time.time()
                 torch.save(self.features, cached_features_file)
-                # ^ This seems to take a lot of time so I want to investigate why and how we can improve.
                 logger.info(
                     f"Saving features into cached file {cached_features_file} [took {time.time() - start:.3f} s]"
                 )

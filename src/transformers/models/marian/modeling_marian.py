@@ -1,17 +1,3 @@
-# Copyright 2021 The Marian Team Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch MarianMTModel model, ported from the Marian C++ repo."""
 
 import math
 from collections.abc import Callable
@@ -52,7 +38,6 @@ from .configuration_marian import MarianConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.bart.modeling_bart.shift_tokens_right
 def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
     """
     Shift input ids one token to the right.
@@ -63,14 +48,12 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("self.model.config.pad_token_id has to be defined.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
 
 
 class MarianSinusoidalPositionalEmbedding(nn.Embedding):
-    """This module produces sinusoidal positional embeddings of any length."""
 
     def __init__(self, num_positions: int, embedding_dim: int, padding_idx: int | None = None) -> None:
         super().__init__(num_positions, embedding_dim, _freeze=True)
@@ -103,7 +86,6 @@ class MarianSinusoidalPositionalEmbedding(nn.Embedding):
         return super().forward(position_ids)
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -117,7 +99,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -132,9 +113,7 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.bart.modeling_bart.BartAttention with Bart->Marian
 class MarianAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -181,22 +160,16 @@ class MarianAttention(nn.Module):
         key_value_states: torch.Tensor | None = None,
         past_key_values: Cache | None = None,
         attention_mask: torch.Tensor | None = None,
-        # TODO: we need a refactor so that the different attention modules can get their specific kwargs
-        # ATM, we have mixed things encoder, decoder, and encoder-decoder attn
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        # get query proj
         query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         is_updated = False
@@ -204,7 +177,6 @@ class MarianAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -213,7 +185,6 @@ class MarianAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -225,7 +196,6 @@ class MarianAttention(nn.Module):
 
             if past_key_values is not None:
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -250,7 +220,6 @@ class MarianAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bart.modeling_bart.BartEncoderLayer with Bart->Marian, BART->MARIAN
 class MarianEncoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: MarianConfig, layer_idx: int | None = None):
         super().__init__()
@@ -302,7 +271,6 @@ class MarianEncoderLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-# Copied from transformers.models.bart.modeling_bart.BartDecoderLayer with Bart->Marian, BART->MARIAN
 class MarianDecoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: MarianConfig, layer_idx: int | None = None):
         super().__init__()
@@ -347,7 +315,6 @@ class MarianDecoderLayer(GradientCheckpointingLayer):
     ) -> torch.Tensor:
         residual = hidden_states
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states,
             past_key_values=past_key_values,
@@ -358,7 +325,6 @@ class MarianDecoderLayer(GradientCheckpointingLayer):
         hidden_states = residual + hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Cross-Attention Block
         if encoder_hidden_states is not None:
             residual = hidden_states
 
@@ -373,7 +339,6 @@ class MarianDecoderLayer(GradientCheckpointingLayer):
             hidden_states = residual + hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.activation_fn(self.fc1(hidden_states))
         hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
@@ -406,25 +371,10 @@ class MarianPreTrainedModel(PreTrainedModel):
 
     @property
     def dummy_inputs(self):
-        pad_token = self.config.pad_token_id
-        input_ids = torch.tensor([[0, 6, 10, 4, 2], [0, 8, 12, 2, pad_token]], device=self.device)
-        dummy_inputs = {
-            "attention_mask": input_ids.ne(pad_token),
-            "input_ids": input_ids,
-            "decoder_input_ids": input_ids,
-        }
-        return dummy_inputs
+        pass
 
 
 class MarianEncoder(MarianPreTrainedModel):
-    """
-    Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a
-    [`MarianEncoderLayer`].
-
-    Args:
-        config: MarianConfig
-        embed_tokens (nn.Embedding): output embedding
-    """
 
     _can_record_outputs = {
         "hidden_states": MarianEncoderLayer,
@@ -450,7 +400,6 @@ class MarianEncoder(MarianPreTrainedModel):
         self.layers = nn.ModuleList([MarianEncoderLayer(config) for _ in range(config.encoder_layers)])
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -481,7 +430,6 @@ class MarianEncoder(MarianPreTrainedModel):
         )
 
         for idx, encoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -500,13 +448,6 @@ class MarianEncoder(MarianPreTrainedModel):
 
 
 class MarianDecoder(MarianPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a [`MarianDecoderLayer`]
-
-    Args:
-        config: MarianConfig
-        embed_tokens (nn.Embedding): output embedding
-    """
 
     _can_record_outputs = {
         "hidden_states": MarianDecoderLayer,
@@ -530,7 +471,6 @@ class MarianDecoder(MarianPreTrainedModel):
         self.layers = nn.ModuleList([MarianDecoderLayer(config, layer_idx=i) for i in range(config.decoder_layers)])
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -553,10 +493,8 @@ class MarianDecoder(MarianPreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # Important to apply outside of the above `if`, in case user passes `embeds`
         inputs_embeds = inputs_embeds * self.embed_scale
 
-        # initialize `past_key_values`
         if use_cache and past_key_values is None:
             past_key_values = (
                 EncoderDecoderCache(DynamicCache(config=self.config), DynamicCache(config=self.config))
@@ -569,7 +507,6 @@ class MarianDecoder(MarianPreTrainedModel):
         position_ids = torch.arange(seq_length, device=inputs_embeds.device) + past_key_values_length
 
         if attention_mask is None and not is_torchdynamo_compiling():
-            # required mask seq length can be calculated via length of past cache
             mask_seq_length = past_key_values_length + seq_length
             attention_mask = torch.ones(batch_size, mask_seq_length, device=inputs_embeds.device)
 
@@ -592,7 +529,6 @@ class MarianDecoder(MarianPreTrainedModel):
             encoder_hidden_states=encoder_hidden_states,
         )
 
-        # embed positions
         position_ids = self.embed_positions(
             (batch_size, seq_length), past_key_values_length, position_ids=position_ids
         )
@@ -600,7 +536,6 @@ class MarianDecoder(MarianPreTrainedModel):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if self.training:
                 dropout_probability = torch.rand([])
                 if dropout_probability < self.layerdrop:
@@ -633,7 +568,6 @@ class MarianModel(MarianPreTrainedModel):
 
         padding_idx, vocab_size = config.pad_token_id, config.vocab_size
 
-        # We always use self.shared for token embeddings to ensure compatibility with all marian models
         if self.config.share_encoder_decoder_embeddings:
             self.shared = nn.Embedding(vocab_size, config.d_model, padding_idx)
             self._tied_weights_keys = {
@@ -646,11 +580,9 @@ class MarianModel(MarianPreTrainedModel):
         self.encoder = MarianEncoder(config)
         self.decoder = MarianDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
-        # This will return shared embeddings if they are shared else specific to encoder.
         return self.get_encoder().get_input_embeddings()
 
     def set_input_embeddings(self, value):
@@ -662,45 +594,13 @@ class MarianModel(MarianPreTrainedModel):
             self.encoder.embed_tokens = value
 
     def get_decoder_input_embeddings(self):
-        if self.config.share_encoder_decoder_embeddings:
-            raise ValueError(
-                "`get_decoder_input_embeddings` should not be called if `config.share_encoder_decoder_embeddings` "
-                "is `True`. Please use `get_input_embeddings` instead."
-            )
-        return self.get_decoder().get_input_embeddings()
+        pass
 
     def set_decoder_input_embeddings(self, value):
-        if self.config.share_encoder_decoder_embeddings:
-            raise ValueError(
-                "`config.share_encoder_decoder_embeddings` is set to `True` meaning the decoder input embeddings "
-                "are shared with the encoder. In order to set the decoder input embeddings, you should simply set "
-                "the encoder input embeddings by calling `set_input_embeddings` with the appropriate embeddings."
-            )
-        self.decoder.embed_tokens = value
+        pass
 
     def resize_decoder_token_embeddings(self, new_num_tokens: int) -> nn.Embedding:
-        if self.config.share_encoder_decoder_embeddings:
-            raise ValueError(
-                "`resize_decoder_token_embeddings` should not be called if `config.share_encoder_decoder_embeddings` "
-                "is `True`. Please use `resize_token_embeddings` instead."
-            )
-
-        old_embeddings = self.get_decoder_input_embeddings()
-        new_embeddings = self._get_resized_embeddings(old_embeddings, new_num_tokens)
-        self.set_decoder_input_embeddings(new_embeddings)
-
-        model_embeds = self.get_decoder_input_embeddings()
-
-        if new_num_tokens is None:
-            return model_embeds
-
-        # Update base model and current model config
-        self.config.decoder_vocab_size = new_num_tokens
-
-        # Tie weights again if needed
-        self.tie_weights()
-
-        return model_embeds
+        pass
 
     @can_return_tuple
     @auto_docstring
@@ -753,7 +653,6 @@ class MarianModel(MarianPreTrainedModel):
         >>> list(last_hidden_states.shape)
         [1, 26, 512]
         ```"""
-        # If encoder_outputs are not given, pass the inputs to the encoder
         if encoder_outputs is None:
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
@@ -761,7 +660,6 @@ class MarianModel(MarianPreTrainedModel):
                 inputs_embeds=inputs_embeds,
                 **kwargs,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput
         elif not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -769,7 +667,6 @@ class MarianModel(MarianPreTrainedModel):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        # decoder outputs consists of (dec_features, past_key_values, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -822,7 +719,6 @@ class MarianMTModel(MarianPreTrainedModel, GenerationMixin):
         self.register_buffer("final_logits_bias", torch.zeros((1, target_vocab_size)))
         self.lm_head = nn.Linear(config.d_model, target_vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def resize_token_embeddings(
@@ -833,18 +729,15 @@ class MarianMTModel(MarianPreTrainedModel, GenerationMixin):
             self._resize_final_logits_bias(new_num_tokens)
         return new_embeddings
 
-    # NOTE: `_resize_token_embeddings` was rewritten in the base class, *args exists to absorb the extra arg
     def _resize_token_embeddings(self, new_num_tokens: int, pad_to_multiple_of=None, *args) -> nn.Embedding:
         old_embeddings = self.get_input_embeddings()
         new_embeddings = self._get_resized_embeddings(old_embeddings, new_num_tokens, pad_to_multiple_of)
         self.set_input_embeddings(new_embeddings)
 
         new_num_tokens = new_embeddings.weight.shape[0]
-        # update config.decoder_vocab_size if embeddings are tied
         if self.config.share_encoder_decoder_embeddings:
             self.config.decoder_vocab_size = new_num_tokens
 
-        # if word embeddings are not tied, make sure that lm head is resized as well
         if (
             self.config.share_encoder_decoder_embeddings
             and self.get_output_embeddings() is not None
@@ -857,36 +750,7 @@ class MarianMTModel(MarianPreTrainedModel, GenerationMixin):
         return self.get_input_embeddings()
 
     def resize_decoder_token_embeddings(self, new_num_tokens):
-        if self.config.share_encoder_decoder_embeddings:
-            raise ValueError(
-                "`resize_decoder_token_embeddings` should not be called if `config.share_encoder_decoder_embeddings` "
-                "is `True`. Please use `resize_token_embeddings` instead."
-            )
-
-        old_embeddings = self.model.get_decoder_input_embeddings()
-        new_embeddings = self._get_resized_embeddings(old_embeddings, new_num_tokens)
-        self.model.set_decoder_input_embeddings(new_embeddings)
-
-        # if word embeddings are not tied, make sure that lm head is resized as well
-        if self.get_output_embeddings() is not None and not self.config.tie_word_embeddings:
-            old_lm_head = self.get_output_embeddings()
-            new_lm_head = self._get_resized_lm_head(old_lm_head, new_num_tokens)
-            self.set_output_embeddings(new_lm_head)
-
-        model_embeds = self.model.get_decoder_input_embeddings()
-
-        if new_num_tokens is None:
-            return model_embeds
-
-        # Update base model and current model config
-        self.config.decoder_vocab_size = new_num_tokens
-
-        # Tie weights again if needed
-        self.tie_weights()
-
-        self._resize_final_logits_bias(new_num_tokens)
-
-        return model_embeds
+        pass
 
     def _resize_final_logits_bias(self, new_num_tokens: int) -> None:
         old_num_tokens = self.final_logits_bias.shape[-1]
@@ -1001,12 +865,7 @@ class MarianMTModel(MarianPreTrainedModel, GenerationMixin):
         return shift_tokens_right(labels, self.config.pad_token_id, self.config.decoder_start_token_id)
 
 
-# Copied from transformers.models.bart.modeling_bart.BartDecoderWrapper with Bart->Marian
 class MarianDecoderWrapper(MarianPreTrainedModel):
-    """
-    This wrapper class is a helper class to correctly load pretrained checkpoints when the causal language model is
-    used in combination with the [`EncoderDecoderModel`] framework.
-    """
 
     def __init__(self, config):
         super().__init__(config)
@@ -1017,7 +876,6 @@ class MarianDecoderWrapper(MarianPreTrainedModel):
         return self.decoder(*args, **kwargs)
 
 
-# Copied from transformers.models.bart.modeling_bart.BartForCausalLM with Bart->Marian, facebook/bart-base->Helsinki-NLP/opus-mt-fr-en
 class MarianForCausalLM(MarianPreTrainedModel, GenerationMixin):
     _tied_weights_keys = {
         "lm_head.weight": "model.decoder.embed_tokens.weight",
@@ -1031,7 +889,6 @@ class MarianForCausalLM(MarianPreTrainedModel, GenerationMixin):
 
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1090,7 +947,6 @@ class MarianForCausalLM(MarianPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

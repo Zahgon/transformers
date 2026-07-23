@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import functools
 import os
@@ -32,8 +19,6 @@ def tpu_spmd_dataloader(dataloader: DataLoader):
             "The dataloader must be a `torch_xla.distributed.parallel_loader.MpDeviceLoader`."
         )
 
-        # This is to support PyTorch/XLA FSDP via SPMD.
-        # Here we shard the input data's 0th dim across the fsdp axis.
         import torch_xla.distributed.spmd as xs
 
         sharding_spec = xs.ShardingSpec(xs.get_global_mesh(), ("fsdp", None))
@@ -100,7 +85,6 @@ def wrap_model_xla_fsdp(model, args, is_fsdp_xla_v2_enabled):
 
         auto_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
-            # Transformer layer class to wrap
             transformer_layer_cls=transformer_cls_to_wrap,
         )
 
@@ -112,28 +96,13 @@ def wrap_model_xla_fsdp(model, args, is_fsdp_xla_v2_enabled):
             )
             model.config.use_cache = False
 
-        # Apply gradient checkpointing to auto-wrapped sub-modules if specified
         def auto_wrapper_callable(m, *args, **kwargs):
-            target_cls = FSDP if not is_fsdp_xla_v2_enabled else FSDPv2
-            return target_cls(checkpoint_module(m), *args, **kwargs)
+            pass
 
-    # Wrap the base model with an outer FSDP wrapper
     if is_fsdp_xla_v2_enabled:
 
         def shard_output(output, mesh):
-            from ..modeling_outputs import CausalLMOutputWithPast
-
-            real_output = None
-            if isinstance(output, torch.Tensor):
-                real_output = output
-            elif isinstance(output, tuple):
-                real_output = output[0]
-            elif isinstance(output, CausalLMOutputWithPast):
-                real_output = output.logits
-
-            if real_output is None:
-                raise ValueError("Something went wrong, the output of the model shouldn't be `None`")
-            xs.mark_sharding(real_output, mesh, ("fsdp", None, None))
+            pass
 
         model = FSDPv2(
             model,
@@ -149,13 +118,8 @@ def wrap_model_xla_fsdp(model, args, is_fsdp_xla_v2_enabled):
             **fsdp_kwargs,
         )
 
-    # Patch `xm.optimizer_step` should not reduce gradients in this case,
-    # as FSDP does not need gradient reduction over sharded parameters.
     def patched_optimizer_step(optimizer, barrier=False, optimizer_args={}):
-        loss = optimizer.step(**optimizer_args)
-        if barrier:
-            xm.mark_step()
-        return loss
+        pass
 
     xm.optimizer_step = patched_optimizer_step
 
@@ -188,8 +152,6 @@ def save_tpu_checkpoint(model, args, accelerator, processing_class, is_fsdp_xla_
         os.makedirs(output_dir, exist_ok=True)
         torch.save(args, os.path.join(output_dir, "training_args.bin"))
 
-    # Save a trained model and configuration using `save_pretrained()`.
-    # They can then be reloaded using `from_pretrained()`
     supported_classes = (PushToHubMixin,)
     xm.rendezvous("saving_checkpoint")
     if is_fsdp_xla_v1_enabled:
@@ -198,11 +160,8 @@ def save_tpu_checkpoint(model, args, accelerator, processing_class, is_fsdp_xla_
             "shard_metadata": model.get_shard_metadata(),
         }
         ckpt_path = os.path.join(output_dir, f"rank{args.process_index}-of-{args.world_size}-{WEIGHTS_NAME}")
-        # All ranks save sharded checkpoint
         xm.save(ckpt, ckpt_path, master_only=False)
-        # Make sure all ranks have saved checkpoints
         xm.rendezvous("save_full_checkpoints")
-        # Master save full checkpoint
         if args.should_save:
             from torch_xla.distributed.fsdp import consolidate_sharded_model_checkpoints
 

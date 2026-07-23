@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Pix2Struct."""
 
 import io
 import math
@@ -37,19 +23,7 @@ if is_torch_available():
 DEFAULT_FONT_PATH = "ybelkada/fonts"
 
 
-# Adapted from transformers.models.pix2struct.image_processing_pix2struct.Pix2StructImageProcessorKwargs
 class Pix2StructImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    max_patches (`int`, *optional*):
-        Maximum number of patches to extract.
-    patch_size (`dict[str, int]`, *optional*, defaults to `{"height": 16, "width": 16}`):
-        The patch size to use for the image. According to Pix2Struct paper and code, the patch size is 16x16.
-    is_vqa (`bool`, *optional*, defaults to `False`):
-        Whether or not the image processor is for the VQA task. If `True` and `header_text` is passed in, text is
-        rendered onto the input images.
-    header_text (`Union[list[str], str]`, *optional*):
-        Text to render as a header. Only has an effect if `image_processor.is_vqa` is `True`.
-    """
 
     max_patches: int
     patch_size: dict[str, int]
@@ -57,8 +31,6 @@ class Pix2StructImageProcessorKwargs(ImagesKwargs, total=False):
     header_text: list[str] | str | None
 
 
-# Adapted from transformers.models.pix2struct.image_processing_pix2struct.render_text
-# Adapted from https://github.com/google-research/pix2struct/blob/0e1779af0f4db4b652c1d92b3bbd2550a7399123/pix2struct/preprocessing/preprocessing_utils.py#L106
 def render_text(
     text: str,
     text_size: int = 36,
@@ -98,7 +70,6 @@ def render_text(
             Path to the font to use. If `None`, the default font will be used.
     """
     requires_backends(render_text, "vision")
-    # Add new lines so that each line is no more than 80 characters.
 
     wrapper = textwrap.TextWrapper(width=80)
     lines = wrapper.wrap(text=text)
@@ -112,8 +83,6 @@ def render_text(
         font = hf_api().hf_hub_download(DEFAULT_FONT_PATH, "Arial.TTF")
     font = ImageFont.truetype(font, encoding="UTF-8", size=text_size)
 
-    # Use a temporary canvas to determine the width and height in pixels when
-    # rendering the text.
     temp_img = Image.new("RGB", (1, 1))
     temp_draw = ImageDraw.Draw(temp_img)
     _, _, w, h = temp_draw.textbbox((0, 0), wrapped_text, font=font)
@@ -121,7 +90,6 @@ def render_text(
     text_width = w + left_padding + right_padding
     text_height = h + top_padding + bottom_padding
 
-    # Create the actual image with the text.
     img = Image.new("RGB", (text_width, text_height), background_color)
     draw = ImageDraw.Draw(img)
     draw.text((left_padding, top_padding), wrapped_text, fill=text_color, font=font)
@@ -129,11 +97,9 @@ def render_text(
     return img
 
 
-# Adapted from transformers.models.pix2struct.image_processing_pix2struct.torch_extract_patches
 if is_torch_available():
     import torch
 
-    # Disable as it causes issues with torch.compile
     @torch.compiler.disable
     def torch_extract_patches(image_tensor, patch_height, patch_width):
         """
@@ -186,8 +152,6 @@ class Pix2StructImageProcessorPil(PilBackend):
         """
         Skip standard validation as Pix2Struct uses custom preprocessing.
         """
-        # Pix2Struct doesn't use standard resize/rescale/normalize parameters
-        # so we skip the default validation
         pass
 
     def render_header(
@@ -209,24 +173,19 @@ class Pix2StructImageProcessorPil(PilBackend):
         Returns:
             `np.ndarray`: Image with header in channel-first format (C, H, W).
         """
-        # Convert numpy array to PIL
 
         image_pil = to_pil_image(image, input_data_format=ChannelDimension.FIRST)
 
-        # Render header text as PIL image
         header_image = render_text(header, font_bytes=font_bytes, font_path=font_path)
 
-        # Calculate new dimensions
         new_width = max(header_image.width, image_pil.width)
         new_height = int(image_pil.height * (new_width / image_pil.width))
         new_header_height = int(header_image.height * (new_width / header_image.width))
 
-        # Create new image and paste header and original image
         new_image = Image.new("RGB", (new_width, new_height + new_header_height), "white")
         new_image.paste(header_image.resize((new_width, new_header_height)), (0, 0))
         new_image.paste(image_pil.resize((new_width, new_height)), (0, new_header_height))
 
-        # Convert back to numpy array (channel-first)
 
         result = np.array(new_image).astype(np.uint8)
         result = to_channel_dimension_format(result, ChannelDimension.FIRST, input_channel_dim=ChannelDimension.LAST)
@@ -247,7 +206,6 @@ class Pix2StructImageProcessorPil(PilBackend):
         if image.dtype == np.uint8:
             image = image.astype(np.float32)
 
-        # Compute mean and std
         mean = np.mean(image)
         std = np.std(image)
         adjusted_stddev = max(std, 1.0 / math.sqrt(np.prod(image.shape)))
@@ -270,19 +228,16 @@ class Pix2StructImageProcessorPil(PilBackend):
             `np.ndarray`: Flattened patches with row/column IDs of shape (max_patches, patch_dim).
         """
         requires_backends(self, "torch")
-        # Convert to torch for patch extraction (pix2struct requires torch for unfold)
         image_torch = torch.from_numpy(image)
         patch_height, patch_width = patch_size.height, patch_size.width
         channels, image_height, image_width = image_torch.shape
 
-        # Calculate scale to maximize patches while respecting max_patches
         scale = (max_patches * (patch_height / image_height) * (patch_width / image_width)) ** 0.5
         num_feasible_rows = max(min(int(scale * image_height / patch_height), max_patches), 1)
         num_feasible_cols = max(min(int(scale * image_width / patch_width), max_patches), 1)
         resized_height = max(num_feasible_rows * patch_height, 1)
         resized_width = max(num_feasible_cols * patch_width, 1)
 
-        # Resize image
         image_torch = image_torch.unsqueeze(0)  # Add batch dimension
         image_torch = torch.nn.functional.interpolate(
             image_torch.float(),
@@ -293,29 +248,22 @@ class Pix2StructImageProcessorPil(PilBackend):
         )
         image_torch = image_torch.squeeze(0)
 
-        # Extract patches: [1, rows, columns, patch_height * patch_width * channels]
         patches = torch_extract_patches(image_torch.unsqueeze(0), patch_height, patch_width)
 
         rows, columns, depth = patches.shape[1], patches.shape[2], patches.shape[3]
 
-        # Reshape to [rows * columns, depth]
         patches = patches.squeeze(0).reshape(rows * columns, depth)
 
-        # Create row and column IDs
         row_ids = torch.arange(rows).reshape(rows, 1).repeat(1, columns).reshape(rows * columns, 1)
         col_ids = torch.arange(columns).reshape(1, columns).repeat(rows, 1).reshape(rows * columns, 1)
 
-        # Offset by 1 so IDs don't contain zeros (which represent padding)
         row_ids = (row_ids + 1).float()
         col_ids = (col_ids + 1).float()
 
-        # Concatenate row_ids, col_ids, and patches: [rows * columns, 2 + depth]
         result = torch.cat([row_ids, col_ids, patches], dim=-1)
 
-        # Pad to max_patches: [max_patches, 2 + depth]
         result = torch.nn.functional.pad(result, [0, 0, 0, max_patches - (rows * columns)]).float()
 
-        # Convert back to numpy
         return result.numpy()
 
     @auto_docstring
@@ -342,12 +290,10 @@ class Pix2StructImageProcessorPil(PilBackend):
         """
         Preprocess images for Pix2Struct.
         """
-        # Prepare images (converts to numpy arrays)
         images = self._prepare_image_like_inputs(
             images=images, do_convert_rgb=do_convert_rgb, input_data_format=input_data_format
         )
 
-        # Handle VQA mode with header rendering
         is_vqa = kwargs.get("is_vqa", self.is_vqa)
         if is_vqa:
             if header_text is None:
@@ -359,7 +305,6 @@ class Pix2StructImageProcessorPil(PilBackend):
             if isinstance(header_text, str):
                 header_text = [header_text] * len(images)
 
-            # Render headers
             images = [
                 self.render_header(image, header_text[i], font_bytes=font_bytes, font_path=font_path)
                 for i, image in enumerate(images)
@@ -383,7 +328,6 @@ class Pix2StructImageProcessorPil(PilBackend):
         attention_masks = []
 
         for image in images:
-            # Normalize image with per-image mean and std
             if do_normalize:
                 image = self.normalize(image)
 
@@ -393,7 +337,6 @@ class Pix2StructImageProcessorPil(PilBackend):
             flattened_patches.append(patches)
             attention_masks.append(mask)
 
-        # Stack if return_tensors is set
         if return_tensors:
             requires_backends(self, "torch")
             flattened_patches = torch.stack([torch.from_numpy(p) for p in flattened_patches], dim=0)

@@ -1,18 +1,3 @@
-# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
-# Copyright (c) 2018-2021, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch MegatronBERT model."""
 
 import math
 from dataclasses import dataclass
@@ -48,7 +33,6 @@ logger = logging.get_logger(__name__)
 
 
 class MegatronBertEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -56,11 +40,8 @@ class MegatronBertEmbeddings(nn.Module):
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
 
-        # In Megatron, layer-norm is applied after the 1st dropout.
-        # self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -94,13 +75,10 @@ class MegatronBertEmbeddings(nn.Module):
         position_embeddings = self.position_embeddings(position_ids)
         embeddings += position_embeddings
 
-        # Megatron BERT moves that layer norm after the drop-out (and to each layer).
-        # embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
 
 
-# copied from transformers.models.bert.modeling_bert.BertSelfAttention with Bert->MegatronBert
 class MegatronBertSelfAttention(nn.Module):
     def __init__(self, config, layer_idx=None):
         super().__init__()
@@ -143,7 +121,6 @@ class MegatronBertSelfAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_layer from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -152,7 +129,6 @@ class MegatronBertSelfAttention(nn.Module):
 
         current_states = encoder_hidden_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_layer = curr_past_key_values.layers[self.layer_idx].keys
             value_layer = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -162,25 +138,18 @@ class MegatronBertSelfAttention(nn.Module):
             value_layer = value_layer.view(hidden_shape).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all key/value_layer to cache to be re-used for fast auto-regressive generation
                 key_layer, value_layer = curr_past_key_values.update(key_layer, value_layer, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in MegatronBertModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -192,7 +161,6 @@ class MegatronBertSelfAttention(nn.Module):
         return context_layer, attention_probs
 
 
-# Based transformers.models.bert.modeling_bert.BertSelfOutput. Moved LayerNorm to MegatronBertAttention below.
 class MegatronBertSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -205,7 +173,6 @@ class MegatronBertSelfOutput(nn.Module):
         return residual + hidden_states
 
 
-# Based transformers.models.bert.modeling_bert.BertAttention. Added LayerNorm.
 class MegatronBertAttention(nn.Module):
     def __init__(self, config, layer_idx=None):
         super().__init__()
@@ -235,7 +202,6 @@ class MegatronBertAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->MegatronBert
 class MegatronBertIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -251,7 +217,6 @@ class MegatronBertIntermediate(nn.Module):
         return hidden_states
 
 
-# Based on transformers.models.bert.modeling_bert.BertOutput. Moved LayerNorm to MegatronBertLayer below.
 class MegatronBertOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -264,7 +229,6 @@ class MegatronBertOutput(nn.Module):
         return input_tensor + hidden_states
 
 
-# Based on transformers.models.bert.modeling_bert.BertLayer. Added LayerNorm.
 class MegatronBertLayer(GradientCheckpointingLayer):
     def __init__(self, config, layer_idx=None):
         super().__init__()
@@ -291,7 +255,6 @@ class MegatronBertLayer(GradientCheckpointingLayer):
         output_attentions: bool | None = False,
         **kwargs,
     ) -> tuple[torch.Tensor]:
-        # decoder uni-directional self-attention cached key/values tuple is at positions 1,2
         self_attention_outputs = self.attention(
             hidden_states,
             attention_mask=attention_mask,
@@ -336,8 +299,6 @@ class MegatronBertEncoder(nn.Module):
         self.config = config
         self.layer = nn.ModuleList([MegatronBertLayer(config, layer_idx=i) for i in range(config.num_hidden_layers)])
 
-        # The final layer norm. We removed the 1st LN, moved LN to each hidden layer and this one
-        # is simply the final LN (Transformer's BERT has it attached to each hidden layer).
         self.ln = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.gradient_checkpointing = False
 
@@ -380,8 +341,6 @@ class MegatronBertEncoder(nn.Module):
                 output_attentions,
             )
 
-            # Because we moved the layer-norm at the end of the hidden layer, we have non-normali-
-            # zed data here. If that's really needed, we must apply LN to match Transformer's BERT.
 
             hidden_states = layer_outputs[0]
             if output_attentions:
@@ -389,7 +348,6 @@ class MegatronBertEncoder(nn.Module):
                 if self.config.add_cross_attention:
                     all_cross_attentions = all_cross_attentions + (layer_outputs[2],)
 
-        # Finalize the hidden states.
         hidden_states = self.ln(hidden_states)
 
         if output_hidden_states:
@@ -416,7 +374,6 @@ class MegatronBertEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler with Bert->MegatronBert
 class MegatronBertPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -424,15 +381,12 @@ class MegatronBertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPredictionHeadTransform with Bert->MegatronBert
 class MegatronBertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -450,14 +404,11 @@ class MegatronBertPredictionHeadTransform(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertLMPredictionHead with Bert->MegatronBert
 class MegatronBertLMPredictionHead(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.transform = MegatronBertPredictionHeadTransform(config)
 
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=True)
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
@@ -467,7 +418,6 @@ class MegatronBertLMPredictionHead(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOnlyMLMHead with Bert->MegatronBert
 class MegatronBertOnlyMLMHead(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -478,7 +428,6 @@ class MegatronBertOnlyMLMHead(nn.Module):
         return prediction_scores
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOnlyNSPHead with Bert->MegatronBert
 class MegatronBertOnlyNSPHead(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -489,7 +438,6 @@ class MegatronBertOnlyNSPHead(nn.Module):
         return seq_relationship_score
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPreTrainingHeads with Bert->MegatronBert
 class MegatronBertPreTrainingHeads(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -524,18 +472,7 @@ class MegatronBertPreTrainedModel(PreTrainedModel):
     """
 )
 @dataclass
-# Copied from transformers.models.bert.modeling_bert.BertForPreTrainingOutput with Bert->MegatronBert
 class MegatronBertForPreTrainingOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when `labels` is provided, `torch.FloatTensor` of shape `(1,)`):
-        Total loss as the sum of the masked language modeling loss and the next sequence prediction
-        (classification) loss.
-    prediction_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    seq_relationship_logits (`torch.FloatTensor` of shape `(batch_size, 2)`):
-        Prediction scores of the next sequence prediction (classification) head (scores of True/False continuation
-        before SoftMax).
-    """
 
     loss: torch.FloatTensor | None = None
     prediction_logits: torch.FloatTensor | None = None
@@ -546,17 +483,6 @@ class MegatronBertForPreTrainingOutput(ModelOutput):
 
 @auto_docstring
 class MegatronBertModel(MegatronBertPreTrainedModel):
-    """
-
-    The model can behave as an encoder (with only self-attention) as well as a decoder, in which case a layer of
-    cross-attention is added between the self-attention layers, following the architecture described in [Attention is
-    all you need](https://huggingface.co/papers/1706.03762) by Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit,
-    Llion Jones, Aidan N. Gomez, Lukasz Kaiser and Illia Polosukhin.
-
-    To behave as an decoder the model needs to be initialized with the `is_decoder` argument of the configuration set
-    to `True`. To be used in a Seq2Seq model, the model needs to initialized with both `is_decoder` argument and
-    `add_cross_attention` set to `True`; an `encoder_hidden_states` is then expected as an input to the forward pass.
-    """
 
     def __init__(self, config, add_pooling_layer=True):
         r"""
@@ -571,7 +497,6 @@ class MegatronBertModel(MegatronBertPreTrainedModel):
 
         self.pooler = MegatronBertPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -699,7 +624,6 @@ class MegatronBertForPreTraining(MegatronBertPreTrainedModel):
         self.bert = MegatronBertModel(config)
         self.cls = MegatronBertPreTrainingHeads(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -807,7 +731,6 @@ class MegatronBertForCausalLM(MegatronBertPreTrainedModel, GenerationMixin):
         self.bert = MegatronBertModel(config, add_pooling_layer=False)
         self.cls = MegatronBertOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -876,7 +799,6 @@ class MegatronBertForCausalLM(MegatronBertPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.cls(hidden_states[:, slice_indices, :])
 
@@ -917,7 +839,6 @@ class MegatronBertForMaskedLM(MegatronBertPreTrainedModel):
         self.bert = MegatronBertModel(config, add_pooling_layer=False)
         self.cls = MegatronBertOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -997,7 +918,6 @@ class MegatronBertForNextSentencePrediction(MegatronBertPreTrainedModel):
         self.bert = MegatronBertModel(config)
         self.cls = MegatronBertOnlyNSPHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1089,7 +1009,6 @@ class MegatronBertForSequenceClassification(MegatronBertPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1173,7 +1092,6 @@ class MegatronBertForMultipleChoice(MegatronBertPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1277,7 +1195,6 @@ class MegatronBertForTokenClassification(MegatronBertPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1342,7 +1259,6 @@ class MegatronBertForQuestionAnswering(MegatronBertPreTrainedModel):
         self.bert = MegatronBertModel(config, add_pooling_layer=False)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1382,12 +1298,10 @@ class MegatronBertForQuestionAnswering(MegatronBertPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

@@ -1,17 +1,3 @@
-# Copyright 2024 the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Llava-NeXT model."""
 
 import math
 from dataclasses import dataclass
@@ -57,7 +43,6 @@ def get_anyres_image_grid_shape(image_size, grid_pinpoints, patch_size):
     if not isinstance(grid_pinpoints, list):
         raise TypeError("grid_pinpoints should be a list of tuples or lists")
 
-    # ! VERY IMPORTANT if image_size is tensor, must convert to into tuple, otherwise it will cause wrong calculate
     if not isinstance(image_size, (list, tuple)):
         if not isinstance(image_size, (torch.Tensor, np.ndarray)):
             raise TypeError(
@@ -88,7 +73,6 @@ def image_size_to_num_patches(image_size, grid_pinpoints, patch_size: int):
     if not isinstance(grid_pinpoints, list):
         raise TypeError("grid_pinpoints should be a list of tuples or lists")
 
-    # ! VERY IMPORTANT if image_size is tensor, must convert to into tuple, otherwise it will cause wrong calculate
     if not isinstance(image_size, (list, tuple)):
         if not isinstance(image_size, (torch.Tensor, np.ndarray)):
             raise TypeError(f"image_size invalid type {type(image_size)} with value {image_size}")
@@ -97,11 +81,9 @@ def image_size_to_num_patches(image_size, grid_pinpoints, patch_size: int):
     best_resolution = select_best_resolution(image_size, grid_pinpoints)
     height, width = best_resolution
     num_patches = 0
-    # consider change to ceil(height/patch_size)*ceil(width/patch_size) + 1
     for i in range(0, height, patch_size):
         for j in range(0, width, patch_size):
             num_patches += 1
-    # add the base patch
     num_patches += 1
     return num_patches
 
@@ -152,16 +134,6 @@ def unpad_image(tensor, original_size):
 )
 @dataclass
 class LlavaNextModelOutputWithPast(BaseModelOutputWithPast):
-    r"""
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size `(batch_size, num_images, sequence_length, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
 
     image_hidden_states: torch.FloatTensor | None = None
 
@@ -173,20 +145,6 @@ class LlavaNextModelOutputWithPast(BaseModelOutputWithPast):
 )
 @dataclass
 class LlavaNextCausalLMOutputWithPast(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size (batch_size * num_patches, num_images, sequence_length, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -196,11 +154,9 @@ class LlavaNextCausalLMOutputWithPast(ModelOutput):
     image_hidden_states: torch.FloatTensor | None = None
 
 
-# Copied from transformers.models.llava.modeling_llava.LlavaMultiModalProjector with Llava->LlavaNext
 class LlavaNextMultiModalProjector(nn.Module):
     def __init__(self, config: LlavaNextConfig):
         super().__init__()
-        # We have hidden_size * the number of vision feature layers
         num_feature_layers = 1 if isinstance(config.vision_feature_layer, int) else len(config.vision_feature_layer)
         self.linear_1 = nn.Linear(
             config.vision_config.hidden_size * num_feature_layers,
@@ -357,7 +313,6 @@ class LlavaNextModel(LlavaNextPreTrainedModel):
             The feature selection strategy used to select the vision feature from the vision backbone.
             Can be one of `"default"` or `"full"`
         """
-        # ! infer image_num_patches from image_sizes
         image_num_patches = [
             image_size_to_num_patches(
                 image_size=imsize,
@@ -367,11 +322,9 @@ class LlavaNextModel(LlavaNextPreTrainedModel):
             for imsize in image_sizes
         ]
         if pixel_values.dim() == 5:
-            # stacked if input is (batch_size, num_patches, num_channels, height, width)
             _pixel_values_list = [pix_val[:num_patch] for pix_val, num_patch in zip(pixel_values, image_num_patches)]
             pixel_values = torch.cat(_pixel_values_list, dim=0)
         elif pixel_values.dim() != 4:
-            # otherwise has to be stacked from list of (num_patches, num_channels, height, width)
             raise ValueError(f"pixel_values of shape {pixel_values.shape}, expect to be of 4 or 5 dimensions")
 
         image_outputs = self.vision_tower(
@@ -380,8 +333,6 @@ class LlavaNextModel(LlavaNextPreTrainedModel):
             return_dict=True,
             **kwargs,
         )
-        # If we have one vision feature layer, return the corresponding hidden states,
-        # otherwise, select the hidden states of each feature layer and concatenate them
         if isinstance(vision_feature_layer, int):
             selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
         else:
@@ -394,7 +345,6 @@ class LlavaNextModel(LlavaNextPreTrainedModel):
         image_features = self.multi_modal_projector(selected_image_feature)
         image_features = torch.split(image_features, image_num_patches, dim=0)
 
-        # NOTE we only support multimodal_patch_merge_type == "spatial_unpad"
         image_features, feature_lens = self.pack_image_features(
             image_features,
             image_sizes,
@@ -615,7 +565,6 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel, GenerationMixi
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -646,7 +595,6 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel, GenerationMixi
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -658,10 +606,6 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel, GenerationMixi
             **kwargs,
         )
 
-        # Pixel values are used only in the first iteration if available
-        # In subsequent iterations, they are already merged with text and cached
-        # NOTE: first iteration doesn't have to be prefill, it can be the first
-        # iteration with a question and cached system prompt (continue generate from cache)
         if is_first_iteration or not kwargs.get("use_cache", True):
             model_inputs["pixel_values"] = pixel_values
             model_inputs["image_sizes"] = image_sizes

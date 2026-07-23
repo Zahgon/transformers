@@ -1,17 +1,3 @@
-# Copyright 2021 Iz Beltagy, Matthew E. Peters, Arman Cohan and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""LED model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,29 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="allenai/led-base-16384")
 @strict
 class LEDConfig(PreTrainedConfig):
-    r"""
-    max_encoder_position_embeddings (`int`, *optional*, defaults to 16384):
-        The maximum sequence length that the encoder might ever be used with.
-    max_decoder_position_embeddings (`int`, *optional*, defaults to 16384):
-        The maximum sequence length that the decoder might ever be used with.
-    attention_window (`int` or `list[int]`, *optional*, defaults to 512):
-        Size of an attention window around each token. If an `int`, use the same size for all layers. To specify a
-        different window size for each layer, use a `list[int]` where `len(attention_window) == num_hidden_layers`.
-
-    Example:
-
-    ```python
-    >>> from transformers import LEDModel, LEDConfig
-
-    >>> # Initializing a LED allenai/led-base-16384 style configuration
-    >>> configuration = LEDConfig()
-
-    >>> # Initializing a model from the allenai/led-base-16384 style configuration
-    >>> model = LEDModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "led"
     attribute_map = {

@@ -16,10 +16,6 @@ logger = logging.get_logger(__name__)
 
 
 class FineGrainedFP8HfQuantizer(HfQuantizer):
-    """
-    FP8 quantization implementation supporting both standard and MoE models.
-    Supports both e4m3fn formats based on platform.
-    """
 
     requires_calibration = False
     quantization_config: "FineGrainedFP8Config"
@@ -76,7 +72,6 @@ class FineGrainedFP8HfQuantizer(HfQuantizer):
                 )
 
     def param_needs_quantization(self, model: "PreTrainedModel", param_name: str, **kwargs) -> bool:
-        # `FP8GroupedLinear` is a subclass of `FP8Linear`, so the tuple covers it implicitly.
         from ..integrations.finegrained_fp8 import FP8Experts, FP8Linear
 
         module, tensor_name = get_module_from_name(model, param_name)
@@ -90,7 +85,6 @@ class FineGrainedFP8HfQuantizer(HfQuantizer):
     def param_element_size(self, model: "PreTrainedModel", param_name: str, param: "torch.Tensor") -> float:
         "Return the element size (in bytes) for `param_name`."
         if self.param_needs_quantization(model, param_name):
-            # 8 bit, this is needed as when `pre_quantized`` is False, we don't set the dtype of the FP8Linear in order to correctly load the weights
             return 1
         return super().param_element_size(model, param_name, param)
 
@@ -135,10 +129,6 @@ class FineGrainedFP8HfQuantizer(HfQuantizer):
         )
 
     def _process_model_after_weight_loading(self, model, **kwargs):
-        # dsv4-flash-base stores its (power-of-two) ue8m0 scales in a float32 container under
-        # `.scale`; those renamed keys keep the on-disk float32 dtype, so cast them to the UE8M0
-        # dtype the kernels expect (exact, since the values are powers of two). Checkpoints that
-        # already ship the native float8 E8M0 dtype (e.g. dsv4-flash) are left untouched.
         if self.quantization_config.scale_fmt == "ue8m0":
             from ..integrations.finegrained_fp8 import _get_ue8m0_dtype
 
@@ -154,8 +144,6 @@ class FineGrainedFP8HfQuantizer(HfQuantizer):
                 scale = getattr(module, attr)
                 setattr(module, attr, torch.nn.Parameter(scale.data.to(ue8m0), requires_grad=False))
 
-        # Single-process multi-device is unsafe for DeepGEMM (its kernels are bound to one CUDA
-        # context); route those models through Triton/grouped_mm instead.
         from ..integrations.finegrained_fp8 import _disable_deepgemm_on_multi_device
 
         _disable_deepgemm_on_multi_device(model)
@@ -182,10 +170,6 @@ class FineGrainedFP8HfQuantizer(HfQuantizer):
 
             config.base_model_tp_plan = text_plan
 
-        # Per-impl rewrite of the experts parallel-layer kind. Applied LAST so it composes
-        # on top of any plan written above (e.g. the Qwen3 dense plan). Models carry the
-        # experts mapping under `base_model_tp_plan` and/or `base_model_ep_plan` — rewrite
-        # both. See `FP8Experts._impl_tp_layer_overrides`.
         from ..integrations.finegrained_fp8 import FP8Experts
 
         impl = getattr(config, "_experts_implementation", None)
@@ -204,11 +188,11 @@ class FineGrainedFP8HfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self) -> bool:
-        return False
+        pass
 
     @property
     def is_compileable(self) -> bool:
-        return True
+        pass
 
     def get_quantize_ops(self):
         from ..integrations.finegrained_fp8 import Fp8Quantize
@@ -221,8 +205,6 @@ class FineGrainedFP8HfQuantizer(HfQuantizer):
 
         if self.pre_quantized and self.quantization_config.dequantize:
             return [
-                # either use the dollar sign, or permute the source patterns to start matching against the scales first
-                # We also collect the activation scales, they will not be used
                 WeightConverter(
                     source_patterns=["weight$", "weight_scale_inv", "activation_scale"],
                     target_patterns="weight",
@@ -253,11 +235,6 @@ class FineGrainedFP8HfQuantizer(HfQuantizer):
         from ..core_model_loading import WeightConverter, WeightRenaming
         from ..integrations.finegrained_fp8 import Fp8Dequantize
 
-        # `*.scale` → `*.weight_scale_inv`. Some FP8 checkpoints (e.g. DeepSeek-V4-Flash)
-        # ship per-block scales under `.scale`; the model expects `.weight_scale_inv`.
-        # Lives here (not in each model's `conversion_mapping`) so non-FP8 round-trips
-        # don't see a stray rule. Needed in both dequantize modes — `dequantize=False`
-        # loads scales as parameters, `dequantize=True` feeds them into `Fp8Dequantize`.
         scale_rename = WeightRenaming(source_patterns=r"^(.+)\.scale$", target_patterns=r"\1.weight_scale_inv")
         weight_conversions = [scale_rename] + list(weight_conversions)
 
@@ -266,8 +243,6 @@ class FineGrainedFP8HfQuantizer(HfQuantizer):
 
         updated: list = []
         for conv in weight_conversions:
-            # Only WeightConverter has ``.operations`` to extend with the dequant op;
-            # WeightRenaming (e.g. the ``scale_rename`` we prepended) just passes through.
             if not isinstance(conv, WeightConverter):
                 updated.append(conv)
                 continue
@@ -284,6 +259,5 @@ class FineGrainedFP8HfQuantizer(HfQuantizer):
                     operations=new_ops,
                 )
             updated.append(conv)
-        # Generic fallback for plain ``nn.Linear`` weights with no model-specific converter.
         updated.extend(self.get_weight_conversions())
         return updated

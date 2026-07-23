@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization class for CLVP."""
 
 import json
 from functools import lru_cache
@@ -71,56 +57,6 @@ def get_pairs(word):
 
 
 class ClvpTokenizer(PreTrainedTokenizer):
-    """
-    Construct a CLVP tokenizer. Based on byte-level Byte-Pair-Encoding.
-
-    This tokenizer has been trained to treat spaces like parts of the tokens (a bit like sentencepiece) so a word will
-    be encoded differently whether it is at the beginning of the sentence (without space) or not:
-
-    ```python
-    >>> from transformers import ClvpTokenizer
-
-    >>> tokenizer = ClvpTokenizer.from_pretrained("susnato/clvp_dev")
-    >>> tokenizer("Hello world")["input_ids"]
-    [62, 84, 28, 2, 179, 79]
-
-    >>> tokenizer(" Hello world")["input_ids"]
-    [2, 62, 84, 28, 2, 179, 79]
-    ```
-
-    You can get around that behavior by passing `add_prefix_space=True` when instantiating this tokenizer or when you
-    call it on some text, but since the model was not pretrained this way, it might yield a decrease in performance.
-
-    <Tip>
-
-    When used with `is_split_into_words=True`, this tokenizer will add a space before each word (even the first one).
-
-    </Tip>
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            Path to the vocabulary file.
-        merges_file (`str`):
-            Path to the merges file.
-        errors (`str`, *optional*, defaults to `"replace"`):
-            Paradigm to follow when decoding bytes to UTF-8. See
-            [bytes.decode](https://docs.python.org/3/library/stdtypes.html#bytes.decode) for more information.
-        unk_token (`str`, *optional*, defaults to `"[UNK]"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        bos_token (`str`, *optional*, defaults to `"<|endoftext|>"`):
-            The beginning of sequence token.
-        eos_token (`str`, *optional*, defaults to `"[STOP]"`):
-            The end of sequence token.
-        pad_token (`str`, *optional*, defaults to `"[STOP]"`):
-            The pad token of the sequence.
-        add_prefix_space (`bool`, *optional*, defaults to `False`):
-            Whether or not to add an initial space to the input. This allows to treat the leading word just as any
-            other word. (CLVP tokenizer detect beginning of words by the preceding space).
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = [
@@ -159,7 +95,6 @@ class ClvpTokenizer(PreTrainedTokenizer):
         self.cache = {}
         self.add_prefix_space = add_prefix_space
 
-        # Should have added re.IGNORECASE so BPE merges can happen for capitalized versions of contractions
         self.pat = re.compile(r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
 
         super().__init__(
@@ -175,7 +110,7 @@ class ClvpTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        return len(self.encoder)
+        pass
 
     @property
     def normalizer(self):
@@ -237,7 +172,6 @@ class ClvpTokenizer(PreTrainedTokenizer):
                 self.byte_encoder[b] for b in token.encode("utf-8")
             )  # Maps all our bytes to unicode strings, avoiding control tokens of the BPE (spaces in our case)
 
-            # if the token is "Ġ" we replace it with "[SPACE]" (if "[SPACE]" is present in the vocab), otherwise we keep the "Ġ".
             bpe_tokens.extend(
                 "[SPACE]" if bpe_token == "\u0120" and "[SPACE]" in self.encoder else bpe_token
                 for bpe_token in self.bpe(token).split(" ")

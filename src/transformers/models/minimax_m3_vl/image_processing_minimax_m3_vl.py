@@ -1,16 +1,3 @@
-# Copyright 2026 the MiniMax AI Team and HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 
@@ -26,16 +13,6 @@ from ...utils import TensorType, auto_docstring
 
 
 class MiniMaxM3VLImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    patch_size (`int`, *optional*, defaults to 14):
-        The spatial patch size of the vision encoder.
-    temporal_patch_size (`int`, *optional*, defaults to 2):
-        The temporal patch size of the vision encoder.
-    merge_size (`int`, *optional*, defaults to 2):
-        The merge size of the vision encoder to llm encoder.
-    max_pixels (`int`, *optional*, defaults to 451584):
-        The max pixels of the image to resize the image.
-    """
 
     patch_size: int
     temporal_patch_size: int
@@ -190,15 +167,7 @@ class MiniMaxM3VLImageProcessor(TorchvisionBackend):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None) -> int:
-        images_kwargs = images_kwargs or {}
-        patch_size = images_kwargs.get("patch_size", self.patch_size)
-        merge_size = images_kwargs.get("merge_size", self.merge_size)
-        max_pixels = images_kwargs.get("max_pixels", self.max_pixels)
-        resized_height, resized_width = smart_resize(
-            height, width, factor=patch_size * merge_size, max_pixels=max_pixels
-        )
-        grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
-        return grid_h * grid_w
+        pass
 
 
 __all__ = ["MiniMaxM3VLImageProcessor"]

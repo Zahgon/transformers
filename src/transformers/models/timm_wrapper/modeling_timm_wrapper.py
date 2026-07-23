@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -35,17 +22,6 @@ if is_timm_available():
 )
 @dataclass
 class TimmWrapperModelOutput(ModelOutput):
-    r"""
-    last_hidden_state (`torch.FloatTensor`):
-        The last hidden state of the model, output before applying the classification head.
-    pooler_output (`torch.FloatTensor`, *optional*):
-        The pooled output derived from the last hidden state, if applicable.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned if `output_hidden_states=True` is set or if `config.output_hidden_states=True`):
-        A tuple containing the intermediate hidden states of the model at the output of each layer or specified layers.
-    attentions (`tuple(torch.FloatTensor)`, *optional*, returned if `output_attentions=True` is set or if `config.output_attentions=True`.):
-        A tuple containing the intermediate attention weights of the model at the output of each layer.
-        Note: Currently, Timm models do not support attentions output.
-    """
 
     last_hidden_state: torch.FloatTensor
     pooler_output: torch.FloatTensor | None = None
@@ -67,7 +43,6 @@ def _create_timm_model_with_error_handling(config: "TimmWrapperConfig", **model_
         return model
     except RuntimeError as e:
         if "Unknown model" in str(e):
-            # A good general check for unknown models.
             raise ImportError(
                 f"The model architecture '{config.architecture}' is not supported in your version of timm ({timm.__version__}). "
                 "Please upgrade timm to a more recent version with `pip install -U timm`."
@@ -81,11 +56,9 @@ class TimmWrapperPreTrainedModel(PreTrainedModel):
     main_input_name = "pixel_values"
     input_modalities = ("image",)
     config: TimmWrapperConfig
-    # add WA here as `timm` does not support model parallelism
     _no_split_modules = ["TimmWrapperModel"]
     model_tags = ["timm"]
 
-    # used in Trainer to avoid passing `loss_kwargs` to model forward
     accepts_loss_kwargs = False
 
     def post_init(self):
@@ -108,7 +81,6 @@ class TimmWrapperPreTrainedModel(PreTrainedModel):
         initialization, while all other weights should be loaded from the checkpoint.
         """
         super()._init_weights(module)
-        # Also, reinit all non-persistent buffers if any!
         if hasattr(module, "init_non_persistent_buffers"):
             module.init_non_persistent_buffers()
         elif (
@@ -141,7 +113,6 @@ class TimmWrapperPreTrainedModel(PreTrainedModel):
         self.timm_model.set_grad_checkpointing(enable)
 
     def get_input_embeddings(self):
-        # TIMM backbones operate directly on images and do not expose token embeddings.
         return None
 
     def set_input_embeddings(self, value):
@@ -149,14 +120,10 @@ class TimmWrapperPreTrainedModel(PreTrainedModel):
 
 
 class TimmWrapperModel(TimmWrapperPreTrainedModel):
-    """
-    Wrapper class for timm models to be used in transformers.
-    """
 
     def __init__(self, config: TimmWrapperConfig):
         requires_backends(self, ["vision", "timm"])
         super().__init__(config)
-        # using num_classes=0 to avoid creating classification head
         extra_init_kwargs = config.model_args or {}
         self.features_only = extra_init_kwargs.get("features_only", False)
         self.timm_model = _create_timm_model_with_error_handling(config, num_classes=0, **extra_init_kwargs)
@@ -239,7 +206,6 @@ class TimmWrapperModel(TimmWrapperPreTrainedModel):
             pooler_output = None
         else:
             if output_hidden_states:
-                # to enable hidden states selection
                 if isinstance(output_hidden_states, (list, tuple)):
                     kwargs["indices"] = output_hidden_states
                 last_hidden_state, hidden_states = self.timm_model.forward_intermediates(pixel_values, **kwargs)
@@ -248,7 +214,6 @@ class TimmWrapperModel(TimmWrapperPreTrainedModel):
                 hidden_states = None
 
             if do_pooling:
-                # classification head is not created, applying pooling only
                 pooler_output = self.timm_model.forward_head(last_hidden_state)
             else:
                 pooler_output = None
@@ -266,9 +231,6 @@ class TimmWrapperModel(TimmWrapperPreTrainedModel):
 
 
 class TimmWrapperForImageClassification(TimmWrapperPreTrainedModel):
-    """
-    Wrapper class for timm models to be used in transformers for image classification.
-    """
 
     def __init__(self, config: TimmWrapperConfig):
         requires_backends(self, ["vision", "timm"])
@@ -360,7 +322,6 @@ class TimmWrapperForImageClassification(TimmWrapperPreTrainedModel):
         pixel_values = pixel_values.to(self.device, self.dtype)
 
         if output_hidden_states:
-            # to enable hidden states selection
             if isinstance(output_hidden_states, (list, tuple)):
                 kwargs["indices"] = output_hidden_states
             last_hidden_state, hidden_states = self.timm_model.forward_intermediates(pixel_values, **kwargs)

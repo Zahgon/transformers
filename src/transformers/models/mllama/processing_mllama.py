@@ -1,18 +1,4 @@
-# Copyright 2024 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Processor class for Mllama."""
 
 import numpy as np
 
@@ -32,51 +18,7 @@ class MllamaProcessorKwargs(ProcessingKwargs, total=False):
 
 
 def get_cross_attention_token_mask(input_ids: list[int], image_token_id: int) -> list[list[int]]:
-    """
-    Generate a cross-attention token mask for image tokens in the input sequence.
-
-    This function identifies the positions of image tokens in the input sequence and creates
-    a mask that defines which subsequent tokens each image token should attend to.
-
-    Args:
-        input_ids (list[int]): A list of token ids representing the input sequence.
-        image_token_id (int): The id of the token used to represent images in the sequence.
-
-    Returns:
-        list[list[int]]: A list of [start, end] pairs, where each pair represents the range
-        of tokens an image token should attend to.
-
-    Notes:
-        - If no image tokens are present, an empty list is returned.
-        - For a single image token, it attends to all subsequent tokens until the end of the sequence.
-        - For multiple image tokens, each attends to tokens up to the next image token or the end of the sequence.
-        - Consecutive image tokens are treated as a group and attend to all subsequent tokens together.
-    """
-
-    image_token_locations = [i for i, token in enumerate(input_ids) if token == image_token_id]
-
-    if len(image_token_locations) == 0:
-        return []
-
-    # only one image present, unmask until end of sequence
-    if len(image_token_locations) == 1:
-        return [[image_token_locations[0], -1]]
-
-    vision_masks = [[loc1, loc2] for loc1, loc2 in zip(image_token_locations[:-1], image_token_locations[1:])]
-
-    # last image will attend to all subsequent text
-    vision_masks.append([image_token_locations[-1], len(input_ids)])
-
-    # if there are two or more consecutive vision tokens,
-    # they should all attend to all subsequent
-    # text present
-    last_mask_end = vision_masks[-1][1]
-    for vision_mask in vision_masks[::-1]:
-        if vision_mask[0] == vision_mask[1] - 1:
-            vision_mask[1] = last_mask_end
-        last_mask_end = vision_mask[1]
-
-    return vision_masks
+    pass
 
 
 def convert_sparse_cross_attention_mask_to_dense(
@@ -85,46 +27,7 @@ def convert_sparse_cross_attention_mask_to_dense(
     max_num_tiles: int,
     length: int,
 ) -> np.ndarray:
-    """
-    Convert the cross attention mask indices to a cross attention mask 4D array.
-
-    This function takes a sparse representation of cross attention masks and converts it to a dense 4D numpy array.
-    The sparse representation is a nested list structure that defines attention ranges for each image in each batch item.
-
-    Args:
-        cross_attention_token_mask (list[list[list[int]]]): A nested list structure where:
-            - The outer list represents the batch dimension.
-            - The middle list represents different images within each batch item.
-            - The inner list contains pairs of integers [start, end] representing token ranges for each image.
-        num_tiles (list[list[int]]): A nested list structure specifying the number of tiles for each image in each batch item.
-        max_num_tiles (int): The maximum possible number of tiles.
-        length (int): The total sequence length of the input.
-
-    Returns:
-        np.ndarray: A 4D numpy array of shape (batch_size, length, max_num_images, max_num_tiles)
-            The array contains `1` where attention is allowed and `0` where it is not.
-
-    Note:
-        - Special handling is done for cases where the end token is -1, which is interpreted as attending to the end of the sequence.
-    """
-
-    batch_size = len(cross_attention_token_mask)
-    max_num_images = max(len(masks) for masks in cross_attention_token_mask)
-
-    cross_attention_mask = np.zeros(
-        shape=(batch_size, length, max_num_images, max_num_tiles),
-        dtype=np.int64,
-    )
-
-    for sample_idx, (sample_masks, sample_num_tiles) in enumerate(zip(cross_attention_token_mask, num_tiles)):
-        for mask_idx, (locations, mask_num_tiles) in enumerate(zip(sample_masks, sample_num_tiles)):
-            if len(locations) == 2:
-                start, end = locations
-                end = min(end, length)
-                if end == -1:
-                    end = length
-                cross_attention_mask[sample_idx, start:end, mask_idx, :mask_num_tiles] = 1
-    return cross_attention_mask
+    pass
 
 
 def build_string_from_input(prompt: str, bos_token: str, image_token: str) -> str:
@@ -219,7 +122,6 @@ class MllamaProcessor(ProcessorMixin):
             image_inputs, _ = self._process_images(images, **output_kwargs["images_kwargs"])
             num_tiles = image_inputs.pop("num_tiles")
 
-        # Create cross attention mask
         if images is not None and text is not None:
             cross_attention_token_mask = [
                 get_cross_attention_token_mask(token_ids, self.image_token_id)
@@ -241,16 +143,7 @@ class MllamaProcessor(ProcessorMixin):
         text: TextInput | PreTokenizedInput | list[TextInput] | list[PreTokenizedInput] | None = None,
         **kwargs,
     ):
-        images, text, *_ = super().prepare_inputs_layout(images=images, text=text, **kwargs)
-
-        # Model requires nested struct
-        if images is not None:
-            images = make_nested_list_of_images(images)
-
-        if text is not None:
-            text = [build_string_from_input(text_item, self.bos_token, self.image_token) for text_item in text]
-
-        return images, text
+        pass
 
     def validate_inputs(
         self,
@@ -258,38 +151,10 @@ class MllamaProcessor(ProcessorMixin):
         text: TextInput | PreTokenizedInput | list[TextInput] | list[PreTokenizedInput] | None = None,
         **kwargs: Unpack[ProcessingKwargs],
     ):
-        super().validate_inputs(images, text, **kwargs)
-
-        if text is not None:
-            n_images_in_text = [t.count(self.image_token) for t in text]
-
-            if sum(n_images_in_text) > 0 and images is None:
-                raise ValueError("No image were provided, but there are image tokens in the prompt")
-            elif images is not None:
-                images = make_nested_list_of_images(images)
-                n_images_in_images = [len(sample) for sample in images]
-
-                if any(batch_img == 0 for batch_img in n_images_in_text) and not all(
-                    batch_img == 0 for batch_img in n_images_in_text
-                ):
-                    raise ValueError(
-                        "If a batch of text is provided, there should be either no images or at least one image per sample"
-                    )
-
-                if n_images_in_images != n_images_in_text:
-                    add_message = ""
-                    if sum(n_images_in_images) == sum(n_images_in_text) and n_images_in_images != n_images_in_text:
-                        add_message = "Make sure to pass your images as a nested list, where each sub-list holds images per batch"
-
-                    raise ValueError(
-                        f"The number of image tokens in each text ({n_images_in_text}) should be the same as the "
-                        f"number of provided images per batch ({n_images_in_images}). {add_message}"
-                    )
+        pass
 
     def replace_image_token(self, image_inputs: dict, image_idx: int) -> str:
-        # Mllama has an `image_token` but doesn't need to add placeholders because
-        # it uses cross-attention. Return the token itself an empty replacement
-        return self.image_token
+        pass
 
     def post_process_image_text_to_text(
         self, generated_outputs, skip_special_tokens=True, clean_up_tokenization_spaces=False, **kwargs
@@ -320,13 +185,7 @@ class MllamaProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        image_processor_input_names = self.image_processor.model_input_names
-
-        # Remove `num_tiles`, it is popped and used only when processing. Make a copy of list when removing
-        # otherwise `self.image_processor.model_input_names` is also modified
-        image_processor_input_names = [name for name in image_processor_input_names if name != "num_tiles"]
-        return list(tokenizer_input_names + image_processor_input_names + ["cross_attention_mask"])
+        pass
 
 
 __all__ = ["MllamaProcessor"]

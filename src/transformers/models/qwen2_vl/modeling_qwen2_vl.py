@@ -1,22 +1,3 @@
-# Copyright 2024 The Qwen team, Alibaba Group and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Qwen2-VL model."""
 
 import itertools
 import warnings
@@ -70,11 +51,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring
 @dataclass
 class Qwen2VLModelOutputWithPast(BaseModelOutputWithPast):
-    r"""
-    rope_deltas (`torch.LongTensor` of shape `(batch_size, )`, *optional*):
-        The rope index difference between sequence length and multimodal rope.
-        The attribute is deprecated and will be removed in v5.20, use `model.base_model.rope_deltas` instead.
-    """
 
     rope_deltas: torch.LongTensor | None = None
 
@@ -82,17 +58,11 @@ class Qwen2VLModelOutputWithPast(BaseModelOutputWithPast):
 @auto_docstring
 @dataclass
 class Qwen2VLCausalLMOutputWithPast(CausalLMOutputWithPast):
-    r"""
-    rope_deltas (`torch.LongTensor` of shape `(batch_size, )`, *optional*):
-        The rope index difference between sequence length and multimodal rope.
-        The attribute is deprecated and will be removed in v5.20, use `model.base_model.rope_deltas` instead.
-    """
 
     rope_deltas: torch.LongTensor | None = None
 
 
 @use_kernel_forward_from_hub("RMSNorm")
-# Copied from transformers.models.llama.modeling_llama.LlamaRMSNorm with Llama->Qwen2VL
 class Qwen2VLRMSNorm(nn.Module):
     def __init__(self, hidden_size, eps: float = 1e-6) -> None:
         """
@@ -110,10 +80,9 @@ class Qwen2VLRMSNorm(nn.Module):
         return self.weight * hidden_states.to(input_dtype)
 
     def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
+        pass
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->Qwen2VL
 class Qwen2VLRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
@@ -157,16 +126,12 @@ class Qwen2VLRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
         return inv_freq, attention_factor
 
-    # Ignore copy
     def forward(self, x, position_ids):
-        # In contrast to other models, Qwen2_VL has different position ids for the grids
-        # So we expand the inv_freq to shape (3, ...)
         inv_freq_expanded = self.inv_freq[None, None, :, None].float().expand(3, position_ids.shape[1], -1, 1)
         position_ids_expanded = position_ids[:, :, None, :].float()  # shape (3, bs, 1, positions)
 
@@ -180,7 +145,6 @@ class Qwen2VLRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-# Copied from transformers.models.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
@@ -314,7 +278,6 @@ class VisionMlp(nn.Module):
         return self.fc2(self.act(self.fc1(x)))
 
 
-# Copied from transformers.models.llama.modeling_llama.repeat_kv
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -391,7 +354,6 @@ class VisionAttention(nn.Module):
         )
 
         if is_flash_attention_requested(self.config):
-            # Flash Attention: Use cu_seqlens for variable length attention
             max_seqlen = get_max_seqlen(cu_seqlens, self.config, kwargs={"max_seqlen": max_seqlen})
             attn_output, _ = attention_interface(
                 self,
@@ -409,7 +371,6 @@ class VisionAttention(nn.Module):
                 **kwargs,
             )
         else:
-            # Other implementations: Process each chunk separately
             lengths = cu_seqlens[1:] - cu_seqlens[:-1]
             splits = [
                 torch.split(tensor, lengths.tolist(), dim=2) for tensor in (query_states, key_states, value_states)
@@ -464,7 +425,6 @@ class Qwen2VLVisionBlock(GradientCheckpointingLayer):
         return hidden_states
 
 
-# Copied from transformers.models.qwen2.modeling_qwen2.Qwen2MLP
 class Qwen2MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -482,10 +442,6 @@ class Qwen2MLP(nn.Module):
 
 
 class Qwen2VLAttention(nn.Module):
-    """
-    Multi-headed attention from 'Attention Is All You Need' paper. Modified to use sliding window attention: Longformer
-    and "Generating Long Sequences with Sparse Transformers".
-    """
 
     def __init__(self, config: Qwen2VLTextConfig, layer_idx: int | None = None):
         super().__init__()
@@ -618,7 +574,6 @@ class Qwen2VLDecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -630,7 +585,6 @@ class Qwen2VLDecoderLayer(GradientCheckpointingLayer):
         )
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -700,14 +654,7 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         return self.blocks[0].mlp.fc2.weight.device
 
     def rot_pos_emb(self, grid_thw):
-        warnings.warn(
-            f"`{self.__class__.__name__}.rot_pos_emb` is deprecated and will be removed in v5.11. Use `get_vision_position_ids` from `transformers.vision_utils` and apply the rotary embedding module.",
-            FutureWarning,
-            stacklevel=2,
-        )
-        position_ids = get_vision_position_ids(grid_thw, self.spatial_merge_size)
-        rotary_pos_emb = self.rotary_pos_emb(position_ids)
-        return rotary_pos_emb
+        pass
 
     @merge_with_config_defaults
     @capture_outputs
@@ -768,7 +715,6 @@ class Qwen2VLTextModel(Qwen2VLPreTrainedModel):
         self.rotary_emb = Qwen2VLRotaryEmbedding(config=config)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -787,14 +733,12 @@ class Qwen2VLTextModel(Qwen2VLPreTrainedModel):
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        # torch.jit.trace() doesn't support cache objects in the output
         if use_cache and past_key_values is None and not torch.jit.is_tracing():
             past_key_values = DynamicCache(config=self.config)
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # the hard coded `3` is for temporal, height and width.
         if position_ids is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
@@ -802,26 +746,13 @@ class Qwen2VLTextModel(Qwen2VLPreTrainedModel):
         elif position_ids.ndim == 2:
             position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
 
-        # NOTE: we need to pass text position ids for packing. Qwen2-VL uses 3D positions
-        # where each dim indicates visual spatial positions for temporal/height/width grids.
-        # There are two scenarios when FA2-like packed masking might be activated.
-        # 1. User specifically passed packed `position_ids` and no attention mask.
-        #    In this case we expect the user to create correct position ids for all 3 grids
-        #    and prepend text-only position ids to it. The final tensor will be [4, bs, seq-len]
-        # 2. User runs forward with no attention mask and no position ids. In this case, position ids
-        #    are prepared by the model (`get_rope_index`) as `[4, bs, seq-len]` tensor. Text-only positions are
-        #    prepended by us when creating positions so that the mask is constructed correctly. NOTE: failing to pass
-        #    text-only positions will cause incorrect mask construction, do not change `prepare_input_for_generation`
         if position_ids.ndim == 3 and position_ids.shape[0] == 4:
             text_position_ids = position_ids[0]
             position_ids = position_ids[1:]
         else:
-            # If inputs are not packed (usual 3D positions), do not prepare mask from position_ids
             text_position_ids = None
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -829,11 +760,9 @@ class Qwen2VLTextModel(Qwen2VLPreTrainedModel):
                 "past_key_values": past_key_values,
                 "position_ids": text_position_ids,
             }
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
             }
-            # The sliding window alternating layers are not always activated depending on the config
             if self.has_sliding_layers:
                 causal_mask_mapping["sliding_attention"] = create_sliding_window_causal_mask(**mask_kwargs)
 
@@ -862,7 +791,6 @@ class Qwen2VLTextModel(Qwen2VLPreTrainedModel):
 @auto_docstring
 class Qwen2VLModel(Qwen2VLPreTrainedModel):
     base_model_prefix = "model"
-    # Reference: fix gemma3 grad acc #37208
     accepts_loss_kwargs = False
 
     def __init__(self, config: Qwen2VLConfig):
@@ -871,7 +799,6 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
         self.language_model = Qwen2VLTextModel._from_config(config.text_config)
         self.rope_deltas = None  # cache rope_deltas here
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_vision_position_ids(
@@ -1006,14 +933,12 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
             current_pos = 0
             llm_pos_ids_list = []
             for modality_type, start_idx, end_idx in input_type_group:
-                # text == 0
                 if modality_type == 0:
                     text_len = end_idx - start_idx
                     llm_pos_ids_list.append(
                         torch.arange(text_len, device=input_ids.device).view(1, -1).expand(3, -1) + current_pos
                     )
                     current_pos += text_len
-                # image == 1, video == 2
                 else:
                     grid_thw = next(grid_iters[modality_type])
                     vision_position_ids = self.get_vision_position_ids(
@@ -1146,10 +1071,6 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                 mm_token_type_ids=mm_token_type_ids,
             )
             self.rope_deltas = rope_deltas
-        # Use pre-calculated rope-deltas to infer correct 3D position ids during incremental
-        # generation (past_key_values_length > 0) or when only inputs_embeds is provided (no input_ids
-        # to recompute from). Skip when input_ids is provided without past_key_values to avoid shape
-        # mismatches from stale rope_deltas (e.g., training forward pass after generation).
         elif self.rope_deltas is not None and (past_key_values_length > 0 or input_ids is None):
             batch_size, seq_length, _ = inputs_embeds.shape
             if attention_mask is not None:
@@ -1162,7 +1083,6 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
             delta = self.rope_deltas.repeat_interleave(batch_size // self.rope_deltas.shape[0], dim=0)
             position_ids = position_ids + delta.to(device=inputs_embeds.device)
         else:
-            # Can't build correct 3D positions. Let the model infer it
             position_ids = None
         return position_ids
 
@@ -1362,7 +1282,6 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -1396,7 +1315,6 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -1420,11 +1338,9 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         return model_inputs
 
     def _prepare_position_ids_for_generation(self, inputs_tensor, model_kwargs):
-        # Overwritten -- requires 3D position ids
 
         text_positions = super()._prepare_position_ids_for_generation(inputs_tensor, model_kwargs)
 
-        # Early exit in case we are continuing generation from past kv
         past_length = 0
         if (cache := model_kwargs.get("past_key_values")) is not None:
             past_length = cache.get_seq_length()
@@ -1432,7 +1348,6 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             position_ids = text_positions[None, ...] + self.model.rope_deltas
             return position_ids
 
-        # Otherwise compute 3d position ids for vision tokens and concat with text position ids
         if "input_ids" in model_kwargs and model_kwargs["input_ids"].shape[1] > 0:
             inputs_tensor = model_kwargs["input_ids"]
 
@@ -1451,7 +1366,6 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                 inputs_tensor.shape[0], 1, dtype=torch.long, device=inputs_tensor.device
             )
 
-        # Concatenate "text + vision" positions into [4, bs, seq-len]
         text_positions = text_positions[None, ...]
         position_ids = torch.cat([text_positions, vision_positions], dim=0)
 
@@ -1515,10 +1429,6 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         input_ids: torch.LongTensor | None = None,
         **model_kwargs,
     ) -> tuple[torch.LongTensor, dict[str, Any]]:
-        # Overwritten -- Support for expanding tensors without a batch size dimension
-        # e.g., pixel_values, image_grid_thw, pixel_values_videos, video_grid_thw, second_per_grid_t
-        # pixel_values.shape[0] is sum(seqlen_images for samples)
-        # image_grid_thw.shape[0] is sum(num_images for samples)
 
         if expand_size == 1:
             return input_ids, model_kwargs
@@ -1540,15 +1450,12 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
 
             for key in dict_to_expand:
                 if key == "pixel_values":
-                    # split images into samples
                     samples = torch.split(image_grid_thw, list(image_nums))
-                    # compute the sequence length of images for each sample
                     lengths = [torch.prod(sample, dim=1).sum() for sample in samples]
                     dict_to_expand[key] = _repeat_interleave_samples(
                         dict_to_expand[key], lengths=lengths, repeat_times=expand_size
                     )
                 elif key == "image_grid_thw":
-                    # get the num of images for each sample
                     lengths = list(image_nums)
                     dict_to_expand[key] = _repeat_interleave_samples(
                         dict_to_expand[key], lengths=lengths, repeat_times=expand_size

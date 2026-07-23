@@ -1,18 +1,3 @@
-# Copyright 2025 The LG AI Research and HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""LG AI Research EXAONE Lab"""
 
 from collections.abc import Callable
 
@@ -57,37 +42,9 @@ _CONFIG_FOR_DOC = "Exaone4Config"
 @auto_docstring(checkpoint="LGAI-EXAONE/EXAONE-4.0-32B")
 @strict
 class Exaone4Config(PreTrainedConfig):
-    r"""
-    sliding_window_pattern (`str`, *optional*):
-        The pattern to use for sliding window attention. Can be one of:
-            - `None`: No sliding window attention is used
-            - `int`: Every `sliding_window` layers, use global attention, else use local attention.
-            - `str`: A sequence of "L" (local attention) and "G" (global attention) characters that defines the
-              attention pattern. The pattern starts from layer 0 and repeats every `sliding_window` layers. The
-              final layer always uses global attention regardless of the pattern.
-        For instance, sliding_window_pattern="LLLG" same as sliding_window=4, which means:
-            - Layer 0, 1, 2: local attention,
-            - Layer 3: global attention,
-            ...(repeated)
-
-    Example:
-
-    ```python
-    >>> from transformers import Exaone4Model, Exaone4Config
-
-    >>> # Initializing a EXAONE configuration
-    >>> configuration = Exaone4Config()
-
-    >>> # Initializing a model from configuration
-    >>> model = Exaone4Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "exaone4"
     keys_to_ignore_at_inference = ["past_key_values"]
-    # Default tensor parallel plan for base model `LlamaModel`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",
@@ -189,12 +146,10 @@ class Exaone4Attention(nn.Module):
         key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # We use QK-norm
         query_states = self.q_norm(query_states)
         key_states = self.k_norm(key_states)
 
         cos, sin = position_embeddings
-        # We use global NoPE for hybrid attention model
         if self.sliding_window is None or self.is_sliding:
             query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
@@ -243,7 +198,6 @@ class Exaone4Model(Exaone4PreTrainedModel, LlamaModel):
         )
         self.norm = Exaone4RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -272,9 +226,7 @@ class Exaone4Model(Exaone4PreTrainedModel, LlamaModel):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -282,7 +234,6 @@ class Exaone4Model(Exaone4PreTrainedModel, LlamaModel):
                 "past_key_values": past_key_values,
                 "position_ids": position_ids,
             }
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
             }

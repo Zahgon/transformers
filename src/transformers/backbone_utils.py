@@ -1,18 +1,4 @@
-# Copyright 2026 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Collection of utils to be used by backbones and their components."""
 
 import enum
 import functools
@@ -31,9 +17,6 @@ class BackboneType(enum.Enum):
 
 
 class BackboneConfigMixin:
-    """
-    A Mixin to support handling the `out_features` and `out_indices` attributes for the backbone configurations.
-    """
 
     def set_output_features_output_indices(
         self,
@@ -54,10 +37,8 @@ class BackboneConfigMixin:
         self._out_features = out_features
         self._out_indices = list(out_indices) if isinstance(out_indices, tuple) else out_indices
 
-        # First verify that the out_features and out_indices are valid
         self.verify_out_features_out_indices()
 
-        # Align output features with indices
         out_features, out_indices = self._out_features, self._out_indices
         if out_indices is None and out_features is None:
             out_indices = [len(self.stage_names) - 1]
@@ -67,7 +48,6 @@ class BackboneConfigMixin:
         elif out_features is None and out_indices is not None:
             out_features = [self.stage_names[idx] for idx in out_indices]
 
-        # Update values and verify that the aligned out_features and out_indices are valid
         self._out_features, self._out_indices = out_features, out_indices
         self.verify_out_features_out_indices()
 
@@ -97,7 +77,6 @@ class BackboneConfigMixin:
         if self._out_indices is not None:
             if not isinstance(self._out_indices, list):
                 raise ValueError(f"out_indices must be a list, got {type(self._out_indices)}")
-            # Convert negative indices to their positive equivalent: [-1,] -> [len(stage_names) - 1,]
             positive_indices = tuple(idx % len(self.stage_names) if idx < 0 else idx for idx in self._out_indices)
             if any(idx for idx in positive_indices if idx not in range(len(self.stage_names))):
                 raise ValueError(
@@ -123,26 +102,19 @@ class BackboneConfigMixin:
 
     @property
     def out_features(self):
-        return self._out_features
+        pass
 
     @out_features.setter
     def out_features(self, out_features: list[str]):
-        """
-        Set the out_features attribute. This will also update the out_indices attribute to match the new out_features.
-        """
-        self.set_output_features_output_indices(out_features=out_features, out_indices=None)
+        pass
 
     @property
     def out_indices(self):
-        return self._out_indices
+        pass
 
     @out_indices.setter
     def out_indices(self, out_indices: tuple[int, ...] | list[int]):
-        """
-        Set the out_indices attribute. This will also update the out_features attribute to match the new out_indices.
-        """
-        out_indices = list(out_indices) if out_indices is not None else out_indices
-        self.set_output_features_output_indices(out_features=None, out_indices=out_indices)
+        pass
 
     def to_dict(self):
         """
@@ -156,33 +128,12 @@ class BackboneConfigMixin:
 
 
 def filter_output_hidden_states(forward_function):
-    """
-    Wrapper for backbone forwards. Backbones always compute `hidden_states` to build their feature maps, so
-    this forces `output_hidden_states=True` on the wrapped forward and then removes `hidden_states` from the
-    returned object unless the caller explicitly requested them.
-
-    NOTE: We assume a `can_return_tuple` decorator to be applied before so that we always expect a dict like
-          object to remove the hidden states.
-    """
-
-    @functools.wraps(forward_function)
-    def wrapper(self, *args, **kwargs):
-        output_hidden_states = kwargs.get("output_hidden_states", getattr(self.config, "output_hidden_states", False))
-        kwargs["output_hidden_states"] = True
-        output = forward_function(self, *args, **kwargs)
-        if not output_hidden_states:
-            filtered_output_data = {k: v for k, v in output.items() if k != "hidden_states"}
-            output = type(output)(**filtered_output_data)
-        return output
-
-    return wrapper
+    pass
 
 
 class BackboneMixin:
     backbone_type: BackboneType | None = None
 
-    # Attribute to indicate if the backbone has attention and can return attention outputs.
-    # Should be set to `False` for conv-based models to be able to run `forward_with_filtered_kwargs`
     has_attentions: bool = True
 
     def __init__(self, *args, **kwargs) -> None:
@@ -211,8 +162,6 @@ class BackboneMixin:
         It avoids some mixups with `torch.compile`, as the first hook installation will need/create a graph break,
         which can clash with external user call such as `model = torch.compile(model...)`.
         """
-        # NOTE: Since this class is ALWAYS used as a Mixin with another PreTrainedModel class, this `super` call
-        # will call the PreTrained's `post_init`
         super().post_init()
         maybe_install_capturing_hooks(self)
 
@@ -224,9 +173,6 @@ class BackboneMixin:
         out_features_from_config = getattr(self.config, "out_features", None)
         stage_names_from_config = getattr(self.config, "stage_names", None)
 
-        # These will disagree with the defaults for the transformers models e.g. for resnet50
-        # the transformer model has out_features = ['stem', 'stage1', 'stage2', 'stage3', 'stage4']
-        # the timm model has out_features = ['act', 'layer1', 'layer2', 'layer3', 'layer4']
         self.stage_names = [stage["module"] for stage in backbone.feature_info.info]
         self.num_features = [stage["num_chs"] for stage in backbone.feature_info.info]
 
@@ -245,47 +191,37 @@ class BackboneMixin:
                 "from backbone's feature_info. Please check if your checkpoint has correct `stage_names` saved."
             )
 
-        # We set, align and verify out indices, out features and stage names
         self.config.stage_names = self.stage_names
         self.config.set_output_features_output_indices(out_features, out_indices)
 
     def _init_transformers_backbone(self) -> None:
         self.stage_names = self.config.stage_names
         self.config.verify_out_features_out_indices()
-        # Number of channels for each stage. This is set in the transformer backbone model init
         self.num_features = None
 
     @property
     def out_features(self):
-        return self.config._out_features
+        pass
 
     @out_features.setter
     def out_features(self, out_features: list[str]):
-        """
-        Set the out_features attribute. This will also update the out_indices attribute to match the new out_features.
-        """
-        self.config.out_features = out_features
+        pass
 
     @property
     def out_indices(self):
-        return self.config._out_indices
+        pass
 
     @out_indices.setter
     def out_indices(self, out_indices: tuple[int] | list[int]):
-        """
-        Set the out_indices attribute. This will also update the out_features attribute to match the new out_indices.
-        """
-        self.config.out_indices = out_indices
+        pass
 
     @property
     def out_feature_channels(self):
-        # the current backbones will output the number of channels for each stage
-        # even if that stage is not in the out_features list.
-        return {stage: self.num_features[i] for i, stage in enumerate(self.stage_names)}
+        pass
 
     @property
     def channels(self):
-        return [self.out_feature_channels[name] for name in self.out_features]
+        pass
 
     def forward_with_filtered_kwargs(self, *args, **kwargs):
         if not self.has_attentions:
@@ -313,8 +249,6 @@ def consolidate_backbone_kwargs_to_config(
     timm_default_kwargs: dict | None = None,
     **kwargs,
 ):
-    # Lazy import to avoid circular import issues. Can be imported properly
-    # after deleting ref to `BackboneMixin` in `utils/backbone_utils.py`
     from .configuration_utils import PreTrainedConfig
     from .models.auto import CONFIG_MAPPING
 
@@ -323,8 +257,6 @@ def consolidate_backbone_kwargs_to_config(
     backbone = kwargs.pop("backbone") if kwargs.get("backbone") is not None else default_backbone
     kwargs.pop("use_pretrained_backbone", None)
 
-    # Init timm backbone with hardcoded values for BC. If everything is set to `None` and there is
-    # a default timm config, we use it to init the backbone.
     if (
         timm_default_kwargs is not None
         and use_timm_backbone

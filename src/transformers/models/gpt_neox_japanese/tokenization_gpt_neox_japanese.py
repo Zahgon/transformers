@@ -1,17 +1,3 @@
-# Copyright 2022 ABEJA, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for GPTNeoXJapanese."""
 
 import collections
 import json
@@ -51,52 +37,6 @@ def load_vocab_and_emoji(vocab_file, emoji_file):
 
 
 class GPTNeoXJapaneseTokenizer(PreTrainedTokenizer):
-    """
-    This tokenizer inherits from [`PreTrainedTokenizer`] and is based on Japanese special Sub-Word-Encoding that is
-    used in this repository (https://github.com/tanreinama/Japanese-BPEEncoder_V2). Check the repository for details.
-    Japanese has a relatively large vocabulary and there is no separation between words. Furthermore, the language is a
-    combination of hiragana, katakana, and kanji, and variants such as "1" and "①" are often used. In order to cope
-    with these, this tokenizer has the following features
-    - Subword-by-subword segmentation, which is intermediate between byte strings and morphological analysis.
-    - BPEs are created for each Kanji, Hiragana, and Katakana character, and there are no BPEs that cross character
-        types, such as Kanji + Hiragana or Hiragana + Katakana.
-    - All-byte encoding that does not require <unk>.
-    - Independent of UTF codes such as 2-byte and 3-byte characters
-    - Conversion of heterographs to the same token_id
-    - Emoji and Emoticon are grouped into 12 types as special tags.
-
-    Example:
-
-    ```python
-    >>> from transformers import GPTNeoXJapaneseTokenizer
-
-    >>> tokenizer = GPTNeoXJapaneseTokenizer.from_pretrained("abeja/gpt-neox-japanese-2.7b")
-    >>> # You can confirm both 慶応 and 慶應 are encoded to 17749
-    >>> tokenizer("吾輩は猫である🐯。実は慶応(慶應)大学出身")["input_ids"]
-    [30014, 26883, 26638, 27228, 25, 26650, 31732, 31679, 27809, 26638, 17749, 31592, 17749, 31593, 321, 1281]
-
-    >>> # Both 慶応 and 慶應 are decoded to 慶応
-    >>> tokenizer.decode(tokenizer("吾輩は猫である🐯。実は慶応(慶應)大学出身")["input_ids"])
-    '吾輩は猫である🐯。実は慶応(慶応)大学出身'
-    ```
-
-    Args:
-        vocab_file (`str`):
-            File containing the vocabulary.
-        emoji_file (`str`):
-            File containing the emoji.
-        unk_token (`str`, *optional*, defaults to `"<|endoftext|>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        pad_token (`str`, *optional*, defaults to `"<|endoftext|>"`):
-            The token used for padding
-        bos_token (`str`, *optional*, defaults to `"<|startoftext|>"`):
-            The beginning of sequence token.
-        eos_token (`str`, *optional*, defaults to `"<|endoftext|>"`):
-            The end of sequence token.
-        do_clean_text (`bool`, *optional*, defaults to `False`):
-            Whether or not to clean text for URL, EMAIL, TEL, Japanese DATE and Japanese PRICE.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -139,8 +79,7 @@ class GPTNeoXJapaneseTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        # self.vocab contains support for character fluctuation unique to Japanese, and has a large number of vocab
-        return len(self.raw_vocab)
+        pass
 
     def get_vocab(self):
         return dict(self.raw_vocab, **self.added_tokens_encoder)
@@ -193,28 +132,6 @@ class GPTNeoXJapaneseTokenizer(PreTrainedTokenizer):
 
 
 class SubWordJapaneseTokenizer:
-    """
-    https://github.com/tanreinama/Japanese-BPEEncoder_V2 This tokenizer class is under MIT License according to the
-    original repository.
-
-    MIT License
-
-    Copyright (c) 2020 tanreinama
-
-    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
-    documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
-    rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
-    permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-    The above copyright notice and this permission notice shall be included in all copies or substantial portions of
-    the Software.
-
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
-    THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-    TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-    SOFTWARE.
-    """
 
     def __init__(self, vocab, ids_to_tokens, emoji):
         self.vocab = vocab  # same as swe
@@ -230,9 +147,6 @@ class SubWordJapaneseTokenizer:
         self.content_repatter5 = re.compile(
             r"(明治|大正|昭和|平成|令和|㍾|㍽|㍼|㍻|\u32ff)\d{1,2}年(0?[1-9]|1[0-2])月(0?[1-9]|[12][0-9]|3[01])日(\d{1,2}|:|\d{1,2}時|\d{1,2}分|\(日\)|\(月\)|\(火\)|\(水\)|\(木\)|\(金\)|\(土\)|㈰|㈪|㈫|㈬|㈭|㈮|㈯)*"
         )
-        # The original version of this regex displays catastrophic backtracking behaviour. We avoid this using
-        # possessive quantifiers in Py >= 3.11. In versions below this, we avoid the vulnerability using a slightly
-        # different regex that should generally have the same behaviour in most non-pathological cases.
         if sys.version_info >= (3, 11):
             self.content_repatter6 = re.compile(
                 r"(?:\d,\d{3}|[\d億])*+"
@@ -316,7 +230,6 @@ class SubWordJapaneseTokenizer:
                     else:
                         candidates.append((self.vocab[wd], wd, e))
             if len(candidates) > 0:
-                # the smallest token_id is adopted
                 _, wd, e = min(candidates, key=lambda x: x[0])
                 result.append(wd)
                 pos = e

@@ -1,16 +1,3 @@
-# Copyright 2025 Sesame and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -53,33 +40,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class CsmOutputWithPast(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    depth_decoder_loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction) of the depth decoder model.
-    depth_decoder_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the depth decoder (scores for each vocabulary token before SoftMax).
-    depth_decoder_past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-    depth_decoder_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
-        one for the output of each layer) of shape `(batch_size, sequence_length, hidden_size)`.
-
-        Hidden-states of the model at the output of each layer plus the optional initial embedding outputs.
-    depth_decoder_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`.
-    backbone_loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction) of the backbone model.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -94,7 +54,6 @@ class CsmOutputWithPast(ModelOutput):
     backbone_loss: torch.FloatTensor | None = None
 
 
-# manually specify names for correct naming when converting from modular
 class CsmRMSNorm(LlamaRMSNorm):
     pass
 
@@ -130,8 +89,6 @@ class CsmPreTrainedModel(PreTrainedModel):
     _skip_keys_device_placement = ["past_key_values"]
     _supports_flash_attn = True
     _supports_sdpa = True
-    # does not because of Mimi codec model
-    # _supports_flex_attn = True
 
     _can_compile_fullgraph = True
     _supports_attention_backend = True
@@ -222,7 +179,6 @@ class CsmDepthDecoderModel(LlamaModel, CsmPreTrainedModel):
 
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
         position_ids = position_ids.unsqueeze(0)
         position_embeddings = self.rotary_emb(hidden_states, position_ids=position_ids)
 
@@ -251,7 +207,6 @@ class CsmCodebooksHead(nn.Module):
         self.weight = nn.Parameter(torch.empty(self.num_codebooks - 1, hidden_size, vocab_size))
 
     def forward(self, hidden_states, codebook_indices=None):
-        # -1 because of the concatenated backbone last hidden state
         codebook_indices = codebook_indices - 1
         codebook_weight = self.weight[codebook_indices]
 
@@ -299,7 +254,6 @@ class CsmDepthDecoderForCausalLM(LlamaForCausalLM, GenerationMixin):
         if not is_first_iteration:
             model_inputs.pop("backbone_last_hidden_state")
 
-        # csm depth decoder does not use position_ids
         model_inputs.pop("position_ids")
 
         return model_inputs
@@ -345,10 +299,8 @@ class CsmDepthDecoderForCausalLM(LlamaForCausalLM, GenerationMixin):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         if isinstance(logits_to_keep, int):
             if logits_to_keep == 0:
-                # skip idx 0 logits since it's for the concatenated backbone last hidden state
                 slice_indices = slice(1, None)
             else:
                 slice_indices = slice(-logits_to_keep, None)
@@ -446,7 +398,6 @@ class CsmForConditionalGeneration(CsmPreTrainedModel, CsmGenerationMixin):
         else:
             model = super().from_pretrained(*args, **kwargs)
 
-        # copy depth decoder generation conf attr to the depth decoder generation config
         prefix = "depth_decoder_"
         prefix_len = len(prefix)
         depth_decoder_attrs = {
@@ -457,7 +408,6 @@ class CsmForConditionalGeneration(CsmPreTrainedModel, CsmGenerationMixin):
 
         vars(model.depth_decoder.generation_config).update({"_from_model_config": False, **depth_decoder_attrs})
 
-        # remove the depth decoder generation conf attr from the model generation config
         for attr in depth_decoder_attrs:
             delattr(model.generation_config, prefix + attr)
 
@@ -467,7 +417,6 @@ class CsmForConditionalGeneration(CsmPreTrainedModel, CsmGenerationMixin):
             return model
 
     def save_pretrained(self, *args, **kwargs):
-        # copy the depth decoder generation config attributes to the model generation config
         prefix = "depth_decoder_"
         depth_decoder_attrs = self.depth_decoder.generation_config.to_diff_dict()
         depth_decoder_attrs.pop("transformers_version", None)
@@ -500,7 +449,6 @@ class CsmForConditionalGeneration(CsmPreTrainedModel, CsmGenerationMixin):
         inputs_embeds = self.embed_text_tokens(input_ids)
 
         if input_values is not None:
-            # infer input_values_mask
             input_values_cutoffs = nn.functional.pad(input_values_cutoffs, (1, 0))
             audio_lengths = input_values_cutoffs[input_values_cutoffs >= 0].diff()
             audio_lengths = audio_lengths[audio_lengths > 0]
@@ -509,9 +457,6 @@ class CsmForConditionalGeneration(CsmPreTrainedModel, CsmGenerationMixin):
             )
             input_values_mask = input_values_mask < audio_lengths.unsqueeze(1)
 
-            # =======================================
-            # TODO: @eustlb, this should be batched !!!
-            # but requires making sure batched inference of the codec model works as intended
             with torch.no_grad():
                 audio_tokens_list = []
                 for batch_input_values, batch_input_values_cutoffs in zip(input_values, input_values_cutoffs):
@@ -529,14 +474,12 @@ class CsmForConditionalGeneration(CsmPreTrainedModel, CsmGenerationMixin):
                     [nn.functional.pad(el, (0, 0, 0, max_audio_frames - el.shape[0])) for el in audio_tokens_list]
                 )
                 audio_codes_mask = self.codec_model.get_audio_codes_mask(input_values_mask)
-            # =======================================
             audio_token_id = self.config.audio_token_id
             audio_token_mask = input_ids == audio_token_id
 
             audio_embeds = self.backbone_model.embed_tokens(batched_audio_token_ids)
             inputs_embeds[audio_token_mask] = audio_embeds[audio_codes_mask]
 
-            # same for the audio eos token
             audio_eos_frame_ids = (
                 torch.ones((1, 1, self.config.num_codebooks), device=input_ids.device, dtype=torch.long)
                 * self.config.codebook_eos_token_id
@@ -546,12 +489,10 @@ class CsmForConditionalGeneration(CsmPreTrainedModel, CsmGenerationMixin):
             audio_eos_token_mask = input_ids == self.config.audio_eos_token_id
             inputs_embeds[audio_eos_token_mask] = audio_eos_embeds.repeat(audio_eos_token_mask.sum(), 1)
 
-            # if the labels are provided, we need to expand the labels to (batch_size, seq_length, num_codebooks)
             if labels is not None:
                 labels_expanded = labels.unsqueeze(-1).repeat(1, 1, self.config.num_codebooks)
                 labels_expanded[audio_token_mask] = batched_audio_token_ids[audio_codes_mask]
                 labels_expanded[audio_eos_token_mask] = audio_eos_frame_ids
-                # mask depth decoder
                 depth_decoder_ignore_frames_idxs = (labels == -101).nonzero(as_tuple=True)
                 labels_expanded[depth_decoder_ignore_frames_idxs[0], depth_decoder_ignore_frames_idxs[1], 1:] = -100
                 labels = labels_expanded
@@ -690,7 +631,6 @@ class CsmForConditionalGeneration(CsmPreTrainedModel, CsmGenerationMixin):
         )
 
         backbone_hidden_states = backbone_outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         backbone_logits = self.lm_head(backbone_hidden_states[:, slice_indices, :])
 
@@ -699,17 +639,13 @@ class CsmForConditionalGeneration(CsmPreTrainedModel, CsmGenerationMixin):
         depth_decoder_loss = None
         depth_decoder_outputs = None
         if labels is not None:
-            # select first codebook as labels for the backbone model
             backbone_labels = labels[:, :, 0]
             backbone_loss = self.loss_function(
                 logits=backbone_logits, labels=backbone_labels, vocab_size=self.config.vocab_size, **kwargs
             )
 
-            # for the depth decoder, we need to select the frames to train on
-            # those are frames where the label is not uniformly `ignore_index` along the codebook dimension
             train_mask = ~(labels[:, :, 1:] == -100).all(dim=-1)
             depth_decoder_input_ids = labels[train_mask][..., : self.config.num_codebooks - 1]
-            # add place holder in position 0 that will be replaced by the backbone_last_hidden_state
             depth_decoder_input_ids = nn.functional.pad(depth_decoder_input_ids, (1, 0), value=0)
 
             train_idxs = train_mask.nonzero(as_tuple=True)

@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -71,21 +58,6 @@ class VoxtralRealtimeTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="mistralai/Voxtral-Mini-4B-Realtime-2602")
 @strict
 class VoxtralRealtimeEncoderConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import VoxtralRealtimeEncoderConfig, VoxtralRealtimeEncoder
-
-    >>> # Initializing a VoxtralRealtimeEncoderConfig
-    >>> configuration = VoxtralRealtimeEncoderConfig()
-
-    >>> # Initializing a VoxtralRealtimeEncoder (with random weights)
-    >>> model = VoxtralRealtimeEncoder(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "voxtral_realtime_encoder"
 
@@ -122,27 +94,6 @@ class VoxtralRealtimeEncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="mistralai/Voxtral-Mini-4B-Realtime-2602")
 @strict
 class VoxtralRealtimeConfig(PreTrainedConfig):
-    r"""
-    audio_length_per_tok (`int`, *optional*, defaults to 8):
-        The number of audio frames corresponding to each text token.
-    default_num_delay_tokens (`int`, *optional*, defaults to 6):
-        The default number of delay tokens used for streaming.
-    downsample_factor (`int`, *optional*, defaults to 4):
-        The downsampling factor applied to audio features before projection.
-
-    ```python
-    >>> from transformers import VoxtralRealtimeForConditionalGeneration, VoxtralRealtimeConfig
-
-    >>> # Initializing a VoxtralRealtime configuration
-    >>> configuration = VoxtralRealtimeConfig()
-
-    >>> # Initializing a model with random weights
-    >>> model = VoxtralRealtimeForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "voxtral_realtime"
     sub_configs = {"text_config": AutoConfig, "audio_config": AutoConfig}

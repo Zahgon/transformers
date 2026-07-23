@@ -1,16 +1,3 @@
-# Copyright 2021 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import difflib
 import os
 import re
@@ -26,17 +13,12 @@ import typer
 from ..utils import is_libcst_available
 
 
-# We protect this import to avoid requiring it for all `transformers` CLI commands - however it is actually
-# strictly required for this one (we need it both for modular and for the following Visitor)
 if is_libcst_available():
     import libcst as cst
     from libcst import CSTVisitor
     from libcst import matchers as m
 
     class ClassFinder(CSTVisitor):
-        """
-        A visitor to find all classes in a python module.
-        """
 
         def __init__(self):
             self.classes: list = []
@@ -44,24 +26,13 @@ if is_libcst_available():
             self.is_in_class = False
 
         def visit_ClassDef(self, node: cst.ClassDef) -> None:
-            """Record class names. We assume classes always only appear at top-level (i.e. no class definition in function or similar)"""
-            self.classes.append(node.name.value)
-            self.is_in_class = True
+            pass
 
         def leave_ClassDef(self, node: cst.ClassDef):
-            self.is_in_class = False
+            pass
 
         def visit_SimpleStatementLine(self, node: cst.SimpleStatementLine):
-            """Record all public classes inside the `__all__` assignment."""
-            simple_top_level_assign_structure = m.SimpleStatementLine(
-                body=[m.Assign(targets=[m.AssignTarget(target=m.Name())])]
-            )
-            if not self.is_in_class and m.matches(node, simple_top_level_assign_structure):
-                stmt = cast(cst.Assign, node.body[0])
-                assigned_variable = cast(cst.Name, stmt.targets[0].target).value
-                if assigned_variable == "__all__":
-                    elements = cast(cst.Tuple, stmt.value).elements
-                    self.public_classes = [cast(cst.SimpleString, element.value).value for element in elements]
+            pass
 
 
 CURRENT_YEAR = date.today().year
@@ -84,7 +55,6 @@ COPYRIGHT = f"""
 # limitations under the License.
 """.lstrip()
 
-# Don't modify the following dict unless you changed the format of `models/auto/auto_mappings.py`
 _AUTO_MAPPING_NAMES = {
     "image_processing_auto.py": "IMAGE_PROCESSOR_MAPPING_NAMES",
     "video_processing_auto.py": "VIDEO_PROCESSOR_MAPPING_NAMES",
@@ -92,7 +62,6 @@ _AUTO_MAPPING_NAMES = {
     "feature_extraction_auto.py": "FEATURE_EXTRACTOR_MAPPING_NAMES",
 }
 
-### Entrypoint
 
 
 def add_new_model_like(
@@ -119,13 +88,9 @@ def add_new_model_like(
     )
 
 
-### Core logic
 
 
 class ModelInfos:
-    """
-    Retrieve the basic information about an existing model classes.
-    """
 
     def __init__(self, lowercase_name: str):
         from ..models.auto.configuration_auto import CONFIG_MAPPING_NAMES
@@ -135,7 +100,6 @@ class ModelInfos:
         from ..models.auto.tokenization_auto import TOKENIZER_MAPPING_NAMES
         from ..models.auto.video_processing_auto import VIDEO_PROCESSOR_MAPPING_NAMES
 
-        # Just to make sure it's indeed lowercase
         self.lowercase_name = lowercase_name.lower().replace(" ", "_").replace("-", "_")
         if self.lowercase_name not in CONFIG_MAPPING_NAMES:
             self.lowercase_name.replace("_", "-")
@@ -145,7 +109,6 @@ class ModelInfos:
         self.config_class = CONFIG_MAPPING_NAMES[self.lowercase_name]
         self.camelcase_name = self.config_class.replace("Config", "")
 
-        # Get tokenizer class
         if self.lowercase_name in TOKENIZER_MAPPING_NAMES:
             self.tokenizer_class = None
             self.fast_tokenizer_class = TOKENIZER_MAPPING_NAMES[self.lowercase_name]
@@ -210,7 +173,6 @@ def add_model_to_auto_mappings(
     filenames_to_add = [
         (filename.replace(old_lowercase_name, "auto"), to_add) for filename, to_add in filenames_to_add[1:]
     ]
-    # fast tokenizer has the same auto mappings as normal ones
     corrected_filenames_to_add = []
     for file, to_add in filenames_to_add:
         if "tokenization_auto_fast.py" in file:
@@ -219,7 +181,6 @@ def add_model_to_auto_mappings(
         else:
             corrected_filenames_to_add.append((file, to_add))
 
-    # Add the config and image/video processor mappings directly as the handling is a bit different
     add_content_to_file(
         repo_path / "src" / "transformers" / "models" / "auto" / "auto_mappings.py",
         new_content=f'("{new_lowercase_name}", "{new_cased_name}Config"),\n        ',
@@ -230,7 +191,6 @@ def add_model_to_auto_mappings(
     for filename, to_add in corrected_filenames_to_add:
         if to_add:
             if filename in _AUTO_MAPPING_NAMES:
-                # These are saved in `auto_mapping.py` and require a slightly diff regex match
                 mapping_name = _AUTO_MAPPING_NAMES[filename]
                 filename = "auto_mappings.py"  # use the unified mapping filename to write content!
                 block_match = re.search(
@@ -241,10 +201,8 @@ def add_model_to_auto_mappings(
                     rf'( {{8,12}}\(\s*"{old_lowercase_name}",.*?\),\n)(?: {{4,12}}\(|\])', block, re.DOTALL
                 )
             else:
-                # These auto mappings are filled-in manually (tokenization and modeling files)
                 filename = filename.replace("_fast.py", ".py")
                 file = (repo_path / "src" / "transformers" / "models" / "auto" / filename).read_text()
-                # The regex has to be a bit complex like this as the tokenizer mapping has new lines everywhere
                 matching_lines = re.findall(
                     rf'( {{8,12}}\(\s*"{old_lowercase_name}",.*?\),\n)(?: {{4,12}}\(|\])', file, re.DOTALL
                 )
@@ -302,7 +260,6 @@ def create_doc_file(new_paper_name: str, public_classes: list[str]):
         """
     )
 
-    # Add public classes doc
     doc_for_classes = []
     for class_ in public_classes:
         doc = f"## {class_}\n\n[[autodoc]] {class_}"
@@ -445,7 +402,6 @@ def create_modular_file(
     old_lowercase_name = old_model_infos.lowercase_name
     old_folder_root = repo_path / "src" / "transformers" / "models" / old_lowercase_name
 
-    # Construct the modular file from the original (old) model, by subclassing each class
     all_imports = ""
     all_bodies = ""
     all_public_classes = []
@@ -458,7 +414,6 @@ def create_modular_file(
             all_bodies += f"\n\n{body}"
             all_public_classes.extend(public_classes)
 
-    # Create the __all__ assignment
     public_classes_formatted = "\n            ".join(f"{public_class}," for public_class in all_public_classes)
     all_statement = textwrap.dedent(
         f"""
@@ -468,9 +423,7 @@ def create_modular_file(
         ]
         """
     )
-    # Create the whole modular file
     modular_file = COPYRIGHT + all_imports + all_bodies + all_statement
-    # Remove outer explicit quotes "" around the public class names before returning them
     all_public_classes = [public_class.replace('"', "") for public_class in all_public_classes]
     return modular_file, all_public_classes
 
@@ -497,7 +450,6 @@ def create_test_files(
         ("test_" + filename.replace(old_lowercase_name, new_lowercase_name), to_add)
         for filename, to_add in filenames_to_add[1:]
     ]
-    # fast tokenizer/image processor have the same test files as normal ones
     corrected_filenames_to_add = []
     for file, to_add in filenames_to_add:
         if re.search(rf"test_(?:tokenization)|(?:image_processing)_{new_lowercase_name}_fast.py", file):
@@ -511,12 +463,10 @@ def create_test_files(
         if to_add:
             original_test_file = new_file.replace(new_lowercase_name, old_lowercase_name)
             original_test_path = repo_path / "tests" / "models" / old_lowercase_name / original_test_file
-            # Sometimes, tests may not exist
             if not original_test_path.is_file():
                 continue
             with open(original_test_path, "r") as f:
                 test_code = f.read()
-            # Remove old copyright and add new one
             test_lines = test_code.split("\n")
             idx = 0
             while test_lines[idx].startswith("#"):
@@ -550,42 +500,34 @@ def _add_new_model_like_internal(
             A list of tuples of all potential filenames to add for a new model, along a boolean flag describing if we
             should add this file or not. For example, [(`modeling_xxx.px`, True), (`configuration_xxx.py`, True), (`tokenization_xxx.py`, False),...]
     """
-    # As the import was protected, raise if not present (as it's actually a hard dependency for this command)
     if not is_libcst_available():
         raise ValueError("You need to install `libcst` to run this command -> `pip install libcst`")
 
     old_lowercase_name = old_model_infos.lowercase_name
 
-    # 1. We create the folder for our new model
     new_module_folder = repo_path / "src" / "transformers" / "models" / new_lowercase_name
     os.makedirs(new_module_folder, exist_ok=True)
 
-    # 2. Create and add the modular file
     modular_file, public_classes = create_modular_file(
         repo_path, old_model_infos, new_lowercase_name, filenames_to_add
     )
     with open(new_module_folder / f"modular_{new_lowercase_name}.py", "w") as f:
         f.write(modular_file)
 
-    # 3. Create and add the __init__.py
     init_file = create_init_file(old_lowercase_name, new_lowercase_name, filenames_to_add)
     with open(new_module_folder / "__init__.py", "w") as f:
         f.write(init_file)
 
-    # 4. Add new model to the models init
     add_content_to_file(
         repo_path / "src" / "transformers" / "models" / "__init__.py",
         new_content=f"    from .{new_lowercase_name} import *\n",
         add_after="if TYPE_CHECKING:\n",
     )
 
-    # 5. Add model to auto mappings
     add_model_to_auto_mappings(repo_path, old_model_infos, new_lowercase_name, new_model_paper_name, filenames_to_add)
 
-    # 6. Add test files
     tests_folder = repo_path / "tests" / "models" / new_lowercase_name
     os.makedirs(tests_folder, exist_ok=True)
-    # Add empty __init__.py
     with open(tests_folder / "__init__.py", "w"):
         pass
     test_files = create_test_files(repo_path, old_model_infos, new_lowercase_name, filenames_to_add)
@@ -593,13 +535,11 @@ def _add_new_model_like_internal(
         with open(tests_folder / filename, "w") as f:
             f.write(content)
 
-    # 7. Add doc file
     doc_file = create_doc_file(new_model_paper_name, public_classes)
     with open(repo_path / "docs" / "source" / "en" / "model_doc" / f"{new_lowercase_name}.md", "w") as f:
         f.write(doc_file)
     insert_model_in_doc_toc(repo_path, old_lowercase_name, new_lowercase_name, new_model_paper_name)
 
-    # 9. Run linters
     model_init_file = repo_path / "src" / "transformers" / "models" / "__init__.py"
     subprocess.run(
         ["ruff", "check", new_module_folder, tests_folder, model_init_file, "--fix"],
@@ -616,7 +556,6 @@ def _add_new_model_like_internal(
     )
     subprocess.run(["python", "utils/sort_auto_mappings.py"], cwd=repo_path, stdout=subprocess.DEVNULL)
 
-    # 10. Run the modular conversion
     subprocess.run(
         ["python", "utils/modular_model_converter.py", new_lowercase_name], cwd=repo_path, stdout=subprocess.DEVNULL
     )
@@ -672,14 +611,7 @@ def get_user_field(
 
 
 def convert_to_bool(x: str) -> bool:
-    """
-    Converts a string to a bool.
-    """
-    if x.lower() in ["1", "y", "yes", "true"]:
-        return True
-    if x.lower() in ["0", "n", "no", "false"]:
-        return False
-    raise ValueError(f"{x} is not a value that can be converted to a bool.")
+    pass
 
 
 def get_user_input():
@@ -690,7 +622,6 @@ def get_user_input():
 
     model_types = list(CONFIG_MAPPING_NAMES.keys())
 
-    # Get old model type
     valid_model_type = False
     while not valid_model_type:
         old_model_type = input(
@@ -708,7 +639,6 @@ def get_user_input():
 
     old_model_infos = ModelInfos(old_model_type)
 
-    # Ask for the new model name
     new_lowercase_name = get_user_field(
         "What is the new model name? Please provide it as snake lowercase, e.g. `new_model`?"
     )
@@ -717,7 +647,6 @@ def get_user_input():
         default_value="".join(x.title() for x in new_lowercase_name.split("_")),
     )
 
-    # Ask if we want to add individual processor classes as well
     add_tokenizer = False
     add_fast_tokenizer = False
     add_image_processor = False
@@ -762,7 +691,6 @@ def get_user_input():
         )
 
     old_lowercase_name = old_model_infos.lowercase_name
-    # A list of the old filenames, along whether we should copy them or not
     filenames_to_add = (
         (f"configuration_{old_lowercase_name}.py", True),
         (f"modeling_{old_lowercase_name}.py", True),

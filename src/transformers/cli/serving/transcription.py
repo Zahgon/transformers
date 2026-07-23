@@ -1,19 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Handler for the /v1/audio/transcriptions endpoint.
-"""
 
 import io
 from typing import TYPE_CHECKING
@@ -54,15 +38,6 @@ UNUSED_TRANSCRIPTION_FIELDS = {
 
 
 class TranscriptionHandler:
-    """Handler for ``POST /v1/audio/transcriptions``.
-
-    Accepts a multipart/form-data request with an audio file and model name,
-    runs speech-to-text, and returns an OpenAI-compatible Transcription response.
-
-    Standalone (does not extend :class:`BaseHandler`) because audio requests use
-    multipart form data, not JSON bodies, and don't need generation config or
-    validation. Shares the :class:`GenerationState` for thread safety.
-    """
 
     def __init__(self, model_manager: ModelManager, generation_state: GenerationState):
         """
@@ -146,9 +121,6 @@ class TranscriptionHandler:
         audio_processor: "ProcessorMixin",
         audio_inputs: dict,
     ) -> JSONResponse:
-        # Audio models have different inputs (input_features) and decode (batch_decode)
-        # than text models, so we use async_submit() directly instead of
-        # generate_non_streaming()
         from openai.types.audio import Transcription
 
         generated_ids = await gen_manager.async_submit(audio_model.generate, **audio_inputs)
@@ -162,8 +134,6 @@ class TranscriptionHandler:
         audio_processor: "ProcessorMixin",
         audio_inputs: dict,
     ) -> StreamingResponse:
-        # Same as _non_streaming — uses submit() directly because audio inputs
-        # differ from text.
         import asyncio
 
         tokenizer = audio_processor.tokenizer if hasattr(audio_processor, "tokenizer") else audio_processor
@@ -173,10 +143,7 @@ class TranscriptionHandler:
         gen_kwargs = {**audio_inputs, "streamer": streamer}
 
         def _run():
-            try:
-                audio_model.generate(**gen_kwargs)
-            except Exception as e:
-                loop.call_soon_threadsafe(queue.put_nowait, _StreamError(str(e)))
+            pass
 
         gen_manager.submit(_run)
 

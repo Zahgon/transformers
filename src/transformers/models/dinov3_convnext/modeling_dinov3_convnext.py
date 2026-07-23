@@ -1,17 +1,3 @@
-# Copyright 2025 Meta Platforms, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ConvNext model."""
 
 import numpy as np
 import torch
@@ -33,10 +19,6 @@ logger = logging.get_logger(__name__)
 
 
 class DINOv3ConvNextLayerNorm(nn.LayerNorm):
-    r"""LayerNorm that supports two data formats: channels_last (default) or channels_first.
-    The ordering of the dimensions in the inputs. channels_last corresponds to inputs with shape (batch_size, height,
-    width, channels) while channels_first corresponds to inputs with shape (batch_size, channels, height, width).
-    """
 
     def __init__(self, *args, data_format="channels_last", **kwargs):
         super().__init__(*args, **kwargs)
@@ -58,13 +40,7 @@ class DINOv3ConvNextLayerNorm(nn.LayerNorm):
         return features
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->Dinov3ConvnextDropPath
 class Dinov3ConvnextDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -80,26 +56,10 @@ class Dinov3ConvnextDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class DINOv3ConvNextLayer(nn.Module):
-    """This corresponds to the `Block` class in the original implementation.
-
-    There are two equivalent implementations:
-     1) DwConv, LayerNorm (channels_first), Conv, GELU, Conv (all in (N, C, H, W) format)
-     2) DwConv, Permute, LayerNorm (channels_last), Linear, GELU, Linear, Permute
-
-    The authors used (2) as they find it slightly faster in PyTorch.
-
-    Args:
-        config ([`DINOv3ConvNextConfig`]):
-            Model config.
-        channels (`int`):
-            Number of input (and output) channels.
-        drop_path (`float`):
-            Drop path rate. Default: 0.0.
-    """
 
     def __init__(self, config: DINOv3ConvNextConfig, channels: int, drop_path: float = 0.0):
         super().__init__()
@@ -197,7 +157,6 @@ class DINOv3ConvNextEncoder(DINOv3ConvNextPreTrainedModel):
     def __init__(self, config: DINOv3ConvNextConfig):
         super().__init__(config)
         self.stages = nn.ModuleList([DINOv3ConvNextStage(config, stage_idx) for stage_idx in range(config.num_stages)])
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -230,14 +189,11 @@ class DINOv3ConvNextModel(DINOv3ConvNextPreTrainedModel):
         output = self.model(hidden_states, **kwargs)
         hidden_states = output.last_hidden_state
 
-        # make global representation, a.k.a [CLS] token
         pooled_output = self.pool(hidden_states)
 
-        # (batch_size, channels, height, width) -> (batch_size, height * width, channels)
         pooled_output = pooled_output.flatten(2).transpose(1, 2)
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
 
-        # concat "cls" and "patch tokens" as (batch_size, 1 + height * width, channels)
         hidden_states = torch.cat([pooled_output, hidden_states], dim=1)
         hidden_states = self.layer_norm(hidden_states)
 
@@ -271,7 +227,6 @@ class DINOv3ConvNextBackbone(BackboneMixin, DINOv3ConvNextPreTrainedModel):
         kwargs["output_hidden_states"] = True  # required to extract layers for the stages
         output = self.model(pixel_values, **kwargs)
 
-        # hidden_states are already in NCHW (batch_size, channels, height, width) format
         feature_maps: list[torch.Tensor] = []
         for stage, hidden_states in zip(self.stage_names, output.hidden_states):
             if stage in self.out_features:

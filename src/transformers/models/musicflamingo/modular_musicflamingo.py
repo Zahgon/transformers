@@ -1,17 +1,3 @@
-# Copyright 2026 NVIDIA CORPORATION and the HuggingFace Inc. team. All rights
-# reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 from math import pi
@@ -56,34 +42,6 @@ if is_torch_available():
 @auto_docstring(checkpoint="nvidia/music-flamingo-2601-hf")
 @strict
 class MusicFlamingoConfig(AudioFlamingo3Config):
-    r"""
-    audio_bos_token_id (`int`, *optional*, defaults to 151670):
-        The beginning-of-audio token index used to mark the start of audio spans.
-    audio_eos_token_id (`int`, *optional*, defaults to 151671):
-        The end-of-audio token index used to mark the end of audio spans.
-    audio_frame_step (`float`, *optional*, defaults to 0.01):
-        Duration in seconds of one input mel frame (trained with hop_length 160 at sampling_rate 16000).
-
-    Example:
-
-    ```python
-    >>> from transformers import MusicFlamingoForConditionalGeneration, MusicFlamingoConfig, AudioFlamingo3EncoderConfig, Qwen2Config
-
-    >>> # Initializing an MusicFlamingoEncoder config
-    >>> audio_config = AudioFlamingo3EncoderConfig()
-
-    >>> # Initializing a Qwen2 config
-    >>> text_config = Qwen2Config()
-
-    >>> # Initializing an MusicFlamingo configuration
-    >>> configuration = MusicFlamingoConfig(audio_config, text_config)
-
-    >>> # Initializing a model from the musicflamingo style configuration
-    >>> model = MusicFlamingoForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     audio_bos_token_id: int = 151670
     audio_eos_token_id: int = 151671
@@ -153,19 +111,15 @@ class MusicFlamingoProcessor(AudioFlamingo3Processor):
         self.audio_eos_token_id = tokenizer.convert_tokens_to_ids(audio_eos_token)
 
     def replace_audio_token(self, audio_inputs: dict, audio_idx: int) -> str:
-        num_audio_tokens = audio_inputs["num_audio_tokens"][audio_idx]
-        return self.audio_bos_token + self.audio_token * num_audio_tokens + self.audio_eos_token
+        pass
 
     @property
     def audio_token_ids(self):
-        return [self.audio_token_id, self.audio_bos_token_id, self.audio_eos_token_id]
+        pass
 
-    # Alias for BC
     @property
     def audio_ids(self):
-        """Deprecated alias for `audio_token_ids`; will be removed in a future release."""
-        logger.warning_once("`audio_ids` is deprecated; please use `audio_token_ids` instead.")
-        return self.audio_token_ids
+        pass
 
     def apply_transcription_request(self, *args, **kwargs):
         raise NotImplementedError("This method is not supported for MusicFlamingo.")
@@ -201,13 +155,6 @@ def apply_rotary_time_emb(hidden_states, cos, sin):
 
 
 class MusicFlamingoRotaryEmbedding(MoonshineRotaryEmbedding):
-    """Rotary time embedding module used by MusicFlamingo checkpoints.
-
-    This is a checkpoint-faithful integration, not a direct implementation of the RoTE formulation described in
-    (Goel et al., 2024): https://arxiv.org/abs/2410.12109. It applies axial rotary embeddings over the window index
-    within each audio sample and the encoder time index within each window, then modulates both axes with absolute
-    timestamps in seconds.
-    """
 
     def __init__(self, config: MusicFlamingoConfig, device=None):
         super().__init__(config, device=device)
@@ -225,14 +172,12 @@ class MusicFlamingoRotaryEmbedding(MoonshineRotaryEmbedding):
     def forward(self, timestamps: Tensor, seq_len: int) -> tuple[Tensor, Tensor]:
         """Compute 2D axial rotary embeddings for window and time dimensions."""
 
-        # Compute frequencies for the window axis, accounting for x4 due to the downsampling in the audio encoder (conv2 and avg pooling)
         window_starts = timestamps[:, 0].to(device=self.inv_freq.device, dtype=self.inv_freq.dtype)
         window_duration = self.config.audio_frame_step * 4 * seq_len
         window_positions = torch.round(window_starts / window_duration) / self.max_seq_len_cached
         window_freqs = window_positions.unsqueeze(-1) * self.inv_freq
         window_freqs = torch.repeat_interleave(window_freqs, 2, dim=-1)
 
-        # Broadcasting and apply time-based angle modulation
         window_freqs = window_freqs[:, None, :]
         time_freqs = self.position_angles[:seq_len][None, :, :]
         window_freqs, time_freqs = broadcast_tensors(window_freqs, time_freqs)
@@ -282,18 +227,15 @@ class MusicFlamingoModel(AudioFlamingo3Model):
             f"Audio features and audio tokens do not match, tokens: {n_audio_tokens}, features: {n_audio_features}",
         )
 
-        # Account for 4x downsampling in audio encoder (conv2 and avg pooling)
         audio_embed_frame_step = self.config.audio_frame_step * 4
         frame_offsets = (
             torch.arange(max_post_length, device=post_lengths.device, dtype=torch.float32) * audio_embed_frame_step
         )
 
-        # Map each encoder output row to its audio sample using token counts
         cumsum_post = torch.cat([torch.zeros(1, device=post_lengths.device), torch.cumsum(post_lengths, dim=0)[:-1]])
         cumsum_samples = torch.cumsum(sample_lengths, dim=0)
         sample_indices = torch.searchsorted(cumsum_samples, cumsum_post, right=True)
 
-        # Compute window index within each sample (0, 1, 2, ... then reset for next sample)
         sample_start_rows = torch.searchsorted(
             sample_indices, torch.arange(sample_lengths.shape[0], device=post_lengths.device)
         )
@@ -301,7 +243,6 @@ class MusicFlamingoModel(AudioFlamingo3Model):
             torch.arange(post_lengths.shape[0], device=post_lengths.device) - sample_start_rows[sample_indices]
         )
 
-        # Compute timestamps
         return window_indices.unsqueeze(1) * max_post_length * audio_embed_frame_step + frame_offsets
 
     @can_return_tuple
@@ -334,7 +275,6 @@ class MusicFlamingoModel(AudioFlamingo3Model):
         hidden_states = apply_rotary_time_emb(hidden_states, cos, sin)
         audio_embeds = self.multi_modal_projector(hidden_states)
 
-        # Mask according to the audio tower output lengths, accounting for both conv downsampling and final avg pooling
         valid_mask = torch.arange(audio_embeds.shape[1], device=post_lengths.device)[None, :] < post_lengths[:, None]
         audio_output.pooler_output = audio_embeds[valid_mask.to(audio_embeds.device)]
 
@@ -367,7 +307,6 @@ class MusicFlamingoModel(AudioFlamingo3Model):
                 input_features, input_features_mask, input_ids=input_ids, return_dict=True
             ).pooler_output
 
-            # replace text-audio token placeholders with audio embeddings
             special_audio_mask = self.get_placeholder_mask(
                 input_ids, inputs_embeds=inputs_embeds, audio_features=audio_embeds
             )

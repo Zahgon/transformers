@@ -10,60 +10,30 @@ from tokenizers import processors
 from transformers import Glm4Config, Glm4ForCausalLM, PreTrainedTokenizerFast
 
 
-# fmt: off
-# `None` means we drop the key
 STATE_DICT_MAPPING = {
-    # CausalLM keys
     r"transformer.output_layer.weight":                                               r"lm_head.weight",
 
-    # Model keys
     r"transformer.embedding.word_embeddings.weight":                                  r"model.embed_tokens.weight",
     r"transformer.rotary_pos_emb.inv_freq":                                           None,
     r"transformer.encoder.final_layernorm.weight":                                    r"model.norm.weight",
 
-    # Layers keys
     r"transformer.encoder.layers.(\d+).input_layernorm.weight":                       r"model.layers.\1.input_layernorm.weight",
 
-    # Sandwich keys
     r"transformer.encoder.layers.(\d+).post_mlp_layernorm.weight":                    r"model.layers.\1.post_mlp_layernorm.weight",
     r"transformer.encoder.layers.(\d+).post_self_attn_layernorm.weight":              r"model.layers.\1.post_self_attn_layernorm.weight",
 
     r"transformer.encoder.layers.(\d+).post_attention_layernorm.weight":              r"model.layers.\1.post_attention_layernorm.weight",
 
-    # Attention keys
     r"transformer.encoder.layers.(\d+).self_attention.dense.weight":                  r"model.layers.\1.self_attn.o_proj.weight",
-    # qkv_proj will later be split in q|k|v|_proj
     r"transformer.encoder.layers.(\d+).self_attention.query_key_value.(weight|bias)": r"model.layers.\1.self_attn.qkv_proj.\2",
 
-    # MLP keys
     r"transformer.encoder.layers.(\d+).mlp.dense_h_to_4h.weight":                     r"model.layers.\1.mlp.gate_up_proj.weight",
     r"transformer.encoder.layers.(\d+).mlp.dense_4h_to_h.weight":                     r"model.layers.\1.mlp.down_proj.weight",
 }
-# fmt: on
 
 
 def load_weights(input_dir: str):
-    safetensor_files = [os.path.join(input_dir, x) for x in os.listdir(input_dir) if x.endswith(".safetensors")]
-    bin_files = [os.path.join(input_dir, x) for x in os.listdir(input_dir) if x.endswith(".bin")]
-
-    all_weights = {}
-
-    if safetensor_files:
-        safetensor_files = sorted(safetensor_files, key=lambda x: int(x.rsplit("-", 3)[1]))
-        for file in safetensor_files:
-            tensors = load_file(file)
-            all_weights.update(tensors)
-        return all_weights
-
-    elif bin_files:
-        bin_files = sorted(bin_files, key=lambda x: int(x.rsplit("-", 3)[1]))
-        for file in bin_files:
-            tensors = torch.load(file, map_location="cpu")
-            all_weights.update(tensors)
-        return all_weights
-
-    else:
-        raise ValueError("No .safetensors or .bin files found in the specified directory.")
+    pass
 
 
 def map_old_key_to_new(old_key):
@@ -73,7 +43,6 @@ def map_old_key_to_new(old_key):
                 return None
         else:
             new_key, n_replace = re.subn(pattern, replacement, old_key)
-            # Early exit of the loop
             if n_replace > 0:
                 return new_key
 
@@ -139,43 +108,11 @@ def convert_config(original_config: dict):
 
 
 def convert_glm4_tokenizer(input_dir, use_post_processor=False):
-    fast_tok = PreTrainedTokenizerFast.from_pretrained(input_dir, model_input_names=["input_ids", "attention_mask"])
-    if use_post_processor:
-        fast_tok._tokenizer.post_processor = processors.Sequence(
-            [
-                processors.ByteLevel(trim_offsets=False),
-                processors.TemplateProcessing(
-                    single="[gMASK]:0 <sop>:0 $A:0",
-                    pair="[gMASK]:0 <sop>:0 $A:0 $B:1",
-                    special_tokens=[("[gMASK]", 151331), ("<sop>", 151333)],
-                ),
-            ],
-        )
-    else:
-        fast_tok._tokenizer.post_processor = processors.Sequence(
-            [processors.ByteLevel(trim_offsets=False)],
-        )
-    return fast_tok
+    pass
 
 
 def convert_glm4_model(input_dir, output_dir, use_post_processor=False):
-    # Load and convert config
-    with open(os.path.join(input_dir, "config.json")) as f:
-        original_config = json.load(f)
-    config = convert_config(original_config)
-    config.save_pretrained(output_dir)
-
-    # Load and convert weights
-    original_state_dict = load_weights(input_dir)
-    new_dict = convert_state_dict(original_state_dict, config)
-    with torch.device("meta"):
-        model = Glm4ForCausalLM(config)
-    model.load_state_dict(new_dict, strict=True, assign=True)
-    model.save_pretrained(output_dir)
-
-    # Load and convert tokenizer
-    tokenizer = convert_glm4_tokenizer(input_dir, use_post_processor)
-    tokenizer.save_pretrained(output_dir)
+    pass
 
 
 if __name__ == "__main__":

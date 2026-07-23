@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -51,45 +38,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="UsefulSensors/moonshine-tiny")
 @strict
 class MoonshineConfig(PreTrainedConfig):
-    r"""
-    encoder_num_key_value_heads (`int`, *optional*):
-        This is the number of key_value heads that should be used to implement Grouped Query Attention. If
-        `encoder_num_key_value_heads=encoder_num_attention_heads`, the model will use Multi Head Attention (MHA), if
-        `encoder_num_key_value_heads=1` the model will use Multi Query Attention (MQA) otherwise GQA is used. When
-        converting a multi-head checkpoint to a GQA checkpoint, each group key and value head should be constructed
-        by meanpooling all the original heads within that group. For more details, check out [this
-        paper](https://huggingface.co/papers/2305.13245). If it is not specified, will default to
-        `num_attention_heads`.
-    decoder_num_key_value_heads (`int`, *optional*):
-        This is the number of key_value heads that should be used to implement Grouped Query Attention. If
-        `decoder_num_key_value_heads=decoder_num_attention_heads`, the model will use Multi Head Attention (MHA), if
-        `decoder_num_key_value_heads=1` the model will use Multi Query Attention (MQA) otherwise GQA is used. When
-        converting a multi-head checkpoint to a GQA checkpoint, each group key and value head should be constructed
-        by meanpooling all the original heads within that group. For more details, check out [this
-        paper](https://huggingface.co/papers/2305.13245). If it is not specified, will default to
-        `decoder_num_attention_heads`.
-    pad_head_dim_to_multiple_of (`int`, *optional*):
-        Pad head dimension in encoder and decoder to the next multiple of this value. Necessary for using certain
-        optimized attention implementations.
-    encoder_hidden_act (`str` or `function`, *optional*, defaults to `"gelu"`):
-        The non-linear activation function (function or string) in the encoder.
-    decoder_hidden_act (`str` or `function`, *optional*, defaults to `"silu"`):
-        The non-linear activation function (function or string) in the decoder.
-
-    Example:
-
-    ```python
-    >>> from transformers import MoonshineModel, MoonshineConfig
-
-    >>> # Initializing a Moonshine style configuration
-    >>> configuration = MoonshineConfig().from_pretrained("UsefulSensors/moonshine-tiny")
-
-    >>> # Initializing a model from the configuration
-    >>> model = MoonshineModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "moonshine"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -143,14 +91,6 @@ class MoonshineConfig(PreTrainedConfig):
 )
 @dataclass
 class MoonshineEncoderModelOutput(BaseModelOutput):
-    r"""
-    attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
-        Mask to avoid performing attention on padding token indices after sequence compression. Returned because the
-        sequence length may differ from the input sequence length. Mask values selected in `[0, 1]`:
-
-        - 1 for tokens that are **not masked**,
-        - 0 for tokens that are **masked**.
-    """
 
     attention_mask: torch.Tensor | None = None
 
@@ -204,7 +144,6 @@ class MoonshineAttention(GlmAttention):
         self.is_causal = is_causal
         self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
 
-        # Pad head dimension to the next specified multiple.
         if self.config.pad_head_dim_to_multiple_of is not None:
             target_multiple = self.config.pad_head_dim_to_multiple_of
             target_head_dim = target_multiple * ((self.head_dim + target_multiple - 1) // target_multiple)
@@ -231,13 +170,11 @@ class MoonshineAttention(GlmAttention):
         if past_key_values is not None:
             is_updated = past_key_values.is_updated.get(self.layer_idx)
             if is_cross_attention:
-                # after the first generated id, we can subsequently re-use all key/value_states from cache
                 past_key_values.is_updated[self.layer_idx] = True
                 past_key_values = past_key_values.cross_attention_cache
             else:
                 past_key_values = past_key_values.self_attention_cache
 
-        # use key_value_states if cross attention
         current_states = key_value_states if key_value_states is not None else hidden_states
         if is_cross_attention and past_key_values and is_updated:
             key_states = past_key_values.layers[self.layer_idx].keys
@@ -395,7 +332,6 @@ class MoonshinePreTrainedModel(PreTrainedModel):
     _supports_sdpa = True
 
     _can_compile_fullgraph = True
-    # TODO arthur, how do we separate when it cross / self coming from different layer?
 
     def _get_feat_extract_output_lengths(self, input_lengths: torch.LongTensor):
         """
@@ -409,12 +345,6 @@ class MoonshinePreTrainedModel(PreTrainedModel):
 
 
 class MoonshineEncoder(MoonshinePreTrainedModel):
-    """
-    Transformer encoder consisting of *config.num_hidden_layers* layers. Each layer is a [`MoonshineEncoderLayer`]
-
-    Args:
-        config: MoonshineConfig
-    """
 
     main_input_name = "input_values"
     _can_record_outputs = {
@@ -476,7 +406,6 @@ class MoonshineEncoder(MoonshinePreTrainedModel):
         hidden_states = nn.functional.gelu(self.conv3(hidden_states))
         hidden_states = hidden_states.permute(0, 2, 1)
 
-        # attention mask downsampling
         output_attention_mask = None
         if attention_mask is not None:
             mask_len = self._get_feat_extract_output_lengths(attention_mask.shape[-1])
@@ -689,7 +618,6 @@ class MoonshineForConditionalGeneration(MoonshinePreTrainedModel, GenerationMixi
         self.model = MoonshineModel(config)
         self.proj_out = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):

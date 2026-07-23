@@ -1,16 +1,3 @@
-# Copyright 2025 Baidu and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import os.path
 from pathlib import Path
 from shutil import SameFileError, copyfile
@@ -35,20 +22,6 @@ class Ernie4_5_VLMoeProcessorKwargs(ProcessingKwargs, total=False):
 
 
 class Ernie4_5_VLMoeProcessor(ProcessorMixin):
-    r"""
-    Constructs a Ernie 4.5 VL processor which wraps a Ernie 4.5 VL image processor and a Llama tokenizer into a single processor.
-    [`Ernie4_5_VLMoeProcessor`] offers all the functionalities of [`Ernie4_5_VLMoeImageProcessor`] and [`LlamaTokenizerFast`]. See the
-    [`~Ernie4_5_VLMoeProcessor.__call__`] and [`~Ernie4_5_VLMoeProcessor.decode`] for more information.
-    Args:
-        image_processor ([`Ernie4_5_VLMoeImageProcessor`], *optional*):
-            The image processor is a required input.
-        tokenizer ([`LlamaTokenizerFast`], *optional*):
-            The tokenizer is a required input.
-        video_processor ([`Ernie4_5_VLMoeVideoProcessor`], *optional*):
-            The video processor is a required input.
-        chat_template (`str`, *optional*): A Jinja template which will be used to convert lists of messages
-            in a chat into a tokenizable string.
-    """
 
     def __init__(self, image_processor=None, tokenizer=None, video_processor=None, chat_template=None, **kwargs):
         self.image_token = tokenizer.image_token
@@ -174,7 +147,6 @@ class Ernie4_5_VLMoeProcessor(ProcessorMixin):
             mm_token_type_ids[array_ids == self.image_token_id] = 1  # img
             mm_token_type_ids[array_ids == self.video_token_id] = 2  # vid
 
-            # moe additionally adds start/end tokens
             moe_mm_token_type_ids = np.copy(mm_token_type_ids)
             for token_id in [
                 self.image_start_token_id,
@@ -187,7 +159,6 @@ class Ernie4_5_VLMoeProcessor(ProcessorMixin):
             ]:
                 moe_mm_token_type_ids[array_ids == token_id] = 2
 
-            # convert to base type
             text_inputs["mm_token_type_ids"] = mm_token_type_ids.astype(int).tolist()
             text_inputs["moe_mm_token_type_ids"] = moe_mm_token_type_ids.astype(int).tolist()
 
@@ -195,55 +166,10 @@ class Ernie4_5_VLMoeProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        """Additional `mm_token_type_ids` used for modality isolated MoE"""
-        model_input_names = super().model_input_names
-        model_input_names.append("mm_token_type_ids")
-        model_input_names.append("moe_mm_token_type_ids")
-        return model_input_names
+        pass
 
     def _get_num_multimodal_tokens(self, image_sizes=None, video_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-        Args:
-            image_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (height, width) per each image.
-            video_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (num_frames, height, width) per each video.
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-
-        vision_data = {}
-        if image_sizes is not None:
-            images_kwargs = Ernie4_5_VLMoeProcessorKwargs._defaults.get("images_kwargs", {})
-            images_kwargs.update(kwargs)
-            merge_size = images_kwargs.get("merge_size", None) or self.image_processor.merge_size
-
-            num_image_patches = [
-                self.image_processor.get_number_of_image_patches(*image_size, images_kwargs)
-                for image_size in image_sizes
-            ]
-            num_image_tokens = [(num_patches // merge_size**2) for num_patches in num_image_patches]
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-
-        if video_sizes is not None:
-            videos_kwargs = Ernie4_5_VLMoeProcessorKwargs._defaults.get("videos_kwargs", {})
-            videos_kwargs.update(kwargs)
-            temporal_merge_size = (
-                videos_kwargs.get("temporal_patch_size", None) or self.video_processor.temporal_patch_size
-            )
-
-            num_video_patches = [
-                self.video_processor.get_number_of_video_patches(*video_size, videos_kwargs)
-                for video_size in video_sizes
-            ]
-            num_video_tokens = [
-                (num_patches // merge_size**2 // temporal_merge_size) for num_patches in num_video_patches
-            ]
-            vision_data["num_video_tokens"] = num_video_tokens
-
-        return MultiModalData(**vision_data)
+        pass
 
 
 __all__ = ["Ernie4_5_VLMoeProcessor"]

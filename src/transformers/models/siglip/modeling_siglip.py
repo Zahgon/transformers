@@ -1,17 +1,3 @@
-# Copyright 2024 Google AI and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Siglip model."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -46,12 +32,7 @@ from .configuration_siglip import SiglipConfig, SiglipTextConfig, SiglipVisionCo
     """
 )
 @dataclass
-# Copied from transformers.models.clip.modeling_clip.CLIPVisionModelOutput with CLIP->Siglip
 class SiglipVisionModelOutput(ModelOutput):
-    r"""
-    image_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim)` *optional* returned when model is initialized with `with_projection=True`):
-        The image embeddings obtained by applying the projection layer to the pooler_output.
-    """
 
     image_embeds: torch.FloatTensor | None = None
     last_hidden_state: torch.FloatTensor | None = None
@@ -65,12 +46,7 @@ class SiglipVisionModelOutput(ModelOutput):
     """
 )
 @dataclass
-# Copied from transformers.models.clip.modeling_clip.CLIPTextModelOutput with CLIP->Siglip
 class SiglipTextModelOutput(ModelOutput):
-    r"""
-    text_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim)` *optional* returned when model is initialized with `with_projection=True`):
-        The text embeddings obtained by applying the projection layer to the pooler_output.
-    """
 
     text_embeds: torch.FloatTensor | None = None
     last_hidden_state: torch.FloatTensor | None = None
@@ -80,26 +56,7 @@ class SiglipTextModelOutput(ModelOutput):
 
 @auto_docstring
 @dataclass
-# Copied from transformers.models.clip.modeling_clip.CLIPOutput with CLIP->Siglip
 class SiglipOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `return_loss` is `True`):
-        Contrastive loss for image-text similarity.
-    logits_per_image (`torch.FloatTensor` of shape `(image_batch_size, text_batch_size)`):
-        The scaled dot product scores between `image_embeds` and `text_embeds`. This represents the image-text
-        similarity scores.
-    logits_per_text (`torch.FloatTensor` of shape `(text_batch_size, image_batch_size)`):
-        The scaled dot product scores between `text_embeds` and `image_embeds`. This represents the text-image
-        similarity scores.
-    text_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim`):
-        The text embeddings obtained by applying the projection layer to the pooled output of [`SiglipTextModel`].
-    image_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim`):
-        The image embeddings obtained by applying the projection layer to the pooled output of [`SiglipVisionModel`].
-    text_model_output (`BaseModelOutputWithPooling`):
-        The output of the [`SiglipTextModel`].
-    vision_model_output (`BaseModelOutputWithPooling`):
-        The output of the [`SiglipVisionModel`].
-    """
 
     loss: torch.FloatTensor | None = None
     logits_per_image: torch.FloatTensor | None = None
@@ -147,7 +104,6 @@ class SiglipVisionEmbeddings(nn.Module):
         num_patches = embeddings.shape[1]
         num_positions = self.position_embedding.weight.shape[0]
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embedding(self.position_ids)
 
@@ -185,7 +141,6 @@ class SiglipVisionEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.clip.modeling_clip.CLIPTextEmbeddings with CLIP->Siglip
 class SiglipTextEmbeddings(nn.Module):
     def __init__(self, config: SiglipTextConfig):
         super().__init__()
@@ -194,7 +149,6 @@ class SiglipTextEmbeddings(nn.Module):
         self.token_embedding = nn.Embedding(config.vocab_size, embed_dim)
         self.position_embedding = nn.Embedding(config.max_position_embeddings, embed_dim)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -250,7 +204,6 @@ def eager_attention_forward(
 
 
 class SiglipAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config):
         super().__init__()
@@ -308,7 +261,6 @@ class SiglipAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.clip.modeling_clip.CLIPMLP with CLIP->Siglip
 class SiglipMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -430,15 +382,7 @@ class SiglipPreTrainedModel(PreTrainedModel):
             init.copy_(module.position_ids, torch.arange(module.position_ids.shape[-1]).expand((1, -1)))
 
 
-# Copied from transformers.models.altclip.modeling_altclip.AltCLIPEncoder with AltCLIP->Siglip
 class SiglipEncoder(nn.Module):
-    """
-    Transformer encoder consisting of `config.num_hidden_layers` self attention layers. Each layer is a
-    [`SiglipEncoderLayer`].
-
-    Args:
-        config: SiglipConfig
-    """
 
     def __init__(self, config: SiglipConfig):
         super().__init__()
@@ -446,7 +390,6 @@ class SiglipEncoder(nn.Module):
         self.layers = nn.ModuleList([SiglipEncoderLayer(config) for _ in range(config.num_hidden_layers)])
         self.gradient_checkpointing = False
 
-    # Ignore copy
     @auto_docstring
     def forward(
         self,
@@ -521,7 +464,6 @@ class SiglipTextModel(SiglipPreTrainedModel):
 
         hidden_states = self.embeddings(input_ids=input_ids, position_ids=position_ids)
 
-        # note: SigLIP's text model does not use a causal mask, unlike the original CLIP model.
         attention_mask = create_bidirectional_mask(
             config=self.config,
             inputs_embeds=hidden_states,
@@ -537,7 +479,6 @@ class SiglipTextModel(SiglipPreTrainedModel):
         last_hidden_state = encoder_outputs.last_hidden_state
         last_hidden_state = self.final_layer_norm(last_hidden_state)
 
-        # The model uses the last token's hidden state, which may be padding.
         pooled_output = last_hidden_state[:, -1, :]
         pooled_output = self.head(pooled_output)
 
@@ -622,7 +563,6 @@ class SiglipVisionModel(SiglipPreTrainedModel):
 
 
 class SiglipMultiheadAttentionPoolingHead(nn.Module):
-    """Multihead Attention Pooling."""
 
     def __init__(self, config: SiglipVisionConfig):
         super().__init__()
@@ -655,14 +595,12 @@ class SiglipModel(SiglipPreTrainedModel):
         text_config = config.text_config
         vision_config = config.vision_config
 
-        # First, initialize the text and vision models with proper attention implementation
         self.text_model = SiglipTextModel._from_config(text_config)
         self.vision_model = SiglipVisionModel._from_config(vision_config)
 
         self.logit_scale = nn.Parameter(torch.randn(1))
         self.logit_bias = nn.Parameter(torch.randn(1))
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> nn.Module:
@@ -735,7 +673,6 @@ class SiglipModel(SiglipPreTrainedModel):
             **kwargs,
         )
 
-    # NOTE: SiglipModel uses Pretrained backbones, so we don't need to add `capture_outputs` here
     @can_return_tuple
     @auto_docstring
     def forward(
@@ -796,11 +733,9 @@ class SiglipModel(SiglipPreTrainedModel):
         image_embeds = vision_outputs.pooler_output
         text_embeds = text_outputs.pooler_output
 
-        # normalized features
         image_embeds = image_embeds / image_embeds.norm(p=2, dim=-1, keepdim=True)
         text_embeds = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True)
 
-        # cosine similarity as logits
         logits_per_text = torch.matmul(text_embeds, image_embeds.t().to(text_embeds.device))
 
         logit_scale, logit_bias = self.logit_scale.to(text_embeds.device), self.logit_bias.to(text_embeds.device)
@@ -810,7 +745,6 @@ class SiglipModel(SiglipPreTrainedModel):
 
         loss = None
         if return_loss:
-            # Adapted from https://github.com/google-research/big_vision/blob/01edb81a4716f93a48be43b3a4af14e29cdb3a7f/big_vision/trainers/proj/image_text/siglip.py#L287
             eye = torch.eye(logits_per_text.size(0), device=logits_per_text.device)
             m1_diag1 = -torch.ones_like(logits_per_text) + 2 * eye
             loglik = torch.nn.functional.logsigmoid(m1_diag1 * logits_per_text)
@@ -844,12 +778,10 @@ class SiglipForImageClassification(SiglipPreTrainedModel):
         self.num_labels = config.num_labels
         self.vision_model = SiglipVisionModel._from_config(config.vision_config)
 
-        # Classifier head
         self.classifier = (
             nn.Linear(config.vision_config.hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> nn.Module:
@@ -908,9 +840,7 @@ class SiglipForImageClassification(SiglipPreTrainedModel):
 
         sequence_output = outputs.last_hidden_state
 
-        # average pool the patch tokens
         sequence_output = torch.mean(sequence_output, dim=1)
-        # apply classifier
         logits = self.classifier(sequence_output)
 
         loss = None

@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from ..nemotron_asr_streaming.generation_nemotron_asr_streaming import (
     NemotronAsrStreamingGenerationMixin,
@@ -27,8 +14,7 @@ class Nemotron3_5AsrGenerationMixin(NemotronAsrStreamingGenerationMixin):
         get_audio_features = self.get_audio_features
 
         def get_audio_features_with_prompt(*args, prompt_ids=None, **features_kwargs):
-            prompt_ids = self._prompt_ids if prompt_ids is None else prompt_ids
-            return get_audio_features(*args, prompt_ids=prompt_ids, **features_kwargs)
+            pass
 
         self.get_audio_features = get_audio_features_with_prompt
         try:

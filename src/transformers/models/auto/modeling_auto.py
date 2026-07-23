@@ -1,17 +1,3 @@
-# Copyright 2018 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Auto Model class."""
 
 import os
 from collections import OrderedDict
@@ -31,7 +17,6 @@ if TYPE_CHECKING:
     from ...generation import GenerationMixin
     from ...modeling_utils import PreTrainedModel
 
-    # class for better type annotations
     class _BaseModelWithGenerate(PreTrainedModel, GenerationMixin):
         pass
 
@@ -40,7 +25,6 @@ logger = logging.get_logger(__name__)
 
 MODEL_MAPPING_NAMES = OrderedDict(
     [
-        # Base model mapping
         ("afmoe", "AfmoeModel"),
         ("aimv2", "Aimv2Model"),
         ("aimv2_vision_model", "Aimv2VisionModel"),
@@ -567,7 +551,6 @@ MODEL_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_PRETRAINING_MAPPING_NAMES = OrderedDict(
     [
-        # Model for pre-training mapping
         ("albert", "AlbertForPreTraining"),
         ("audioflamingo3", "AudioFlamingo3ForConditionalGeneration"),
         ("bart", "BartForConditionalGeneration"),
@@ -669,7 +652,6 @@ MODEL_FOR_PRETRAINING_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_CAUSAL_LM_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Causal LM mapping
         ("afmoe", "AfmoeForCausalLM"),
         ("apertus", "ApertusForCausalLM"),
         ("arcee", "ArceeForCausalLM"),
@@ -844,7 +826,6 @@ MODEL_FOR_CAUSAL_LM_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_IMAGE_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Image mapping
         ("aimv2_vision_model", "Aimv2VisionModel"),
         ("beit", "BeitModel"),
         ("bit", "BitModel"),
@@ -918,7 +899,6 @@ MODEL_FOR_MASKED_IMAGE_MODELING_MAPPING_NAMES = OrderedDict(
 
 
 MODEL_FOR_CAUSAL_IMAGE_MODELING_MAPPING_NAMES = OrderedDict(
-    # Model for Causal Image Modeling mapping
     [
         ("imagegpt", "ImageGPTForCausalImageModeling"),
     ]
@@ -926,7 +906,6 @@ MODEL_FOR_CAUSAL_IMAGE_MODELING_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Image Classification mapping
         ("beit", "BeitForImageClassification"),
         ("bit", "BitForImageClassification"),
         ("clip", "CLIPForImageClassification"),
@@ -987,15 +966,12 @@ MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_IMAGE_SEGMENTATION_MAPPING_NAMES = OrderedDict(
     [
-        # Do not add new models here, this class will be deprecated in the future.
-        # Model for Image Segmentation mapping
         ("detr", "DetrForSegmentation"),
     ]
 )
 
 MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Semantic Segmentation mapping
         ("beit", "BeitForSemanticSegmentation"),
         ("data2vec-vision", "Data2VecVisionForSemanticSegmentation"),
         ("dpt", "DPTForSemanticSegmentation"),
@@ -1011,8 +987,6 @@ MODEL_FOR_SEMANTIC_SEGMENTATION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_INSTANCE_SEGMENTATION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Instance Segmentation mapping
-        # MaskFormerForInstanceSegmentation can be removed from this mapping in v5
         ("maskformer", "MaskFormerForInstanceSegmentation"),
         ("rf_detr", "RfDetrForInstanceSegmentation"),
     ]
@@ -1020,7 +994,6 @@ MODEL_FOR_INSTANCE_SEGMENTATION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_UNIVERSAL_SEGMENTATION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Universal Segmentation mapping
         ("detr", "DetrForSegmentation"),
         ("eomt", "EomtForUniversalSegmentation"),
         ("eomt_dinov3", "EomtDinov3ForUniversalSegmentation"),
@@ -1133,8 +1106,6 @@ MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES = OrderedDict(
     ]
 )
 
-# Models that accept text and optionally multimodal data in inputs
-# and can generate text and optionally multimodal data.
 MODEL_FOR_MULTIMODAL_LM_MAPPING_NAMES = OrderedDict(
     [
         *list(MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES.items()),
@@ -1156,7 +1127,6 @@ MODEL_FOR_MULTIMODAL_LM_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_MASKED_LM_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Masked LM mapping
         ("albert", "AlbertForMaskedLM"),
         ("bart", "BartForConditionalGeneration"),
         ("bert", "BertForMaskedLM"),
@@ -1208,7 +1178,6 @@ MODEL_FOR_MASKED_LM_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_OBJECT_DETECTION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Object Detection mapping
         ("conditional_detr", "ConditionalDetrForObjectDetection"),
         ("d_fine", "DFineForObjectDetection"),
         ("dab-detr", "DabDetrForObjectDetection"),
@@ -1232,7 +1201,6 @@ MODEL_FOR_OBJECT_DETECTION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_ZERO_SHOT_OBJECT_DETECTION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Zero Shot Object Detection mapping
         ("grounding-dino", "GroundingDinoForObjectDetection"),
         ("mm-grounding-dino", "MMGroundingDinoForObjectDetection"),
         ("omdet-turbo", "OmDetTurboForObjectDetection"),
@@ -1243,7 +1211,6 @@ MODEL_FOR_ZERO_SHOT_OBJECT_DETECTION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_DEPTH_ESTIMATION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for depth estimation mapping
         ("chmv2", "CHMv2ForDepthEstimation"),
         ("depth_anything", "DepthAnythingForDepthEstimation"),
         ("depth_pro", "DepthProForDepthEstimation"),
@@ -1276,7 +1243,6 @@ MODEL_FOR_TABLE_RECOGNITION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Seq2Seq Causal LM mapping
         ("audioflamingo3", "AudioFlamingo3ForConditionalGeneration"),
         ("bart", "BartForConditionalGeneration"),
         ("bigbird_pegasus", "BigBirdPegasusForConditionalGeneration"),
@@ -1341,7 +1307,6 @@ MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Sequence Classification mapping
         ("albert", "AlbertForSequenceClassification"),
         ("arcee", "ArceeForSequenceClassification"),
         ("bart", "BartForSequenceClassification"),
@@ -1467,7 +1432,6 @@ MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Question Answering mapping
         ("albert", "AlbertForQuestionAnswering"),
         ("arcee", "ArceeForQuestionAnswering"),
         ("bart", "BartForQuestionAnswering"),
@@ -1550,7 +1514,6 @@ MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Table Question Answering mapping
         ("tapas", "TapasForQuestionAnswering"),
     ]
 )
@@ -1573,7 +1536,6 @@ MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Token Classification mapping
         ("albert", "AlbertForTokenClassification"),
         ("apertus", "ApertusForTokenClassification"),
         ("arcee", "ArceeForTokenClassification"),
@@ -1674,7 +1636,6 @@ MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Multiple Choice mapping
         ("albert", "AlbertForMultipleChoice"),
         ("bert", "BertForMultipleChoice"),
         ("big_bird", "BigBirdForMultipleChoice"),
@@ -1725,7 +1686,6 @@ MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Audio Classification mapping
         ("audio-spectrogram-transformer", "ASTForAudioClassification"),
         ("data2vec-audio", "Data2VecAudioForSequenceClassification"),
         ("hubert", "HubertForSequenceClassification"),
@@ -1743,7 +1703,6 @@ MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_CTC_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Connectionist temporal classification (CTC) mapping
         ("data2vec-audio", "Data2VecAudioForCTC"),
         ("hubert", "HubertForCTC"),
         ("lasr_ctc", "LasrForCTC"),
@@ -1761,7 +1720,6 @@ MODEL_FOR_CTC_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_RNNT_MAPPING_NAMES = OrderedDict(
     [
-        # Model for RNN Transducer (RNN-T) mapping.
         ("nemotron3_5_asr", "Nemotron3_5AsrForRNNT"),
         ("nemotron_asr_streaming", "NemotronAsrStreamingForRNNT"),
         ("parakeet_rnnt", "ParakeetForRNNT"),
@@ -1770,7 +1728,6 @@ MODEL_FOR_RNNT_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_TDT_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Token-and-Duration Transducer (TDT) mapping.
         ("parakeet_tdt", "ParakeetForTDT"),
     ]
 )
@@ -1778,7 +1735,6 @@ MODEL_FOR_TDT_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_AUDIO_FRAME_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Audio Classification mapping
         ("data2vec-audio", "Data2VecAudioForAudioFrameClassification"),
         ("unispeech-sat", "UniSpeechSatForAudioFrameClassification"),
         ("wav2vec2", "Wav2Vec2ForAudioFrameClassification"),
@@ -1790,7 +1746,6 @@ MODEL_FOR_AUDIO_FRAME_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_AUDIO_XVECTOR_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Audio Classification mapping
         ("data2vec-audio", "Data2VecAudioForXVector"),
         ("unispeech-sat", "UniSpeechSatForXVector"),
         ("wav2vec2", "Wav2Vec2ForXVector"),
@@ -1802,7 +1757,6 @@ MODEL_FOR_AUDIO_XVECTOR_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_TEXT_TO_SPECTROGRAM_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Text-To-Spectrogram mapping
         ("fastspeech2_conformer", "FastSpeech2ConformerModel"),
         ("speecht5", "SpeechT5ForTextToSpeech"),
     ]
@@ -1810,7 +1764,6 @@ MODEL_FOR_TEXT_TO_SPECTROGRAM_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_TEXT_TO_WAVEFORM_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Text-To-Waveform mapping
         ("bark", "BarkModel"),
         ("csm", "CsmForConditionalGeneration"),
         ("fastspeech2_conformer_with_hifigan", "FastSpeech2ConformerWithHifiGan"),
@@ -1827,7 +1780,6 @@ MODEL_FOR_TEXT_TO_WAVEFORM_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
     [
-        # Model for Zero Shot Image Classification mapping
         ("align", "AlignModel"),
         ("altclip", "AltCLIPModel"),
         ("blip", "BlipModel"),
@@ -1845,7 +1797,6 @@ MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
 
 MODEL_FOR_BACKBONE_MAPPING_NAMES = OrderedDict(
     [
-        # Backbone mapping
         ("beit", "BeitBackbone"),
         ("bit", "BitBackbone"),
         ("convnext", "ConvNextBackbone"),
@@ -2170,7 +2121,6 @@ AutoModelForPreTraining = auto_class_update(AutoModelForPreTraining, head_doc="p
 class AutoModelForCausalLM(_BaseAutoModelClass):
     _model_mapping = MODEL_FOR_CAUSAL_LM_MAPPING
 
-    # override to give better return typehint
     @classmethod
     def from_pretrained(
         cls: type["AutoModelForCausalLM"],
@@ -2380,7 +2330,6 @@ AutoModelForVideoClassification = auto_class_update(AutoModelForVideoClassificat
 class AutoModelForImageTextToText(_BaseAutoModelClass):
     _model_mapping = MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING
 
-    # override to give better return typehint
     @classmethod
     def from_pretrained(
         cls: type["AutoModelForImageTextToText"],

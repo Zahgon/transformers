@@ -1,19 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Shared types, constants, and utilities for the serving layer.
-"""
 
 import asyncio
 import copy
@@ -63,37 +47,24 @@ class Modality(enum.Enum):
 
 
 class _StreamError:
-    """Sentinel to signal an error from the generate thread."""
 
     def __init__(self, msg: str):
         self.msg = msg
 
 
 class _GenerationCancelled(Exception):
-    """Raised inside ``DirectStreamer.put()`` to abort ``model.generate()``."""
+    pass
 
 
 class ReasoningText(str):
-    """Tagged str subclass: text chunk belonging to a thinking/reasoning block.
-
-    Streamers wrap reasoning text with this so handlers can route it to
-    ``reasoning_content`` deltas instead of ``content``.
-    """
+    pass
 
 
 class CBWorkerDeadError(RuntimeError):
-    """Raised when a request is submitted to a CB worker that has died.
-
-    Surfaced as 503 by the FastAPI exception handler. Carries the original error message
-    that killed the worker so the client knows why the server is in this state.
-    """
+    pass
 
 
-# Fallback tool-call configs for model_types whose tokenizer doesn't declare its own. Keys are
-# tuples of exact model_type strings (matched against model.config.model_type). Models not listed
-# here get no tool-call parsing.
 _TOOL_CALL_FALLBACKS = {
-    # Pre-3.5 Qwen family: <tool_call>{"name": ..., "arguments": {...}}</tool_call>
     (
         "qwen2",
         "qwen2_moe",
@@ -120,9 +91,6 @@ _TOOL_CALL_FALLBACKS = {
             },
         },
     },
-    # Qwen 3.5 family wraps tool calls in <tool_call>...</tool_call> (single-token delimiters,
-    # so the streamer filters them out cleanly) around an inner
-    # <function=NAME><parameter=KEY>VALUE</parameter></function> markup that holds the call data.
     ("qwen3_5", "qwen3_5_moe"): {
         "stc": "<tool_call>",
         "etc": "</tool_call>",
@@ -159,23 +127,18 @@ def get_tool_call_config(processor, model: "PreTrainedModel") -> dict | None:
     response_schema = getattr(tokenizer, "response_schema", None)
 
     schema: dict | None = None
-    # Prefer the new-style response_template (e.g. Gemma 4).
     if stc and etc and response_template and "tool_calls" in response_template.get("fields", {}):
         schema = {
             "defaults": {},
             "fields": {"tool_calls": response_template["fields"]["tool_calls"]},
         }
-        # Carry the parent template's anchor through so the sub-schema loads (anchor is required).
         for anchor_key in ("start_anchor", "start_anchor_pattern"):
             if anchor_key in response_template:
                 schema[anchor_key] = response_template[anchor_key]
                 break
-    # Legacy response_schema path (still supported for old tokenizers).
     elif stc and etc and response_schema:
         schema = response_schema["properties"]["tool_calls"]
     else:
-        # Fallback: known model families without full tokenizer config. Matched by exact
-        # model_type against the tuple keys of _TOOL_CALL_FALLBACKS.
         model_type = model.config.model_type
         fallback = next((v for types, v in _TOOL_CALL_FALLBACKS.items() if model_type in types), None)
         if fallback is None:
@@ -217,7 +180,6 @@ def parse_tool_calls(processor, generated_ids, schema: dict) -> list[dict] | Non
     Returns a list of ``{"name": str, "arguments": str}`` dicts, or ``None`` if none found.
     """
     parsed = processor.parse_response(generated_ids, schema, prefix="")
-    # The new response_template path returns a dict like {"tool_calls": [...]}; unwrap.
     if isinstance(parsed, dict) and "tool_calls" in parsed:
         parsed = parsed["tool_calls"]
     if not parsed:
@@ -228,8 +190,6 @@ def parse_tool_calls(processor, generated_ids, schema: dict) -> list[dict] | Non
     return tool_calls if tool_calls else None
 
 
-# Default start/end tokens + schema. The opening token is optional so prefilled
-# ``<think>`` prompts still match.
 _DEFAULT_THINKING_TOKENS = {
     "start": ["<think>"],
     "end": "</think>",
@@ -239,19 +199,10 @@ _DEFAULT_THINKING_TOKENS = {
             "thinking": {"type": "string"},
             "content": {"type": "string"},
         },
-        # Trailing ``(?:<\|...\|>)?\Z`` absorbs EOS markers (``<|im_end|>``,
-        # ``<|endoftext|>``, ``<|eot_id|>``) that would otherwise be captured by the
-        # content group, since ``parse_response`` decodes with ``skip_special_tokens=False``.
         "x-regex": r"(?:<think>)?(?P<thinking>.*?)</think>(?P<content>.*?)(?:<\|[^|<>\s]+\|>)?\Z",
     },
 }
-# Streaming-side token IDs for families whose ``response_schema`` uses non-default
-# start/end tokens. Post-hoc parsing uses the schema; this only feeds the
-# streamer's token-level detector.
 _THINKING_TOKENS = {
-    # Gemma 4's response_schema regex anchors on the literal ``<|channel>thought\n``,
-    # consuming the newline before the thinking capture begins. Include ``\n`` in the
-    # streamer's start sequence so it's suppressed the same way.
     "gemma4": {"start": ["<|channel>", "thought", "\n"], "end": "<channel|>"},
 }
 
@@ -279,8 +230,6 @@ def get_reasoning_config(processor, model: "PreTrainedModel", input_ids=None) ->
     end_id = tokenizer.convert_tokens_to_ids(thinking_tokens["end"])
     if any(tid in (None, tokenizer.unk_token_id) for tid in start_ids) or end_id in (None, tokenizer.unk_token_id):
         return None
-    # Custom-token families (e.g. Gemma 4) provide their schema via the tokenizer;
-    # default ``<think>`` falls back to the schema baked into ``_DEFAULT_THINKING_TOKENS``.
     schema = getattr(tokenizer, "response_schema", None)
     if not (schema and "thinking" in schema["properties"]):
         schema = _DEFAULT_THINKING_TOKENS["schema"]
@@ -303,8 +252,6 @@ def parse_reasoning(processor, generated_ids, content: str, reasoning_config: di
         reasoning = parsed.get("thinking", "")
         if reasoning:
             return parsed.get("content", ""), reasoning
-    # Prefilled opener (QwQ-32B, DeepSeek-R1) truncated before ``</think>`` —
-    # no anchor for the schema regex; treat all output as reasoning.
     if reasoning_config.get("start_in_thinking"):
         return "", content
     return content, None
@@ -329,7 +276,6 @@ def _starts_in_thinking(input_ids, start_ids: list[int]) -> bool:
             return False
         input_ids = input_ids[0]
     n = len(start_ids)
-    # Match start_ids at the tail, allowing up to one trailing token (e.g. "\n").
     for trailing in (0, 1):
         if len(input_ids) >= n + trailing:
             end = len(input_ids) - trailing
@@ -364,11 +310,6 @@ def _advance_thinking_state(streamer, token_id: int) -> bool:
 
 
 class DownloadAggregator:
-    """Aggregates byte-progress across multiple concurrent download tqdm bars.
-
-    huggingface_hub opens one tqdm bar per file shard. This class tracks them all and emits
-    a single aggregate ``{"stage": "download", "progress": {...}}`` event whenever any updates.
-    """
 
     def __init__(self, enqueue: Callable, model_id: str):
         self.enqueue = enqueue
@@ -478,13 +419,6 @@ def make_progress_tqdm_class(callback: Callable, model_id: str) -> type:
 
 
 class DirectStreamer:
-    """Streamer for ``model.generate()`` (used by :class:`GenerateManager`).
-
-    Implements the ``put``/``end`` protocol that ``model.generate()`` expects:
-    generate calls ``put(token_tensor)`` after each decode step, and ``end()``
-    when generation is complete. Tokens are decoded incrementally via the Rust
-    ``DecodeStream`` (O(1) per token) and pushed as text to an asyncio.Queue.
-    """
 
     def __init__(
         self,
@@ -531,7 +465,6 @@ class DirectStreamer:
         """Called by ``model.generate()`` after each decode step with new token(s)."""
         if self._cancelled.is_set():
             raise _GenerationCancelled()
-        # The first put() contains the prompt tokens — skip since we only stream generated tokens.
         if self._first:
             self._first = False
             return
@@ -563,13 +496,6 @@ class DirectStreamer:
 
 
 class CBStreamer:
-    """Streamer for continuous batching (used by :class:`CBGenerateManager`).
-
-    Same ``put``/``end`` protocol as :class:`DirectStreamer`, but called manually
-    by :class:`CBGenerateManager` instead of by ``model.generate()``:
-    ``put(output)`` receives a CB ``GenerationOutput``, decodes new tokens, and
-    pushes text to the asyncio.Queue. ``end()`` signals the stream is complete.
-    """
 
     def __init__(
         self,
@@ -657,11 +583,6 @@ def reset_torch_cache() -> None:
 
 
 class InferenceThread:
-    """Persistent thread for ``model.generate()`` calls.
-
-    ``torch.compile`` with CUDA graphs stores state in thread-local storage.
-    All inference must run on the same thread to avoid corrupted graph state.
-    """
 
     def __init__(self):
         self._queue: Queue = Queue()
@@ -669,19 +590,7 @@ class InferenceThread:
         self._thread.start()
 
     def _run(self) -> None:
-        while True:
-            fn, args, kwargs, future, loop = self._queue.get()
-            try:
-                result = fn(*args, **kwargs)
-                if loop is not None:
-                    loop.call_soon_threadsafe(future.set_result, result)
-                else:
-                    future.set_result(result)
-            except Exception as e:
-                if loop is not None:
-                    loop.call_soon_threadsafe(future.set_exception, e)
-                else:
-                    future.set_exception(e)
+        pass
 
     def submit(self, fn, *args, **kwargs) -> Future:
         """Submit a callable to the inference thread. Returns a blocking Future."""
@@ -698,12 +607,6 @@ class InferenceThread:
 
 
 class BaseGenerateManager(ABC):
-    """Base class for generation managers.
-
-    Subclasses:
-    - :class:`GenerateManager` — sequential ``model.generate()`` on a persistent thread.
-    - :class:`CBGenerateManager` — continuous batching with paged attention.
-    """
 
     def init_cb(self, model: "PreTrainedModel", gen_config: "GenerationConfig") -> None:
         """Initialize continuous batching. No-op for non-CB managers."""
@@ -766,7 +669,6 @@ class BaseGenerateManager(ABC):
 
 
 class GenerateManager(BaseGenerateManager):
-    """Sequential generation via ``model.generate()`` on a persistent thread."""
 
     def __init__(self):
         self._thread = InferenceThread()
@@ -784,7 +686,6 @@ class GenerateManager(BaseGenerateManager):
         """Start streaming generation via ``model.generate()`` on the inference thread."""
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
-        # ProcessorMixin exposes the fast tokenizer as .tokenizer; PreTrainedTokenizerFast is already one.
         rust_tokenizer = getattr(processor, "tokenizer", processor)._tokenizer  # type: ignore[union-attr]
         streamer = DirectStreamer(
             rust_tokenizer, loop, queue, tool_config=tool_config, reasoning_config=reasoning_config
@@ -794,12 +695,7 @@ class GenerateManager(BaseGenerateManager):
             gen_kwargs["generation_mode"] = "text"
 
         def _run() -> None:
-            try:
-                model.generate(**gen_kwargs)
-            except _GenerationCancelled:
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-            except Exception as e:
-                loop.call_soon_threadsafe(queue.put_nowait, _StreamError(str(e)))
+            pass
 
         self.submit(_run)
         return queue, streamer
@@ -813,8 +709,6 @@ class GenerateManager(BaseGenerateManager):
         request_id: str,
     ) -> tuple[str, int, "torch.Tensor"]:
         """Run generation to completion via ``model.generate()`` on the inference thread."""
-        # Multimodal models (e.g. Qwen2.5-Omni) may generate audio alongside text by default;
-        # force text-only output since the serve layer only handles text
         generate_kwargs = {**inputs, "generation_config": gen_config, "tokenizer": processor}
         if hasattr(model, "has_talker"):
             generate_kwargs["generation_mode"] = "text"
@@ -837,19 +731,6 @@ class GenerateManager(BaseGenerateManager):
 
 
 class CBGenerateManager(BaseGenerateManager):
-    """Continuous batching generation via paged attention.
-
-    Translates between the handler's text-level asyncio.Queue and CB's
-    token-level interface. Per-request: ``max_new_tokens``, ``eos_token_id``.
-
-    The CB manager is initialized lazily on the first request via
-    :meth:`ensure_initialized`, using that request's ``gen_config`` for shared
-    sampling params (temperature, top_p, do_sample).
-
-    .. todo:: Remove :meth:`init_cb` when CB supports per-request
-       generation config. At that point, ``gen_config`` can be passed directly
-       to ``add_request`` and the CB manager no longer needs a shared config.
-    """
 
     def __init__(self, cb_config: "ContinuousBatchingConfig | None" = None):
         self._cb: ContinuousBatchingManager | None = None
@@ -914,7 +795,6 @@ class CBGenerateManager(BaseGenerateManager):
             max_new_tokens=gen_config.max_new_tokens,
             eos_token_id=gen_config.eos_token_id,
         )
-        # ProcessorMixin exposes the fast tokenizer as .tokenizer; PreTrainedTokenizerFast is already one.
         rust_tokenizer = getattr(processor, "tokenizer", processor)._tokenizer  # type: ignore[union-attr]
         streamer = CBStreamer(
             self._cb,
@@ -926,21 +806,8 @@ class CBGenerateManager(BaseGenerateManager):
             reasoning_config=reasoning_config,
         )
 
-        # Register a direct callback: the dispatcher calls this on the event loop with each GenerationOutput.
-        # This decodes tokens and pushes text straight to the SSE text_queue
         def _on_output(output):
-            try:
-                streamer.put(output)
-                # ``error`` is set together with ``status = FAILED`` in CB's _handle_request_error.
-                # Surface it as an end-of-stream error so the SSE handler can emit it and close,
-                # instead of leaving the client hanging on a stream that will never end.
-                if output.error is not None:
-                    text_queue.put_nowait(_StreamError(output.error))
-                    streamer.end()
-                elif output.is_finished():
-                    streamer.end()
-            except Exception as e:
-                text_queue.put_nowait(_StreamError(str(e)))
+            pass
 
         cb.register_result_handler(request_id, _on_output)
         return text_queue, streamer
@@ -962,13 +829,11 @@ class CBGenerateManager(BaseGenerateManager):
         input_ids = inputs["input_ids"]
         input_len = len(input_ids)
 
-        # Register future BEFORE add_request to avoid race with fast completion
         loop = asyncio.get_running_loop()
         future = loop.create_future()
 
         def _on_result(result):
-            if not future.done():
-                future.set_result(result)
+            pass
 
         cb.register_result_handler(request_id, _on_result)
 
@@ -980,12 +845,6 @@ class CBGenerateManager(BaseGenerateManager):
             eos_token_id=gen_config.eos_token_id,
         )
         result = await future
-        # CB signals a failed request by setting ``error`` (and ``status = FAILED``) on the
-        # delivered GenerationOutput, often with empty ``generated_tokens``. Surface it instead
-        # of returning an empty success that downstream parsing/decoding would silently mask.
-        # If the worker itself died, route to CBWorkerDeadError so the client gets the same 503
-        # as requests submitted post-crash; otherwise it's a per-request failure (e.g. unsupported
-        # logit-processor kwarg) and a plain RuntimeError -> 500 is appropriate.
         if result.error is not None:
             if cb.fatal_error is not None:
                 raise CBWorkerDeadError(f"CB worker died during request {request_id}: {result.error}")
@@ -996,10 +855,7 @@ class CBGenerateManager(BaseGenerateManager):
 
     @property
     def scheduler(self) -> "Scheduler":
-        """The CB scheduler (for testing/monitoring)."""
-        if self._cb is None or self._cb.batch_processor is None:
-            raise RuntimeError("Continuous batching processor not initialized.")
-        return self._cb.batch_processor.scheduler
+        pass
 
     def stop(self) -> None:
         if self._cb is not None:
@@ -1007,18 +863,6 @@ class CBGenerateManager(BaseGenerateManager):
 
 
 class GenerationState:
-    """Shared generation state across all handlers.
-
-    Manages per-model :class:`GenerateManager` instances (each with its own
-    :class:`InferenceThread` so different models can run concurrently while
-    ``torch.compile`` / CUDA graphs require same-model-same-thread) and a
-    single :class:`CBGenerateManager` for continuous batching.
-
-    Args:
-        continuous_batching (`bool`, *optional*, defaults to `False`):
-            Whether to use continuous batching with paged attention instead of
-            sequential ``model.generate()`` calls.
-    """
 
     def __init__(
         self,
@@ -1088,17 +932,6 @@ class GenerationState:
 
 
 class BaseHandler:
-    """Shared logic for chat completion and responses handlers.
-
-    Provides model resolution, generation config building, and SSE formatting.
-    Generation is delegated to the shared :class:`GenerationState`.
-
-    Args:
-        model_manager (`ModelManager`):
-            Handles model loading, caching, and lifecycle.
-        generation_state (`GenerationState`):
-            Shared state managing per-model generation managers.
-    """
 
     _valid_params_class: type | None = None
     _unused_fields: set[str] = set()
@@ -1192,15 +1025,12 @@ class BaseHandler:
         if body.get("seed") is not None:
             set_torch_seed(body["seed"])
 
-        # --compile flag: use static cache + torch.compile for faster decode
         if self.generation_state._compile and generation_config.cache_implementation is None:
             generation_config.cache_implementation = "static"
 
-        # CB manages its own paged KV cache
         if use_cb:
             generation_config.use_cache = False
 
-        # TODO: add prefix caching for the non-CB path (reuse KV cache across multi-turn conversations)
 
         return generation_config
 
@@ -1224,7 +1054,6 @@ class BaseHandler:
         for message in messages:
             parsed = {"role": message["role"], "content": []}
 
-            # Parse function.arguments back to a dict — chat templates iterate it as a mapping.
             if "tool_calls" in message:
                 tool_calls = []
                 for tc in message["tool_calls"]:
@@ -1237,26 +1066,19 @@ class BaseHandler:
             if "tool_call_id" in message:
                 parsed["tool_call_id"] = message["tool_call_id"]
 
-            # When tool_calls are present, ignore content — it's either empty or contains
-            # raw tool call markup that would confuse the chat template if rendered.
             raw_content = [] if "tool_calls" in message else (message.get("content") or [])
             if isinstance(raw_content, str):
                 raw_content = [{"type": "text", "text": raw_content}]
 
             for content in raw_content:
                 content_type = content["type"]
-                # Text: chat completions ("text") and Responses API ("input_text")
                 if content_type in ("text", "input_text", "output_text"):
                     parsed["content"].append({"type": "text", "text": content["text"]})
-                # Image: chat completions ("image_url") and Responses API ("input_image")
                 elif content_type in ("image_url", "input_image") and modality in (Modality.VLM, Modality.MULTIMODAL):
-                    # chat completions: {"image_url": {"url": "..."}}, Responses API: {"image_url": "..."}
                     url = content["image_url"]
                     if isinstance(url, dict):
                         url = url["url"]
                     parsed["content"].append({"type": "image", "url": url})
-                # Audio: OpenAI's input_audio is {"data": <base64>, "format": "wav"|"mp3"}, enabling URI for load_audio
-                # If format is missing, we can just hand over raw base64 and let load_audio sniff the format from the bytes.
                 elif content_type == "input_audio" and modality == Modality.MULTIMODAL:
                     input_audio = content["input_audio"]
                     if isinstance(input_audio, dict):
@@ -1266,13 +1088,11 @@ class BaseHandler:
                     else:
                         url = input_audio
                     parsed["content"].append({"type": "audio", "url": url})
-                # Extensions (not part of the OpenAI API standard)
                 elif content_type == "video_url" and modality in (Modality.VLM, Modality.MULTIMODAL):
                     parsed["content"].append({"type": "video", "url": content["video_url"]["url"]})
                 elif content_type == "audio_url" and modality == Modality.MULTIMODAL:
                     parsed["content"].append({"type": "audio", "url": content["audio_url"]["url"]})
 
-            # LLMs expect plain text, not a list of content parts
             if modality == Modality.LLM:
                 parsed["content"] = " ".join(c["text"] for c in parsed["content"])
 

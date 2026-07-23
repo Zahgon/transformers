@@ -1,22 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Contains commands to print information about the environment and version.
-
-Usage:
-    transformers env
-    transformers version
-"""
 
 import contextlib
 import io
@@ -47,7 +28,6 @@ def env(
     """Print information about the environment."""
     import safetensors
 
-    # TODO: remove hasattr guard once safetensors >= 0.8.0 is released (adds __version__)
     safetensors_version = safetensors.__version__ if hasattr(safetensors, "__version__") else "unknown"
 
     accelerate_version = "not installed"
@@ -58,7 +38,6 @@ def env(
         from accelerate.commands.config import default_config_file, load_config_from_file
 
         accelerate_version = accelerate.__version__
-        # Get the default from the config file.
         if accelerate_config_file is not None or os.path.isfile(default_config_file):
             accelerate_config = load_config_from_file(accelerate_config_file).to_dict()
 
@@ -91,7 +70,6 @@ def env(
 
     deepspeed_version = "not installed"
     if is_deepspeed_available():
-        # Redirect command line output to silence deepspeed import output.
         with contextlib.redirect_stdout(io.StringIO()):
             import deepspeed
         deepspeed_version = deepspeed.__version__

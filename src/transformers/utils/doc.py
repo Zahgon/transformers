@@ -1,19 +1,3 @@
-# Copyright 2022 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Doc utilities: Utilities related to documentation
-"""
 
 import functools
 import inspect
@@ -26,7 +10,6 @@ from typing import cast
 
 def get_docstring_indentation_level(func):
     """Return the indentation level of the start of the docstring of a class or function (or method)."""
-    # We assume classes are always defined in the global scope
     if inspect.isclass(func):
         return 4
     source = inspect.getsource(func)
@@ -37,52 +20,21 @@ def get_docstring_indentation_level(func):
 
 def add_start_docstrings(*docstr):
     def docstring_decorator(fn):
-        fn.__doc__ = "".join(docstr) + (fn.__doc__ if fn.__doc__ is not None else "")
-        return fn
+        pass
 
     return docstring_decorator
 
 
 def add_start_docstrings_to_model_forward(*docstr):
     def docstring_decorator(fn):
-        class_name = f"[`{fn.__qualname__.split('.')[0]}`]"
-        intro = rf"""    The {class_name} forward method, overrides the `__call__` special method.
-
-    <Tip>
-
-    Although the recipe for forward pass needs to be defined within this function, one should call the [`Module`]
-    instance afterwards instead of this since the former takes care of running the pre and post processing steps while
-    the latter silently ignores them.
-
-    </Tip>
-"""
-
-        correct_indentation = get_docstring_indentation_level(fn)
-        current_doc = fn.__doc__ if fn.__doc__ is not None else ""
-        try:
-            first_non_empty = next(line for line in current_doc.splitlines() if line.strip() != "")
-            doc_indentation = len(first_non_empty) - len(first_non_empty.lstrip())
-        except StopIteration:
-            doc_indentation = correct_indentation
-
-        docs = docstr
-        # In this case, the correct indentation level (class method, 2 Python levels) was respected, and we should
-        # correctly reindent everything. Otherwise, the doc uses a single indentation level
-        if doc_indentation == 4 + correct_indentation:
-            docs = [textwrap.indent(textwrap.dedent(doc), " " * correct_indentation) for doc in docstr]
-            intro = textwrap.indent(textwrap.dedent(intro), " " * correct_indentation)
-
-        docstring = "".join(docs) + current_doc
-        fn.__doc__ = intro + docstring
-        return fn
+        pass
 
     return docstring_decorator
 
 
 def add_end_docstrings(*docstr):
     def docstring_decorator(fn):
-        fn.__doc__ = (fn.__doc__ if fn.__doc__ is not None else "") + "".join(docstr)
-        return fn
+        pass
 
     return docstring_decorator
 
@@ -104,23 +56,18 @@ def _get_indent(t):
 
 def _convert_output_args_doc(output_args_doc):
     """Convert output_args_doc to display properly."""
-    # Split output_arg_doc in blocks argument/description
     indent = _get_indent(output_args_doc)
     blocks = []
     current_block = ""
     for line in output_args_doc.split("\n"):
-        # If the indent is the same as the beginning, the line is the name of new arg.
         if _get_indent(line) == indent:
             if len(current_block) > 0:
                 blocks.append(current_block[:-1])
             current_block = f"{line}\n"
         else:
-            # Otherwise it's part of the description of the current arg.
-            # We need to remove 2 spaces to the indentation.
             current_block += f"{line[2:]}\n"
     blocks.append(current_block[:-1])
 
-    # Format each block for proper rendering
     for i in range(len(blocks)):
         blocks[i] = re.sub(r"^(\s+)(\S+)(\s+)", r"\1- **\2**\3", blocks[i])
         blocks[i] = re.sub(r":\s*\n\s*(\S)", r" -- \1", blocks[i])
@@ -135,7 +82,6 @@ def _prepare_output_docstrings(output_type, config_class, min_indent=None, add_i
     output_docstring = output_type.__doc__
     params_docstring = None
     if output_docstring is not None:
-        # Remove the head of the docstring to keep the list of args only
         lines = output_docstring.split("\n")
         i = 0
         while i < len(lines) and re.search(r"^\s*(Args|Parameters):\s*$", lines[i]) is None:
@@ -149,7 +95,6 @@ def _prepare_output_docstrings(output_type, config_class, min_indent=None, add_i
                 "docstring and contain either `Args` or `Parameters`."
             )
 
-    # Add the return introduction
     if add_intro:
         full_output_type = f"{output_type.__module__}.{output_type.__name__}"
         intro = PT_RETURN_INTRODUCTION.format(full_output_type=full_output_type, config_class=config_class)
@@ -163,15 +108,12 @@ def _prepare_output_docstrings(output_type, config_class, min_indent=None, add_i
     if params_docstring is not None:
         result += params_docstring
 
-    # Apply minimum indent if necessary
     if min_indent is not None:
         lines = result.split("\n")
-        # Find the indent of the first nonempty line
         i = 0
         while len(lines[i]) == 0:
             i += 1
         indent = len(_get_indent(lines[i]))
-        # If too small, add indentation to all nonempty lines
         if indent < min_indent:
             to_add = " " * (min_indent - indent)
             lines = [(f"{to_add}{line}" if len(line) > 0 else line) for line in lines]
@@ -915,11 +857,8 @@ PIPELINE_TASKS_TO_SAMPLE_DOCSTRINGS = OrderedDict(
     ]
 )
 
-# Ordered dict to look for more specialized model mappings first
-# before falling back to the more generic ones.
 MODELS_TO_PIPELINE = OrderedDict(
     [
-        # Audio
         ("MODEL_FOR_TEXT_TO_SPECTROGRAM_MAPPING_NAMES", "text-to-audio-spectrogram"),
         ("MODEL_FOR_TEXT_TO_WAVEFORM_MAPPING_NAMES", "text-to-audio-waveform"),
         ("MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES", "automatic-speech-recognition"),
@@ -927,7 +866,6 @@ MODELS_TO_PIPELINE = OrderedDict(
         ("MODEL_FOR_AUDIO_FRAME_CLASSIFICATION_MAPPING_NAMES", "audio-frame-classification"),
         ("MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES", "audio-classification"),
         ("MODEL_FOR_AUDIO_XVECTOR_MAPPING_NAMES", "audio-xvector"),
-        # Vision
         ("MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES", "image-text-to-text"),
         ("MODEL_FOR_DEPTH_ESTIMATION_MAPPING_NAMES", "depth-estimation"),
         ("MODEL_FOR_VIDEO_CLASSIFICATION_MAPPING_NAMES", "video-classification"),
@@ -937,7 +875,6 @@ MODELS_TO_PIPELINE = OrderedDict(
         ("MODEL_FOR_OBJECT_DETECTION_MAPPING_NAMES", "object-detection"),
         ("MODEL_FOR_IMAGE_SEGMENTATION_MAPPING_NAMES", "image-segmentation"),
         ("MODEL_FOR_IMAGE_MAPPING_NAMES", "image-feature-extraction"),
-        # Text/tokens
         ("MODEL_FOR_CAUSAL_LM_MAPPING_NAMES", "text-generation"),
         ("MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING_NAMES", "table-question-answering"),
         ("MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES", "document-question-answering"),
@@ -953,17 +890,7 @@ MODELS_TO_PIPELINE = OrderedDict(
 
 
 def filter_outputs_from_example(docstring, **kwargs):
-    """
-    Removes the lines testing an output with the doctest syntax in a code sample when it's set to `None`.
-    """
-    for key, value in kwargs.items():
-        if value is not None:
-            continue
-
-        doc_key = "{" + key + "}"
-        docstring = re.sub(rf"\n([^\n]+)\n\s+{doc_key}\n", "\n", docstring)
-
-    return docstring
+    pass
 
 
 def add_code_sample_docstrings(
@@ -982,109 +909,18 @@ def add_code_sample_docstrings(
     real_checkpoint=None,
     revision=None,
 ):
-    def docstring_decorator(fn):
-        # model_class defaults to function's class if not specified otherwise
-        model_class = fn.__qualname__.split(".")[0] if model_cls is None else model_cls
-
-        sample_docstrings = PT_SAMPLE_DOCSTRINGS
-
-        # putting all kwargs for docstrings in a dict to be used
-        # with the `.format(**doc_kwargs)`. Note that string might
-        # be formatted with non-existing keys, which is fine.
-        doc_kwargs = {
-            "model_class": model_class,
-            "processor_class": processor_class,
-            "checkpoint": checkpoint,
-            "mask": mask,
-            "qa_target_start_index": qa_target_start_index,
-            "qa_target_end_index": qa_target_end_index,
-            "expected_output": expected_output,
-            "expected_loss": expected_loss,
-            "real_checkpoint": real_checkpoint,
-            "fake_checkpoint": checkpoint,
-            "true": "{true}",  # For <Tip warning={true}> syntax that conflicts with formatting.
-        }
-
-        if ("SequenceClassification" in model_class or "AudioClassification" in model_class) and modality == "audio":
-            code_sample = sample_docstrings["AudioClassification"]
-        elif "SequenceClassification" in model_class:
-            code_sample = sample_docstrings["SequenceClassification"]
-        elif "QuestionAnswering" in model_class:
-            code_sample = sample_docstrings["QuestionAnswering"]
-        elif "TokenClassification" in model_class:
-            code_sample = sample_docstrings["TokenClassification"]
-        elif "MultipleChoice" in model_class:
-            code_sample = sample_docstrings["MultipleChoice"]
-        elif "MaskedLM" in model_class or model_class in ["FlaubertWithLMHeadModel", "XLMWithLMHeadModel"]:
-            code_sample = sample_docstrings["MaskedLM"]
-        elif "LMHead" in model_class or "CausalLM" in model_class:
-            code_sample = sample_docstrings["LMHead"]
-        elif "CTC" in model_class:
-            code_sample = sample_docstrings["CTC"]
-        elif "AudioFrameClassification" in model_class:
-            code_sample = sample_docstrings["AudioFrameClassification"]
-        elif "XVector" in model_class and modality == "audio":
-            code_sample = sample_docstrings["AudioXVector"]
-        elif "Model" in model_class and modality == "audio":
-            code_sample = sample_docstrings["SpeechBaseModel"]
-        elif "Model" in model_class and modality == "vision":
-            code_sample = sample_docstrings["VisionBaseModel"]
-        elif "Model" in model_class or "Encoder" in model_class:
-            code_sample = sample_docstrings["BaseModel"]
-        elif "ImageClassification" in model_class:
-            code_sample = sample_docstrings["ImageClassification"]
-        else:
-            raise ValueError(f"Docstring can't be built for model {model_class}")
-
-        code_sample = filter_outputs_from_example(
-            code_sample, expected_output=expected_output, expected_loss=expected_loss
-        )
-        if real_checkpoint is not None:
-            code_sample = FAKE_MODEL_DISCLAIMER + code_sample
-        func_doc = (fn.__doc__ or "") + "".join(docstr)
-        output_doc = "" if output_type is None else _prepare_output_docstrings(output_type, config_class)
-        built_doc = code_sample.format(**doc_kwargs)
-        if revision is not None:
-            if re.match(r"^refs/pr/\\d+", revision):
-                raise ValueError(
-                    f"The provided revision '{revision}' is incorrect. It should point to"
-                    " a pull request reference on the hub like 'refs/pr/6'"
-                )
-            built_doc = built_doc.replace(
-                f'from_pretrained("{checkpoint}")', f'from_pretrained("{checkpoint}", revision="{revision}")'
-            )
-
-        fn.__doc__ = func_doc + output_doc + built_doc
-        return fn
-
-    return docstring_decorator
+    pass
 
 
 def replace_return_docstrings(output_type=None, config_class=None):
     def docstring_decorator(fn):
-        func_doc = fn.__doc__
-        lines = func_doc.split("\n")
-        i = 0
-        while i < len(lines) and re.search(r"^\s*Returns?:\s*$", lines[i]) is None:
-            i += 1
-        if i < len(lines):
-            indent = len(_get_indent(lines[i]))
-            lines[i] = _prepare_output_docstrings(output_type, config_class, min_indent=indent)
-            func_doc = "\n".join(lines)
-        else:
-            raise ValueError(
-                f"The function {fn} should have an empty 'Return:' or 'Returns:' in its docstring as placeholder, "
-                f"current docstring is:\n{func_doc}"
-            )
-        fn.__doc__ = func_doc
-        return fn
+        pass
 
     return docstring_decorator
 
 
 def copy_func(f):
     """Returns a copy of a function f."""
-    # Based on http://stackoverflow.com/a/6528148/190597 (Glenn Maynard)
     g = types.FunctionType(f.__code__, f.__globals__, name=f.__name__, argdefs=f.__defaults__, closure=f.__closure__)
     g = cast(types.FunctionType, functools.update_wrapper(g, f))
     g.__kwdefaults__ = f.__kwdefaults__

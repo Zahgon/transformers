@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Optional
@@ -47,23 +34,6 @@ from .configuration_efficientloftr import EfficientLoFTRConfig
 )
 @dataclass
 class EfficientLoFTRKeypointMatchingOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*):
-        Loss computed during training.
-    matches (`torch.FloatTensor` of shape `(batch_size, 2, num_matches)`):
-        Index of keypoint matched in the other image.
-    matching_scores (`torch.FloatTensor` of shape `(batch_size, 2, num_matches)`):
-        Scores of predicted matches.
-    keypoints (`torch.FloatTensor` of shape `(batch_size, num_keypoints, 2)`):
-        Absolute (x, y) coordinates of predicted keypoints in a given image.
-    hidden_states (`tuple[torch.FloatTensor, ...]`, *optional*):
-        Tuple of `torch.FloatTensor` (one for the output of each stage) of shape `(batch_size, 2, num_channels,
-        num_keypoints)`, returned when `output_hidden_states=True` is passed or when
-        `config.output_hidden_states=True`)
-    attentions (`tuple[torch.FloatTensor, ...]`, *optional*):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, 2, num_heads, num_keypoints,
-        num_keypoints)`, returned when `output_attentions=True` is passed or when `config.output_attentions=True`)
-    """
 
     loss: torch.FloatTensor | None = None
     matches: torch.FloatTensor | None = None
@@ -87,11 +57,9 @@ def compute_embeddings(inv_freq: torch.Tensor, embed_height: int, embed_width: i
     return emb
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->EfficientLoFTR
 class EfficientLoFTRRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
-    # Ignore copy
     def __init__(self, config: EfficientLoFTRConfig, device=None):
         super().__init__()
 
@@ -107,7 +75,6 @@ class EfficientLoFTRRotaryEmbedding(nn.Module):
         self.register_buffer("original_inv_freq", inv_freq.clone(), persistent=False)
 
     @staticmethod
-    # Ignore copy
     def compute_default_rope_parameters(
         config: EfficientLoFTRConfig | None = None,
         device: Optional["torch.device"] = None,
@@ -133,13 +100,11 @@ class EfficientLoFTRRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
         return inv_freq, attention_factor
 
-    # Ignore copy
     @torch.no_grad()
     def forward(
         self, x: torch.Tensor, position_ids: torch.LongTensor | None = None, layer_type=None
@@ -162,7 +127,6 @@ class EfficientLoFTRRotaryEmbedding(nn.Module):
         return cos, sin
 
 
-# Copied from transformers.models.rt_detr_v2.modeling_rt_detr_v2.RTDetrV2ConvNormLayer with RTDetrV2->EfficientLoFTR
 class EfficientLoFTRConvNormLayer(nn.Module):
     def __init__(self, config, in_channels, out_channels, kernel_size, stride, padding=None, activation=None):
         super().__init__()
@@ -185,9 +149,6 @@ class EfficientLoFTRConvNormLayer(nn.Module):
 
 
 class EfficientLoFTRRepVGGBlock(GradientCheckpointingLayer):
-    """
-    RepVGG architecture block introduced by the work "RepVGG: Making VGG-style ConvNets Great Again".
-    """
 
     def __init__(self, config: EfficientLoFTRConfig, stage_idx: int, block_idx: int):
         super().__init__()
@@ -249,7 +210,6 @@ class EfficientLoFTRepVGG(nn.Module):
             hidden_states = stage(hidden_states)
             outputs.append(hidden_states)
 
-        # Exclude first stage in outputs
         outputs = outputs[1:]
         return outputs
 
@@ -292,16 +252,13 @@ class EfficientLoFTRAggregationLayer(nn.Module):
         return hidden_states, encoder_hidden_states
 
 
-# Copied from transformers.models.cohere.modeling_cohere.rotate_half
 def rotate_half(x):
-    # Split and rotate. Note that this function is different from e.g. Llama.
     x1 = x[..., ::2]
     x2 = x[..., 1::2]
     rot_x = torch.stack([-x2, x1], dim=-1).flatten(-2)
     return rot_x
 
 
-# Copied from transformers.models.cohere.modeling_cohere.apply_rotary_pos_emb
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
 
@@ -330,7 +287,6 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     return q_embed.to(dtype=dtype), k_embed.to(dtype=dtype)
 
 
-# Copied from transformers.models.cohere.modeling_cohere.repeat_kv
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -343,7 +299,6 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
-# Copied from transformers.models.llama.modeling_llama.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -370,7 +325,6 @@ def eager_attention_forward(
 
 
 class EfficientLoFTRAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: EfficientLoFTRConfig, layer_idx: int):
         super().__init__()
@@ -474,13 +428,11 @@ class EfficientLoFTRAggregatedAttention(nn.Module):
     ) -> torch.Tensor:
         batch_size, embed_dim, _, _ = hidden_states.shape
 
-        # Aggregate features
         aggregated_hidden_states, aggregated_encoder_hidden_states = self.aggregation(
             hidden_states, encoder_hidden_states
         )
         _, aggregated_h, aggregated_w, _ = aggregated_hidden_states.shape
 
-        # Multi-head attention
         aggregated_hidden_states = aggregated_hidden_states.reshape(batch_size, -1, embed_dim)
         aggregated_encoder_hidden_states = aggregated_encoder_hidden_states.reshape(batch_size, -1, embed_dim)
         attn_output, _ = self.attention(
@@ -490,8 +442,6 @@ class EfficientLoFTRAggregatedAttention(nn.Module):
             **kwargs,
         )
 
-        # Upsample features
-        # (batch_size, seq_len, embed_dim) -> (batch_size, embed_dim, h, w) with seq_len = h * w
         attn_output = attn_output.permute(0, 2, 1)
         attn_output = attn_output.reshape(batch_size, embed_dim, aggregated_h, aggregated_w)
         attn_output = torch.nn.functional.interpolate(
@@ -525,16 +475,12 @@ class EfficientLoFTRLocalFeatureTransformerLayer(GradientCheckpointingLayer):
         hidden_states = hidden_states.reshape(-1, embed_dim, height, width)
         hidden_states = self.self_attention(hidden_states, position_embeddings=position_embeddings, **kwargs)
 
-        ###
-        # Implementation of a bug in the original implementation regarding the cross-attention
-        # See : https://github.com/zju3dv/MatchAnything/issues/26
         hidden_states = hidden_states.reshape(-1, 2, embed_dim, height, width)
         features_0 = hidden_states[:, 0]
         features_1 = hidden_states[:, 1]
         features_0 = self.cross_attention(features_0, features_1, **kwargs)
         features_1 = self.cross_attention(features_1, features_0, **kwargs)
         hidden_states = torch.stack((features_0, features_1), dim=1)
-        ###
 
         return hidden_states
 
@@ -630,7 +576,6 @@ class EfficientLoFTRFineFusionLayer(nn.Module):
         coarse_features = coarse_features.reshape(-1, embed_dim, coarse_height, coarse_width)
         residual_features = list(reversed(residual_features))
 
-        # 1. Fine feature extraction
         fine_features = self.forward_pyramid(coarse_features, residual_features)
         _, fine_embed_dim, fine_height, fine_width = fine_features.shape
 
@@ -638,7 +583,6 @@ class EfficientLoFTRFineFusionLayer(nn.Module):
         fine_features_0 = fine_features[:, 0]
         fine_features_1 = fine_features[:, 1]
 
-        # 2. Unfold all local windows in crops
         stride = int(fine_height // coarse_height)
         fine_features_0 = nn.functional.unfold(
             fine_features_0, kernel_size=self.fine_kernel_size, stride=stride, padding=0
@@ -658,10 +602,6 @@ class EfficientLoFTRFineFusionLayer(nn.Module):
 
 @auto_docstring
 class EfficientLoFTRPreTrainedModel(PreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
 
     config_class = EfficientLoFTRConfig
     base_model_prefix = "efficientloftr"
@@ -688,7 +628,6 @@ class EfficientLoFTRPreTrainedModel(PreTrainedModel):
                 init.ones_(module.running_var)
                 init.zeros_(module.num_batches_tracked)
 
-    # Copied from transformers.models.superpoint.modeling_superpoint.SuperPointPreTrainedModel.extract_one_channel_pixel_values with SuperPoint->EfficientLoFTR
     def extract_one_channel_pixel_values(self, pixel_values: torch.FloatTensor) -> torch.FloatTensor:
         """
         Assuming pixel_values has shape (batch_size, 3, height, width), and that all channels values are the same,
@@ -768,15 +707,11 @@ class EfficientLoFTRModel(EfficientLoFTRPreTrainedModel):
         pixel_values = pixel_values.reshape(batch_size * 2, channels, height, width)
         pixel_values = self.extract_one_channel_pixel_values(pixel_values)
 
-        # 1. Local Feature CNN
         features = self.backbone(pixel_values)
-        # Last stage outputs are coarse outputs
         coarse_features = features[-1]
-        # Rest is residual features used in EfficientLoFTRFineFusionLayer
         residual_features = features[:-1]
         coarse_embed_dim, coarse_height, coarse_width = coarse_features.shape[-3:]
 
-        # 2. Coarse-level LoFTR module
         cos, sin = self.rotary_emb(coarse_features)
         cos = cos.expand(batch_size * 2, -1, -1, -1).reshape(batch_size * 2, -1, coarse_embed_dim)
         sin = sin.expand(batch_size * 2, -1, -1, -1).reshape(batch_size * 2, -1, coarse_embed_dim)
@@ -911,7 +846,6 @@ def spatial_expectation2d(input: torch.Tensor, normalized_coordinates: bool = Tr
     """
     batch_size, embed_dim, height, width = input.shape
 
-    # Create coordinates grid.
     grid = create_meshgrid(height, width, normalized_coordinates, input.device)
     grid = grid.to(input.dtype)
 
@@ -920,7 +854,6 @@ def spatial_expectation2d(input: torch.Tensor, normalized_coordinates: bool = Tr
 
     input_flat = input.view(batch_size, embed_dim, -1)
 
-    # Compute the expectation of the coordinates.
     expected_y = torch.sum(pos_y * input_flat, -1, keepdim=True)
     expected_x = torch.sum(pos_x * input_flat, -1, keepdim=True)
 
@@ -935,19 +868,6 @@ def spatial_expectation2d(input: torch.Tensor, normalized_coordinates: bool = Tr
     """
 )
 class EfficientLoFTRForKeypointMatching(EfficientLoFTRPreTrainedModel):
-    """EfficientLoFTR dense image matcher
-
-    Given two images, we determine the correspondences by:
-      1. Extracting coarse and fine features through a backbone
-      2. Transforming coarse features through self and cross attention
-      3. Matching coarse features to obtain coarse coordinates of matches
-      4. Obtaining full resolution fine features by fusing transformed and backbone coarse features
-      5. Refining the coarse matches using fine feature patches centered at each coarse match in a two-stage refinement
-
-    Yifan Wang, Xingyi He, Sida Peng, Dongli Tan and Xiaowei Zhou.
-    Efficient LoFTR: Semi-Dense Local Feature Matching with Sparse-Like Speed
-    In CVPR, 2024. https://huggingface.co/papers/2403.04765
-    """
 
     def __init__(self, config: EfficientLoFTRConfig):
         super().__init__(config)
@@ -983,22 +903,17 @@ class EfficientLoFTRForKeypointMatching(EfficientLoFTRPreTrainedModel):
 
         scores = scores.view(batch_size, height0 * width0, height1 * width1)
 
-        # For each keypoint, get the best match
         max_0 = scores.max(2, keepdim=True).values
         max_1 = scores.max(1, keepdim=True).values
 
-        # 1. Thresholding
         mask = scores > self.config.coarse_matching_threshold
 
-        # 2. Border removal
         mask = mask.reshape(batch_size, height0, width0, height1, width1)
         mask = mask_border(mask, self.config.coarse_matching_border_removal, False)
         mask = mask.reshape(batch_size, height0 * width0, height1 * width1)
 
-        # 3. Mutual nearest neighbors
         mask = mask * (scores == max_0) * (scores == max_1)
 
-        # 4. Fine coarse matches
         masked_scores = scores * mask
         matching_scores_0, max_indices_0 = masked_scores.max(1)
         matching_scores_1, max_indices_1 = masked_scores.max(2)
@@ -1006,7 +921,6 @@ class EfficientLoFTRForKeypointMatching(EfficientLoFTRPreTrainedModel):
         matching_indices = torch.cat([max_indices_0, max_indices_1]).reshape(batch_size, 2, -1)
         matching_scores = torch.stack([matching_scores_0, matching_scores_1], dim=1)
 
-        # For the keypoints not meeting the threshold score, set the indices to -1 which corresponds to no matches found
         matching_indices = torch.where(matching_scores > 0, matching_indices, -1)
 
         return matching_indices, matching_scores
@@ -1039,7 +953,6 @@ class EfficientLoFTRForKeypointMatching(EfficientLoFTRPreTrainedModel):
         """
         batch_size, _, embed_dim, height, width = coarse_features.shape
 
-        # (batch_size, 2, embed_dim, height, width) -> (batch_size, 2, height * width, embed_dim)
         coarse_features = coarse_features.permute(0, 1, 3, 4, 2)
         coarse_features = coarse_features.reshape(batch_size, 2, -1, embed_dim)
 
@@ -1059,7 +972,6 @@ class EfficientLoFTRForKeypointMatching(EfficientLoFTRPreTrainedModel):
         matched_indices, matching_scores = self._get_matches_from_scores(confidence)
 
         width_t = torch.tensor(width, device=matched_indices.device)
-        # TorchDynamo makes width a SymInt and then complains about it not being a Tensor in the remainder op
         keypoints = torch.stack([matched_indices % width_t, matched_indices // width_t], dim=-1) * coarse_scale
 
         return keypoints, matching_scores, matched_indices
@@ -1170,11 +1082,9 @@ class EfficientLoFTRForKeypointMatching(EfficientLoFTRPreTrainedModel):
         indices_0 = indices[:, 0]
         indices_1 = indices[:, 1]
         fine_kernel_size_t = torch.tensor(fine_kernel_size, device=indices_1.device)
-        # TorchDynamo makes fine_kernel_size a SymInt and then complains about it not being a Tensor in the division and remainder ops
         indices_1_i = indices_1 // fine_kernel_size_t
         indices_1_j = indices_1 % fine_kernel_size_t
 
-        # matches_indices, indices_0, indices_1_i, indices_1_j of shape (num_matches, 3, 3)
         batch_indices = torch.arange(batch_size, device=indices_0.device).reshape(batch_size, 1, 1, 1)
         matches_indices = torch.arange(num_keypoints, device=indices_0.device).reshape(1, num_keypoints, 1, 1)
         indices_0 = indices_0[..., None]
@@ -1190,7 +1100,6 @@ class EfficientLoFTRForKeypointMatching(EfficientLoFTRPreTrainedModel):
         fine_confidence = fine_confidence.reshape(
             batch_size, num_keypoints, fine_window_size, fine_kernel_size + 2, fine_kernel_size + 2
         )
-        # (batch_size, seq_len, fine_window_size, fine_kernel_size + 2, fine_kernel_size + 2) -> (batch_size, seq_len, 3, 3)
         fine_confidence = fine_confidence[batch_indices, matches_indices, indices_0, indices_1_i, indices_1_j]
         fine_confidence = fine_confidence.reshape(batch_size, num_keypoints, 9)
         fine_confidence = nn.functional.softmax(
@@ -1249,19 +1158,15 @@ class EfficientLoFTRForKeypointMatching(EfficientLoFTRPreTrainedModel):
 
         fine_kernel_size = torch_int(fine_window_size**0.5)
 
-        # Split fine features into first and second stage features
         split_fine_features_0 = torch.split(fine_features_0, fine_embed_dim - fine_matching_slice_dim, -1)
         split_fine_features_1 = torch.split(fine_features_1, fine_embed_dim - fine_matching_slice_dim, -1)
 
-        # Retrieve first stage fine features
         fine_features_0 = split_fine_features_0[0]
         fine_features_1 = split_fine_features_1[0]
 
-        # Normalize first stage fine features
         fine_features_0 = fine_features_0 / fine_features_0.shape[-1] ** 0.5
         fine_features_1 = fine_features_1 / fine_features_1.shape[-1] ** 0.5
 
-        # Compute first stage confidence
         fine_confidence = fine_features_0 @ fine_features_1.transpose(-1, -2)
         fine_confidence = nn.functional.softmax(fine_confidence, 1) * nn.functional.softmax(fine_confidence, 2)
         fine_confidence = fine_confidence.reshape(
@@ -1279,14 +1184,11 @@ class EfficientLoFTRForKeypointMatching(EfficientLoFTRPreTrainedModel):
             fine_scale,
         )
 
-        # Retrieve second stage fine features
         fine_features_0 = split_fine_features_0[1]
         fine_features_1 = split_fine_features_1[1]
 
-        # Normalize second stage fine features
         fine_features_1 = fine_features_1 / fine_matching_slice_dim**0.5
 
-        # Compute second stage fine confidence
         second_stage_fine_confidence = fine_features_0 @ fine_features_1.transpose(-1, -2)
 
         fine_coordinates = self._get_second_stage_fine_matching(
@@ -1337,11 +1239,9 @@ class EfficientLoFTRForKeypointMatching(EfficientLoFTRPreTrainedModel):
         if labels is not None:
             raise ValueError("SuperGlue is not trainable, no labels should be provided.")
 
-        # 1. Extract coarse and residual features
         model_outputs: BackboneOutput = self.efficientloftr(pixel_values, **kwargs)
         features = model_outputs.feature_maps
 
-        # 2. Compute coarse-level matching
         coarse_features = features[0]
         coarse_embed_dim, coarse_height, coarse_width = coarse_features.shape[-3:]
         batch_size, _, channels, height, width = pixel_values.shape
@@ -1350,18 +1250,15 @@ class EfficientLoFTRForKeypointMatching(EfficientLoFTRPreTrainedModel):
             coarse_features, coarse_scale
         )
 
-        # 3. Fine-level refinement
         residual_features = features[1:]
         coarse_features = coarse_features / self.config.hidden_size**0.5
         fine_features_0, fine_features_1 = self.refinement_layer(coarse_features, residual_features)
 
-        # Filter fine features with coarse matches indices
         _, _, num_keypoints = coarse_matching_scores.shape
         batch_indices = torch.arange(batch_size)[..., None]
         fine_features_0 = fine_features_0[batch_indices, coarse_matched_indices[:, 0]]
         fine_features_1 = fine_features_1[batch_indices, coarse_matched_indices[:, 1]]
 
-        # 4. Computer fine-level matching
         fine_height = torch_int(coarse_height * coarse_scale)
         fine_scale = height / fine_height
         matching_keypoints = self._fine_matching(fine_features_0, fine_features_1, coarse_keypoints, fine_scale)

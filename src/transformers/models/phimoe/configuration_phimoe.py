@@ -1,18 +1,4 @@
-# Copyright 2024 Microsoft and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""PyTorch Phi-MoE model."""
 
 from huggingface_hub.dataclasses import strict
 
@@ -24,25 +10,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="microsoft/Phi-3.5-MoE-instruct")
 @strict
 class PhimoeConfig(PreTrainedConfig):
-    r"""
-    num_local_experts (`int`, *optional*, defaults to 16):
-        Number of experts per Sparse MLP layer.
-    input_jitter_noise (`float`, *optional*, defaults to 0.0):
-        Input jitter noise
-    lm_head_bias (`bool`, *optional*, defaults to `False`):
-        LM head bias
-
-    Example:
-
-    ```python
-    >>> from transformers import PhimoeModel, PhimoeConfig
-    >>> # Initializing a Phi-3 style configuration
-    >>> configuration = PhimoeConfig.from_pretrained("microsoft/Phi-3.5-MoE-instruct")
-    >>> # Initializing a model from the configuration
-    >>> model = PhimoeModel(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "phimoe"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -92,7 +59,6 @@ class PhimoeConfig(PreTrainedConfig):
         """
         super().validate_rope()
 
-        # Run model-specific rope validation
         if self.rope_parameters["rope_type"] != "default":
             if "original_max_position_embeddings" in self.rope_parameters:
                 self.original_max_position_embeddings = self.rope_parameters["original_max_position_embeddings"]

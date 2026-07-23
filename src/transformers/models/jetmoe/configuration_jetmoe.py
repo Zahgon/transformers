@@ -1,17 +1,3 @@
-# Copyright 2024 JetMoe AI and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""JetMoe model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,25 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="jetmoe/jetmoe-8b")
 @strict
 class JetMoeConfig(PreTrainedConfig):
-    r"""
-    kv_channels (`int`, *optional*, defaults to 128):
-        Defines the number of channels for the key and value tensors.
-    num_local_experts (`int`, *optional*, defaults to 8):
-        Defines the number of experts in the MoE and MoA.
-
-    ```python
-    >>> from transformers import JetMoeModel, JetMoeConfig
-
-    >>> # Initializing a JetMoe 4B style configuration
-    >>> configuration = JetMoeConfig()
-
-    >>> # Initializing a model from the JetMoe 4B style configuration
-    >>> model = JetMoeModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "jetmoe"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -74,9 +41,7 @@ class JetMoeConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.num_experts_per_tok > self.num_local_experts:
-            raise ValueError("`num_experts_per_tok` must be less than or equal to `num_local_experts`")
+        pass
 
 
 __all__ = ["JetMoeConfig"]

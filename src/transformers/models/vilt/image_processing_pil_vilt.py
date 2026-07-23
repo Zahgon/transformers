@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Vilt."""
 
 from collections.abc import Iterable
 from typing import Any
@@ -37,7 +23,6 @@ from ...utils import (
 )
 
 
-# Set maximum size based on the typical aspect ratio of the COCO dataset
 MAX_LONGER_EDGE = 1333
 MAX_SHORTER_EDGE = 800
 
@@ -98,13 +83,7 @@ def get_resize_output_image_size(
     return new_height, new_width
 
 
-# Adapted from transformers.models.vilt.image_processing_vilt.ViltImageProcessorKwargs
 class ViltImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    size_divisor (`int`, *optional*, defaults to `self.size_divisor`):
-        The size by which to make sure both the height and width can be divided. Only has an effect if `do_resize`
-        is set to `True`.
-    """
 
     size_divisor: int
 
@@ -172,7 +151,6 @@ class ViltImageProcessorPil(PilBackend):
         Returns:
             `tuple`: Tuple containing padded images and pixel masks.
         """
-        # Calculate global maximum dimensions across all images
         max_size = get_max_height_width(images, input_data_format=ChannelDimension.FIRST)
 
         padded_images = []
@@ -231,7 +209,6 @@ class ViltImageProcessorPil(PilBackend):
                 image = self.normalize(image, image_mean, image_std)
             processed_images.append(image)
 
-        # Handle padding if required
         data = {}
         if do_pad:
             pixel_values, pixel_mask = self._pad_batch(processed_images, return_tensors)

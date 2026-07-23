@@ -1,19 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Feature extractor class for Whisper
-"""
 
 import numpy as np
 
@@ -31,38 +15,6 @@ logger = logging.get_logger(__name__)
 
 
 class WhisperFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a Whisper feature extractor.
-
-    This feature extractor inherits from [`~feature_extraction_sequence_utils.SequenceFeatureExtractor`] which contains
-    most of the main methods. Users should refer to this superclass for more information regarding those methods.
-
-    This class extracts mel-filter bank features from raw speech using a custom numpy implementation of the `Short Time
-    Fourier Transform` which should match pytorch's `torch.stft` equivalent.
-
-    Args:
-        feature_size (`int`, *optional*, defaults to 80):
-            The feature dimension of the extracted features.
-        sampling_rate (`int`, *optional*, defaults to 16000):
-            The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
-        hop_length (`int`, *optional*, defaults to 160):
-            Length of the overlapping windows for the STFT used to obtain the Mel Frequency coefficients.
-        chunk_length (`int`, *optional*, defaults to 30):
-            The maximum number of chunks of `sampling_rate` samples used to trim and pad longer or shorter audio
-            sequences.
-        n_fft (`int`, *optional*, defaults to 400):
-            Size of the Fourier transform.
-        padding_value (`float`, *optional*, defaults to 0.0):
-            Padding value used to pad the audio. Should correspond to silences.
-        dither (`float`, *optional*, defaults to 0.0):
-            Adds dithering. In other words, adds a small Gaussian noise to each frame.
-            E.g. use 0.0001 to add dithering with a normal distribution centered
-            around 0.0 with standard deviation 0.0001 (assuming [-1,+1] range of raw_speech).
-            The value 0.0 means no dithering.
-            Dithering has similar effect as `spectrogram(mel_floor=...)`. It reduces
-            the high log_mel_fbank values for signals with hard-zero sections,
-            when VAD cutoff is present in the signal.
-    """
 
     model_input_names = ["input_features"]
 
@@ -103,92 +55,16 @@ class WhisperFeatureExtractor(SequenceFeatureExtractor):
         )
 
     def _np_extract_fbank_features(self, waveform_batch: np.ndarray, device: str) -> np.ndarray:
-        """
-        Compute the log-mel spectrogram of the provided audio, gives similar results to Whisper's original torch
-        implementation with 1e-5 tolerance.
-        """
-        if device != "cpu":
-            raise ValueError(
-                f"Got device `{device}` for feature extraction, but feature extraction on CUDA accelerator "
-                "devices requires torch, which is not installed. Either set `device='cpu'`, or "
-                "install torch according to the official instructions: https://pytorch.org/get-started/locally/"
-            )
-        log_spec_batch = []
-        for waveform in waveform_batch:
-            log_spec = spectrogram(
-                waveform,
-                window_function(self.n_fft, "hann"),
-                frame_length=self.n_fft,
-                hop_length=self.hop_length,
-                power=2.0,
-                dither=self.dither,
-                mel_filters=self.mel_filters,
-                log_mel="log10",
-            )
-            log_spec = log_spec[:, :-1]
-            log_spec = np.maximum(log_spec, log_spec.max() - 8.0)
-            log_spec = (log_spec + 4.0) / 4.0
-            log_spec_batch.append(log_spec)
-        log_spec_batch = np.array(log_spec_batch)
-        return log_spec_batch
+        pass
 
     def _torch_extract_fbank_features(self, waveform: np.ndarray, device: str = "cpu") -> np.ndarray:
-        """
-        Compute the log-mel spectrogram of the audio using PyTorch's GPU-accelerated STFT implementation with batching,
-        yielding results similar to cpu computing with 1e-5 tolerance.
-        """
-        waveform = torch.from_numpy(waveform).to(device, torch.float32)
-        window = torch.hann_window(self.n_fft, device=device)
-
-        # Note: it would be better to dither the chunked waveform,
-        # so overlapping signal does not get the same dithering.
-        # But, chunking is happening inside pytorch, so it is here.
-        if self.dither != 0.0:
-            waveform += self.dither * torch.randn(waveform.shape, dtype=waveform.dtype, device=waveform.device)
-
-        stft = torch.stft(waveform, self.n_fft, self.hop_length, window=window, return_complex=True)
-        # `stft[..., :-1]` is a non-contiguous view; on some CPU backends the
-        # downstream `mel_filters.T @ magnitudes` matmul hits a slow strided
-        # path (observed ~8x slower). Forcing contiguity here is cheap and
-        # keeps the matmul on the fast path.
-        magnitudes = (stft[..., :-1].abs() ** 2).contiguous()
-
-        mel_filters = torch.from_numpy(self.mel_filters).to(device, torch.float32)
-        mel_spec = mel_filters.T @ magnitudes
-
-        log_spec = torch.clamp(mel_spec, min=1e-10).log10()
-        if waveform.dim() == 2:
-            max_val = log_spec.max(dim=2, keepdim=True)[0].max(dim=1, keepdim=True)[0]
-            log_spec = torch.maximum(log_spec, max_val - 8.0)
-        else:
-            log_spec = torch.maximum(log_spec, log_spec.max() - 8.0)
-        log_spec = (log_spec + 4.0) / 4.0
-        if device != "cpu":
-            log_spec = log_spec.detach().cpu()
-        return log_spec.numpy()
+        pass
 
     @staticmethod
-    # Copied from transformers.models.wav2vec2.feature_extraction_wav2vec2.Wav2Vec2FeatureExtractor.zero_mean_unit_var_norm
     def zero_mean_unit_var_norm(
         input_values: list[np.ndarray], attention_mask: list[np.ndarray], padding_value: float = 0.0
     ) -> list[np.ndarray]:
-        """
-        Every array in the list is normalized to have zero mean and unit variance
-        """
-        if attention_mask is not None:
-            attention_mask = np.array(attention_mask, np.int32)
-            normed_input_values = []
-
-            for vector, length in zip(input_values, attention_mask.sum(-1)):
-                normed_slice = (vector - vector[:length].mean()) / np.sqrt(vector[:length].var() + 1e-7)
-                if length < normed_slice.shape[0]:
-                    normed_slice[length:] = padding_value
-
-                normed_input_values.append(normed_slice)
-        else:
-            normed_input_values = [(x - x.mean()) / np.sqrt(x.var() + 1e-7) for x in input_values]
-
-        return normed_input_values
+        pass
 
     def __call__(
         self,
@@ -289,13 +165,11 @@ class WhisperFeatureExtractor(SequenceFeatureExtractor):
         elif isinstance(raw_speech, np.ndarray) and raw_speech.dtype is np.dtype(np.float64):
             raw_speech = raw_speech.astype(np.float32)
 
-        # always return batch
         if not is_batched:
             raw_speech = [np.asarray([raw_speech]).T]
 
         batched_speech = BatchFeature({"input_features": raw_speech})
 
-        # convert into correct format for padding
 
         padded_inputs = self.pad(
             batched_speech,
@@ -306,7 +180,6 @@ class WhisperFeatureExtractor(SequenceFeatureExtractor):
             return_attention_mask=return_attention_mask or do_normalize,
         )
 
-        # zero-mean and unit-variance normalization
         if do_normalize:
             padded_inputs["input_features"] = self.zero_mean_unit_var_norm(
                 padded_inputs["input_features"],
@@ -315,7 +188,6 @@ class WhisperFeatureExtractor(SequenceFeatureExtractor):
             )
             padded_inputs["input_features"] = np.stack(padded_inputs["input_features"], axis=0)
 
-        # make sure list is in array format
         input_features = padded_inputs.get("input_features").transpose(2, 0, 1)
 
         extract_fbank_features = (
@@ -330,12 +202,8 @@ class WhisperFeatureExtractor(SequenceFeatureExtractor):
             padded_inputs["input_features"] = input_features
 
         if return_attention_mask:
-            # rescale from sample (48000) to feature (3000)
             rescaled_attention_mask = padded_inputs["attention_mask"][:, :: self.hop_length]
 
-            # The STFT computation produces L//hop_length + 1 frames, but we skip the last frame (see `_torch_extract_fbank_features`).
-            # This means we need to trim the rescaled attention mask to match the actual number of frames (L//hop_length) when the input length
-            # is not perfectly divisible by the hop length.
             if padded_inputs["attention_mask"].shape[1] % self.hop_length != 0:
                 rescaled_attention_mask = rescaled_attention_mask[:, :-1]
             padded_inputs["attention_mask"] = rescaled_attention_mask

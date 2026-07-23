@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
@@ -40,15 +27,12 @@ def get_keys_to_not_convert(model) -> list:
     Function to automatically detect keys to not convert for usage like quantization. For example for CausalLM modules
     we may want to keep the lm_head in full precision for numerical stability reasons.
     """
-    # remove tied weights
     tied_keys = set()
     if len(model.all_tied_weights_keys) > 0:
         tied_keys = set(model.all_tied_weights_keys.values()) | set(model.all_tied_weights_keys.keys())
 
-    # remove last module
     last_module_key = {list(model.named_parameters())[-1][0]}
 
-    # remove output emb
     output_emb_module = model.get_output_embeddings()
     output_emb_keys = {
         name
@@ -71,17 +55,6 @@ def _assign_is_quantized(model):
 
 
 class HfQuantizer(ABC):
-    """
-    Abstract class of the HuggingFace quantizer. Supports for now quantizing HF transformers models for inference and/or quantization.
-    This class is used only for transformers.PreTrainedModel.from_pretrained and cannot be easily used outside the scope of that method
-    yet.
-
-    Attributes
-        quantization_config (`transformers.utils.quantization_config.QuantizationConfigMixin`):
-            The quantization config that defines the quantization parameters of your model that you want to quantize.
-        requires_calibration (`bool`):
-            Whether the quantization method requires to calibrate the model before using it.
-    """
 
     requires_calibration = False
 
@@ -211,8 +184,6 @@ class HfQuantizer(ABC):
         Note not all quantization schemes support this.
         """
         if dtype is None:
-            # using the same dtype we used to load the model. If we don't do that, we might have issues with modules we didn't quantize.
-            # or we need to upcast everything to the same dtype
             dtype = model.config.dtype
         model = self._dequantize(model, dtype=dtype)
         self.remove_quantization_config(model)
@@ -225,10 +196,7 @@ class HfQuantizer(ABC):
         )
 
     def get_param_name(self, param_name: str) -> str:
-        """
-        Override this method if you want to adjust the `param_name`.
-        """
-        return param_name
+        pass
 
     @staticmethod
     def get_modules_to_not_convert(
@@ -254,13 +222,11 @@ class HfQuantizer(ABC):
 
     @property
     def is_qat_trainable(self) -> bool:
-        """Flag indicating whether the quantized model can carry out quantization aware training"""
-        return False
+        pass
 
     @property
     def is_compileable(self) -> bool:
-        """Flag indicating whether the quantized model can be compiled"""
-        return False
+        pass
 
     def get_state_dict_and_metadata(self, model):
         """Get state dict and metadata. Useful when we need to modify a bit the state dict due to quantization"""
@@ -309,10 +275,6 @@ class HfQuantizer(ABC):
 
 
 class SequentialLlama4TextExperts(ModuleList):
-    """
-    A module that implements a compressed version of a list of expert modules.
-    This is specifically designed to work with Llama4TextExperts in MoE layers.
-    """
 
     def __init__(self, config):
         from transformers.models.llama4.modeling_llama4 import Llama4TextMLP

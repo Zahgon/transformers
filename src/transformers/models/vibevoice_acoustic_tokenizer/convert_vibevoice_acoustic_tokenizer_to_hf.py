@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import argparse
 import gc
@@ -35,48 +22,33 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
-# fmt: off
 STATE_DICT_MAPPING = {
-    # Encoder
     r"^model\.acoustic_tokenizer\.encoder\.downsample_layers\.0\.0\.conv\.":       r"encoder.stem.conv.conv.",
     r"^model\.acoustic_tokenizer\.encoder\.stages\.0\.":                           r"encoder.stem.stage.",
     r"^model\.acoustic_tokenizer\.encoder\.downsample_layers\.(\d+)\.0\.conv\.":   (r"encoder.conv_layers.\1.conv.conv.", -1),
     r"^model\.acoustic_tokenizer\.encoder\.stages\.(\d+)\.":                       (r"encoder.conv_layers.\1.stage.", -1),
     r"^model\.acoustic_tokenizer\.encoder\.head\.conv\.":                          r"encoder.head.",
 
-    # Decoder
     r"^model\.acoustic_tokenizer\.decoder\.upsample_layers\.0\.0\.conv\.conv\.": r"decoder.stem.conv.conv.",
     r"^model\.acoustic_tokenizer\.decoder\.stages\.0\.":                           r"decoder.stem.stage.",
     r"^model\.acoustic_tokenizer\.decoder\.upsample_layers\.(\d+)\.0\.convtr\.convtr\.": (r"decoder.conv_layers.\1.convtr.convtr.", -1),
     r"^model\.acoustic_tokenizer\.decoder\.stages\.(\d+)\.":                       (r"decoder.conv_layers.\1.stage.", -1),
     r"^model\.acoustic_tokenizer\.decoder\.head\.conv\.":                          r"decoder.head.",
 
-    # Common patterns (apply after specific patterns)
     r"mixer\.conv\.conv\.conv\.":                                                   r"mixer.conv.",
     r"\.conv\.conv\.conv\.":                                                        r".conv.conv.",
 }
-# fmt: on
 
 
 def map_old_key_to_new(old_key: str) -> str:
     new_key = old_key
 
-    # Apply all regex patterns
     for pattern, replacement in STATE_DICT_MAPPING.items():
-        # Check if replacement needs index shifting
         if isinstance(replacement, tuple):
             replacement_pattern, index_shift = replacement
 
-            # Use callback to handle index shifting
             def shift_index(match):
-                result = replacement_pattern
-                for i, group in enumerate(match.groups(), 1):
-                    if group and group.isdigit():
-                        shifted_idx = int(group) + index_shift
-                        result = result.replace(f"\\{i}", str(shifted_idx))
-                    else:
-                        result = result.replace(f"\\{i}", group)
-                return result
+                pass
 
             new_key, n = re.subn(pattern, shift_index, new_key)
         else:
@@ -103,11 +75,9 @@ def convert_checkpoint(checkpoint, config_path, push_to_hub, bfloat16, processor
     else:
         dtype = torch.float32
 
-    # 1) Load state dict from safetensors checkpoint
     logger.info(f"Loading checkpoint from {checkpoint}")
     original_state_dict = load_file(checkpoint)
 
-    # 2) Prepare feature extractor
     audio_config = {}
     if processor_config is not None:
         with open(processor_config, "r") as f:
@@ -123,11 +93,9 @@ def convert_checkpoint(checkpoint, config_path, push_to_hub, bfloat16, processor
         audio_config["eps"] = 1e-6
     feature_extractor = VibeVoiceAcousticTokenizerFeatureExtractor(**audio_config)
 
-    # 3) Prepare model configuration
     with open(config_path, "r") as f:
         model_config = json.load(f)
 
-    # Clean up acoustic tokenizer config
     acoustic_config_dict = model_config["acoustic_tokenizer_config"].copy()
     if "encoder_depths" in acoustic_config_dict and isinstance(acoustic_config_dict["encoder_depths"], str):
         acoustic_config_dict["encoder_depths"] = list(map(int, acoustic_config_dict["encoder_depths"].split("-")))
@@ -142,10 +110,8 @@ def convert_checkpoint(checkpoint, config_path, push_to_hub, bfloat16, processor
     if "vae_dim" in acoustic_config_dict:
         acoustic_config_dict["hidden_size"] = acoustic_config_dict.pop("vae_dim")
     if "fix_std" in acoustic_config_dict:
-        # Original hardcodes a scaling factor for vae_std
         acoustic_config_dict["vae_std"] = acoustic_config_dict.pop("fix_std") / 0.8
 
-    # Remove unused/constant parameters
     for key in [
         "decoder_depths",
         "decoder_n_filters",
@@ -163,21 +129,17 @@ def convert_checkpoint(checkpoint, config_path, push_to_hub, bfloat16, processor
     ]:
         acoustic_config_dict.pop(key, None)
 
-    # 4) Convert state dict to match HF model structure
     logger.info("Converting state dict")
     converted_state_dict = convert_state_dict(original_state_dict)
 
-    # 5) Filter for acoustic tokenizer weights
     acoustic_state_dict = {
         k: v for k, v in converted_state_dict.items() if k.startswith("encoder.") or k.startswith("decoder.")
     }
 
-    # 6) Create and save acoustic tokenizer
     logger.info("Creating acoustic tokenizer model")
     acoustic_config = VibeVoiceAcousticTokenizerConfig(**acoustic_config_dict)
     acoustic_model = VibeVoiceAcousticTokenizerModel(acoustic_config).to(dtype)
 
-    # Load weights into HF model
     logger.info("Loading weights into model")
     missing, unexpected = acoustic_model.load_state_dict(acoustic_state_dict, strict=False)
     if len(unexpected) != 0:

@@ -1,19 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for InstructBLIP. Largely copy of Blip2Processor with addition of a tokenizer for the Q-Former.
-"""
 
 from ...image_processing_utils import BatchFeature
 from ...image_utils import ImageInput
@@ -88,13 +72,11 @@ class InstructBlipProcessor(ProcessorMixin):
             encoding["qformer_input_ids"] = qformer_text_encoding.pop("input_ids")
             encoding["qformer_attention_mask"] = qformer_text_encoding.pop("attention_mask")
 
-            # We need this hacky manipulation because BLIP expects image tokens to be at the beginning even before BOS token
             if output_kwargs["text_kwargs"].get("max_length") is not None:
                 output_kwargs["text_kwargs"]["max_length"] -= self.num_query_tokens
             text_encoding = self.tokenizer(text, **output_kwargs["text_kwargs"])
 
             if images is not None:
-                # Image tokens should not be padded/truncated or prepended with special BOS token
                 image_tokens = self.image_token.content * self.num_query_tokens
                 output_kwargs["text_kwargs"]["add_special_tokens"] = False
                 output_kwargs["text_kwargs"]["padding"] = False
@@ -108,16 +90,12 @@ class InstructBlipProcessor(ProcessorMixin):
             image_encoding = self.image_processor(images, **output_kwargs["images_kwargs"])
             encoding.update(image_encoding)
 
-        # Cast to desired return tensors type
         encoding = BatchFeature(encoding, tensor_type=return_tensors)
         return encoding
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        image_processor_input_names = self.image_processor.model_input_names
-        qformer_input_names = ["qformer_input_ids", "qformer_attention_mask"]
-        return tokenizer_input_names + image_processor_input_names + qformer_input_names
+        pass
 
 
 __all__ = ["InstructBlipProcessor"]

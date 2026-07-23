@@ -1,20 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Time series distributional output classes and utilities.
-"""
 
 from collections.abc import Callable
 
@@ -47,17 +30,11 @@ class AffineTransformed(TransformedDistribution):
 
     @property
     def variance(self):
-        """
-        Returns the variance of the distribution.
-        """
-        return self.base_dist.variance * self.scale**2
+        pass
 
     @property
     def stddev(self):
-        """
-        Returns the standard deviation of the distribution.
-        """
-        return self.variance.sqrt()
+        pass
 
 
 class ParameterProjection(nn.Module):
@@ -113,26 +90,15 @@ class DistributionOutput:
 
     @property
     def event_shape(self) -> tuple:
-        r"""
-        Shape of each individual event contemplated by the distributions that this object constructs.
-        """
-        return () if self.dim == 1 else (self.dim,)
+        pass
 
     @property
     def event_dim(self) -> int:
-        r"""
-        Number of event dimensions, i.e., length of the `event_shape` tuple, of the distributions that this object
-        constructs.
-        """
-        return len(self.event_shape)
+        pass
 
     @property
     def value_in_support(self) -> float:
-        r"""
-        A float that will have a valid numeric value when computing the log-loss of the corresponding distribution. By
-        default 0.0. This value will be used when padding data series.
-        """
-        return 0.0
+        pass
 
     def get_parameter_projection(self, in_features: int) -> nn.Module:
         r"""
@@ -162,9 +128,6 @@ class DistributionOutput:
 
 
 class StudentTOutput(DistributionOutput):
-    """
-    Student-T distribution output class.
-    """
 
     args_dim: dict[str, int] = {"df": 1, "loc": 1, "scale": 1}
     distribution_class: type = StudentT
@@ -177,9 +140,6 @@ class StudentTOutput(DistributionOutput):
 
 
 class NormalOutput(DistributionOutput):
-    """
-    Normal distribution output class.
-    """
 
     args_dim: dict[str, int] = {"loc": 1, "scale": 1}
     distribution_class: type = Normal
@@ -191,9 +151,6 @@ class NormalOutput(DistributionOutput):
 
 
 class NegativeBinomialOutput(DistributionOutput):
-    """
-    Negative Binomial distribution output class.
-    """
 
     args_dim: dict[str, int] = {"total_count": 1, "logits": 1}
     distribution_class: type = NegativeBinomial
@@ -210,16 +167,12 @@ class NegativeBinomialOutput(DistributionOutput):
         else:
             return Independent(self.distribution_class(total_count=total_count, logits=logits), 1)
 
-    # Overwrites the parent class method. We cannot scale using the affine
-    # transformation since negative binomial should return integers. Instead
-    # we scale the parameters.
     def distribution(
         self, distr_args, loc: torch.Tensor | None = None, scale: torch.Tensor | None = None
     ) -> Distribution:
         total_count, logits = distr_args
 
         if scale is not None:
-            # See scaling property of Gamma.
             logits += scale.log()
 
         return self._base_distribution((total_count, logits))

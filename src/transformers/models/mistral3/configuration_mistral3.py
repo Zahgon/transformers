@@ -1,17 +1,3 @@
-# Copyright 2025 HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -24,27 +10,6 @@ from ..auto import CONFIG_MAPPING, AutoConfig
 @auto_docstring(checkpoint="mistralai/Mistral-Small-3.1-24B-Instruct-2503")
 @strict
 class Mistral3Config(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Mistral3ForConditionalGeneration, Mistral3Config, PixtralVisionConfig, MistralConfig
-
-    >>> # Initializing a Pixtral-vision config
-    >>> vision_config = PixtralVisionConfig()
-
-    >>> # Initializing a Mistral config
-    >>> text_config = MistralConfig()
-
-    >>> # Initializing a Mistral3 configuration
-    >>> configuration = Mistral3Config(vision_config, text_config)
-
-    >>> # Initializing a model from the mistral3.1 configuration
-    >>> model = Mistral3ForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "mistral3"
     attribute_map = {

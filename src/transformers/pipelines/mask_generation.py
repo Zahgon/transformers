@@ -34,55 +34,6 @@ logger = logging.get_logger(__name__)
             Whether or not to output the masks in `RLE` format""",
 )
 class MaskGenerationPipeline(ChunkPipeline):
-    """
-    Automatic mask generation for images using `SamForMaskGeneration`. This pipeline predicts binary masks for an
-    image, given an image. It is a `ChunkPipeline` because you can separate the points in a mini-batch in order to
-    avoid OOM issues. Use the `points_per_batch` argument to control the number of points that will be processed at the
-    same time. Default is `64`.
-
-    The pipeline works in 3 steps:
-        1. `preprocess`: A grid of 1024 points evenly separated is generated along with bounding boxes and point
-           labels.
-            For more details on how the points and bounding boxes are created, check the `_generate_crop_boxes`
-            function. The image is also preprocessed using the `image_processor`. This function `yields` a minibatch of
-            `points_per_batch`.
-
-        2. `forward`: feeds the outputs of `preprocess` to the model. The image embedding is computed only once.
-            Calls both `self.model.get_image_embeddings` and makes sure that the gradients are not computed, and the
-            tensors and models are on the same device.
-
-        3. `postprocess`: The most important part of the automatic mask generation happens here. Three steps
-            are induced:
-                - image_processor.postprocess_masks (run on each minibatch loop): takes in the raw output masks,
-                  resizes them according
-                to the image size, and transforms there to binary masks.
-                - image_processor.filter_masks (on each minibatch loop): uses both `pred_iou_thresh` and
-                  `stability_scores`. Also
-                applies a variety of filters based on non maximum suppression to remove bad masks.
-                - image_processor.postprocess_masks_for_amg applies the NSM on the mask to only keep relevant ones.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> generator = pipeline(model="facebook/sam-vit-base", task="mask-generation")
-    >>> outputs = generator(
-    ...     "http://images.cocodataset.org/val2017/000000039769.jpg",
-    ... )
-
-    >>> outputs = generator(
-    ...     "https://huggingface.co/datasets/Narsil/image_dummy/raw/main/parrots.png", points_per_batch=128
-    ... )
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This segmentation pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"mask-generation"`.
-
-    See the list of available models on [huggingface.co/models](https://huggingface.co/models?filter=mask-generation).
-    """
 
     _load_processor = False
     _load_image_processor = True
@@ -100,7 +51,6 @@ class MaskGenerationPipeline(ChunkPipeline):
         preprocess_kwargs = {}
         postprocess_kwargs = {}
         forward_params = {}
-        # preprocess args
         if "points_per_batch" in kwargs:
             preprocess_kwargs["points_per_batch"] = kwargs["points_per_batch"]
         if "points_per_crop" in kwargs:
@@ -113,7 +63,6 @@ class MaskGenerationPipeline(ChunkPipeline):
             preprocess_kwargs["crop_n_points_downscale_factor"] = kwargs["crop_n_points_downscale_factor"]
         if "timeout" in kwargs:
             preprocess_kwargs["timeout"] = kwargs["timeout"]
-        # postprocess args
         if "pred_iou_thresh" in kwargs:
             forward_params["pred_iou_thresh"] = kwargs["pred_iou_thresh"]
         if "stability_score_offset" in kwargs:
@@ -208,14 +157,11 @@ class MaskGenerationPipeline(ChunkPipeline):
                 model_inputs = self._ensure_tensor_on_device(model_inputs, device=self.device)
                 embeddings = self.model.get_image_embeddings(model_inputs.pop("pixel_values"))
 
-                # Handle both SAM (single tensor) and SAM-HQ (tuple) outputs
                 if isinstance(embeddings, tuple):
                     image_embeddings, intermediate_embeddings = embeddings
                     model_inputs["intermediate_embeddings"] = intermediate_embeddings
                 else:
                     image_embeddings = embeddings
-                # TODO: Identifying the model by the type of its returned embeddings is brittle.
-                #       Consider using a more robust method for distinguishing model types here.
 
                 model_inputs["image_embeddings"] = image_embeddings
 
@@ -258,7 +204,6 @@ class MaskGenerationPipeline(ChunkPipeline):
 
         model_outputs = self.model(**model_inputs)
 
-        # post processing happens here in order to avoid CPU GPU copies of ALL the masks
         low_resolution_masks = model_outputs["pred_masks"]
         postprocess_kwargs = {}
         if max_hole_area is not None:

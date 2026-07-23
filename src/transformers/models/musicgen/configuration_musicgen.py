@@ -1,17 +1,3 @@
-# Copyright 2023 Meta AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""MusicGen model configuration"""
 
 from typing import ClassVar
 
@@ -54,60 +40,12 @@ class MusicgenDecoderConfig(PreTrainedConfig):
     cross_attention_hidden_size: int | None = None
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.audio_channels not in [1, 2]:
-            raise ValueError(f"Expected 1 (mono) or 2 (stereo) audio channels, got {self.audio_channels} channels.")
+        pass
 
 
 @auto_docstring(checkpoint="facebook/musicgen-small")
 @strict
 class MusicgenConfig(PreTrainedConfig):
-    r"""
-    text_encoder (`Union[dict, `PretrainedConfig`]`):
-        An instance of a configuration object that defines the text encoder config.
-    audio_encoder (`Union[dict, `PretrainedConfig`]`):
-        An instance of a configuration object that defines the audio encoder config.
-    decoder (`Union[dict, `PretrainedConfig`]`):
-        An instance of a configuration object that defines the decoder config.
-
-    Example:
-
-    ```python
-    >>> from transformers import (
-    ...     MusicgenConfig,
-    ...     MusicgenDecoderConfig,
-    ...     T5Config,
-    ...     EncodecConfig,
-    ...     MusicgenForConditionalGeneration,
-    ... )
-
-    >>> # Initializing text encoder, audio encoder, and decoder model configurations
-    >>> text_encoder_config = T5Config()
-    >>> audio_encoder_config = EncodecConfig()
-    >>> decoder_config = MusicgenDecoderConfig()
-
-    >>> configuration = MusicgenConfig(
-    ...     text_encoder=text_encoder_config,
-    ...     audio_encoder=audio_encoder_config,
-    ...     decoder=decoder_config,
-    ... )
-
-    >>> # Initializing a MusicgenForConditionalGeneration (with random weights) from the facebook/musicgen-small style configuration
-    >>> model = MusicgenForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    >>> config_text_encoder = model.config.text_encoder
-    >>> config_audio_encoder = model.config.audio_encoder
-    >>> config_decoder = model.config.decoder
-
-    >>> # Saving the model, including its configuration
-    >>> model.save_pretrained("musicgen-model")
-
-    >>> # loading model and config from pretrained folder
-    >>> musicgen_config = MusicgenConfig.from_pretrained("musicgen-model")
-    >>> model = MusicgenForConditionalGeneration.from_pretrained("musicgen-model", config=musicgen_config)
-    ```"""
 
     model_type: ClassVar[str] = "musicgen"
     sub_configs: ClassVar[dict[str, type[PreTrainedConfig]]] = {
@@ -148,9 +86,8 @@ class MusicgenConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     @property
-    # This is a property because you might want to change the codec model on the fly
     def sampling_rate(self):
-        return self.audio_encoder.sampling_rate
+        pass
 
 
 __all__ = ["MusicgenConfig", "MusicgenDecoderConfig"]

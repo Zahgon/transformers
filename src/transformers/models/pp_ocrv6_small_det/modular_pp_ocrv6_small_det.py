@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import torch
 import torch.nn as nn
@@ -43,26 +30,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="PaddlePaddle/PP-OCRv6_small_det_safetensors")
 @strict
 class PPOCRV6SmallDetConfig(PPOCRV5MobileDetConfig):
-    r"""
-    reduction (`int`, *optional*, defaults to 4):
-        The reduction factor for feature channel dimensions, used to reduce the number of model parameters and
-        computational complexity while maintaining feature representability.
-    neck_out_channels (`int`, *optional*, defaults to 96):
-        The number of output channels from the neck network, which is responsible for feature fusion and
-        refinement before passing features to the head network.
-    interpolate_mode (`str`, *optional*, defaults to `"nearest"`):
-        The interpolation mode used for upsampling or downsampling feature maps in the neck network. Supported
-        modes include `"nearest"` (nearest neighbor interpolation) and `"bilinear"`.
-    kernel_list (`List[int]`, *optional*, defaults to `[3, 2, 2]`):
-        The list of kernel sizes for convolutional layers in the head network, used for multi-scale feature
-        extraction to detect text regions of different sizes.
-    layer_list_out_channels (`List[int]`, *optional*, defaults to `[12, 18, 42, 360]`):
-        The list of output channels for each backbone stage, used to configure the input channels of the RSE layers
-        in the neck network for multi-scale feature fusion.
-    dilated_kernel_size (`int`, *optional*, defaults to 7):
-        The kernel size of the dilated convolutional layer in the input conv path, used for capturing long-range
-        dependencies in the feature maps.
-    """
 
     dilated_kernel_size: int = 7
 
@@ -73,7 +40,6 @@ class PPOCRV6SmallDetConfig(PPOCRV5MobileDetConfig):
             **kwargs,
         )
 
-        # For object detection pipeline compatibility: single class "text"
         self.id2label = {0: "text"} if self.id2label is None else self.id2label
         PreTrainedConfig.__post_init__(**kwargs)
 
@@ -87,12 +53,6 @@ class PPOCRV6SmallDetSqueezeExcitationModule(PPOCRV5MobileDetSqueezeExcitationMo
 
 
 class PPOCRV6SmallDetDepthwiseSeparableConvLayer(PPLCNetDepthwiseSeparableConvLayer):
-    """
-    The differences from PPLCNetDepthwiseSeparableConvLayer are:
-    1. Uses standard 2D convolutions instead of the original custom convolution layer.
-    2. Has slightly different default settings.
-    3. Adds a residual connection at the end.
-    """
 
     def __init__(
         self,
@@ -132,9 +92,6 @@ class PPOCRV6SmallDetResidualSqueezeExcitationLayer(PPOCRV5MobileDetResidualSque
 
 
 class PPOCRV6SmallDetNeck(PPOCRV5MobileDetNeck):
-    """
-    The only difference from PPOCRV5MobileDetNeck is the module used by input_conv.
-    """
 
     def __init__(self, config: PPOCRV6SmallDetConfig):
         nn.Module.__init__(self)

@@ -11,10 +11,6 @@ logger = logging.get_logger(__name__)
 
 
 class ZeroShotClassificationArgumentHandler(ArgumentHandler):
-    """
-    Handles arguments for zero-shot for text classification by turning each possible label into an NLI
-    premise/hypothesis pair.
-    """
 
     def _parse_labels(self, labels):
         if isinstance(labels, str):
@@ -42,44 +38,6 @@ class ZeroShotClassificationArgumentHandler(ArgumentHandler):
 
 @add_end_docstrings(build_pipeline_init_args(has_tokenizer=True))
 class ZeroShotClassificationPipeline(ChunkPipeline):
-    """
-    NLI-based zero-shot classification pipeline using a `ModelForSequenceClassification` trained on NLI (natural
-    language inference) tasks. Equivalent of `text-classification` pipelines, but these models don't require a
-    hardcoded number of potential classes, they can be chosen at runtime. It usually means it's slower but it is
-    **much** more flexible.
-
-    Any combination of sequences and labels can be passed and each combination will be posed as a premise/hypothesis
-    pair and passed to the pretrained model. Then, the logit for *entailment* is taken as the logit for the candidate
-    label being valid. Any NLI model can be used, but the id of the *entailment* label must be included in the model
-    config's :attr:*~transformers.PreTrainedConfig.label2id*.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> oracle = pipeline(model="facebook/bart-large-mnli")
-    >>> oracle(
-    ...     "I have a problem with my iphone that needs to be resolved asap!!",
-    ...     candidate_labels=["urgent", "not urgent", "phone", "tablet", "computer"],
-    ... )
-    {'sequence': 'I have a problem with my iphone that needs to be resolved asap!!', 'labels': ['urgent', 'phone', 'computer', 'not urgent', 'tablet'], 'scores': [0.504, 0.479, 0.013, 0.003, 0.002]}
-
-    >>> oracle(
-    ...     "I have a problem with my iphone that needs to be resolved asap!!",
-    ...     candidate_labels=["english", "german"],
-    ... )
-    {'sequence': 'I have a problem with my iphone that needs to be resolved asap!!', 'labels': ['english', 'german'], 'scores': [0.814, 0.186]}
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This NLI pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"zero-shot-classification"`.
-
-    The models that this pipeline can use are models that have been fine-tuned on an NLI task. See the up-to-date list
-    of available models on [huggingface.co/models](https://huggingface.co/models?search=nli).
-    """
 
     _load_processor = False
     _load_image_processor = False
@@ -97,10 +55,7 @@ class ZeroShotClassificationPipeline(ChunkPipeline):
 
     @property
     def entailment_id(self):
-        for label, ind in self.model.config.label2id.items():
-            if label.lower().startswith("entail"):
-                return ind
-        return -1
+        pass
 
     def _parse_and_tokenize(
         self, sequence_pairs, padding=True, add_special_tokens=True, truncation=TruncationStrategy.ONLY_FIRST, **kwargs
@@ -110,7 +65,6 @@ class ZeroShotClassificationPipeline(ChunkPipeline):
         """
         return_tensors = "pt"
         if self.tokenizer.pad_token is None:
-            # Override for tokenizers not supporting padding
             logger.error(
                 "Tokenizer was not supporting padding necessary for zero-shot, attempting to use "
                 " `pad_token=eos_token`"
@@ -126,11 +80,6 @@ class ZeroShotClassificationPipeline(ChunkPipeline):
             )
         except Exception as e:
             if "too short" in str(e):
-                # tokenizers might yell that we want to truncate
-                # to a value that is not even reached by the input.
-                # In that case we don't want to truncate.
-                # It seems there's not a really better way to catch that
-                # exception.
 
                 inputs = self.tokenizer(
                     sequence_pairs,
@@ -218,7 +167,6 @@ class ZeroShotClassificationPipeline(ChunkPipeline):
         candidate_label = inputs["candidate_label"]
         sequence = inputs["sequence"]
         model_inputs = {k: inputs[k] for k in self.tokenizer.model_input_names}
-        # `XXXForSequenceClassification` models should not use `use_cache=True` even if it's supported
         model_forward = self.model.forward
         if "use_cache" in inspect.signature(model_forward).parameters:
             model_inputs["use_cache"] = False
@@ -242,14 +190,12 @@ class ZeroShotClassificationPipeline(ChunkPipeline):
         reshaped_outputs = logits.reshape((num_sequences, n, -1))
 
         if multi_label or len(candidate_labels) == 1:
-            # softmax over the entailment vs. contradiction dim for each label independently
             entailment_id = self.entailment_id
             contradiction_id = -1 if entailment_id == 0 else 0
             entail_contr_logits = reshaped_outputs[..., [contradiction_id, entailment_id]]
             scores = np.exp(entail_contr_logits) / np.exp(entail_contr_logits).sum(-1, keepdims=True)
             scores = scores[..., 1]
         else:
-            # softmax the "entailment" logits over all candidate labels
             entail_logits = reshaped_outputs[..., self.entailment_id]
             scores = np.exp(entail_logits) / np.exp(entail_logits).sum(-1, keepdims=True)
 

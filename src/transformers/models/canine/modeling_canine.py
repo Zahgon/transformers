@@ -1,17 +1,3 @@
-# Copyright 2021 Google AI The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch CANINE model."""
 
 import copy
 import math
@@ -42,7 +28,6 @@ from .configuration_canine import CanineConfig
 logger = logging.get_logger(__name__)
 
 
-# Support up to 16 hash functions.
 _PRIMES = [31, 43, 59, 61, 73, 97, 103, 113, 137, 149, 157, 173, 181, 193, 211, 223]
 
 
@@ -55,27 +40,6 @@ _PRIMES = [31, 43, 59, 61, 73, 97, 103, 113, 137, 149, 157, 173, 181, 193, 211, 
 )
 @dataclass
 class CanineModelOutputWithPooling(ModelOutput):
-    r"""
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the model (i.e. the output of the final
-        shallow Transformer encoder).
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, hidden_size)`):
-        Hidden-state of the first token of the sequence (classification token) at the last layer of the deep
-        Transformer encoder, further processed by a Linear layer and a Tanh activation function. The Linear layer
-        weights are trained from the next sentence prediction (classification) objective during pretraining.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the input to each encoder + one for the output of each layer of each
-        encoder) of shape `(batch_size, sequence_length, hidden_size)` and `(batch_size, sequence_length //
-        config.downsampling_rate, hidden_size)`. Hidden-states of the model at the output of each layer plus the
-        initial input to each Transformer encoder. The hidden states of the shallow encoders have length
-        `sequence_length`, but the hidden states of the deep encoder have length `sequence_length` //
-        `config.downsampling_rate`.
-    attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of the 3 Transformer encoders of shape `(batch_size,
-        num_heads, sequence_length, sequence_length)` and `(batch_size, num_heads, sequence_length //
-        config.downsampling_rate, sequence_length // config.downsampling_rate)`. Attentions weights after the
-        attention softmax, used to compute the weighted average in the self-attention heads.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     pooler_output: torch.FloatTensor | None = None
@@ -84,14 +48,12 @@ class CanineModelOutputWithPooling(ModelOutput):
 
 
 class CanineEmbeddings(nn.Module):
-    """Construct the character, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
 
         self.config = config
 
-        # character embeddings
         shard_embedding_size = config.hidden_size // config.num_hash_functions
         for i in range(config.num_hash_functions):
             name = f"HashBucketCodepointEmbedder_{i}"
@@ -102,7 +64,6 @@ class CanineEmbeddings(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -181,7 +142,6 @@ class CanineEmbeddings(nn.Module):
 
 
 class CharactersToMolecules(nn.Module):
-    """Convert character sequence to initial molecule sequence (i.e. downsample) using strided convolutions."""
 
     def __init__(self, config):
         super().__init__()
@@ -201,22 +161,13 @@ class CharactersToMolecules(nn.Module):
         cls_encoding = char_encoding[:, 0:1, :]
 
         # char_encoding has shape [batch, char_seq, hidden_size]
-        # We transpose it to be [batch, hidden_size, char_seq]
         char_encoding = torch.transpose(char_encoding, 1, 2)
         downsampled = self.conv(char_encoding)
         downsampled = torch.transpose(downsampled, 1, 2)
         downsampled = self.activation(downsampled)
 
-        # Truncate the last molecule in order to reserve a position for [CLS].
-        # Often, the last position is never used (unless we completely fill the
-        # text buffer). This is important in order to maintain alignment on TPUs
-        # (i.e. a multiple of 128).
         downsampled_truncated = downsampled[:, 0:-1, :]
 
-        # We also keep [CLS] as a separate sequence position since we always
-        # want to reserve a position (and the model capacity that goes along
-        # with that) in the deep BERT stack.
-        # `result`: [batch, molecule_seq, molecule_dim]
         result = torch.cat([cls_encoding, downsampled_truncated], dim=1)
 
         result = self.LayerNorm(result)
@@ -225,10 +176,6 @@ class CharactersToMolecules(nn.Module):
 
 
 class ConvProjection(nn.Module):
-    """
-    Project representations from hidden_size*2 back to hidden_size across a window of w = config.upsampling_kernel_size
-    characters.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -248,19 +195,13 @@ class ConvProjection(nn.Module):
         inputs: torch.Tensor,
         final_seq_char_positions: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        # inputs has shape [batch, mol_seq, molecule_hidden_size+char_hidden_final]
-        # we transpose it to be [batch, molecule_hidden_size+char_hidden_final, mol_seq]
         inputs = torch.transpose(inputs, 1, 2)
 
-        # PyTorch < 1.9 does not support padding="same" (which is used in the original implementation),
-        # so we pad the tensor manually before passing it to the conv layer
-        # based on https://github.com/google-research/big_transfer/blob/49afe42338b62af9fbe18f0258197a33ee578a6b/bit_tf2/models.py#L36-L38
         pad_total = self.config.upsampling_kernel_size - 1
         pad_beg = pad_total // 2
         pad_end = pad_total - pad_beg
 
         pad = nn.ConstantPad1d((pad_beg, pad_end), 0)
-        # `result`: shape (batch_size, char_seq_len, hidden_size)
         result = self.conv(pad(inputs))
         result = torch.transpose(result, 1, 2)
         result = self.activation(result)
@@ -269,10 +210,6 @@ class ConvProjection(nn.Module):
         final_char_seq = result
 
         if final_seq_char_positions is not None:
-            # Limit transformer query seq and attention mask to these character
-            # positions to greatly reduce the compute cost. Typically, this is just
-            # done for the MLM training task.
-            # TODO add support for MLM
             raise NotImplementedError("CanineForMaskedLM is currently not supported")
         else:
             query_seq = final_char_seq
@@ -308,9 +245,6 @@ class CanineSelfAttention(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         batch_size, seq_length, _ = from_tensor.shape
 
-        # If this is instantiated as a cross-attention module, the keys
-        # and values come from an encoder; the attention mask needs to be
-        # such that the encoder's padding tokens are not attended to.
 
         key_layer = (
             self.key(to_tensor)
@@ -328,26 +262,17 @@ class CanineSelfAttention(nn.Module):
             .transpose(1, 2)
         )
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
             if attention_mask.ndim == 3:
-                # if attention_mask is 3D, do the following:
                 attention_mask = torch.unsqueeze(attention_mask, dim=1)
-                # Since attention_mask is 1.0 for positions we want to attend and 0.0 for
-                # masked positions, this operation will create a tensor which is 0.0 for
-                # positions we want to attend and the dtype's smallest value for masked positions.
                 attention_mask = (1.0 - attention_mask.float()) * torch.finfo(attention_scores.dtype).min
-            # Apply the attention mask (precomputed for all layers in CanineModel forward() function)
             attention_scores = attention_scores + attention_mask.to(attention_scores.dtype)
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -378,21 +303,6 @@ class CanineSelfOutput(nn.Module):
 
 
 class CanineAttention(nn.Module):
-    """
-    Additional arguments related to local attention:
-
-        - **local** (`bool`, *optional*, defaults to `False`) -- Whether to apply local attention.
-        - **always_attend_to_first_position** (`bool`, *optional*, defaults to `False`) -- Should all blocks be able to
-          attend
-        to the `to_tensor`'s first position (e.g. a [CLS] position)? - **first_position_attends_to_all** (`bool`,
-        *optional*, defaults to `False`) -- Should the *from_tensor*'s first position be able to attend to all
-        positions within the *from_tensor*? - **attend_from_chunk_width** (`int`, *optional*, defaults to 128) -- The
-        width of each block-wise chunk in `from_tensor`. - **attend_from_chunk_stride** (`int`, *optional*, defaults to
-        128) -- The number of elements to skip when moving to the next block in `from_tensor`. -
-        **attend_to_chunk_width** (`int`, *optional*, defaults to 128) -- The width of each block-wise chunk in
-        *to_tensor*. - **attend_to_chunk_stride** (`int`, *optional*, defaults to 128) -- The number of elements to
-        skip when moving to the next block in `to_tensor`.
-    """
 
     def __init__(
         self,
@@ -409,7 +319,6 @@ class CanineAttention(nn.Module):
         self.self = CanineSelfAttention(config)
         self.output = CanineSelfOutput(config)
 
-        # additional arguments related to local attention
         self.local = local
         if attend_from_chunk_width < attend_from_chunk_stride:
             raise ValueError(
@@ -439,12 +348,9 @@ class CanineAttention(nn.Module):
             from_seq_length = to_seq_length = hidden_states.shape[1]
             from_tensor = to_tensor = hidden_states
 
-            # Create chunks (windows) that we will attend *from* and then concatenate them.
             from_chunks = []
             if self.first_position_attends_to_all:
                 from_chunks.append((0, 1))
-                # We must skip this first position so that our output sequence is the
-                # correct length (this matters in the *from* sequence only).
                 from_start = 1
             else:
                 from_start = 0
@@ -452,7 +358,6 @@ class CanineAttention(nn.Module):
                 chunk_end = min(from_seq_length, chunk_start + self.attend_from_chunk_width)
                 from_chunks.append((chunk_start, chunk_end))
 
-            # Determine the chunks (windows) that will attend *to*.
             to_chunks = []
             if self.first_position_attends_to_all:
                 to_chunks.append((0, to_seq_length))
@@ -466,14 +371,11 @@ class CanineAttention(nn.Module):
                     f"`to_chunks` ({from_chunks}). Check strides."
                 )
 
-            # next, compute attention scores for each pair of windows and concatenate
             attention_output_chunks = []
             attention_probs_chunks = []
             for (from_start, from_end), (to_start, to_end) in zip(from_chunks, to_chunks):
                 from_tensor_chunk = from_tensor[:, from_start:from_end, :]
                 to_tensor_chunk = to_tensor[:, to_start:to_end, :]
-                # `attention_mask`: <float>[batch_size, from_seq, to_seq]
-                # `attention_mask_chunk`: <float>[batch_size, from_seq_chunk, to_seq_chunk]
                 attention_mask_chunk = attention_mask[:, from_start:from_end, to_start:to_end]
                 if self.always_attend_to_first_position:
                     cls_attention_mask = attention_mask[:, from_start:from_end, 0:1]
@@ -656,8 +558,6 @@ class CaninePooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: tuple[torch.FloatTensor]) -> torch.FloatTensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -686,13 +586,10 @@ class CanineLMPredictionHead(nn.Module):
         super().__init__()
         self.transform = CaninePredictionHeadTransform(config)
 
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=True)
 
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
-        # Need a link between the two variables so that the bias is correctly resized with `resize_token_embeddings`
 
     def forward(self, hidden_states: tuple[torch.FloatTensor]) -> torch.FloatTensor:
         hidden_states = self.transform(hidden_states)
@@ -738,7 +635,6 @@ class CanineModel(CaninePreTrainedModel):
         shallow_config.num_hidden_layers = 1
 
         self.char_embeddings = CanineEmbeddings(config)
-        # shallow/low-dim transformer encoder to get a initial character encoding
         self.initial_char_encoder = CanineEncoder(
             shallow_config,
             local=True,
@@ -750,15 +646,12 @@ class CanineModel(CaninePreTrainedModel):
             attend_to_chunk_stride=config.local_transformer_stride,
         )
         self.chars_to_molecules = CharactersToMolecules(config)
-        # deep transformer encoder
         self.encoder = CanineEncoder(config)
         self.projection = ConvProjection(config)
-        # shallow/low-dim transformer encoder to get a final character encoding
         self.final_char_encoder = CanineEncoder(shallow_config)
 
         self.pooler = CaninePooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def _create_3d_attention_mask_from_input_mask(self, from_tensor, to_mask):
@@ -778,12 +671,8 @@ class CanineModel(CaninePreTrainedModel):
 
         to_mask = torch.reshape(to_mask, (batch_size, 1, to_seq_length)).float()
 
-        # We don't assume that `from_tensor` is a mask (although it could be). We
-        # don't actually care if we attend *from* padding tokens (only *to* padding)
-        # tokens so we create a tensor of all ones.
         broadcast_ones = torch.ones(size=(batch_size, from_seq_length, 1), dtype=torch.float32, device=to_mask.device)
 
-        # Here we broadcast along two dimensions to create the mask.
         mask = broadcast_ones * to_mask
 
         return mask
@@ -791,16 +680,13 @@ class CanineModel(CaninePreTrainedModel):
     def _downsample_attention_mask(self, char_attention_mask: torch.Tensor, downsampling_rate: int):
         """Downsample 2D character attention mask to 2D molecule attention mask using MaxPool1d layer."""
 
-        # first, make char_attention_mask 3D by adding a channel dim
         batch_size, char_seq_len = char_attention_mask.shape
         poolable_char_mask = torch.reshape(char_attention_mask, (batch_size, 1, char_seq_len))
 
-        # next, apply MaxPool1d to get pooled_molecule_mask of shape (batch_size, 1, mol_seq_len)
         pooled_molecule_mask = torch.nn.MaxPool1d(kernel_size=downsampling_rate, stride=downsampling_rate)(
             poolable_char_mask.float()
         )
 
-        # drop the channel dim added for MaxPool1d to get tensor of shape (batch_size, mol_seq_len)
         return pooled_molecule_mask.squeeze(dim=1)
 
     def _repeat_molecules(self, molecules: torch.Tensor, char_seq_length: int) -> torch.Tensor:
@@ -809,23 +695,16 @@ class CanineModel(CaninePreTrainedModel):
         rate = self.config.downsampling_rate
 
         molecules_without_extra_cls = molecules[:, 1:, :]
-        # `repeated`: [batch_size, almost_char_seq_len, molecule_hidden_size]
         repeated = torch.repeat_interleave(molecules_without_extra_cls, repeats=rate, dim=-2)
 
-        # So far, we've repeated the elements sufficient for any `char_seq_length`
-        # that's a multiple of `downsampling_rate`. Now we account for the last
-        # n elements (n < `downsampling_rate`), i.e. the remainder of floor
-        # division. We do this by repeating the last molecule a few extra times.
         last_molecule = molecules[:, -1:, :]
         remainder_length = char_seq_length % rate
         remainder_repeated = torch.repeat_interleave(
             last_molecule,
-            # +1 molecule to compensate for truncation.
             repeats=remainder_length + rate,
             dim=-2,
         )
 
-        # `repeated`: [batch_size, char_seq_len, molecule_hidden_size]
         return torch.cat([repeated, remainder_repeated], dim=-2)
 
     @auto_docstring
@@ -867,13 +746,10 @@ class CanineModel(CaninePreTrainedModel):
         if token_type_ids is None:
             token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=device)
 
-        # We can provide a self-attention mask of dimensions [batch_size, from_seq_length, to_seq_length]
-        # ourselves in which case we just need to make it broadcastable to all heads.
         molecule_attention_mask = self._downsample_attention_mask(
             attention_mask, downsampling_rate=self.config.downsampling_rate
         )
 
-        # `input_char_embeddings`: shape (batch_size, char_seq, char_dim)
         input_char_embeddings = self.char_embeddings(
             input_ids=input_ids,
             position_ids=position_ids,
@@ -881,8 +757,6 @@ class CanineModel(CaninePreTrainedModel):
             inputs_embeds=inputs_embeds,
         )
 
-        # Contextualize character embeddings using shallow Transformer.
-        # We use a 3D attention mask for the local attention.
         # `input_char_encoding`: shape (batch_size, char_seq_len, char_dim)
         char_attention_mask = self._create_3d_attention_mask_from_input_mask(
             input_ids if input_ids is not None else inputs_embeds, attention_mask
@@ -895,20 +769,6 @@ class CanineModel(CaninePreTrainedModel):
         )
         input_char_encoding = init_chars_encoder_outputs.last_hidden_state
 
-        # Downsample chars to molecules.
-        # The following lines have dimensions: [batch, molecule_seq, molecule_dim].
-        # In this transformation, we change the dimensionality from `char_dim` to
-        # `molecule_dim`, but do *NOT* add a resnet connection. Instead, we rely on
-        # the resnet connections (a) from the final char transformer stack back into
-        # the original char transformer stack and (b) the resnet connections from
-        # the final char transformer stack back into the deep BERT stack of
-        # molecules.
-        #
-        # Empirically, it is critical to use a powerful enough transformation here:
-        # mean pooling causes training to diverge with huge gradient norms in this
-        # region of the model; using a convolution here resolves this issue. From
-        # this, it seems that molecules and characters require a very different
-        # feature space; intuitively, this makes sense.
         init_molecule_encoding = self.chars_to_molecules(input_char_encoding)
 
         molecule_attention_mask = create_bidirectional_mask(
@@ -917,8 +777,6 @@ class CanineModel(CaninePreTrainedModel):
             attention_mask=molecule_attention_mask,
         )
 
-        # Deep BERT encoder
-        # `molecule_sequence_output`: shape (batch_size, mol_seq_len, mol_dim)
         encoder_outputs = self.encoder(
             init_molecule_encoding,
             attention_mask=molecule_attention_mask,
@@ -929,16 +787,10 @@ class CanineModel(CaninePreTrainedModel):
         molecule_sequence_output = encoder_outputs[0]
         pooled_output = self.pooler(molecule_sequence_output) if self.pooler is not None else None
 
-        # Upsample molecules back to characters.
-        # `repeated_molecules`: shape (batch_size, char_seq_len, mol_hidden_size)
         repeated_molecules = self._repeat_molecules(molecule_sequence_output, char_seq_length=input_shape[-1])
 
-        # Concatenate representations (contextualized char embeddings and repeated molecules):
-        # `concat`: shape [batch_size, char_seq_len, molecule_hidden_size+char_hidden_final]
         concat = torch.cat([input_char_encoding, repeated_molecules], dim=-1)
 
-        # Project representation dimension back to hidden_size
-        # `sequence_output`: shape (batch_size, char_seq_len, hidden_size])
         sequence_output = self.projection(concat)
 
         attention_mask = create_bidirectional_mask(
@@ -947,8 +799,6 @@ class CanineModel(CaninePreTrainedModel):
             attention_mask=attention_mask,
         )
 
-        # Apply final shallow Transformer
-        # `sequence_output`: shape (batch_size, char_seq_len, hidden_size])
         final_chars_encoder_outputs = self.final_char_encoder(
             sequence_output,
             attention_mask=attention_mask,
@@ -1003,7 +853,6 @@ class CanineForSequenceClassification(CaninePreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1087,7 +936,6 @@ class CanineForMultipleChoice(CaninePreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1191,7 +1039,6 @@ class CanineForTokenClassification(CaninePreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1286,7 +1133,6 @@ class CanineForQuestionAnswering(CaninePreTrainedModel):
         self.canine = CanineModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1326,12 +1172,10 @@ class CanineForQuestionAnswering(CaninePreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions.clamp_(0, ignored_index)
             end_positions.clamp_(0, ignored_index)

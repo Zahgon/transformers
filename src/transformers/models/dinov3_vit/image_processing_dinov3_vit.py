@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for DINOv3."""
 
 import torch
 from torchvision.transforms.v2 import functional as tvF
@@ -40,8 +26,6 @@ class DINOv3ViTImageProcessor(TorchvisionBackend):
     do_rescale = True
     do_normalize = True
 
-    # Overridden for DINOv3 to preserve order of transforms
-    # rescale -> resize -> normalize
     def _preprocess(
         self,
         images: list["torch.Tensor"],
@@ -59,7 +43,6 @@ class DINOv3ViTImageProcessor(TorchvisionBackend):
         return_tensors: str | TensorType | None,
         **kwargs,
     ) -> BatchFeature:
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -70,8 +53,6 @@ class DINOv3ViTImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():

@@ -1,17 +1,3 @@
-# Copyright 2025 Westlake Representational Learning Lab (Fajie Yuan Lab) team and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Evolla model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -26,18 +12,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="westlake-repl/Evolla-10B-hf")
 @strict
 class SaProtConfig(PreTrainedConfig):
-    r"""
-    mask_token_id (`int`, *optional*, defaults to 4):
-        The id of the *mask* token in the protein sequence model.
-    position_embedding_type (`str`, *optional*, defaults to `"rotary"`):
-        The type of position embedding to use in the protein sequence model. Currently only `"rotary"` is supported.
-    rope_theta (`float`, *optional*, defaults to 10000.0):
-        The base period of the RoPE embeddings.
-    emb_layer_norm_before (`bool`, *optional*, defaults to `False`):
-        Whether to apply layer normalization before the position embedding in the protein sequence model.
-    token_dropout (`bool`, *optional*, defaults to `True`):
-        Whether to apply dropout to the tokens in the protein sequence model.
-    """
 
     vocab_size: int = 446
     mask_token_id: int = 4
@@ -62,42 +36,6 @@ class SaProtConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="westlake-repl/Evolla-10B-hf")
 @strict
 class EvollaConfig(PreTrainedConfig):
-    r"""
-    protein_encoder_config (`dict`, *optional*):
-        Dictionary of configuration options used to initialize [`SaProtConfig`].
-    aligner_ffn_mult (`int`, *optional*, defaults to 4):
-        The FFN multiplier for the aligner layer.
-    aligner_enable_bias (`bool`, *optional*, defaults to `True`):
-        Whether to use bias in the aligner layer.
-    aligner_attention_probs_dropout_prob (`float`, *optional*, defaults to 0.1):
-        The dropout ratio for the attention probabilities in the aligner layer.
-    aligner_num_add_layers (`int`, *optional*, defaults to 8):
-        The number of additional layers for the aligner layer.
-    resampler_depth (`int`, *optional*, defaults to 6):
-        The depth of the resampler layer in the llama model.
-    resampler_dim_head (`int`, *optional*, defaults to 64):
-        The dimension of the heads in the resampler layer in the llama model.
-    resampler_heads (`int`, *optional*, defaults to 8):
-        The number of heads in the resampler layer in the llama model.
-    resampler_num_latents (`int`, *optional*, defaults to 64):
-        The number of latents in the resampler layer in the llama model.
-    resampler_ff_mult (`int`, *optional*, defaults to 4):
-        The FFN multiplier for the resampler layer.
-
-    Example:
-
-    ```python
-    >>> from transformers import EvollaModel, EvollaConfig
-
-    >>> # Initializing a Evolla evolla-10b style configuration
-    >>> configuration = EvollaConfig()
-
-    >>> # Initializing a model from the evolla-10b style configuration
-    >>> model = EvollaModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "evolla"
     sub_configs = {"protein_encoder_config": SaProtConfig}

@@ -1,17 +1,3 @@
-# Copyright 2021 The Fairseq Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch TrOCR decoder model (based on RoBERTa)."""
 
 import math
 
@@ -33,15 +19,9 @@ from .configuration_trocr import TrOCRConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.bart.modeling_bart.BartLearnedPositionalEmbedding with Bart->TrOCR
 class TrOCRLearnedPositionalEmbedding(nn.Embedding):
-    """
-    This module learns positional embeddings up to a fixed maximum size.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int):
-        # TrOCR is set up so that if padding_idx is specified then offset the embedding ids by 2
-        # and adjust num_embeddings appropriately. Other models don't have this hack
         self.offset = 2
         super().__init__(num_embeddings + self.offset, embedding_dim)
 
@@ -61,11 +41,7 @@ class TrOCRLearnedPositionalEmbedding(nn.Embedding):
         return super().forward(position_ids + self.offset)
 
 
-# Copied from transformers.models.bart.modeling_bart.BartScaledWordEmbedding with Bart->TrOCR
 class TrOCRScaledWordEmbedding(nn.Embedding):
-    """
-    This module overrides nn.Embeddings' forward by multiplying with embeddings scale.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int, embed_scale: float | None = 1.0):
         super().__init__(num_embeddings, embedding_dim, padding_idx)
@@ -76,7 +52,6 @@ class TrOCRScaledWordEmbedding(nn.Embedding):
 
 
 class TrOCRSinusoidalPositionalEmbedding(nn.Module):
-    """This module produces sinusoidal positional embeddings of any length."""
 
     def __init__(self, num_positions: int, embedding_dim: int, padding_idx: int | None = None):
         super().__init__()
@@ -97,7 +72,6 @@ class TrOCRSinusoidalPositionalEmbedding(nn.Module):
         emb = torch.arange(num_embeddings, dtype=torch.int64).float().unsqueeze(1) * emb.unsqueeze(0)
         emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_embeddings, -1)
         if embedding_dim % 2 == 1:
-            # zero pad
             emb = torch.cat([emb, torch.zeros(num_embeddings, 1)], dim=1)
         if padding_idx is not None:
             emb[padding_idx, :] = 0
@@ -107,15 +81,12 @@ class TrOCRSinusoidalPositionalEmbedding(nn.Module):
     @torch.no_grad()
     def forward(self, input_ids: torch.Tensor, past_key_values_length: int = 0):
         bsz, seq_len = input_ids.size()
-        # Create the position ids from the input token ids. Any padded tokens remain padded.
         position_ids = self.create_position_ids_from_input_ids(input_ids, self.padding_idx, past_key_values_length).to(
             input_ids.device
         )
 
-        # expand embeddings if needed
         max_pos = self.padding_idx + 1 + seq_len
         if self.weights is None or max_pos > self.weights.size(0):
-            # recompute/expand embeddings if needed
             self.weights = self.get_embedding(max_pos, self.embedding_dim, self.padding_idx)
 
         x = self.weights.index_select(0, position_ids.view(-1)).view(bsz, seq_len, -1).detach()
@@ -129,14 +100,12 @@ class TrOCRSinusoidalPositionalEmbedding(nn.Module):
         Replace non-padding symbols with their position numbers. Position numbers begin at padding_idx+1. Padding
         symbols are ignored. This is modified from fairseq's `utils.make_positions`.
         """
-        # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
         mask = input_ids.ne(padding_idx).int()
         incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
         return incremental_indices.long() + padding_idx
 
 
 class TrOCRAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper."""
 
     def __init__(
         self,
@@ -184,12 +153,9 @@ class TrOCRAttention(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
         bsz, tgt_len, embed_dim = hidden_states.size()
 
-        # get query proj
         query_states = self.q_proj(hidden_states) * self.scaling
 
         is_updated = False
@@ -197,7 +163,6 @@ class TrOCRAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -206,7 +171,6 @@ class TrOCRAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -216,9 +180,7 @@ class TrOCRAttention(nn.Module):
             value_states = value_states.view(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all key/value_states to cache to be re-used for fast auto-regressive generation
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -248,10 +210,6 @@ class TrOCRAttention(nn.Module):
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
         if output_attentions:
-            # this operation is a bit awkward, but it's required to
-            # make sure that attn_weights keeps its gradient.
-            # In order to do so, attn_weights have to be reshaped
-            # twice and have to be reused in the following
             attn_weights_reshaped = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
             attn_weights = attn_weights_reshaped.view(bsz * self.num_heads, tgt_len, src_len)
         else:
@@ -340,7 +298,6 @@ class TrOCRDecoderLayer(GradientCheckpointingLayer):
         """
         residual = hidden_states
 
-        # Self Attention
         hidden_states, self_attn_weights = self.self_attn(
             hidden_states=hidden_states,
             past_key_values=past_key_values,
@@ -352,7 +309,6 @@ class TrOCRDecoderLayer(GradientCheckpointingLayer):
         hidden_states = residual + hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Cross-Attention Block
         cross_attn_weights = None
         if encoder_hidden_states is not None:
             residual = hidden_states
@@ -369,7 +325,6 @@ class TrOCRDecoderLayer(GradientCheckpointingLayer):
             hidden_states = residual + hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.activation_fn(self.fc1(hidden_states))
         hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
@@ -396,12 +351,6 @@ class TrOCRPreTrainedModel(PreTrainedModel):
 
 
 class TrOCRDecoder(TrOCRPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a [`TrOCRDecoderLayer`]
-
-    Args:
-        config: TrOCRConfig
-    """
 
     def __init__(self, config: TrOCRConfig):
         super().__init__(config)
@@ -431,7 +380,6 @@ class TrOCRDecoder(TrOCRPreTrainedModel):
         self.layers = nn.ModuleList([TrOCRDecoderLayer(config, layer_idx=i) for i in range(config.decoder_layers)])
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -505,7 +453,6 @@ class TrOCRDecoder(TrOCRPreTrainedModel):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError("You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
         elif input_ids is not None:
@@ -555,7 +502,6 @@ class TrOCRDecoder(TrOCRPreTrainedModel):
             past_key_values=past_key_values,
         )
 
-        # expand encoder attention mask
         if encoder_hidden_states is not None and encoder_attention_mask is not None:
             encoder_attention_mask = create_bidirectional_mask(
                 config=self.config,
@@ -564,13 +510,11 @@ class TrOCRDecoder(TrOCRPreTrainedModel):
                 encoder_hidden_states=encoder_hidden_states,
             )
 
-        # decoder layers
         all_hidden_states = () if output_hidden_states else None
         all_self_attns = () if output_attentions else None
         all_cross_attentions = () if (output_attentions and encoder_hidden_states is not None) else None
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
             if self.training:
@@ -595,7 +539,6 @@ class TrOCRDecoder(TrOCRPreTrainedModel):
                 if encoder_hidden_states is not None:
                     all_cross_attentions += (layer_outputs[2],)
 
-        # add hidden states from the last decoder layer
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
 
@@ -647,7 +590,6 @@ class TrOCRForCausalLM(TrOCRPreTrainedModel, GenerationMixin):
 
         self.output_projection = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -740,7 +682,6 @@ class TrOCRForCausalLM(TrOCRPreTrainedModel, GenerationMixin):
         )
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model.decoder(
             input_ids=input_ids,
             attention_mask=attention_mask,

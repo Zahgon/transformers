@@ -1,17 +1,3 @@
-# Copyright 2025 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import numpy as np
 
@@ -96,7 +82,6 @@ class Gemma3nProcessor(ProcessorMixin):
             if not text:
                 text = [self.audio_token for _ in audio]
 
-            # Expand placeholder audio tokens to the full audio token sequence
             text = [prompt.replace(self.audio_token, self.full_audio_sequence) for prompt in text]
         else:
             audio_inputs = {}
@@ -106,7 +91,6 @@ class Gemma3nProcessor(ProcessorMixin):
             batched_images = make_nested_list_of_images(images)
             image_inputs = self.image_processor(batched_images, **output_kwargs["images_kwargs"])
 
-            # Create empty text to be replaced with placeholders
             if not text:
                 text = [" ".join([self.image_token] * len(images)) for images in batched_images]
 
@@ -115,7 +99,6 @@ class Gemma3nProcessor(ProcessorMixin):
                     f"Received inconsistently sized batches of images ({len(batched_images)}) and text ({len(text)})."
                 )
 
-            # Expand placeholder image tokens to the full image token sequence
             text = [prompt.replace(self.image_token, self.full_image_sequence) for prompt in text]
         else:
             image_inputs = {}
@@ -124,7 +107,6 @@ class Gemma3nProcessor(ProcessorMixin):
         text_inputs = self.tokenizer(text=text, **output_kwargs["text_kwargs"], return_tensors="np")
         self._check_special_mm_tokens(text, text_inputs, modalities=["image"])
 
-        # Add token type ids manually, as tokenizer can't do arbitrary position token types
         array_ids = text_inputs["input_ids"]
         token_type_ids = np.zeros_like(array_ids)
         token_type_ids[array_ids == self.image_token_id] = 1
@@ -135,11 +117,7 @@ class Gemma3nProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names + ["token_type_ids"]
-        image_processor_input_names = self.image_processor.model_input_names
-        audio_processor_input_names = self.feature_extractor.model_input_names
-        image_processor_input_names = [name for name in image_processor_input_names if name != "num_crops"]
-        return list(tokenizer_input_names + image_processor_input_names + audio_processor_input_names)
+        pass
 
 
 __all__ = ["Gemma3nProcessor"]

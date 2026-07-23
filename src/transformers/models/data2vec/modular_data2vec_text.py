@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Data2VecText model."""
 
 import torch
 import torch.nn as nn
@@ -119,7 +105,6 @@ class Data2VecTextForCausalLM(Data2VecTextPreTrainedModel, GenerationMixin):
         self.data2vec_text = Data2VecTextModel(config, add_pooling_layer=False)
         self.lm_head = Data2VecTextLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -185,7 +170,6 @@ class Data2VecTextForCausalLM(Data2VecTextPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -222,7 +206,6 @@ class Data2VecTextForMaskedLM(Data2VecTextPreTrainedModel):
         self.data2vec_text = Data2VecTextModel(config, add_pooling_layer=False)
         self.lm_head = Data2VecTextLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -295,7 +278,6 @@ class Data2VecTextForSequenceClassification(Data2VecTextPreTrainedModel):
         self.data2vec_text = Data2VecTextModel(config, add_pooling_layer=False)
         self.classifier = Data2VecTextClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -370,7 +352,6 @@ class Data2VecTextForMultipleChoice(Data2VecTextPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -470,7 +451,6 @@ class Data2VecTextForTokenClassification(Data2VecTextPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -528,7 +508,6 @@ class Data2VecTextForQuestionAnswering(Data2VecTextPreTrainedModel):
         self.data2vec_text = Data2VecTextModel(config, add_pooling_layer=False)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -563,12 +542,10 @@ class Data2VecTextForQuestionAnswering(Data2VecTextPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

@@ -1,21 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Handler for the /v1/chat/completions endpoint.
-
-Supports streaming (SSE via DirectStreamer) and non-streaming (JSON) responses.
-"""
 
 import asyncio
 import time
@@ -67,9 +49,6 @@ class TransformersCompletionCreateParamsStreaming(CompletionCreateParamsStreamin
     chat_template_kwargs: dict
 
 
-# Fields accepted by the OpenAI schema but not yet supported.
-# Receiving these raises an error to avoid silent misbehaviour.
-# NOTE: "stop" is NOT in this set — we map it to stop_strings.
 UNUSED_CHAT_COMPLETION_FIELDS = {
     "audio",
     "function_call",
@@ -98,10 +77,6 @@ logger = logging.get_logger(__name__)
 
 
 class ChatCompletionHandler(BaseHandler):
-    """Handler for the `/v1/chat/completions` endpoint.
-
-    Supports both streaming (SSE) and non-streaming (JSON) responses.
-    """
 
     _valid_params_class = TransformersCompletionCreateParamsStreaming
     _unused_fields = UNUSED_CHAT_COMPLETION_FIELDS
@@ -130,8 +105,6 @@ class ChatCompletionHandler(BaseHandler):
             for msg in processor_inputs
             for c in (msg.get("content") if isinstance(msg.get("content"), list) else [])
         )
-        # Default to 32 frames for video (Gemma 4 default); some processors load all frames otherwise.
-        # Merge order (later wins): custom default -> server default → request-level kwargs.
         chat_template_kwargs: dict = {}
         if has_video:
             chat_template_kwargs["num_frames"] = 32
@@ -151,7 +124,6 @@ class ChatCompletionHandler(BaseHandler):
             inputs = inputs.to(model.device)  # type: ignore[union-attr]
 
         gen_config = self._build_generation_config(body, model.generation_config, use_cb=use_cb)
-        # TODO: remove when CB supports per-request generation config
         if use_cb:
             gen_manager.init_cb(model, gen_config)
 
@@ -184,7 +156,6 @@ class ChatCompletionHandler(BaseHandler):
                 reasoning_config=reasoning_config,
             )
 
-    # ----- streaming -----
 
     def _streaming(
         self,
@@ -209,7 +180,6 @@ class ChatCompletionHandler(BaseHandler):
             reasoning_config=reasoning_config,
         )
         input_ids = inputs["input_ids"]
-        # CB returns plain lists, regular path returns tensors
         input_len = len(input_ids) if isinstance(input_ids, list) else input_ids.shape[-1]
 
         async def sse_gen() -> AsyncGenerator[str, None]:
@@ -244,8 +214,6 @@ class ChatCompletionHandler(BaseHandler):
                     if sse_parts:
                         yield "".join(sse_parts)
 
-                # Tool calls are parsed after generation completes (not during streaming),
-                # because the full token sequence is needed for reliable parsing.
                 has_tool_calls = False
                 if tool_config:
                     parsed = parse_tool_calls(processor, streamer.generated_token_ids, tool_config["schema"])
@@ -284,14 +252,11 @@ class ChatCompletionHandler(BaseHandler):
                     usage=usage,
                 )
             except (GeneratorExit, asyncio.CancelledError):
-                # Client disconnected — abort generation to free GPU.
-                # Re-raise is mandatory: Python raises RuntimeError if GeneratorExit is swallowed.
                 streamer.cancel()
                 raise
 
         return StreamingResponse(sse_gen(), media_type="text/event-stream")
 
-    # ----- non-streaming -----
 
     async def _non_streaming(
         self,
@@ -355,7 +320,6 @@ class ChatCompletionHandler(BaseHandler):
             media_type="application/json",
         )
 
-    # ----- helpers -----
 
     def _build_generation_config(self, body: dict, model_generation_config: "GenerationConfig", use_cb: bool = False):
         """Apply Chat Completions params (``max_tokens``, ``frequency_penalty``, ``logit_bias``,
@@ -373,7 +337,6 @@ class ChatCompletionHandler(BaseHandler):
 
         return generation_config
 
-    # ----- response builders -----
 
     def _build_completion(
         self,
@@ -399,8 +362,6 @@ class ChatCompletionHandler(BaseHandler):
         Returns:
             `dict`: Serialized ``ChatCompletion`` ready for JSON response.
         """
-        # reasoning_content is added as an extra field (base types set extra="allow")
-        # we use model_validate rather than __init__ to avoid ty raising errors for the extra field
         message = ChatCompletionMessage.model_validate(
             {"content": content, "role": "assistant", "tool_calls": tool_calls, "reasoning_content": reasoning_content}
         )
@@ -440,8 +401,6 @@ class ChatCompletionHandler(BaseHandler):
         Returns:
             `str`: A formatted SSE event string.
         """
-        # reasoning_content is added as an extra field (base types set extra="allow")
-        # we use model_validate rather than __init__ to avoid ty raising errors for the extra field
         delta = ChoiceDelta.model_validate(
             {"content": content, "role": role, "tool_calls": tool_calls, "reasoning_content": reasoning_content}
         )

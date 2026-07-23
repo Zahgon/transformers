@@ -1,17 +1,3 @@
-# Copyright 2018 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Auto Tokenizer class."""
 
 import fnmatch
 import importlib
@@ -58,7 +44,6 @@ else:
 
 logger = logging.get_logger(__name__)
 
-# V5: Simplified mapping - single tokenizer class per model type (always prefer tokenizers-based)
 REGISTERED_TOKENIZER_CLASSES: dict[str, type[Any]] = {}
 REGISTERED_FAST_ALIASES: dict[str, type[Any]] = {}
 
@@ -361,8 +346,6 @@ TOKENIZER_MAPPING_NAMES = OrderedDict[str, str | None](
     ]
 )
 
-# Models with incorrect tokenizer_class in their Hub tokenizer_config.json files.
-# These models will be forced to use TokenizersBackend.
 MODELS_WITH_INCORRECT_HUB_TOKENIZER_CLASS: set[str] = {
     "arctic",
     "chameleon",
@@ -437,14 +420,7 @@ def load_vocab(vocab_file):
 
 
 def load_merges(merges_file):
-    """Loads a merges file into a list."""
-    merges = []
-    with open(merges_file, "r", encoding="utf-8") as reader:
-        for line in reader:
-            line = line.strip()
-            if line and not line.startswith("#"):
-                merges.append(tuple(line.split()))
-    return merges
+    pass
 
 
 def _has_tekken_tokenizer_file(
@@ -467,7 +443,6 @@ def _has_tekken_tokenizer_file(
 
 
 def tokenizer_class_from_name(class_name: str) -> type[Any] | None:
-    # Bloom tokenizer classes were removed but should map to the fast backend for BC
     if class_name in {"BloomTokenizer", "BloomTokenizerFast"}:
         return TokenizersBackend
 
@@ -480,7 +455,6 @@ def tokenizer_class_from_name(class_name: str) -> type[Any] | None:
     if class_name == "TokenizersBackend":
         return TokenizersBackend
 
-    # V5: TOKENIZER_MAPPING_NAMES now maps to single strings, not tuples
     for module_name, tokenizer_class in TOKENIZER_MAPPING_NAMES.items():
         if tokenizer_class == class_name:
             module_name = model_type_to_module_name(module_name)
@@ -493,7 +467,6 @@ def tokenizer_class_from_name(class_name: str) -> type[Any] | None:
                 module = importlib.import_module(f".{module_name}", "transformers.models")
             try:
                 result = getattr(module, class_name)
-                # BC v5: expose XxxFast alias and tokenization_*_fast submodule for pre-v5 remote code.
                 if (submod := getattr(result, "__module__", None)) and submod in sys.modules:
                     base_mod = sys.modules[submod]
                     setattr(base_mod, result.__name__ + "Fast", result)
@@ -506,14 +479,10 @@ def tokenizer_class_from_name(class_name: str) -> type[Any] | None:
         if getattr(tokenizer, "__name__", None) == class_name:
             return tokenizer
 
-    # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
-    # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
-    # init and we return the proper dummy to get an appropriate error message.
     main_module = importlib.import_module("transformers")
     if hasattr(main_module, class_name):
         return getattr(main_module, class_name)
 
-    # BC v5: If a XxxFast class is not found, retry without 'Fast' for tokenizers saved pre-v5.
     if class_name.endswith("Fast"):
         return tokenizer_class_from_name(class_name[:-4])
 
@@ -617,12 +586,6 @@ def get_tokenizer_config(
 
 
 class AutoTokenizer:
-    r"""
-    This is a generic tokenizer class that will be instantiated as one of the tokenizer classes of the library when
-    created with the [`AutoTokenizer.from_pretrained`] class method.
-
-    This class cannot be instantiated directly using `__init__()` (throws an error).
-    """
 
     def __init__(self):
         raise OSError(
@@ -715,13 +678,11 @@ class AutoTokenizer:
         config = kwargs.pop("config", None)
         kwargs["_from_auto"] = True
 
-        # V5: Always use fast tokenizers, ignore use_fast parameter
         _ = kwargs.pop("use_fast", None)
         tokenizer_type = kwargs.pop("tokenizer_type", None)
         trust_remote_code = kwargs.pop("trust_remote_code", None)
         gguf_file = kwargs.get("gguf_file")
 
-        # First, let's see whether the tokenizer_type is passed so that we can leverage it
         if tokenizer_type is not None:
             tokenizer_class_name = TOKENIZER_MAPPING_NAMES.get(tokenizer_type, None)
 
@@ -753,20 +714,16 @@ class AutoTokenizer:
         config_model_type = config.model_type
         config_model_name = config.model_name if hasattr(config, "model_name") else None
 
-        # Next, let's try to use the tokenizer_config file to get the tokenizer class.
         tokenizer_config = get_tokenizer_config(pretrained_model_name_or_path, **kwargs)
         tokenizer_config_class = tokenizer_config.get("tokenizer_class", None)
 
-        # Check for auto_map early to handle dynamic tokenizers properly
         tokenizer_auto_map = None
         if "auto_map" in tokenizer_config:
             if isinstance(tokenizer_config["auto_map"], (tuple, list)):
-                # Legacy format for dynamic tokenizers
                 tokenizer_auto_map = tokenizer_config["auto_map"]
             else:
                 tokenizer_auto_map = tokenizer_config["auto_map"].get("AutoTokenizer", None)
 
-        # Some specific checkpoints need TokenizersBackend because their config on the Hub really needs to be updated.
         _config_name_or_path = (
             name.lower() if isinstance((name := getattr(config, "_name_or_path", None)), str) else ""
         )
@@ -777,9 +734,6 @@ class AutoTokenizer:
         ):
             return TokenizersBackend.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
 
-        # if there is a config, we can check that the tokenizer class != than model class.
-        # Use the config class if it's a specialized tokenizer, otherwise fall back to TokenizersBackend.
-        # Hub class should prioritize tokenizer_config.json or fallback to config.tokenizer_class.
         _hub_class = tokenizer_config_class or getattr(config, "tokenizer_class", None)
         if (
             tokenizer_auto_map is None
@@ -797,7 +751,6 @@ class AutoTokenizer:
                 "PreTrainedTokenizerFast",
                 "MistralCommonBackend",
             ):
-                # If the hub class is known incorrect for this model type, use the registered class; otherwise trust the hub.
                 class_name = (
                     registered_class_name
                     if (
@@ -858,7 +811,6 @@ class AutoTokenizer:
             )
         )
 
-        # V5: Skip remote tokenizer for custom models with incorrect hub tokenizer class
         if (
             has_remote_code
             and config_model_type in MODELS_WITH_INCORRECT_HUB_TOKENIZER_CLASS
@@ -868,7 +820,6 @@ class AutoTokenizer:
             tokenizer_auto_map = None
 
         if has_remote_code and not explicit_local_code:
-            # V5: Always prefer fast tokenizer (index 1), fallback to slow (index 0)
             if tokenizer_auto_map[1] is not None:
                 class_ref = tokenizer_auto_map[1]
             else:
@@ -882,7 +833,6 @@ class AutoTokenizer:
             )
 
         if has_remote_code and trust_remote_code and not explicit_local_code:
-            # BC v5: register *Fast aliases before remote code loads.
             if tokenizer_config_class:
                 tokenizer_class_from_name(tokenizer_config_class.removesuffix("Fast"))
             tokenizer_class = get_class_from_dynamic_module(class_ref, pretrained_model_name_or_path, **kwargs)
@@ -898,7 +848,6 @@ class AutoTokenizer:
                 tokenizer_class = tokenizer_class_from_name(tokenizer_class_candidate + "Fast")
             if tokenizer_class is not None and tokenizer_class.__name__ == "PythonBackend":
                 tokenizer_class = TokenizersBackend
-            # Fallback to TokenizersBackend if the class wasn't found
             if tokenizer_class is None:
                 tokenizer_class = TokenizersBackend
 
@@ -910,8 +859,6 @@ class AutoTokenizer:
             tokenizer_class = tokenizer_class_from_name(_class)
             return tokenizer_class.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
 
-        # Otherwise we have to be creative.
-        # if model is an encoder decoder, the encoder tokenizer class is used by default
         if isinstance(config, EncoderDecoderConfig):
             if type(config.decoder) is not type(config.encoder):
                 logger.warning(
@@ -933,7 +880,6 @@ class AutoTokenizer:
                     tokenizer_class = TokenizersBackend
                 return tokenizer_class.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
 
-        # Fallback: try tokenizer_class from tokenizer_config.json
         tokenizer_config_class = tokenizer_config.get("tokenizer_class", None)
         if tokenizer_config_class is not None:
             if tokenizer_config_class != "TokenizersBackend" and tokenizer_config_class.endswith("Fast"):
@@ -967,7 +913,6 @@ class AutoTokenizer:
             fast_tokenizer_class: (Deprecated) The fast tokenizer to register.
         """
         if tokenizer_class is None:
-            # Legacy: prefer fast over slow
             if fast_tokenizer_class is not None:
                 tokenizer_class = fast_tokenizer_class
             elif slow_tokenizer_class is not None:

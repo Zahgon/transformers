@@ -1,19 +1,3 @@
-# Copyright 2022 Apple Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# Original license: https://github.com/apple/ml-cvnets/blob/main/LICENSE
-"""PyTorch MobileViT model."""
 
 import math
 
@@ -45,7 +29,6 @@ def make_divisible(value: int, divisor: int = 8, min_value: int | None = None) -
     if min_value is None:
         min_value = divisor
     new_value = max(min_value, int(value + divisor / 2) // divisor * divisor)
-    # Make sure that round down does not go down by more than 10%.
     if new_value < 0.9 * value:
         new_value += divisor
     return int(new_value)
@@ -116,9 +99,6 @@ class MobileViTConvLayer(nn.Module):
 
 
 class MobileViTInvertedResidual(nn.Module):
-    """
-    Inverted residual block (MobileNetv2): https://huggingface.co/papers/1801.04381
-    """
 
     def __init__(
         self, config: MobileViTConfig, in_channels: int, out_channels: int, stride: int, dilation: int = 1
@@ -213,15 +193,11 @@ class MobileViTSelfAttention(nn.Module):
         key_layer = self.key(hidden_states).view(hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -323,9 +299,6 @@ class MobileViTTransformer(nn.Module):
 
 
 class MobileViTLayer(GradientCheckpointingLayer):
-    """
-    MobileViT block: https://huggingface.co/papers/2110.02178
-    """
 
     def __init__(
         self,
@@ -404,19 +377,15 @@ class MobileViTLayer(GradientCheckpointingLayer):
 
         interpolate = False
         if new_width != orig_width or new_height != orig_height:
-            # Note: Padding can be done, but then it needs to be handled in attention function.
             features = nn.functional.interpolate(
                 features, size=(new_height, new_width), mode="bilinear", align_corners=False
             )
             interpolate = True
 
-        # number of patches along width and height
         num_patch_width = new_width // patch_width
         num_patch_height = new_height // patch_height
         num_patches = num_patch_height * num_patch_width
 
-        # convert from shape (batch_size, channels, orig_height, orig_width)
-        # to the shape (batch_size * patch_area, num_patches, channels)
         patches = features.reshape(
             batch_size * channels * num_patch_height, patch_height, num_patch_width, patch_width
         )
@@ -446,8 +415,6 @@ class MobileViTLayer(GradientCheckpointingLayer):
         num_patch_height = info_dict["num_patches_height"]
         num_patch_width = info_dict["num_patches_width"]
 
-        # convert from shape (batch_size * patch_area, num_patches, channels)
-        # back to shape (batch_size, channels, orig_height, orig_width)
         features = patches.contiguous().view(batch_size, patch_area, num_patches, -1)
         features = features.transpose(1, 3)
         features = features.reshape(
@@ -466,24 +433,19 @@ class MobileViTLayer(GradientCheckpointingLayer):
         return features
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
-        # reduce spatial dimensions if needed
         if self.downsampling_layer:
             features = self.downsampling_layer(features)
 
         residual = features
 
-        # local representation
         features = self.conv_kxk(features)
         features = self.conv_1x1(features)
 
-        # convert feature map to patches
         patches, info_dict = self.unfolding(features)
 
-        # learn global representations
         patches = self.transformer(patches)
         patches = self.layernorm(patches)
 
-        # convert patches back to feature maps
         features = self.folding(patches, info_dict)
 
         features = self.conv_projection(features)
@@ -499,8 +461,6 @@ class MobileViTEncoder(nn.Module):
         self.layer = nn.ModuleList()
         self.gradient_checkpointing = False
 
-        # segmentation architectures like DeepLab and PSPNet modify the strides
-        # of the classification backbones
         dilate_layer_4 = dilate_layer_5 = False
         if config.output_stride == 8:
             dilate_layer_4 = True
@@ -639,7 +599,6 @@ class MobileViTModel(MobileViTPreTrainedModel):
                 kernel_size=1,
             )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -669,7 +628,6 @@ class MobileViTModel(MobileViTPreTrainedModel):
         if self.expand_output:
             last_hidden_state = self.conv_1x1_exp(encoder_outputs[0])
 
-            # global average pooling: (batch_size, channels, height, width) -> (batch_size, channels)
             pooled_output = torch.mean(last_hidden_state, dim=[-2, -1], keepdim=False)
         else:
             last_hidden_state = encoder_outputs[0]
@@ -699,13 +657,11 @@ class MobileViTForImageClassification(MobileViTPreTrainedModel):
         self.num_labels = config.num_labels
         self.mobilevit = MobileViTModel(config)
 
-        # Classifier head
         self.dropout = nn.Dropout(config.classifier_dropout_prob, inplace=True)
         self.classifier = (
             nn.Linear(config.neck_hidden_sizes[-1], config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -771,9 +727,6 @@ class MobileViTASPPPooling(nn.Module):
 
 
 class MobileViTASPP(nn.Module):
-    """
-    ASPP module defined in DeepLab papers: https://huggingface.co/papers/1606.00915, https://huggingface.co/papers/1706.05587
-    """
 
     def __init__(self, config: MobileViTConfig) -> None:
         super().__init__()
@@ -830,9 +783,6 @@ class MobileViTASPP(nn.Module):
 
 
 class MobileViTDeepLabV3(nn.Module):
-    """
-    DeepLabv3 architecture: https://huggingface.co/papers/1706.05587
-    """
 
     def __init__(self, config: MobileViTConfig) -> None:
         super().__init__()
@@ -870,7 +820,6 @@ class MobileViTForSemanticSegmentation(MobileViTPreTrainedModel):
         self.mobilevit = MobileViTModel(config, expand_output=False)
         self.segmentation_head = MobileViTDeepLabV3(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -931,7 +880,6 @@ class MobileViTForSemanticSegmentation(MobileViTPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # upsample logits to the images' original size
             upsampled_logits = nn.functional.interpolate(
                 logits, size=labels.shape[-2:], mode="bilinear", align_corners=False
             )

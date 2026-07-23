@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for VitPose."""
 
 import itertools
 import math
@@ -53,18 +39,11 @@ logger = logging.get_logger(__name__)
 
 
 class VitPoseImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    do_affine_transform (`bool`, *optional*):
-        Whether to apply an affine transformation to the input images based on the bounding boxes.
-    normalize_factor (`float`, *optional*, defaults to `200.0`):
-        Width and height scale factor used for normalization when computing center and scale from bounding boxes.
-    """
 
     do_affine_transform: bool | None
     normalize_factor: float | None
 
 
-# inspired by https://github.com/ViTAE-Transformer/ViTPose/blob/d5216452796c90c6bc29f5c5ec0bdba94366768a/mmpose/datasets/datasets/base/kpt_2d_sview_rgb_img_top_down_dataset.py#L132
 def box_to_center_and_scale(
     box: tuple | list | np.ndarray,
     image_width: int,
@@ -154,9 +133,7 @@ def scipy_warp_affine(src, M, size):
     """
     channels = [src[..., i] for i in range(src.shape[-1])]
 
-    # Convert to a 3x3 matrix used by SciPy
     M_scipy = np.vstack([M, [0, 0, 1]])
-    # If you have a matrix for the 'push' transformation, use its inverse (numpy.linalg.inv) in this function.
     M_inv = inv(M_scipy)
     M_inv[0, 0], M_inv[0, 1], M_inv[1, 0], M_inv[1, 1], M_inv[0, 2], M_inv[1, 2] = (
         M_inv[1, 1],
@@ -299,10 +276,8 @@ def transform_preds(coords: np.ndarray, center: np.ndarray, scale: np.ndarray, o
     if len(output_size) != 2:
         raise ValueError("Output size needs to consist of a height and width")
 
-    # Recover the scale which is normalized by a factor of 200.
     scale = scale * 200.0
 
-    # We use unbiased data processing
     scale_y = scale[1] / (output_size[0] - 1.0)
     scale_x = scale[0] / (output_size[1] - 1.0)
 
@@ -335,7 +310,6 @@ def coco_to_pascal_voc(bboxes: np.ndarray) -> np.ndarray:
 
 @auto_docstring
 class VitPoseImageProcessor(TorchvisionBackend):
-    """Torchvision backend for VitPose with affine transform."""
 
     valid_kwargs = VitPoseImageProcessorKwargs
     model_input_names = ["pixel_values"]
@@ -378,7 +352,6 @@ class VitPoseImageProcessor(TorchvisionBackend):
         images = self._prepare_image_like_inputs(
             images=images, do_convert_rgb=do_convert_rgb, input_data_format=input_data_format, device=device
         )
-        # Pass boxes to backend preprocess
         kwargs["boxes"] = boxes
         return self._preprocess(images, **kwargs)
 

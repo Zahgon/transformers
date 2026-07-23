@@ -1,17 +1,3 @@
-# Copyright 2022 The OpenAI Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Whisper model."""
 
 import math
 from collections.abc import Callable
@@ -64,7 +50,6 @@ def sinusoids(length: int, channels: int, max_timescale: float = 10000) -> torch
     return torch.cat([scaled_time.sin(), scaled_time.cos()], dim=1)
 
 
-# Copied from transformers.models.bart.modeling_bart.shift_tokens_right
 def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
     """
     Shift input ids one token to the right.
@@ -75,13 +60,11 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("self.model.config.pad_token_id has to be defined.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
 
 
-# Copied from transformers.models.wav2vec2.modeling_wav2vec2._compute_mask_indices
 def _compute_mask_indices(
     shape: tuple[int, int],
     mask_prob: float,
@@ -117,7 +100,6 @@ def _compute_mask_indices(
             f" and `sequence_length`: {sequence_length}`"
         )
 
-    # epsilon is used for probabilistic rounding
     epsilon = np.random.rand(1).item()
 
     def compute_num_masked_span(input_length):
@@ -125,24 +107,20 @@ def _compute_mask_indices(
         num_masked_span = int(mask_prob * input_length / mask_length + epsilon)
         num_masked_span = max(num_masked_span, min_masks)
 
-        # make sure num masked span <= sequence_length
         if num_masked_span * mask_length > sequence_length:
             num_masked_span = sequence_length // mask_length
 
-        # make sure num_masked span is also <= input_length - (mask_length - 1)
         if input_length - (mask_length - 1) < num_masked_span:
             num_masked_span = max(input_length - (mask_length - 1), 0)
 
         return num_masked_span
 
-    # compute number of masked spans in batch
     input_lengths = (
         attention_mask.detach().sum(-1).tolist()
         if attention_mask is not None
         else [sequence_length for _ in range(batch_size)]
     )
 
-    # SpecAugment mask to fill
     spec_aug_mask = np.zeros((batch_size, sequence_length), dtype=bool)
     spec_aug_mask_idxs = []
 
@@ -152,21 +130,13 @@ def _compute_mask_indices(
         return spec_aug_mask
 
     for input_length in input_lengths:
-        # compute num of masked spans for this input
         num_masked_span = compute_num_masked_span(input_length)
 
-        # get random indices to mask
         spec_aug_mask_idx = np.random.choice(
             np.arange(input_length - (mask_length - 1)), num_masked_span, replace=False
         )
 
-        # pick first sampled index that will serve as a dummy index to pad vector
-        # to ensure same dimension for all batches due to probabilistic rounding
-        # Picking first sample just pads those vectors twice.
         if len(spec_aug_mask_idx) == 0:
-            # this case can only happen if `input_length` is strictly smaller then
-            # `sequence_length` in which case the last token has to be a padding
-            # token which we can use as a dummy mask id
             dummy_mask_idx = sequence_length - 1
         else:
             dummy_mask_idx = spec_aug_mask_idx[0]
@@ -178,24 +148,20 @@ def _compute_mask_indices(
 
     spec_aug_mask_idxs = np.array(spec_aug_mask_idxs)
 
-    # expand masked indices to masked spans
     spec_aug_mask_idxs = np.broadcast_to(
         spec_aug_mask_idxs[:, :, None], (batch_size, max_num_masked_span, mask_length)
     )
     spec_aug_mask_idxs = spec_aug_mask_idxs.reshape(batch_size, max_num_masked_span * mask_length)
 
-    # add offset to the starting indexes so that indexes now create a span
     offsets = np.arange(mask_length)[None, None, :]
     offsets = np.broadcast_to(offsets, (batch_size, max_num_masked_span, mask_length)).reshape(
         batch_size, max_num_masked_span * mask_length
     )
     spec_aug_mask_idxs = spec_aug_mask_idxs + offsets
 
-    # ensure that we cannot have indices larger than sequence_length
     if spec_aug_mask_idxs.max() > sequence_length - 1:
         spec_aug_mask_idxs[spec_aug_mask_idxs > sequence_length - 1] = sequence_length - 1
 
-    # scatter indices to mask
     np.put_along_axis(spec_aug_mask, spec_aug_mask_idxs, 1, -1)
 
     return spec_aug_mask
@@ -239,7 +205,6 @@ def eager_attention_forward(
 
 
 class WhisperAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -288,46 +253,30 @@ class WhisperAttention(nn.Module):
         past_key_values: Cache | None = None,
         attention_mask: torch.Tensor | None = None,
         output_attentions: bool = False,
-        # TODO: we need a refactor so that the different attention modules can get their specific kwargs
-        # ATM, we have mixed things encoder, decoder, and encoder-decoder attn
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        # Scaling is susceptible to floating point arithmetics' inprecisions
-        # which can lead to different results (this is dependent from model
-        # to model, e.g. whisper is one such case). We therefore keep the
-        # original order of scaling to follow the original implementation
-        # and enforce no scaling (1.0) in the attention call below.
         query_states = (self.q_proj(hidden_states) * self.scaling).view(hidden_shape).transpose(1, 2).contiguous()
 
-        # Check is encoder-decoder model is being used. Otherwise we'll get `DynamicCache`
         if past_key_values is not None and isinstance(past_key_values, EncoderDecoderCache):
             is_updated = past_key_values.is_updated.get(self.layer_idx)
             if is_cross_attention:
-                # after the first generated id, we can subsequently re-use all key/value_states from cache
                 past_key_values.is_updated[self.layer_idx] = True
                 past_key_values = past_key_values.cross_attention_cache
             else:
                 past_key_values = past_key_values.self_attention_cache
 
-        # use key_value_states if cross attention
         current_states = key_value_states if key_value_states is not None else hidden_states
         if is_cross_attention and past_key_values and is_updated:
-            # reuse k,v, cross_attentions
             key_states = past_key_values.layers[self.layer_idx].keys
             value_states = past_key_values.layers[self.layer_idx].values
         else:
-            # Use the query's batch dimension for kv view so that a different-batch
-            # encoder output (e.g. in tests) gets absorbed into the sequence axis,
-            # preserving backward-compatible behaviour.
             kv_shape = (input_shape[0], -1, self.num_heads, self.head_dim)
             key_states = self.k_proj(current_states).view(kv_shape).transpose(1, 2).contiguous()
             value_states = self.v_proj(current_states).view(kv_shape).transpose(1, 2).contiguous()
@@ -356,7 +305,6 @@ class WhisperAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.mbart.modeling_mbart.MBartEncoderLayer with MBart->Whisper, MBART->WHISPER
 class WhisperEncoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: WhisperConfig):
         super().__init__()
@@ -469,7 +417,6 @@ class WhisperDecoderLayer(GradientCheckpointingLayer):
         residual = hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states,
             past_key_values=past_key_values,
@@ -479,7 +426,6 @@ class WhisperDecoderLayer(GradientCheckpointingLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
 
-        # Cross-Attention Block
         if encoder_hidden_states is not None:
             residual = hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
@@ -493,7 +439,6 @@ class WhisperDecoderLayer(GradientCheckpointingLayer):
             hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
             hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.activation_fn(self.fc1(hidden_states))
@@ -538,13 +483,6 @@ class WhisperPreTrainedModel(PreTrainedModel):
 
 
 class WhisperEncoder(WhisperPreTrainedModel):
-    """
-    Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a
-    [`WhisperEncoderLayer`].
-
-    Args:
-        config: WhisperConfig
-    """
 
     _can_record_outputs = {
         "hidden_states": WhisperEncoderLayer,
@@ -573,13 +511,10 @@ class WhisperEncoder(WhisperPreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def _freeze_parameters(self):
-        for param in self.parameters():
-            param.requires_grad = False
-        self._requires_grad = False
+        pass
 
     def get_input_embeddings(self) -> nn.Module:
         return self.conv1
@@ -625,7 +560,6 @@ class WhisperEncoder(WhisperPreTrainedModel):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
         for idx, encoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -647,12 +581,6 @@ class WhisperEncoder(WhisperPreTrainedModel):
 
 
 class WhisperDecoder(WhisperPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a [`WhisperDecoderLayer`]
-
-    Args:
-        config: WhisperConfig
-    """
 
     _can_record_outputs = {
         "hidden_states": WhisperDecoderLayer,
@@ -682,7 +610,6 @@ class WhisperDecoder(WhisperPreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -749,7 +676,6 @@ class WhisperDecoder(WhisperPreTrainedModel):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_key_values_length
             position_ids = position_ids.unsqueeze(0).repeat(inputs_embeds.shape[0], 1)
 
-        # embed positions
         if input_ids is not None:
             positions = self.embed_positions(
                 input_ids, past_key_values_length=past_key_values_length, position_ids=position_ids
@@ -771,7 +697,6 @@ class WhisperDecoder(WhisperPreTrainedModel):
         )
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if self.training:
                 dropout_probability = torch.rand([])
                 if dropout_probability < self.layerdrop:
@@ -802,7 +727,6 @@ class WhisperModel(WhisperPreTrainedModel):
 
         self.encoder = WhisperEncoder(config)
         self.decoder = WhisperDecoder(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -812,11 +736,7 @@ class WhisperModel(WhisperPreTrainedModel):
         self.decoder.embed_tokens = value
 
     def freeze_encoder(self):
-        """
-        Calling this function will disable the gradient computation for the Whisper encoder so that its parameters will
-        not be updated during training.
-        """
-        self.encoder._freeze_parameters()
+        pass
 
     def _mask_input_features(
         self,
@@ -828,15 +748,12 @@ class WhisperModel(WhisperPreTrainedModel):
         [SpecAugment](https://huggingface.co/papers/1904.08779).
         """
 
-        # `config.apply_spec_augment` can set masking to False
         if not getattr(self.config, "apply_spec_augment", True):
             return input_features
 
-        # generate indices & apply SpecAugment along time axis
         batch_size, hidden_size, sequence_length = input_features.size()
 
         if self.config.mask_time_prob > 0 and self.training:
-            # generate indices & apply SpecAugment along time axis
             mask_time_indices = _compute_mask_indices(
                 (batch_size, sequence_length),
                 mask_prob=self.config.mask_time_prob,
@@ -849,7 +766,6 @@ class WhisperModel(WhisperPreTrainedModel):
             input_features[mask_time_indices] = 0
 
         if self.config.mask_feature_prob > 0 and self.training:
-            # generate indices & apply SpecAugment along feature axis
             mask_feature_indices = _compute_mask_indices(
                 (batch_size, hidden_size),
                 mask_prob=self.config.mask_feature_prob,
@@ -931,7 +847,6 @@ class WhisperModel(WhisperPreTrainedModel):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        # decoder outputs consists of (dec_features, past_key_values, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -970,7 +885,6 @@ class WhisperForConditionalGeneration(WhisperGenerationMixin, WhisperPreTrainedM
         self.proj_out = nn.Linear(config.d_model, config.vocab_size, bias=False)
         self.max_target_positions = config.max_target_positions
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -983,11 +897,7 @@ class WhisperForConditionalGeneration(WhisperGenerationMixin, WhisperPreTrainedM
         return self.model.get_input_embeddings()
 
     def freeze_encoder(self):
-        """
-        Calling this function will disable the gradient computation for the Whisper encoder so that its parameters will
-        not be updated during training.
-        """
-        self.model.encoder._freeze_parameters()
+        pass
 
     @can_return_tuple
     @auto_docstring
@@ -1082,7 +992,6 @@ class WhisperForConditionalGeneration(WhisperGenerationMixin, WhisperPreTrainedM
         loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
-            # move labels to correct device to enable PP
             labels = labels.to(lm_logits.device)
             loss = loss_fct(lm_logits.view(-1, self.config.vocab_size), labels.reshape(-1))
 
@@ -1100,10 +1009,6 @@ class WhisperForConditionalGeneration(WhisperGenerationMixin, WhisperPreTrainedM
 
 
 class WhisperDecoderWrapper(WhisperPreTrainedModel):
-    """
-    This wrapper class is a helper class to correctly load pretrained checkpoints when the causal language model is
-    used in combination with the [`EncoderDecoderModel`] framework.
-    """
 
     def __init__(self, config):
         super().__init__(config)
@@ -1137,7 +1042,6 @@ class WhisperForCausalLM(WhisperPreTrainedModel, GenerationMixin):
 
         self.proj_out = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -1199,11 +1103,9 @@ class WhisperForCausalLM(WhisperPreTrainedModel, GenerationMixin):
         >>> transcription
         ' Mr. Quilter is the apostle of the middle classes and we are glad to welcome his gospel.'
         ```"""
-        # If the user passed a tuple or `BaseModelOutput` for encoder_outputs, we extract only the hidden states
         if isinstance(encoder_outputs, (BaseModelOutput, tuple, list)):
             encoder_outputs = encoder_outputs[0]
 
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model.decoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -1249,15 +1151,10 @@ class WhisperForAudioClassification(WhisperPreTrainedModel):
         self.projector = nn.Linear(config.hidden_size, config.classifier_proj_size)
         self.classifier = nn.Linear(config.classifier_proj_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def freeze_encoder(self):
-        """
-        Calling this function will disable the gradient computation for the Whisper encoder so that its parameters will
-        not be updated during training. Only the projection layers and classification head will be updated.
-        """
-        self.encoder._freeze_parameters()
+        pass
 
     def get_input_embeddings(self) -> nn.Module:
         return self.encoder.get_input_embeddings()
@@ -1338,7 +1235,6 @@ class WhisperForAudioClassification(WhisperPreTrainedModel):
         loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
-            # move labels to correct device to enable PP
             labels = labels.to(logits.device)
             loss = loss_fct(logits.view(-1, self.config.num_labels), labels.view(-1))
 

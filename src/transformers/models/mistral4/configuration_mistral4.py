@@ -1,17 +1,3 @@
-# Copyright 2026 Mistral AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Mistral4 model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,26 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="mistralai/Mistral-Small-4-119B-2603")
 @strict
 class Mistral4Config(PreTrainedConfig):
-    r"""
-    n_group (`int`, *optional*, defaults to 1):
-        Number of groups for routed experts.
-    first_k_dense_replace (`int`, *optional*, defaults to 0):
-        Number of dense layers in shallow layers(embed->dense->dense->...->dense->moe->moe...->lm_head).
-                                                        \--k dense layers--/
-    rope_interleave (`bool`, *optional*, defaults to `True`):
-        Whether to interleave the rotary position embeddings.
-
-    Example:
-
-    ```python
-    >>> from transformers import Mistral4Model, Mistral4Config
-
-    >>> # Initializing a Mistral4 style configuration
-    >>> configuration = Mistral4Config()
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "mistral4"
     keys_to_ignore_at_inference = ["past_key_values"]

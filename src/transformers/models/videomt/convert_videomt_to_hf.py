@@ -1,32 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert official VidEoMT checkpoints from https://huggingface.co/tue-mps/VidEoMT to HF format.
-
-URL of the original Github implementation: https://github.com/tue-mps/VidEoMT. We have cloned it locally at /Users/nielsrogge/Documents/python_projecten/videomt.
-
-The easiest way to verify conversion is by using print statements within both the original implementation and within the converted model.
-
-To run:
-
-```bash
-# Single checkpoint (image-size and num-frames auto-derived from registry)
-python src/transformers/models/videomt/convert_videomt_to_hf.py --checkpoint-filename yt_2019_vit_small_52.8.pth --verify
-
-# All supported DINOv2 checkpoints
-python src/transformers/models/videomt/convert_videomt_to_hf.py --all --push-to-hub
-```
-"""
 
 from __future__ import annotations
 
@@ -48,7 +19,6 @@ from transformers import VideomtConfig, VideomtForUniversalSegmentation
 
 MODEL_REPO_ID = "tue-mps/VidEoMT"
 
-# fmt: off
 CHECKPOINT_CONFIGS = {
     "yt_2019_vit_small_52.8.pth":   {"image_size": 640,  "num_frames": 2, "hub_name": "videomt-dinov2-small-ytvis2019", "dataset": "ytvis_2019"},
     "yt_2019_vit_base_58.2.pth":    {"image_size": 640,  "num_frames": 2, "hub_name": "videomt-dinov2-base-ytvis2019",  "dataset": "ytvis_2019"},
@@ -124,7 +94,6 @@ DATASET_TO_ID2LABEL = {
     "ovis": OVIS_ID2LABEL,
     "vipseg": VIPSEG_ID2LABEL,
 }
-# fmt: on
 
 
 def infer_num_attention_heads(checkpoint_filename: str, hidden_size: int) -> int:
@@ -168,8 +137,6 @@ def infer_videomt_config(
 
 
 def infer_backbone_model_name(checkpoint_filename: str) -> str:
-    # Official VidEoMT configs point to timm DINOv2 register-token backbones, e.g.
-    # `vit_small_patch14_reg4_dinov2` in `configs/ytvis19/videomt/vit-small/videomt_online_ViTS.yaml`.
     if "vit_small" in checkpoint_filename:
         return "vit_small_patch14_reg4_dinov2"
     if "vit_base" in checkpoint_filename:
@@ -237,37 +204,21 @@ class _ReferenceLayerScaleAdapter(nn.Module):
 
 
 def _prepare_reference_model_for_verify(reference_model: nn.Module) -> None:
-    # Keep verification deterministic and avoid timm patch-drop index path differences across backbones.
     reference_model.encoder.backbone.patch_drop = nn.Identity()
 
     original_pos_embed = reference_model.encoder.backbone._pos_embed
 
     def _safe_pos_embed(x: torch.Tensor):
-        # timm EVA `_pos_embed` internally calls `self.patch_drop(x)` and expects `(x, keep_indices)`.
-        # Upstream VidEoMT wrapper then calls `patch_drop` once more and expects a tensor.
-        # We temporarily disable the internal patch_drop call to avoid API mismatch, while keeping
-        # the outer wrapper path deterministic via `nn.Identity`.
-        original_patch_drop = reference_model.encoder.backbone.patch_drop
-        reference_model.encoder.backbone.patch_drop = None
-        pos_embed_output = original_pos_embed(x)
-        reference_model.encoder.backbone.patch_drop = original_patch_drop
-
-        # Newer timm EVA backbones may return `(tokens, rope)` while the upstream VidEoMT wrapper
-        # expects `_pos_embed` to return only tokens.
-        if isinstance(pos_embed_output, tuple):
-            return pos_embed_output[0]
-        return pos_embed_output
+        pass
 
     reference_model.encoder.backbone._pos_embed = _safe_pos_embed
 
-    # timm EVA blocks expose gamma_1/gamma_2, while the VidEoMT wrapper calls ls1/ls2 modules.
     for block in reference_model.encoder.backbone.blocks:
         if not hasattr(block, "ls1") and hasattr(block, "gamma_1"):
             block.ls1 = _ReferenceLayerScaleAdapter(block.gamma_1)
         if not hasattr(block, "ls2") and hasattr(block, "gamma_2"):
             block.ls2 = _ReferenceLayerScaleAdapter(block.gamma_2)
 
-        # Upstream wrapper `_attn` expects timm attention modules to expose `head_dim`.
         if hasattr(block, "attn") and not hasattr(block.attn, "head_dim") and hasattr(block.attn, "qkv"):
             block.attn.head_dim = block.attn.qkv.weight.shape[0] // (3 * block.attn.num_heads)
 
@@ -283,7 +234,7 @@ def load_reference_videomt_class(reference_repo_path: Path):
     class _Registry:
         def register(self):
             def _deco(cls):
-                return cls
+                pass
 
             return _deco
 
@@ -305,7 +256,6 @@ def load_reference_videomt_class(reference_repo_path: Path):
     return sys.modules["hf_videomt_reference.backbone.videomt"].VidEoMT_CLASS
 
 
-# fmt: off
 MAPPINGS = {
     r"backbone\.encoder\.backbone\.cls_token":                       r"embeddings.cls_token",
     r"backbone\.encoder\.backbone\.reg_token":                       r"embeddings.register_tokens",
@@ -330,7 +280,6 @@ MAPPINGS = {
     r"backbone\.mask_head\.4":                                       r"mask_head.fc3",
     r"backbone\.attn_mask_probs":                                    r"attn_mask_probs",
 }
-# fmt: on
 
 
 def _rename_key(key: str) -> str | None:
@@ -494,15 +443,10 @@ def verify_conversion_against_github_reference(
         original_eva_apply_keep_indices_nlc = timm_eva.apply_keep_indices_nlc
 
         def _create_model_no_pretrained(*args, **kwargs):
-            kwargs["pretrained"] = False
-            return original_create_model(*args, **kwargs)
+            pass
 
         def _safe_apply_keep_indices_nlc(x, pos_embed, keep_indices, pos_embed_has_batch: bool = False):
-            if keep_indices.dtype not in (torch.int32, torch.int64):
-                keep_indices = keep_indices.to(dtype=torch.int64)
-            if torch.any(keep_indices < 0):
-                keep_indices = keep_indices.clamp_min(0)
-            return original_apply_keep_indices_nlc(x, pos_embed, keep_indices, pos_embed_has_batch=pos_embed_has_batch)
+            pass
 
         timm.create_model = _create_model_no_pretrained
         pos_embed_sincos.apply_keep_indices_nlc = _safe_apply_keep_indices_nlc

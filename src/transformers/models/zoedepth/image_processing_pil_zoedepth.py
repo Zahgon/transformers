@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for ZoeDepth."""
 
 import math
 from collections.abc import Iterable
@@ -48,27 +34,12 @@ if is_torchvision_available():
     import torchvision.transforms.v2.functional as tvF
 
 
-# Adapted from transformers.models.zoedepth.image_processing_zoedepth.ZoeDepthImageProcessorKwargs
 class ZoeDepthImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    keep_aspect_ratio (`bool`, *optional*, defaults to `self.keep_aspect_ratio`):
-        If `True`, the image is resized by choosing the smaller of the height and width scaling factors and using it
-        for both dimensions. This ensures that the image is scaled down as little as possible while still fitting
-        within the desired output size. In case `ensure_multiple_of` is also set, the image is further resized to a
-        size that is a multiple of this value by flooring the height and width to the nearest multiple of this value.
-        Can be overridden by `keep_aspect_ratio` in `preprocess`.
-    ensure_multiple_of (`int`, *optional*, defaults to `self.ensure_multiple_of`):
-        If `do_resize` is `True`, the image is resized to a size that is a multiple of this value. Works by flooring
-        the height and width to the nearest multiple of this value.
-        Works both with and without `keep_aspect_ratio` being set to `True`.
-        Can be overridden by `ensure_multiple_of` in `preprocess`.
-    """
 
     keep_aspect_ratio: bool
     ensure_multiple_of: int
 
 
-# Adapted from transformers.models.zoedepth.image_processing_zoedepth.get_resize_output_image_size
 def get_resize_output_image_size(
     input_image: "torch.Tensor | np.ndarray",
     output_size: int | Iterable[int],
@@ -89,17 +60,13 @@ def get_resize_output_image_size(
     input_height, input_width = get_image_size(input_image, input_data_format)
     output_height, output_width = output_size
 
-    # determine new height and width
     scale_height = output_height / input_height
     scale_width = output_width / input_width
 
     if keep_aspect_ratio:
-        # scale as little as possible
         if abs(1 - scale_width) < abs(1 - scale_height):
-            # fit width
             scale_height = scale_width
         else:
-            # fit height
             scale_width = scale_height
 
     new_height = constrain_to_multiple_of(scale_height * input_height, multiple=multiple)
@@ -167,7 +134,6 @@ class ZoeDepthImageProcessorPil(PilBackend):
         )
 
         torch_image = torch.from_numpy(image).unsqueeze(0)
-        # TODO support align_corners=True in image_transforms.resize
         requires_backends(self, "torch")
         resample_to_mode = {PILImageResampling.BILINEAR: "bilinear", PILImageResampling.BICUBIC: "bicubic"}
         mode = resample_to_mode[resample]
@@ -294,19 +260,12 @@ class ZoeDepthImageProcessorPil(PilBackend):
 
         predicted_depth = predicted_depth.unsqueeze(1)
 
-        # Zoe Depth model adds padding around the images to fix the boundary artifacts in the output depth map
-        # The padding length is `int(np.sqrt(img_h/2) * fh)` for the height and similar for the width
-        # fh (and fw respectively) are equal to '3' by default
-        # Check [here](https://github.com/isl-org/ZoeDepth/blob/edb6daf45458569e24f50250ef1ed08c015f17a7/zoedepth/models/depth_model.py#L57)
-        # for the original implementation.
-        # In this section, we remove this padding to get the final depth image and depth prediction
         padding_factor_h = padding_factor_w = 3
 
         results = []
         target_sizes = [None] * len(predicted_depth) if target_sizes is None else target_sizes
         source_sizes = [None] * len(predicted_depth) if source_sizes is None else source_sizes
         for depth, target_size, source_size in zip(predicted_depth, target_sizes, source_sizes):
-            # depth.shape = [1, H, W]
             if source_size is not None:
                 pad_h = pad_w = 0
 
@@ -335,7 +294,6 @@ class ZoeDepthImageProcessorPil(PilBackend):
                     antialias=False,
                 )
             depth = depth.squeeze(0)
-            # depth.shape = [H, W]
             results.append({"predicted_depth": depth})
 
         return results

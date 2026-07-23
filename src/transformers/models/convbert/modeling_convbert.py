@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ConvBERT model."""
 
 import math
 from collections.abc import Callable
@@ -50,7 +36,6 @@ logger = logging.get_logger(__name__)
 
 
 class ConvBertEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -60,7 +45,6 @@ class ConvBertEmbeddings(nn.Module):
 
         self.LayerNorm = nn.LayerNorm(config.embedding_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -85,9 +69,6 @@ class ConvBertEmbeddings(nn.Module):
         if position_ids is None:
             position_ids = self.position_ids[:, :seq_length]
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
                 buffered_token_type_ids = self.token_type_ids[:, :seq_length]
@@ -108,7 +89,6 @@ class ConvBertEmbeddings(nn.Module):
 
 
 class SeparableConv1D(nn.Module):
-    """This class implements separable convolution, i.e. a depthwise and a pointwise layer"""
 
     def __init__(self, config, input_filters, output_filters, kernel_size, **kwargs):
         super().__init__()
@@ -182,9 +162,6 @@ class ConvBertSelfAttention(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.attention_head_size)
-        # If this is instantiated as a cross-attention module, the keys
-        # and values come from an encoder; the attention mask needs to be
-        # such that the encoder's padding tokens are not attended to.
         if encoder_hidden_states is not None:
             mixed_key_layer = self.key(encoder_hidden_states)
             mixed_value_layer = self.value(encoder_hidden_states)
@@ -224,18 +201,13 @@ class ConvBertSelfAttention(nn.Module):
         conv_out_layer = torch.matmul(conv_out_layer, conv_kernel_layer)
         conv_out_layer = torch.reshape(conv_out_layer, [-1, self.all_head_size])
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in ConvBertModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -246,7 +218,6 @@ class ConvBertSelfAttention(nn.Module):
         )
         context_layer = torch.cat([context_layer, conv_out], 2)
 
-        # conv and context
         new_context_layer_shape = context_layer.size()[:-2] + (
             self.num_attention_heads * self.attention_head_size * 2,
         )
@@ -476,41 +447,13 @@ class ConvBertPredictionHeadTransform(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.xlm.modeling_xlm.XLMSequenceSummary with XLM->ConvBert
 class ConvBertSequenceSummary(nn.Module):
-    r"""
-    Compute a single vector summary of a sequence hidden states.
-
-    Args:
-        config ([`ConvBertConfig`]):
-            The config used by the model. Relevant arguments in the config class of the model are (refer to the actual
-            config class of your model for the default values it uses):
-
-            - **summary_type** (`str`) -- The method to use to make this summary. Accepted values are:
-
-                - `"last"` -- Take the last token hidden state (like XLNet)
-                - `"first"` -- Take the first token hidden state (like Bert)
-                - `"mean"` -- Take the mean of all tokens hidden states
-                - `"cls_index"` -- Supply a Tensor of classification token position (GPT/GPT-2)
-                - `"attn"` -- Not implemented now, use multi-head attention
-
-            - **summary_use_proj** (`bool`) -- Add a projection after the vector extraction.
-            - **summary_proj_to_labels** (`bool`) -- If `True`, the projection outputs to `config.num_labels` classes
-              (otherwise to `config.hidden_size`).
-            - **summary_activation** (`Optional[str]`) -- Set to `"tanh"` to add a tanh activation to the output,
-              another string or `None` will add no activation.
-            - **summary_first_dropout** (`float`) -- Optional dropout probability before the projection and activation.
-            - **summary_last_dropout** (`float`)-- Optional dropout probability after the projection and activation.
-    """
 
     def __init__(self, config: ConvBertConfig):
         super().__init__()
 
         self.summary_type = getattr(config, "summary_type", "last")
         if self.summary_type == "attn":
-            # We should use a standard multi-head attention module with absolute positional embedding for that.
-            # Cf. https://github.com/zihangdai/xlnet/blob/master/modeling.py#L253-L276
-            # We can probably just use the multi-head attention module of PyTorch >=1.1.0
             raise NotImplementedError
 
         self.summary = nn.Identity()
@@ -563,7 +506,6 @@ class ConvBertSequenceSummary(nn.Module):
             else:
                 cls_index = cls_index.unsqueeze(-1).unsqueeze(-1)
                 cls_index = cls_index.expand((-1,) * (cls_index.dim() - 1) + (hidden_states.size(-1),))
-            # shape of cls_index: (bsz, XX, 1, hidden_size) where XX are optional leading dim of hidden_states
             output = hidden_states.gather(-2, cls_index).squeeze(-2)  # shape (bsz, XX, hidden_size)
         elif self.summary_type == "attn":
             raise NotImplementedError
@@ -587,7 +529,6 @@ class ConvBertModel(ConvBertPreTrainedModel):
 
         self.encoder = ConvBertEncoder(config)
         self.config = config
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -654,7 +595,6 @@ class ConvBertModel(ConvBertPreTrainedModel):
 
 
 class ConvBertGeneratorPredictions(nn.Module):
-    """Prediction module for the generator, made up of two dense layers."""
 
     def __init__(self, config):
         super().__init__()
@@ -682,7 +622,6 @@ class ConvBertForMaskedLM(ConvBertPreTrainedModel):
         self.generator_predictions = ConvBertGeneratorPredictions(config)
 
         self.generator_lm_head = nn.Linear(config.embedding_size, config.vocab_size)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -723,7 +662,6 @@ class ConvBertForMaskedLM(ConvBertPreTrainedModel):
         prediction_scores = self.generator_lm_head(prediction_scores)
 
         loss = None
-        # Masked language modeling softmax layer
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss()  # -100 index = padding token
             loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
@@ -737,7 +675,6 @@ class ConvBertForMaskedLM(ConvBertPreTrainedModel):
 
 
 class ConvBertClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config):
         super().__init__()
@@ -774,7 +711,6 @@ class ConvBertForSequenceClassification(ConvBertPreTrainedModel):
         self.convbert = ConvBertModel(config)
         self.classifier = ConvBertClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -847,7 +783,6 @@ class ConvBertForMultipleChoice(ConvBertPreTrainedModel):
         self.sequence_summary = ConvBertSequenceSummary(config)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -946,7 +881,6 @@ class ConvBertForTokenClassification(ConvBertPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1001,7 +935,6 @@ class ConvBertForQuestionAnswering(ConvBertPreTrainedModel):
         self.convbert = ConvBertModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1035,12 +968,10 @@ class ConvBertForQuestionAnswering(ConvBertPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

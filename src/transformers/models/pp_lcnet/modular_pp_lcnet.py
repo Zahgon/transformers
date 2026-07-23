@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 
@@ -48,28 +35,6 @@ from ..resnet.modeling_resnet import ResNetConvLayer
 @auto_docstring(checkpoint="PaddlePaddle/PP-LCNet_x1_0_doc_ori_safetensors")
 @strict
 class PPLCNetConfig(BackboneConfigMixin, PreTrainedConfig):
-    r"""
-    scale (`float`, *optional*, defaults to 1.0):
-        The scaling factor for the model's channel dimensions, used to adjust the model size and computational cost
-        without changing the overall architecture (e.g., 0.25, 0.5, 1.0, 1.5).
-    block_configs (`list[list[tuple]]`, *optional*, defaults to `None`):
-        Configuration for each block in each stage. Each tuple contains:
-        (kernel_size, in_channels, out_channels, stride, use_squeeze_excitation).
-        If `None`, uses the default PP-LCNet configuration.
-    stem_channels (`int`, *optional*, defaults to 16):
-        The number of output channels for the stem layer.
-    stem_stride (`int`, *optional*, defaults to 2):
-        The stride for the stem convolution layer.
-    reduction (`int`, *optional*, defaults to 4):
-        The reduction factor for feature channel dimensions in the squeeze-and-excitation (SE) blocks, used to
-        reduce the number of model parameters and computational complexity while maintaining feature representability.
-    class_expand (`int`, *optional*, defaults to 1280):
-        The number of hidden units in the expansion layer of the classification head, used to enhance the model's
-        feature representation capability before the final classification layer.
-    divisor (`int`, *optional*, defaults to 8):
-        The divisor used to ensure that various model parameters (e.g., channel dimensions, kernel sizes) are
-        multiples of this value, promoting efficient model implementation and resource utilization.
-    """
 
     model_type = "pp_lcnet"
 
@@ -86,17 +51,11 @@ class PPLCNetConfig(BackboneConfigMixin, PreTrainedConfig):
     hidden_dropout_prob: float | int = 0.2
 
     def __post_init__(self, **kwargs):
-        # Default block configs for PP-LCNet
-        # Each tuple: (kernel_size, in_channels, out_channels, stride, use_squeeze_excitation)
         self.block_configs = (
             [
-                # Stage 1 (blocks2)
                 [[3, 16, 32, 1, False]],
-                # Stage 2 (blocks3)
                 [[3, 32, 64, 2, False], [3, 64, 64, 1, False]],
-                # Stage 3 (blocks4)
                 [[3, 64, 128, 2, False], [3, 128, 128, 1, False]],
-                # Stage 4 (blocks5)
                 [
                     [3, 128, 256, 2, False],
                     [5, 256, 256, 1, False],
@@ -105,7 +64,6 @@ class PPLCNetConfig(BackboneConfigMixin, PreTrainedConfig):
                     [5, 256, 256, 1, False],
                     [5, 256, 256, 1, False],
                 ],
-                # Stage 5 (blocks6)
                 [[5, 256, 512, 2, True], [5, 512, 512, 1, True]],
             ]
             if self.block_configs is None
@@ -120,18 +78,10 @@ class PPLCNetConfig(BackboneConfigMixin, PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if len(self.block_configs) != 5:
-            raise ValueError(f"block_configs must have 5 stages, but got {len(self.block_configs)}")
+        pass
 
 
 class PPLCNetImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    resize_short (`int`, *optional*, defaults to 256):
-        target_short_edge (Union[int, None]): Desired length for the shorter edge of the image.
-    size_divisor (`int`, *optional*, defaults to 1):
-        Divisor to align image dimensions.
-    """
 
     resize_short: int
     size_divisor: int
@@ -172,14 +122,10 @@ class PPLCNetImageProcessor(TorchvisionBackend):
         disable_grouping: bool | None = False,
         **kwargs,
     ) -> BatchFeature:
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_resize:
-                # Unlike TorchvisionBackend, which resizes to a fixed target,
-                # this implementation first calculates the target size dynamically to preserve
-                # the aspect ratio, using the shorter edge as a reference.
                 resize_size = size
                 if self.resize_short is not None:
                     resize_size = self.get_image_size(
@@ -189,7 +135,6 @@ class PPLCNetImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -201,7 +146,6 @@ class PPLCNetImageProcessor(TorchvisionBackend):
             processed_images_grouped[shape] = stacked_images
         processed_images = reorder_images(processed_images_grouped, grouped_images_index)
 
-        # RGB -> BGR
         images = [image[[2, 1, 0], :, :] for image in processed_images]
         return BatchFeature(data={"pixel_values": images}, tensor_type=return_tensors)
 
@@ -248,11 +192,6 @@ class PPLCNetConvLayer(ResNetConvLayer):
 
 
 class PPLCNetDepthwiseSeparableConvLayer(GradientCheckpointingLayer):
-    """
-    Depthwise Separable Convolution Layer: Depthwise Conv -> SE Module (optional) -> Pointwise Conv
-    Core component of lightweight models (e.g., MobileNet, PP-LCNet) that significantly reduces
-    the number of parameters and computational cost.
-    """
 
     def __init__(
         self,
@@ -292,10 +231,6 @@ class PPLCNetDepthwiseSeparableConvLayer(GradientCheckpointingLayer):
 
 
 class PPLCNetSqueezeExcitationModule(nn.Module):
-    """
-    Squeeze-and-Excitation (SE) Module: Adaptive feature recalibration
-    Enhances the model's ability to focus on important channels by learning channel-wise attention weights.
-    """
 
     def __init__(self, channel, reduction=4):
         super().__init__()
@@ -358,10 +293,6 @@ class PPLCNetBlock(nn.Module):
 
 @auto_docstring
 class PPLCNetPreTrainedModel(PreTrainedModel):
-    """
-    An abstract base class for PP-LCNet models that inherits from Hugging Face PreTrainedModel.
-    Provides common functionality for weight initialization and loading.
-    """
 
     config: PPLCNetConfig
     base_model_prefix = "model"
@@ -380,7 +311,6 @@ class PPLCNetEncoder(PPLCNetPreTrainedModel):
         super().__init__(config)
         self.config = config
 
-        # stem
         self.convolution = PPLCNetConvLayer(
             in_channels=3,
             kernel_size=3,
@@ -388,7 +318,6 @@ class PPLCNetEncoder(PPLCNetPreTrainedModel):
             stride=config.stem_stride,
             activation=config.hidden_act,
         )
-        # stages
         self.blocks = nn.ModuleList([])
         for stage_index in range(len(config.block_configs)):
             block = PPLCNetBlock(config, stage_index)

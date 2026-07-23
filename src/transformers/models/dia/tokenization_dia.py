@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization class for Dia."""
 
 from ...tokenization_python import AddedToken, PreTrainedTokenizer
 from ...utils import logging
@@ -21,23 +7,6 @@ logger = logging.get_logger(__name__)
 
 
 class DiaTokenizer(PreTrainedTokenizer):
-    """
-    Construct a Dia tokenizer. Dia simply uses raw bytes utf-8 encoding except for special tokens `[S1]` and `[S2]`.
-
-    This tokenizer inherits from [`PreTrainedTokenizerFast`] which contains most of the main methods. Users should
-    refer to this superclass for more information regarding those methods.
-
-    Args:
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        unk_token (`str`, *optional*, defaults to `"<pad>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        max_length (`int`, *optional*, defaults to 1024):
-            The maximum length of the sequences when encoding. Sequences longer than this will be truncated.
-        offset (`int`, *optional*, defaults to 0):
-            The offset of the tokenizer.
-    """
 
     model_input_names = ["input_ids", "attention_mask"]
 
@@ -49,7 +18,6 @@ class DiaTokenizer(PreTrainedTokenizer):
         offset: int = 0,
         **kwargs,
     ):
-        # We have no eos/bos tokens but allow padding -- no l/r strip as we treat them as tokens as well
         pad_token = AddedToken(pad_token) if isinstance(pad_token, str) else pad_token
         unk_token = AddedToken(unk_token) if isinstance(unk_token, str) else unk_token
 
@@ -69,7 +37,7 @@ class DiaTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        return self._utf_vocab_size
+        pass
 
     def get_vocab(self):
         vocab = {self.convert_ids_to_tokens(i): i for i in range(self.vocab_size + self.offset)}

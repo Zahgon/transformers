@@ -1,17 +1,3 @@
-# Copyright 2024 Cohere Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections.abc import Callable
 
 import torch
@@ -49,23 +35,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="CohereForAI/c4ai-command-r-v01")
 @strict
 class Cohere2Config(PreTrainedConfig):
-    r"""
-    logit_scale (`float`, *optional*, defaults to 0.0625):
-        The scaling factor for the output logits.
-
-    ```python
-    >>> from transformers import Cohere2Model, Cohere2Config
-
-    >>> # Initializing a Cohere Nextmodel configuration
-    >>> configuration = Cohere2Config()
-
-    >>> # Initializing a model from the Cohere2 configuration
-    >>> model = Cohere2Model(configuration) # doctest: +SKIP
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config # doctest: +SKIP
-    ```
-    """
 
     model_type = "cohere2"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -110,12 +79,9 @@ class Cohere2Config(PreTrainedConfig):
         if self.num_key_value_heads is None:
             self.num_key_value_heads = self.num_attention_heads
 
-        # Need to specify head_dim in the config so it can be used in the attention forward functions
         self.head_dim = self.hidden_size // self.num_attention_heads
 
-        # BC -> the pattern used to be a simple int, and it's still present in configs on the Hub
         if self.layer_types is None:
-            # BC -> the pattern used to be a simple int, and it's still present in configs on the Hub
             _sliding_window_pattern = kwargs.pop("sliding_window_pattern", 4)
             self.layer_types = [
                 "sliding_attention" if bool((i + 1) % _sliding_window_pattern) else "full_attention"
@@ -147,7 +113,6 @@ class Cohere2LayerNorm(CohereLayerNorm):
 
 
 class Cohere2Attention(CohereAttention):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: Cohere2Config, layer_idx: int | None = None):
         nn.Module.__init__(self)

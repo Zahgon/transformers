@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -72,7 +59,6 @@ class ParakeetRNNTDecoderCache:
             self.cell_state.copy_(cell_state)
             self.cache.copy_(decoder_output)
         else:
-            # Mask to update specific batch elements
             mask = mask.to(decoder_output.device)
             batch_size = decoder_output.shape[0]
             mask_h = mask.view(1, batch_size, 1)
@@ -82,27 +68,11 @@ class ParakeetRNNTDecoderCache:
             self.cell_state = torch.where(mask_h, cell_state, self.cell_state)
 
 
-# BC: see #46331
 class ParakeetTDTDecoderCache(ParakeetRNNTDecoderCache): ...
 
 
 @dataclass
 class ParakeetRNNTGenerateOutput(ModelOutput):
-    """
-    Outputs of Parakeet transducer (RNN-T / TDT) generation.
-
-    Args:
-        sequences (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
-            Generated token sequences (including blank tokens).
-        durations (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
-            Per-step durations in frames. Combined with `sequences`, this is sufficient
-            to reconstruct full timestamp information (frame indices are the cumulative sum
-            of durations).
-        attentions (`tuple(tuple(torch.FloatTensor))`, *optional*):
-            Encoder attention weights per layer.
-        hidden_states (`tuple(tuple(torch.FloatTensor))`, *optional*):
-            Encoder hidden states per layer.
-    """
 
     sequences: torch.LongTensor
     durations: torch.LongTensor | None = None
@@ -111,7 +81,6 @@ class ParakeetRNNTGenerateOutput(ModelOutput):
 
 
 class EncoderExhaustedCriteria(StoppingCriteria):
-    """Stops generation when all batch elements have walked past their encoder output length."""
 
     def __init__(self, model):
         self.model = model
@@ -123,15 +92,6 @@ class EncoderExhaustedCriteria(StoppingCriteria):
 
 
 class ParakeetRNNTGenerationMixin(GenerationMixin):
-    """Generation mixin for Parakeet RNN-T models, and the base for all Parakeet transducer generation.
-
-    Handles the transducer machinery shared by RNN-T and TDT: encoder frame tracking, decoder cache
-    preparation, encoder-exhaustion stopping, and output-buffer sizing. For RNN-T greedy decoding the encoder
-    frame pointer advances by one frame on every blank emission and stays put on every non-blank emission; a
-    ``max_symbols_per_step`` guard forces an advance after too many consecutive non-blank emissions at the same
-    frame, mirroring NeMo's greedy RNN-T decoding. The duration-aware [`ParakeetTDTGenerationMixin`] extends this
-    by advancing the frame pointer by a predicted duration instead.
-    """
 
     def _get_stopping_criteria(self, *args, **kwargs):
         criteria = super()._get_stopping_criteria(*args, **kwargs)
@@ -145,18 +105,14 @@ class ParakeetRNNTGenerationMixin(GenerationMixin):
         tokens = logits.argmax(dim=-1)
         blank_mask = tokens == self.config.blank_token_id
 
-        # Count consecutive non-blank emissions at the current encoder frame; reset on advance.
         if self._symbols_at_frame is None:
             self._symbols_at_frame = torch.zeros_like(tokens)
         symbols = torch.where(blank_mask, torch.zeros_like(self._symbols_at_frame), self._symbols_at_frame + 1)
         force_advance = symbols >= self.max_symbols_per_step
         self._symbols_at_frame = torch.where(blank_mask | force_advance, torch.zeros_like(symbols), symbols)
 
-        # Advance the encoder frame pointer on blank (or forced) emissions; stay put otherwise.
         advance = (blank_mask | force_advance).long()
         model_kwargs["encoder_frame_idxs"] = model_kwargs["encoder_frame_idxs"] + advance
-        # The per-step frame advance is the RNN-T analogue of a TDT duration: cumulatively summed it yields the
-        # encoder frame index of each emitted token, which is sufficient to reconstruct timestamps.
         self._step_durations.append(advance)
         self._encoder_finished = model_kwargs["encoder_frame_idxs"] >= model_kwargs["encoder_valid_lengths"]
 
@@ -171,9 +127,6 @@ class ParakeetRNNTGenerationMixin(GenerationMixin):
         input_ids_length,
         inputs_tensor,
     ):
-        # When the user hasn't explicitly set max_length/max_new_tokens, derive an upper
-        # bound from the encoder capacity. The actual stopping is handled by the
-        # encoder-exhaustion stopping criteria; this just sizes the output buffer.
         if has_default_max_length and generation_config.max_new_tokens is None:
             encoder_seq_len = self.encoder._get_subsampling_output_length(
                 torch.tensor([inputs_tensor.shape[1]], device=inputs_tensor.device)
@@ -248,7 +201,6 @@ class ParakeetRNNTGenerationMixin(GenerationMixin):
         return model_inputs
 
     def generate(self, inputs=None, generation_config=None, **kwargs):
-        # TODO @eustlb: this is temporary — we're going to modularize generate to allow doing this cleanly.
         self._encoder_finished = None
         self._symbols_at_frame = None
         self._step_durations = []
@@ -256,7 +208,6 @@ class ParakeetRNNTGenerationMixin(GenerationMixin):
         outputs = super().generate(inputs=inputs, generation_config=generation_config, **kwargs)
 
         durations = torch.stack(self._step_durations, dim=1)  # (batch, steps)
-        # Prepend a zero duration for the decoder_start_token_id that generate() prepends to sequences
         durations = torch.cat(
             [torch.zeros(durations.shape[0], 1, dtype=durations.dtype, device=durations.device), durations], dim=1
         )
@@ -269,31 +220,19 @@ class ParakeetRNNTGenerationMixin(GenerationMixin):
 
 
 class ParakeetTDTGenerationMixin(ParakeetRNNTGenerationMixin):
-    """Generation mixin for Parakeet TDT models.
-
-    Extends [`ParakeetRNNTGenerationMixin`] with duration-aware decoding: instead of advancing the encoder frame
-    pointer by one on each blank emission, the joint network predicts a per-step duration and the pointer advances
-    by that amount. The shared setup (encoder frame tracking, decoder cache, stopping criteria, output buffer
-    sizing) is inherited unchanged.
-    """
 
     def _update_model_kwargs_for_generation(self, outputs, *args, **kwargs):
-        # Skip ParakeetRNNTGenerationMixin's update (it counts per-frame symbols we don't use) and go
-        # straight to the base GenerationMixin bookkeeping.
         model_kwargs = GenerationMixin._update_model_kwargs_for_generation(self, outputs, *args, **kwargs)
 
-        # Advance encoder frame pointer by the predicted duration
         logits = outputs.logits[:, -1, :]
         tokens = logits[:, : self.config.vocab_size].argmax(dim=-1)
         durations = logits[:, self.config.vocab_size :].argmax(dim=-1)
 
-        # Only force forward progress (duration >= 1) for blank predictions;
         blank_mask = tokens == self.config.blank_token_id
         durations = torch.where(blank_mask & (durations == 0), torch.ones_like(durations), durations)
         model_kwargs["encoder_frame_idxs"] = model_kwargs["encoder_frame_idxs"] + durations
         self._step_durations.append(durations)
 
-        # Track which batch elements have exhausted their encoder frames.
         self._encoder_finished = model_kwargs["encoder_frame_idxs"] >= model_kwargs["encoder_valid_lengths"]
 
         return model_kwargs

@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from collections.abc import Callable, Sequence
@@ -54,38 +41,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="google/timesfm-2.5-200m-transformers")
 @strict
 class TimesFm2_5Config(TimesFmConfig):
-    r"""
-    patch_length (`int`, *optional*, defaults to 32):
-        The length of one patch in the input sequence.
-    context_length (`int`, *optional*, defaults to 16384):
-        The length of the input context.
-    horizon_length (`int`, *optional*, defaults to 128):
-        The length of the prediction horizon.
-    quantiles (`list[float]`, *optional*, defaults to `[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]`):
-        The quantiles to predict.
-    output_quantile_len (`int`, *optional*, defaults to 1024):
-        Length of the quantile output projection dimension.
-    decode_index (`int`, *optional*, defaults to 5):
-        Index into the quantile dimension used to extract the point (median) forecast.
-    use_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use bias in MLP and transformer linear layers.
-    use_continuous_quantile_head (`bool`, *optional*, defaults to `True`):
-        Whether to use the continuous quantile head for non-median quantile predictions.
-    force_flip_invariance (`bool`, *optional*, defaults to `True`):
-        Whether to apply flip-invariance averaging during forecasting.
-    infer_is_positive (`bool`, *optional*, defaults to `True`):
-        Whether to clamp forecasts to non-negative values when the input minimum is non-negative.
-
-    Example:
-
-    ```python
-    >>> from transformers import TimesFm2_5Config, TimesFm2_5ModelForPrediction
-
-    >>> configuration = TimesFm2_5Config()
-    >>> model = TimesFm2_5ModelForPrediction(configuration)
-    >>> configuration = model.config
-    ```
-    """
 
     context_length: int = 16384
     num_key_value_heads: int = 16
@@ -112,12 +67,6 @@ class TimesFm2_5Config(TimesFmConfig):
 @auto_docstring
 @dataclass
 class TimesFm2_5Output(TimesFmOutput):
-    r"""
-    context_mu (`torch.Tensor` of shape `(batch_size, num_patches)`):
-        Running means computed per input patch during normalization.
-    context_sigma (`torch.Tensor` of shape `(batch_size, num_patches)`):
-        Running standard deviations computed per input patch during normalization.
-    """
 
     context_mu: torch.Tensor | None = None
     context_sigma: torch.Tensor | None = None
@@ -126,14 +75,6 @@ class TimesFm2_5Output(TimesFmOutput):
 @auto_docstring
 @dataclass
 class TimesFm2_5OutputForPrediction(TimesFmOutputForPrediction):
-    r"""
-    mean_predictions (`torch.Tensor` of shape `(batch_size, horizon_length)`):
-        Deterministic forecasts after denormalization.
-    full_predictions (`torch.Tensor` of shape `(batch_size, horizon_length, quantiles)`):
-        Quantile forecasts including the median after denormalization.
-    loss (`torch.Tensor` of shape `(1,)`, *optional*, returned when `future_values` is provided):
-        Training loss combining MSE and quantile losses when targets are supplied.
-    """
 
     pass
 
@@ -147,7 +88,6 @@ class TimesFm2_5MLP(CLIPMLP):
 
 
 class TimesFm2_5ResidualBlock(TimesFmResidualBlock):
-    """[`TimesFmResidualBlock`] variant with configurable `use_bias` and `activation`."""
 
     def __init__(self, config, input_dims: int, hidden_dims: int, output_dims: int, use_bias: bool | None = None):
         super().__init__(input_dims, hidden_dims, output_dims)
@@ -158,7 +98,6 @@ class TimesFm2_5ResidualBlock(TimesFmResidualBlock):
         self.activation = ACT2FN[config.activation]
 
     def forward(self, x):
-        # Align activations to block parameter dtype for mixed precision stability
         x = x.to(self.input_layer.weight.dtype)
         return super().forward(x)
 
@@ -172,7 +111,6 @@ class TimesFm2_5RotaryEmbedding(LlamaRotaryEmbedding):
 
 
 class TimesFm2_5Attention(ApertusAttention):
-    """TimesFM 2.5 attention with learnable per-dimension query scaling."""
 
     def __init__(self, config: TimesFm2_5Config, layer_idx: int):
         super().__init__(config, layer_idx)
@@ -216,7 +154,6 @@ class TimesFm2_5Attention(ApertusAttention):
             value_states,
             attention_mask,
             dropout=self.attention_dropout if self.training else 0.0,
-            # scaling=1.0 because per-dimension learnable scaling is already applied to query_states above
             scaling=1.0,
             **kwargs,
         )
@@ -227,7 +164,6 @@ class TimesFm2_5Attention(ApertusAttention):
 
 
 class TimesFm2_5DecoderLayer(LlamaDecoderLayer):
-    """TimesFM 2.5 Transformer decoder layer with pre/post RMS normalization and no KV cache."""
 
     def __init__(self, config: TimesFm2_5Config, layer_idx: int):
         super().__init__(config, layer_idx)
@@ -463,7 +399,6 @@ class TimesFm2_5ModelForPrediction(TimesFmModelForPrediction):
         self.context_len = config.context_length
         self.horizon_len = config.horizon_length
 
-        # Remove inherited attributes from parent TimesFmModelForPrediction
         del self.decoder
         del self.horizon_ff_layer
 
@@ -523,7 +458,6 @@ class TimesFm2_5ModelForPrediction(TimesFmModelForPrediction):
             batch_size, num_patches, self.config.output_quantile_len, num_quantiles
         )[:, -1, :, :]
 
-        # Ensure both outputs are on the same device for model parallelism
         quantile_spreads = quantile_spreads.to(point_forecast.device)
 
         return point_forecast, quantile_spreads, model_outputs
@@ -626,8 +560,6 @@ class TimesFm2_5ModelForPrediction(TimesFmModelForPrediction):
         loss = None
         if future_values is not None:
             target_len = future_values.shape[1]
-            # Compute loss in normalized space for scale-invariant training.
-            # full_forecast is already in normalized space (before denormalization).
             normalized_preds = full_forecast[:, :target_len]
             normalized_targets = self.model._revin(future_values, mu_global, sigma_global, reverse=False)
             normalized_mean_preds = normalized_preds[:, :, decode_index]

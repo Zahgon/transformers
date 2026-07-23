@@ -1,18 +1,4 @@
-# Copyright 2025 Meituan and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""LongCat Flash model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -24,31 +10,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="meituan-longcat/LongCat-Flash-Chat")
 @strict
 class LongcatFlashConfig(PreTrainedConfig):
-    r"""
-    ffn_hidden_size (`int`, *optional*, defaults to 12288):
-        Dimension of the MLP representations.
-    qk_head_dim (`int`, *optional*):
-        The total dimension of query/key heads. If not specified, set to `qk_nope_head_dim + qk_rope_head_dim`.
-    moe_topk (`int`, *optional*, defaults to 12):
-        Number of experts to route to for each token in the MoE layer.
-    zero_expert_num (`int`, *optional*, defaults to 256):
-        Number of zero experts (identity function) to add to the expert pool.
-    expert_ffn_hidden_size (`int`, *optional*, defaults to 2048):
-        Hidden size of individual expert FFN layers.
-
-    ```python
-    >>> from transformers import LongcatFlashModel, LongcatFlashConfig
-
-    >>> # Initializing a LongCat Flash style configuration
-    >>> configuration = LongcatFlashConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = LongcatFlashModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "longcat_flash"
     keys_to_ignore_at_inference = ["past_key_values"]

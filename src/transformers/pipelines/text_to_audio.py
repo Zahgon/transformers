@@ -1,16 +1,3 @@
-# Copyright 2023 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.from typing import List, Union
 
 from typing import Any, TypedDict, overload
 
@@ -31,69 +18,12 @@ DEFAULT_VOCODER_ID = "microsoft/speecht5_hifigan"
 
 
 class AudioOutput(TypedDict, total=False):
-    """
-    audio (`AudioInput`):
-        The generated audio waveform.
-    sampling_rate (`int`):
-        The sampling rate of the generated audio waveform.
-    """
 
     audio: AudioInput
     sampling_rate: int
 
 
 class TextToAudioPipeline(Pipeline):
-    """
-    Text-to-audio generation pipeline using any `AutoModelForTextToWaveform` or `AutoModelForTextToSpectrogram`. This
-    pipeline generates an audio file from an input text and optional other conditional inputs.
-
-    Unless the model you're using explicitly sets these generation parameters in its configuration files
-    (`generation_config.json`), the following default values will be used:
-    - max_new_tokens: 256
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> pipe = pipeline(model="suno/bark-small")
-    >>> output = pipe("Hey it's HuggingFace on the phone!")
-
-    >>> audio = output["audio"]
-    >>> sampling_rate = output["sampling_rate"]
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    <Tip>
-
-    You can specify parameters passed to the model by using [`TextToAudioPipeline.__call__.forward_params`] or
-    [`TextToAudioPipeline.__call__.generate_kwargs`].
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> music_generator = pipeline(task="text-to-audio", model="facebook/musicgen-small")
-
-    >>> # diversify the music generation by adding randomness with a high temperature and set a maximum music length
-    >>> generate_kwargs = {
-    ...     "do_sample": True,
-    ...     "temperature": 0.7,
-    ...     "max_new_tokens": 35,
-    ... }
-
-    >>> outputs = music_generator("Techno music with high melodic riffs", generate_kwargs=generate_kwargs)
-    ```
-
-    </Tip>
-
-    This pipeline can currently be loaded from [`pipeline`] using the following task identifiers: `"text-to-speech"` or
-    `"text-to-audio"`.
-
-    See the list of available models on [huggingface.co/models](https://huggingface.co/models?filter=text-to-speech).
-    """
 
     _pipeline_calls_generate = True
     _load_processor = None  # prioritize processors as some models require it
@@ -101,7 +31,6 @@ class TextToAudioPipeline(Pipeline):
     _load_feature_extractor = False
     _load_tokenizer = True
 
-    # Make sure the docstring is updated when the default generation config is changed
     _default_generation_config = GenerationConfig(
         max_new_tokens=256,
     )
@@ -118,7 +47,6 @@ class TextToAudioPipeline(Pipeline):
             )
 
         if self.model.config.model_type in ["musicgen", "speecht5"]:
-            # MusicGen and SpeechT5 expect to use their tokenizer instead
             self.processor = None
 
         self.sampling_rate = sampling_rate
@@ -126,7 +54,6 @@ class TextToAudioPipeline(Pipeline):
             self.sampling_rate = self.vocoder.config.sampling_rate
 
         if self.sampling_rate is None:
-            # get sampling_rate from config and generation config
 
             config = self.model.config
             gen_config = self.model.__dict__.get("generation_config", None)
@@ -142,7 +69,6 @@ class TextToAudioPipeline(Pipeline):
                     if sampling_rate is not None:
                         self.sampling_rate = sampling_rate
 
-        # last fallback to get the sampling rate based on processor
         if self.sampling_rate is None and self.processor is not None and hasattr(self.processor, "feature_extractor"):
             self.sampling_rate = self.processor.feature_extractor.sampling_rate
 
@@ -151,8 +77,6 @@ class TextToAudioPipeline(Pipeline):
             text = [text]
 
         if self.model.config.model_type == "bark":
-            # bark Tokenizer is called with BarkProcessor which uses those kwargs
-            # Check if generation_config has semantic_config (BarkGenerationConfig) or use default
             max_length = 256
             if hasattr(self.generation_config, "semantic_config"):
                 max_length = getattr(self.generation_config.semantic_config, "max_input_semantic_length", 256)
@@ -163,7 +87,6 @@ class TextToAudioPipeline(Pipeline):
                 "return_token_type_ids": False,
             }
 
-            # priority is given to kwargs
             new_kwargs.update(kwargs)
             kwargs = new_kwargs
 
@@ -176,7 +99,6 @@ class TextToAudioPipeline(Pipeline):
                 **kwargs,
             )
         else:
-            # Add speaker ID if needed and user didn't insert at start of text
             if self.model.config.model_type == "csm":
                 text = [f"[0]{t}" if not t.startswith("[") else t for t in text]
                 kwargs.setdefault("add_special_tokens", True)
@@ -187,27 +109,21 @@ class TextToAudioPipeline(Pipeline):
         return output
 
     def _forward(self, model_inputs, **kwargs):
-        # we expect some kwargs to be additional tensors which need to be on the right device
         kwargs = self._ensure_tensor_on_device(kwargs, device=self.device)
         forward_params = kwargs["forward_params"]
         generate_kwargs = kwargs["generate_kwargs"]
 
         if self.model.can_generate():
-            # we expect some kwargs to be additional tensors which need to be on the right device
             generate_kwargs = self._ensure_tensor_on_device(generate_kwargs, device=self.device)
 
-            # User-defined `generation_config` passed to the pipeline call take precedence
             if "generation_config" not in generate_kwargs:
                 generate_kwargs["generation_config"] = self.generation_config
 
-            # generate_kwargs get priority over forward_params
             forward_params.update(generate_kwargs)
 
-            # ensure dict output to facilitate postprocessing
             forward_params.update({"return_dict_in_generate": True})
 
             if self.model.config.model_type in ["csm"]:
-                # NOTE (ebezzam): CSM does not have the audio tokenizer in the processor therefore `output_audio=True`
                 # needed for decoding to audio
                 if "output_audio" not in forward_params:
                     forward_params["output_audio"] = True
@@ -223,7 +139,6 @@ class TextToAudioPipeline(Pipeline):
             output = self.model(**model_inputs, **forward_params)[0]
 
         if self.vocoder is not None:
-            # in that case, the output is a spectrogram that needs to be converted into a waveform
             output = self.vocoder(output)
 
         return output

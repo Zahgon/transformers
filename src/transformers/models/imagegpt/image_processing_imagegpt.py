@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for ImageGPT."""
 
 from typing import Union
 
@@ -31,14 +17,6 @@ from ...utils import (
 
 
 class ImageGPTImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    clusters (`np.ndarray` or `list[list[int]]` or `torch.Tensor`, *optional*, defaults to `self.clusters`):
-        The color clusters to use, of shape `(n_clusters, 3)` when color quantizing. Can be overridden by `clusters`
-        in `preprocess`.
-    do_color_quantize (`bool`, *optional*, defaults to `self.do_color_quantize`):
-        Controls whether to apply color quantization to convert continuous pixel values to discrete cluster indices.
-        When True, each pixel is assigned to its nearest color cluster, enabling ImageGPT's discrete token modeling.
-    """
 
     clusters: Union[np.ndarray, list[list[int]], "torch.Tensor"] | None
     do_color_quantize: bool
@@ -124,7 +102,6 @@ class ImageGPTImageProcessor(TorchvisionBackend):
         clusters: list | np.ndarray | torch.Tensor | None = None,
         **kwargs,
     ):
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -133,14 +110,11 @@ class ImageGPTImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_center_crop:
                 stacked_images = self.center_crop(stacked_images, crop_size)
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -148,22 +122,16 @@ class ImageGPTImageProcessor(TorchvisionBackend):
 
         pixel_values = reorder_images(processed_images_grouped, grouped_images_index)
 
-        # If color quantization is requested, perform it; otherwise return pixel values
         if do_color_quantize:
-            # Prepare clusters
             if clusters is None:
                 raise ValueError("Clusters must be provided for color quantization.")
-            # Convert to torch tensor if needed (clusters might be passed as list/numpy)
             clusters_torch = (
                 torch.as_tensor(clusters, dtype=torch.float32) if not isinstance(clusters, torch.Tensor) else clusters
             ).to(pixel_values[0].device, dtype=pixel_values[0].dtype)
 
-            # Group images by shape for batch processing
-            # We need to check if the pixel values are a tensor or a list of tensors
             grouped_images, grouped_images_index = group_images_by_shape(
                 pixel_values, disable_grouping=disable_grouping
             )
-            # Process each group
             input_ids_grouped = {}
 
             for shape, stacked_images in grouped_images.items():
@@ -181,7 +149,6 @@ class ImageGPTImageProcessor(TorchvisionBackend):
         return BatchFeature(data={"pixel_values": pixel_values}, tensor_type=return_tensors)
 
     def to_dict(self):
-        # Convert torch tensors to lists for JSON serialization
         output = super().to_dict()
         if output.get("clusters") is not None and isinstance(output["clusters"], torch.Tensor):
             output["clusters"] = output["clusters"].tolist()

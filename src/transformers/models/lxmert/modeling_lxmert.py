@@ -1,17 +1,3 @@
-# Copyright 2018 Hao Tan, Mohit Bansal, and the HuggingFace team
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch LXMERT model."""
 
 import math
 from dataclasses import dataclass
@@ -47,33 +33,6 @@ class GeLU(nn.Module):
 )
 @dataclass
 class LxmertModelOutput(ModelOutput):
-    r"""
-    language_output (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the language encoder.
-    vision_output (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the visual encoder.
-    pooled_output (`torch.FloatTensor` of shape `(batch_size, hidden_size)`):
-        Last layer hidden-state of the first token of the sequence (classification, CLS, token) further processed
-        by a Linear layer and a Tanh activation function. The Linear
-    language_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for input features + one for the output of each cross-modality layer) of
-        shape `(batch_size, sequence_length, hidden_size)`.
-    vision_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for input features + one for the output of each cross-modality layer) of
-        shape `(batch_size, sequence_length, hidden_size)`.
-    language_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights after the attention softmax, used to compute the weighted average in
-        the self-attention heads.
-    vision_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights after the attention softmax, used to compute the weighted average in
-        the self-attention heads.
-    cross_encoder_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights after the attention softmax, used to compute the weighted average in
-        the self-attention heads.
-    """
 
     language_output: torch.FloatTensor | None = None
     vision_output: torch.FloatTensor | None = None
@@ -92,31 +51,6 @@ class LxmertModelOutput(ModelOutput):
 )
 @dataclass
 class LxmertForQuestionAnsweringOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when `labels` is provided, `torch.FloatTensor` of shape `(1,)`):
-        Total loss as the sum of the masked language modeling loss and the next sequence prediction
-        (classification) loss.k.
-    question_answering_score (`torch.FloatTensor` of shape `(batch_size, n_qa_answers)`, *optional*):
-        Prediction scores of question answering objective (classification).
-    language_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for input features + one for the output of each cross-modality layer) of
-        shape `(batch_size, sequence_length, hidden_size)`.
-    vision_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for input features + one for the output of each cross-modality layer) of
-        shape `(batch_size, sequence_length, hidden_size)`.
-    language_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights after the attention softmax, used to compute the weighted average in
-        the self-attention heads.
-    vision_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights after the attention softmax, used to compute the weighted average in
-        the self-attention heads.
-    cross_encoder_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights after the attention softmax, used to compute the weighted average in
-        the self-attention heads.
-    """
 
     loss: torch.FloatTensor | None = None
     question_answering_score: torch.FloatTensor | None = None
@@ -134,36 +68,6 @@ class LxmertForQuestionAnsweringOutput(ModelOutput):
 )
 @dataclass
 class LxmertForPreTrainingOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when `labels` is provided, `torch.FloatTensor` of shape `(1,)`):
-        Total loss as the sum of the masked language modeling loss and the next sequence prediction
-        (classification) loss.
-    prediction_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    cross_relationship_score (`torch.FloatTensor` of shape `(batch_size, 2)`):
-        Prediction scores of the textual matching objective (classification) head (scores of True/False
-        continuation before SoftMax).
-    question_answering_score (`torch.FloatTensor` of shape `(batch_size, n_qa_answers)`):
-        Prediction scores of question answering objective (classification).
-    language_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for input features + one for the output of each cross-modality layer) of
-        shape `(batch_size, sequence_length, hidden_size)`.
-    vision_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for input features + one for the output of each cross-modality layer) of
-        shape `(batch_size, sequence_length, hidden_size)`.
-    language_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights after the attention softmax, used to compute the weighted average in
-        the self-attention heads.
-    vision_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights after the attention softmax, used to compute the weighted average in
-        the self-attention heads.
-    cross_encoder_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights after the attention softmax, used to compute the weighted average in
-        the self-attention heads.
-    """
 
     loss: torch.FloatTensor | None = None
     prediction_logits: torch.FloatTensor | None = None
@@ -177,7 +81,6 @@ class LxmertForPreTrainingOutput(ModelOutput):
 
 
 class LxmertEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -226,7 +129,6 @@ class LxmertAttention(nn.Module):
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.head_size = self.num_attention_heads * self.attention_head_size
 
-        # visual_dim = 2048
         if ctx_dim is None:
             ctx_dim = config.hidden_size
         self.query = nn.Linear(config.hidden_size, self.head_size)
@@ -243,18 +145,13 @@ class LxmertAttention(nn.Module):
         key_layer = self.key(context).view(kv_shape).transpose(1, 2)
         value_layer = self.value(context).view(kv_shape).transpose(1, 2)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-        # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
         if attention_mask is not None:
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -302,7 +199,6 @@ class LxmertSelfAttentionLayer(nn.Module):
         self.output = LxmertAttentionOutput(config)
 
     def forward(self, input_tensor, attention_mask, output_attentions=False):
-        # Self attention attends to itself, thus keys and queries are the same (input_tensor).
         output = self.self(
             input_tensor,
             input_tensor,
@@ -361,14 +257,11 @@ class LxmertLayer(nn.Module):
 class LxmertXLayer(nn.Module):
     def __init__(self, config):
         super().__init__()
-        # The cross-attention Layer
         self.visual_attention = LxmertCrossAttentionLayer(config)
 
-        # Self-attention Layers
         self.lang_self_att = LxmertSelfAttentionLayer(config)
         self.visn_self_att = LxmertSelfAttentionLayer(config)
 
-        # Intermediate and Output Layers (FFNs)
         self.lang_inter = LxmertIntermediate(config)
         self.lang_output = LxmertOutput(config)
         self.visn_inter = LxmertIntermediate(config)
@@ -382,7 +275,6 @@ class LxmertXLayer(nn.Module):
         visual_attention_mask,
         output_x_attentions=False,
     ):
-        # Cross Attention
         lang_att_output = self.visual_attention(
             lang_input,
             visual_input,
@@ -398,17 +290,14 @@ class LxmertXLayer(nn.Module):
         return lang_att_output, visual_att_output
 
     def self_att(self, lang_input, lang_attention_mask, visual_input, visual_attention_mask):
-        # Self Attention
         lang_att_output = self.lang_self_att(lang_input, lang_attention_mask, output_attentions=False)
         visual_att_output = self.visn_self_att(visual_input, visual_attention_mask, output_attentions=False)
         return lang_att_output[0], visual_att_output[0]
 
     def output_fc(self, lang_input, visual_input):
-        # FC layers
         lang_inter_output = self.lang_inter(lang_input)
         visual_inter_output = self.visn_inter(visual_input)
 
-        # Layer output
         lang_output = self.lang_output(lang_inter_output, lang_input)
         visual_output = self.visn_output(visual_inter_output, visual_input)
 
@@ -480,17 +369,13 @@ class LxmertEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
 
-        # Obj-level image embedding layer
         self.visn_fc = LxmertVisualFeatureEncoder(config)
         self.config = config
 
-        # Number of layers
         self.num_l_layers = config.l_layers
         self.num_x_layers = config.x_layers
         self.num_r_layers = config.r_layers
 
-        # Layers
-        # Using self.layer instead of self.l_layer to support loading BERT weights.
         self.layer = nn.ModuleList([LxmertLayer(config) for _ in range(self.num_l_layers)])
         self.x_layers = nn.ModuleList([LxmertXLayer(config) for _ in range(self.num_x_layers)])
         self.r_layers = nn.ModuleList([LxmertLayer(config) for _ in range(self.num_r_layers)])
@@ -512,7 +397,6 @@ class LxmertEncoder(nn.Module):
 
         visual_feats = self.visn_fc(visual_feats, visual_pos)
 
-        # Run language layers
         for layer_module in self.layer:
             l_outputs = layer_module(lang_feats, lang_attention_mask, output_attentions=output_attentions)
             lang_feats = l_outputs[0]
@@ -520,7 +404,6 @@ class LxmertEncoder(nn.Module):
             if language_attentions is not None:
                 language_attentions = language_attentions + (l_outputs[1],)
 
-        # Run relational layers
         for layer_module in self.r_layers:
             v_outputs = layer_module(visual_feats, visual_attention_mask, output_attentions=output_attentions)
             visual_feats = v_outputs[0]
@@ -528,7 +411,6 @@ class LxmertEncoder(nn.Module):
             if vision_attentions is not None:
                 vision_attentions = vision_attentions + (v_outputs[1],)
 
-        # Run cross-modality layers
         for layer_module in self.x_layers:
             x_outputs = layer_module(
                 lang_feats,
@@ -564,8 +446,6 @@ class LxmertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -618,7 +498,6 @@ class LxmertVisualObjHead(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.transform = LxmertPredictionHeadTransform(config)
-        # Decide the use of visual losses
         visual_losses = {}
         if config.visual_obj_loss:
             visual_losses["obj"] = {"shape": (-1,), "num": config.num_object_labels}
@@ -631,8 +510,6 @@ class LxmertVisualObjHead(nn.Module):
             }
         self.visual_losses = visual_losses
 
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder_dict = nn.ModuleDict(
             {key: nn.Linear(config.hidden_size, self.visual_losses[key]["num"]) for key in self.visual_losses}
         )
@@ -678,7 +555,6 @@ class LxmertModel(LxmertPreTrainedModel):
         self.embeddings = LxmertEmbeddings(config)
         self.encoder = LxmertEncoder(config)
         self.pooler = LxmertPooler(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -750,22 +626,11 @@ class LxmertModel(LxmertPreTrainedModel):
         if token_type_ids is None:
             token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=device)
 
-        # We create a 3D attention mask from a 2D tensor mask.
-        # Sizes are [batch_size, 1, 1, to_seq_length]
-        # So we can broadcast to [batch_size, num_heads, from_seq_length, to_seq_length]
-        # this attention mask is more simple than the triangular masking of causal attention
-        # used in OpenAI GPT, we just need to prepare the broadcast dimension here.
         extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
 
-        # Since attention_mask is 1.0 for positions we want to attend and 0.0 for
-        # masked positions, this operation will create a tensor which is 0.0 for
-        # positions we want to attend and the dtype's smallest value for masked positions.
-        # Since we are adding it to the raw scores before the softmax, this is
-        # effectively the same as removing these entirely.
         extended_attention_mask = extended_attention_mask.to(dtype=self.dtype)
         extended_attention_mask = (1.0 - extended_attention_mask) * torch.finfo(self.dtype).min
 
-        # Process the visual attention mask
         if visual_attention_mask is not None:
             extended_visual_attention_mask = visual_attention_mask.unsqueeze(1).unsqueeze(2)
             extended_visual_attention_mask = extended_visual_attention_mask.to(dtype=self.dtype)
@@ -773,10 +638,8 @@ class LxmertModel(LxmertPreTrainedModel):
         else:
             extended_visual_attention_mask = None
 
-        # Positional Word Embeddings
         embedding_output = self.embeddings(input_ids, token_type_ids, inputs_embeds)
 
-        # Run Lxmert encoder
         encoder_outputs = self.encoder(
             embedding_output,
             extended_attention_mask,
@@ -824,39 +687,31 @@ class LxmertModel(LxmertPreTrainedModel):
 
 @auto_docstring
 class LxmertForPreTraining(LxmertPreTrainedModel):
-    # help saving them
     _tied_weights_keys = {
         "cls.predictions.decoder.weight": "lxmert.embeddings.word_embeddings.weight",
     }
 
     def __init__(self, config):
         super().__init__(config)
-        # Configuration
         self.config = config
         self.num_qa_labels = config.num_qa_labels
         self.visual_loss_normalizer = config.visual_loss_normalizer
 
-        # Use of pretraining tasks
         self.task_mask_lm = config.task_mask_lm
         self.task_obj_predict = config.task_obj_predict
         self.task_matched = config.task_matched
         self.task_qa = config.task_qa
 
-        # Lxmert backbone
         self.lxmert = LxmertModel(config)
 
-        # Pre-training heads
         self.cls = LxmertPreTrainingHeads(config)
         if self.task_obj_predict:
             self.obj_predict_head = LxmertVisualObjHead(config)
         if self.task_qa:
             self.answer_head = LxmertVisualAnswerHead(config, self.num_qa_labels)
 
-        # Weight initialization
-        # Initialize weights and apply final processing
         self.post_init()
 
-        # Loss functions
         self.loss_fcts = {
             "l2": SmoothL1Loss(reduction="none"),
             "visual_ce": CrossEntropyLoss(reduction="none"),
@@ -887,7 +742,6 @@ class LxmertForPreTraining(LxmertPreTrainedModel):
     def resize_token_embeddings(
         self, new_num_tokens: int, pad_to_multiple_of: int | None = None, mean_resizing: bool = True
     ) -> nn.Embedding:
-        # Adding the following steps to resize bias to match the shape of resized embeddings
         new_embeddings = super().resize_token_embeddings(new_num_tokens, pad_to_multiple_of, mean_resizing)
         self.cls.predictions.bias = self._resize_bias(self.cls.predictions.bias, new_num_tokens)
         return new_embeddings
@@ -903,75 +757,19 @@ class LxmertForPreTraining(LxmertPreTrainedModel):
         return new_bias
 
     def resize_num_qa_labels(self, num_labels):
-        """
-        Build a resized question answering linear layer Module from a provided new linear layer. Increasing the size
-        will add newly initialized weights. Reducing the size will remove weights from the end
-
-        Args:
-            num_labels (`int`, *optional*):
-                New number of labels in the linear layer weight matrix. Increasing the size will add newly initialized
-                weights at the end. Reducing the size will remove weights from the end. If not provided or `None`, just
-                returns a pointer to the qa labels ``torch.nn.Linear``` module of the model without doing anything.
-
-        Return:
-            `torch.nn.Linear`: Pointer to the resized Linear layer or the old Linear layer
-        """
-
-        cur_qa_logit_layer = self.get_qa_logit_layer()
-        if num_labels is None or cur_qa_logit_layer is None:
-            return
-        new_qa_logit_layer = self._resize_qa_labels(num_labels)
-        self.config.num_qa_labels = num_labels
-        self.num_qa_labels = num_labels
-
-        return new_qa_logit_layer
+        pass
 
     def _resize_qa_labels(self, num_labels):
-        cur_qa_logit_layer = self.get_qa_logit_layer()
-        new_qa_logit_layer = self._get_resized_qa_labels(cur_qa_logit_layer, num_labels)
-        self._set_qa_logit_layer(new_qa_logit_layer)
-        return self.get_qa_logit_layer()
+        pass
 
     def get_qa_logit_layer(self) -> nn.Module:
-        """
-        Returns the linear layer that produces question answering logits.
-
-        Returns:
-            `nn.Module`: A torch module mapping the question answering prediction hidden states or `None` if LXMERT
-            does not have a visual answering head.
-        """
-        if hasattr(self, "answer_head"):
-            return self.answer_head.logit_fc[-1]
+        pass
 
     def _set_qa_logit_layer(self, qa_logit_layer):
-        self.answer_head.logit_fc[-1] = qa_logit_layer
+        pass
 
     def _get_resized_qa_labels(self, cur_qa_logit_layer, num_labels):
-        if num_labels is None:
-            return cur_qa_logit_layer
-
-        cur_qa_labels, hidden_dim = cur_qa_logit_layer.weight.size()
-        if cur_qa_labels == num_labels:
-            return cur_qa_logit_layer
-
-        # Build new linear output
-        if getattr(cur_qa_logit_layer, "bias", None) is not None:
-            new_qa_logit_layer = nn.Linear(hidden_dim, num_labels)
-        else:
-            new_qa_logit_layer = nn.Linear(hidden_dim, num_labels, bias=False)
-
-        new_qa_logit_layer.to(cur_qa_logit_layer.weight.device)
-
-        # initialize all new labels
-        self._init_weights(new_qa_logit_layer)
-
-        # Copy labels from the previous weights
-        num_labels_to_copy = min(cur_qa_labels, num_labels)
-        new_qa_logit_layer.weight.data[:num_labels_to_copy, :] = cur_qa_logit_layer.weight.data[:num_labels_to_copy, :]
-        if getattr(cur_qa_logit_layer, "bias", None) is not None:
-            new_qa_logit_layer.bias.data[:num_labels_to_copy] = cur_qa_logit_layer.bias.data[:num_labels_to_copy]
-
-        return new_qa_logit_layer
+        pass
 
     @auto_docstring
     def forward(
@@ -1123,94 +921,32 @@ class LxmertForPreTraining(LxmertPreTrainedModel):
 class LxmertForQuestionAnswering(LxmertPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
-        # Configuration
         self.config = config
         self.num_qa_labels = config.num_qa_labels
         self.visual_loss_normalizer = config.visual_loss_normalizer
 
-        # Lxmert backbone
         self.lxmert = LxmertModel(config)
 
         self.answer_head = LxmertVisualAnswerHead(config, self.num_qa_labels)
 
-        # Weight initialization
-        # Initialize weights and apply final processing
         self.post_init()
 
-        # Loss function
         self.loss = CrossEntropyLoss()
 
     def resize_num_qa_labels(self, num_labels):
-        """
-        Build a resized question answering linear layer Module from a provided new linear layer. Increasing the size
-        will add newly initialized weights. Reducing the size will remove weights from the end
-
-        Args:
-            num_labels (`int`, *optional*):
-                New number of labels in the linear layer weight matrix. Increasing the size will add newly initialized
-                weights at the end. Reducing the size will remove weights from the end. If not provided or `None`, just
-                returns a pointer to the qa labels ``torch.nn.Linear``` module of the model without doing anything.
-
-        Return:
-            `torch.nn.Linear`: Pointer to the resized Linear layer or the old Linear layer
-        """
-
-        cur_qa_logit_layer = self.get_qa_logit_layer()
-        if num_labels is None or cur_qa_logit_layer is None:
-            return
-        new_qa_logit_layer = self._resize_qa_labels(num_labels)
-        self.config.num_qa_labels = num_labels
-        self.num_qa_labels = num_labels
-
-        return new_qa_logit_layer
+        pass
 
     def _resize_qa_labels(self, num_labels):
-        cur_qa_logit_layer = self.get_qa_logit_layer()
-        new_qa_logit_layer = self._get_resized_qa_labels(cur_qa_logit_layer, num_labels)
-        self._set_qa_logit_layer(new_qa_logit_layer)
-        return self.get_qa_logit_layer()
+        pass
 
     def get_qa_logit_layer(self) -> nn.Module:
-        """
-        Returns the linear layer that produces question answering logits
-
-        Returns:
-            `nn.Module`: A torch module mapping the question answering prediction hidden states. `None`: A NoneType
-            object if Lxmert does not have the visual answering head.
-        """
-
-        if hasattr(self, "answer_head"):
-            return self.answer_head.logit_fc[-1]
+        pass
 
     def _set_qa_logit_layer(self, qa_logit_layer):
-        self.answer_head.logit_fc[-1] = qa_logit_layer
+        pass
 
     def _get_resized_qa_labels(self, cur_qa_logit_layer, num_labels):
-        if num_labels is None:
-            return cur_qa_logit_layer
-
-        cur_qa_labels, hidden_dim = cur_qa_logit_layer.weight.size()
-        if cur_qa_labels == num_labels:
-            return cur_qa_logit_layer
-
-        # Build new linear output
-        if getattr(cur_qa_logit_layer, "bias", None) is not None:
-            new_qa_logit_layer = nn.Linear(hidden_dim, num_labels)
-        else:
-            new_qa_logit_layer = nn.Linear(hidden_dim, num_labels, bias=False)
-
-        new_qa_logit_layer.to(cur_qa_logit_layer.weight.device)
-
-        # initialize all new labels
-        self._init_weights(new_qa_logit_layer)
-
-        # Copy labels from the previous weights
-        num_labels_to_copy = min(cur_qa_labels, num_labels)
-        new_qa_logit_layer.weight.data[:num_labels_to_copy, :] = cur_qa_logit_layer.weight.data[:num_labels_to_copy, :]
-        if getattr(cur_qa_logit_layer, "bias", None) is not None:
-            new_qa_logit_layer.bias.data[:num_labels_to_copy] = cur_qa_logit_layer.bias.data[:num_labels_to_copy]
-
-        return new_qa_logit_layer
+        pass
 
     @auto_docstring
     def forward(

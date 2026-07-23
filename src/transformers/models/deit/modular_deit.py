@@ -1,17 +1,3 @@
-# Copyright 2021 Facebook AI Research & The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch DeiT (Data-efficient Image Transformers) model."""
 
 from dataclasses import dataclass
 
@@ -37,21 +23,11 @@ from .configuration_deit import DeiTConfig
 
 
 class DeiTEmbeddings(ViTEmbeddings):
-    """
-    Construct the CLS token, distillation token, position and patch embeddings. Optionally, also the mask token.
-
-    Differences from ViTEmbeddings:
-    - Adds a distillation token (for distillation pre-training).
-    - Position embeddings include +2 slots (CLS + distillation) instead of +1.
-    - interpolate_pos_encoding handles 2 special tokens instead of 1.
-    - forward concatenates distillation token and handles position encoding for both.
-    """
 
     def __init__(self, config: DeiTConfig, use_mask_token: bool = False) -> None:
         super().__init__(config, use_mask_token=use_mask_token)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, config.hidden_size))
         num_patches = self.patch_embeddings.num_patches
-        # +2: one slot for CLS, one for distillation token
         self.position_embeddings = nn.Parameter(torch.zeros(1, num_patches + 2, config.hidden_size))
         self.distillation_token = nn.Parameter(torch.zeros(1, 1, config.hidden_size))
 
@@ -68,7 +44,6 @@ class DeiTEmbeddings(ViTEmbeddings):
         num_patches = embeddings.shape[1] - 2
         num_positions = self.position_embeddings.shape[1] - 2
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
@@ -108,7 +83,6 @@ class DeiTEmbeddings(ViTEmbeddings):
 
         if bool_masked_pos is not None:
             mask_tokens = self.mask_token.expand(batch_size, seq_length, -1)
-            # replace the masked visual tokens by mask_tokens
             mask = bool_masked_pos.unsqueeze(-1).type_as(mask_tokens)
             embeddings = embeddings * (1.0 - mask) + mask_tokens * mask
 
@@ -197,14 +171,11 @@ class DeiTForMaskedImageModeling(ViTForMaskedImageModeling):
 
         sequence_output = outputs.last_hidden_state
 
-        # Reshape to (batch_size, num_channels, height, width)
-        # Remove the [CLS] token (index 0) and distillation token (index 1), keep only patch embeddings
         sequence_output = sequence_output[:, 2:]
         batch_size, sequence_length, num_channels = sequence_output.shape
         height = width = int(sequence_length**0.5)
         sequence_output = sequence_output.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
 
-        # Reconstruct pixel values
         reconstructed_pixel_values = self.decoder(sequence_output)
 
         masked_im_loss = None
@@ -239,16 +210,6 @@ class DeiTForImageClassification(ViTForImageClassification):
 )
 @dataclass
 class DeiTForImageClassificationWithTeacherOutput(ModelOutput):
-    r"""
-    logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Prediction scores as the average of the cls_logits and distillation logits.
-    cls_logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Prediction scores of the classification head (i.e. the linear layer on top of the final hidden state of the
-        class token).
-    distillation_logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Prediction scores of the distillation head (i.e. the linear layer on top of the final hidden state of the
-        distillation token).
-    """
 
     logits: torch.FloatTensor | None = None
     cls_logits: torch.FloatTensor | None = None
@@ -275,7 +236,6 @@ class DeiTForImageClassificationWithTeacher(DeiTPreTrainedModel):
         self.num_labels = config.num_labels
         self.deit = DeiTModel(config, add_pooling_layer=False)
 
-        # Classifier heads
         self.cls_classifier = (
             nn.Linear(config.hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
@@ -283,7 +243,6 @@ class DeiTForImageClassificationWithTeacher(DeiTPreTrainedModel):
             nn.Linear(config.hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -307,7 +266,6 @@ class DeiTForImageClassificationWithTeacher(DeiTPreTrainedModel):
         cls_logits = self.cls_classifier(sequence_output[:, 0, :])
         distillation_logits = self.distillation_classifier(sequence_output[:, 1, :])
 
-        # during inference, return the average of both classifier predictions
         logits = (cls_logits + distillation_logits) / 2
 
         return DeiTForImageClassificationWithTeacherOutput(

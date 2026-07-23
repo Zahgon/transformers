@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for ViTMatte."""
 
 from typing import Union
 
@@ -33,10 +19,6 @@ from ...utils import TensorType, auto_docstring
 
 
 class VitMatteImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    size_divisor (`int`, *optional*, defaults to `self.size_divisor`):
-        The width and height of the image will be padded to be divisible by this number.
-    """
 
     size_divisor: int
 
@@ -53,7 +35,6 @@ class VitMatteImageProcessor(TorchvisionBackend):
     valid_kwargs = VitMatteImageProcessorKwargs
 
     def __init__(self, **kwargs: Unpack[VitMatteImageProcessorKwargs]) -> None:
-        # Backward compatibility
         size_divisibility = kwargs.pop("size_divisibility", None)
         if size_divisibility is not None:
             kwargs.setdefault("size_divisor", size_divisibility)
@@ -137,7 +118,6 @@ class VitMatteImageProcessor(TorchvisionBackend):
         for shape in grouped_images:
             stacked_images = grouped_images[shape]
             stacked_trimaps = grouped_trimaps[shape]
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )

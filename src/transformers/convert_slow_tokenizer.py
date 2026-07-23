@@ -1,22 +1,3 @@
-# Copyright 2018 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Utilities to convert slow tokenizers in their fast tokenizers counterparts.
-
-All the conversions are grouped here to gather SentencePiece dependencies outside of the fast tokenizers files and
-allow to make our dependency on SentencePiece optional.
-"""
 
 import warnings
 from collections.abc import Collection
@@ -142,15 +123,11 @@ def generate_merges(vocab, vocab_scores, skip_tokens: Collection[str] | None = N
 
 
 class SentencePieceExtractor:
-    """
-    Extractor implementation for SentencePiece trained models. https://github.com/google/sentencepiece
-    """
 
     def __init__(self, model: str):
         requires_backends(self, "sentencepiece")
         requires_backends(self, "protobuf")
 
-        # from .utils import sentencepiece_model_pb2 as model_pb2
         model_pb2 = import_protobuf()
 
         m = model_pb2.ModelProto()
@@ -181,10 +158,6 @@ class SentencePieceExtractor:
             kwargs["vocab"] = vocab
             kwargs["merges"] = merges
 
-        # control tokens are special
-        # user defined symbols are not
-        # both user and control tokens are AddedTokens
-        # Add user defined symbols (type == 4) from sentencepiece (https://github.com/google/sentencepiece/blob/6225e08edb2577757163b3f5dbba4c0b670ef445/src/sentencepiece_model.proto#L299C29-L299C33)
         spm_added_tokens = [(id, p.piece, p.type == 3) for id, p in enumerate(self.proto.pieces) if p.type in [3, 4]]
         kwargs["additional_special_tokens"] = [
             AddedToken(token, normalized=False, special=special)
@@ -203,8 +176,6 @@ class GemmaSentencePieceExtractor(SentencePieceExtractor):
         sp = self.sp
         vocab = {sp.id_to_piece(index): index for index in range(sp.GetPieceSize())}
 
-        # If "\t" is missing in the vocab, we have to do this to support merges
-        # "<0x09>" is the bytefallback for `\t`
         if "\t" not in vocab:
             vocab["\t"] = vocab.get("<0x09>")
         merges = generate_merges(vocab, vocab_scores)
@@ -449,8 +420,6 @@ class GPT2Converter(Converter):
                 ],
             )
         else:
-            # XXX trim_offsets=False actually means this post_processor doesn't
-            # really do anything.
             tokenizer.post_processor = processors.ByteLevel(trim_offsets=False)
         return tokenizer
 
@@ -643,7 +612,6 @@ class SpmConverter(Converter):
         unk_piece = proto.trainer_spec.unk_piece
         precompiled_charsmap = proto.normalizer_spec.precompiled_charsmap
 
-        # model
         if isinstance(vocab, dict):
             tokenizer = Tokenizer(
                 BPE(
@@ -666,13 +634,11 @@ class SpmConverter(Converter):
         else:
             return None
 
-        # normalizer
         _normalizers = [normalizers.Replace(" ", "▁")]
         if precompiled_charsmap:
             _normalizers.insert(0, normalizers.Precompiled(precompiled_charsmap))
         tokenizer.normalizer = normalizers.Sequence(_normalizers)
 
-        # decoder
         if byte_fallback:
             tokenizer.decoder = decoders.Sequence(
                 [decoders.Replace("▁", " "), decoders.ByteFallback(), decoders.Fuse()]
@@ -697,7 +663,6 @@ class SpmConverter(Converter):
 
         super().__init__(*args)
 
-        # from .utils import sentencepiece_model_pb2 as model_pb2
         model_pb2 = import_protobuf()
 
         m = model_pb2.ModelProto()
@@ -751,10 +716,6 @@ class SpmConverter(Converter):
                 "You're trying to run a `Unigram` model but you're file was trained with a different algorithm"
             )
 
-        # control tokens are special
-        # user defined symbols are not
-        # both user and control tokens are AddedTokens
-        # Add user defined symbols (type == 4) from sentencepiece (https://github.com/google/sentencepiece/blob/6225e08edb2577757163b3f5dbba4c0b670ef445/src/sentencepiece_model.proto#L299C29-L299C33)
         spm_added_tokens = [
             (id, p.piece, p.type == 3 or p.piece in self.special_tokens)
             for id, p in enumerate(proto.pieces)
@@ -794,7 +755,6 @@ class SpmConverter(Converter):
     def converted(self) -> Tokenizer:
         tokenizer = self.tokenizer(self.proto)
 
-        # Tokenizer assemble
         normalizer = self.normalizer(self.proto)
         if normalizer is not None:
             tokenizer.normalizer = normalizer
@@ -878,13 +838,11 @@ class CamembertConverter(SpmConverter):
             ("<unk>", 0.0),
             ("<unk>NOTUSED", -100),
         ]
-        # We down-grade the original SentencePiece by -100 to avoid using it and use our added token instead
         vocab += [(piece.piece, piece.score) for piece in proto.pieces[1:]]
         vocab += [("<mask>", 0.0)]
         return vocab
 
     def unk_id(self, proto):
-        # See vocab unk position
         return 3
 
     def post_processor(self):
@@ -1233,7 +1191,6 @@ class ReformerConverter(SpmConverter):
 
 
 class RemBertConverter(SpmConverter):
-    # Inspired from AlbertConverter
     def normalizer(self, proto):
         list_normalizers = [
             normalizers.Replace("``", '"'),
@@ -1455,7 +1412,6 @@ class CLIPConverter(Converter):
         )
         tokenizer.decoder = decoders.ByteLevel()
 
-        # Hack to have a ByteLevel and TemplateProcessor
         tokenizer.post_processor = processors.RobertaProcessing(
             sep=(self.original_tokenizer.eos_token, self.original_tokenizer.eos_token_id),
             cls=(self.original_tokenizer.bos_token, self.original_tokenizer.bos_token_id),
@@ -1563,7 +1519,6 @@ class XGLMConverter(SpmConverter):
 class GemmaConverter(SpmConverter):
     handle_byte_fallback = True
     SpmExtractor = GemmaSentencePieceExtractor
-    # start and end of turn tokens must be marked as special
     special_tokens = {"<start_of_turn>", "<end_of_turn>"}
 
     """"
@@ -1587,7 +1542,6 @@ class GemmaConverter(SpmConverter):
         ]
         vocab += [(piece.piece, piece.score) for piece in proto.pieces[3:]]
 
-        # Older gemma tokenizers had a missing tab token, so we fix that here
         if not any(x[0] == "\t" for x in vocab):
             override_index = next((i for i, x in enumerate(vocab) if x[0] == "<0x09>"), None)
             if override_index is not None:
@@ -1654,7 +1608,6 @@ class LlamaConverter(SpmConverter):
         return None
 
     def post_processor(self):
-        # the processor is defined in the LlamaTokenizerFast class.
         return None
 
 
@@ -1704,7 +1657,6 @@ class MoshiConverter(SpmConverter):
 
         Converter.__init__(self, vocab_file)
 
-        # from .utils import sentencepiece_model_pb2 as model_pb2
         model_pb2 = import_protobuf()
 
         m = model_pb2.ModelProto()
@@ -1761,10 +1713,6 @@ class HeliumConverter(SpmConverter):
                 byte_fallback=self.handle_byte_fallback,
             )
         )
-        # control tokens are special
-        # user defined symbols are not
-        # both user and control tokens are AddedTokens
-        # Add user defined symbols (type == 4) from sentencepiece (https://github.com/google/sentencepiece/blob/6225e08edb2577757163b3f5dbba4c0b670ef445/src/sentencepiece_model.proto#L299C29-L299C33)
         spm_added_tokens = [
             (id, p.piece, p.type == 3 or p.piece in self.special_tokens)
             for id, p in enumerate(proto.pieces)
@@ -1858,7 +1806,6 @@ class ParakeetConverter(SpmConverter):
             )
         )
 
-        # Add user defined symbols and control tokens from sentencepiece model
         spm_added_tokens = [
             (id, p.piece, p.type == 3 or p.piece in self.special_tokens)
             for id, p in enumerate(proto.pieces)
@@ -1899,9 +1846,6 @@ def bytes_to_unicode():
 
 
 class TikTokenConverter:
-    """
-    A general tiktoken converter.
-    """
 
     def __init__(
         self,
@@ -2037,41 +1981,4 @@ SLOW_TO_FAST_CONVERTERS = {
 
 
 def convert_slow_tokenizer(transformer_tokenizer, from_tiktoken=False) -> Tokenizer:
-    """
-    Utilities to convert a slow tokenizer instance in a fast tokenizer instance.
-
-    Args:
-        transformer_tokenizer ([`~tokenization_utils_base.PreTrainedTokenizer`]):
-            Instance of a slow tokenizer to convert in the backend tokenizer for
-            [`~tokenization_utils_base.PreTrainedTokenizerFast`].
-       from_tiktoken (bool, optional): Whether to use the `tiktoken` library to convert the tokenizer instead of sentencepiece.
-            Defaults to False.
-
-    Return:
-        A instance of [`~tokenizers.Tokenizer`] to be used as the backend tokenizer of a
-        [`~tokenization_utils_base.PreTrainedTokenizerFast`]
-    """
-
-    tokenizer_class_name = transformer_tokenizer.__class__.__name__
-    if tokenizer_class_name in SLOW_TO_FAST_CONVERTERS and not from_tiktoken:
-        converter_class = SLOW_TO_FAST_CONVERTERS[tokenizer_class_name]
-        return converter_class(transformer_tokenizer).converted()
-    elif transformer_tokenizer.vocab_file.endswith("tekken.json"):
-        from .integrations.mistral.tokenizer import MistralConverter
-
-        transformer_tokenizer.original_tokenizer = transformer_tokenizer
-        logger.info("Converting from Mistral tekken.json")
-        return MistralConverter(transformer_tokenizer.vocab_file).converted()
-    else:
-        try:
-            logger.info("Converting from Tiktoken")
-            return TikTokenConverter(
-                vocab_file=transformer_tokenizer.vocab_file,
-                extra_special_tokens=transformer_tokenizer.extra_special_tokens,
-            ).converted()
-        except Exception:
-            raise ValueError(
-                f"Converting from SentencePiece and Tiktoken failed, if a converter for SentencePiece is available, provide a model path "
-                f"with a SentencePiece tokenizer.model file."
-                f"Currently available slow->fast converters: {list(SLOW_TO_FAST_CONVERTERS.keys())}"
-            )
+    pass

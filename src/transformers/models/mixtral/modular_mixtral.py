@@ -1,22 +1,3 @@
-# Copyright 2023 Mistral AI and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Mixtral model."""
 
 import torch
 import torch.nn.functional as F
@@ -93,16 +74,13 @@ def load_balancing_loss_func(
     expert_mask = torch.nn.functional.one_hot(selected_experts, num_experts)
 
     if attention_mask is None:
-        # Compute the percentage of tokens routed to each experts
         tokens_per_expert = torch.mean(expert_mask.float(), dim=0)
 
-        # Compute the average probability of routing to these experts
         router_prob_per_expert = torch.mean(routing_weights, dim=0)
     else:
         batch_size, sequence_length = attention_mask.shape
         num_hidden_layers = concatenated_gate_logits.shape[0] // (batch_size * sequence_length)
 
-        # Compute the mask that masks all padding tokens as 0 with the same shape of expert_mask
         expert_attention_mask = (
             attention_mask[None, :, :, None, None]
             .expand((num_hidden_layers, batch_size, sequence_length, top_k, num_experts))
@@ -110,12 +88,10 @@ def load_balancing_loss_func(
             .to(compute_device)
         )
 
-        # Compute the percentage of tokens routed to each experts
         tokens_per_expert = torch.sum(expert_mask.float() * expert_attention_mask, dim=0) / torch.sum(
             expert_attention_mask, dim=0
         )
 
-        # Compute the mask that masks all padding tokens as 0 with the same shape of tokens_per_expert
         router_per_expert_attention_mask = (
             attention_mask[None, :, :, None]
             .expand((num_hidden_layers, batch_size, sequence_length, num_experts))
@@ -123,7 +99,6 @@ def load_balancing_loss_func(
             .to(compute_device)
         )
 
-        # Compute the average probability of routing to these experts
         router_prob_per_expert = torch.sum(routing_weights * router_per_expert_attention_mask, dim=0) / torch.sum(
             router_per_expert_attention_mask, dim=0
         )
@@ -134,7 +109,6 @@ def load_balancing_loss_func(
 
 @use_experts_implementation
 class MixtralExperts(nn.Module):
-    """Collection of expert weights stored as 3D tensors."""
 
     def __init__(self, config: MixtralConfig):
         super().__init__()
@@ -383,7 +357,6 @@ class MixtralForCausalLM(MistralForCausalLM):
             output_router_logits if output_router_logits is not None else self.config.output_router_logits
         )
 
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs: MoeModelOutputWithPast = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -396,7 +369,6 @@ class MixtralForCausalLM(MistralForCausalLM):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

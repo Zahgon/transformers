@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -44,32 +31,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="ETH-CVG/lightglue_superpoint")
 @strict
 class LightGlueConfig(PreTrainedConfig):
-    r"""
-    keypoint_detector_config (`Union[AutoConfig, dict]`,  *optional*, defaults to `SuperPointConfig`):
-        The config object or dictionary of the keypoint detector.
-    descriptor_dim (`int`, *optional*, defaults to 256):
-        The dimension of the descriptors.
-    depth_confidence (`float`, *optional*, defaults to 0.95):
-        The confidence threshold used to perform early stopping
-    width_confidence (`float`, *optional*, defaults to 0.99):
-        The confidence threshold used to prune points
-    filter_threshold (`float`, *optional*, defaults to 0.1):
-        The confidence threshold used to filter matches
-
-    Examples:
-        ```python
-        >>> from transformers import LightGlueConfig, LightGlueForKeypointMatching
-
-        >>> # Initializing a LightGlue style configuration
-        >>> configuration = LightGlueConfig()
-
-        >>> # Initializing a model from the LightGlue style configuration
-        >>> model = LightGlueForKeypointMatching(configuration)
-
-        >>> # Accessing the model configuration
-        >>> configuration = model.config
-        ```
-    """
 
     model_type = "lightglue"
     sub_configs = {"keypoint_detector_config": AutoConfig}
@@ -91,8 +52,6 @@ class LightGlueConfig(PreTrainedConfig):
         if self.num_key_value_heads is None:
             self.num_key_value_heads = self.num_attention_heads
 
-        # Keypoint Detector is forced into eager attention mode because SuperPoint does not have Attention
-        # See https://github.com/huggingface/transformers/pull/31718#discussion_r2109733153
         if isinstance(self.keypoint_detector_config, dict):
             self.keypoint_detector_config["model_type"] = self.keypoint_detector_config.get("model_type", "superpoint")
             self.keypoint_detector_config = CONFIG_MAPPING[self.keypoint_detector_config["model_type"]](
@@ -106,9 +65,7 @@ class LightGlueConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.descriptor_dim % self.num_attention_heads != 0:
-            raise ValueError("descriptor_dim % num_heads is different from zero")
+        pass
 
 
 @auto_docstring(
@@ -122,29 +79,6 @@ class LightGlueConfig(PreTrainedConfig):
 )
 @dataclass
 class LightGlueKeypointMatchingOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*):
-        Loss computed during training.
-    matches (`torch.FloatTensor` of shape `(batch_size, 2, num_matches)`):
-        Index of keypoint matched in the other image.
-    matching_scores (`torch.FloatTensor` of shape `(batch_size, 2, num_matches)`):
-        Scores of predicted matches.
-    keypoints (`torch.FloatTensor` of shape `(batch_size, num_keypoints, 2)`):
-        Absolute (x, y) coordinates of predicted keypoints in a given image.
-    prune (`torch.IntTensor` of shape `(batch_size, num_keypoints)`):
-        Pruning mask indicating which keypoints are removed and at which layer.
-    mask (`torch.BoolTensor` of shape `(batch_size, num_keypoints)`):
-        Mask indicating which values in matches, matching_scores, keypoints and prune are keypoint matching
-        information.
-    hidden_states (`Tuple[torch.FloatTensor, ...]`, *optional*):
-        Tuple of `torch.FloatTensor` (one for the output of each stage) of shape `(batch_size, 2, num_channels,
-        num_keypoints)` returned when `output_hidden_states=True` is passed or when
-        `config.output_hidden_states=True`
-    attentions (`Tuple[torch.FloatTensor, ...]`, *optional*):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, 2, num_heads, num_keypoints,
-        num_keypoints)` returned when `output_attentions=True` is passed or when
-        `config.output_attentions=True`
-    """
 
     loss: torch.FloatTensor | None = None
     matches: torch.FloatTensor | None = None
@@ -288,7 +222,6 @@ class LightGlueTransformerLayer(nn.Module):
 
         batch_size, num_keypoints, descriptor_dim = descriptors.shape
 
-        # Self attention block
         attention_output, self_attentions = self.self_attention(
             descriptors,
             position_embeddings=keypoints,
@@ -302,25 +235,17 @@ class LightGlueTransformerLayer(nn.Module):
         if output_hidden_states:
             self_attention_hidden_states = (intermediate_states, output_states)
 
-        # Reshape hidden_states to group by image_pairs :
-        #   (batch_size, num_keypoints, descriptor_dim) -> (batch_size, 2, num_keypoints, descriptor_dim)
-        # Flip dimension 1 to perform cross attention :
-        #   (image0, image1) -> (image1, image0)
-        # Reshape back to original shape :
-        #   (batch_size, 2, num_keypoints, descriptor_dim) -> (batch_size, num_keypoints, descriptor_dim)
         encoder_hidden_states = (
             self_attention_descriptors.reshape(-1, 2, num_keypoints, descriptor_dim)
             .flip(1)
             .reshape(batch_size, num_keypoints, descriptor_dim)
         )
-        # Same for mask
         encoder_attention_mask = (
             attention_mask.reshape(-1, 2, 1, 1, num_keypoints).flip(1).reshape(batch_size, 1, 1, num_keypoints)
             if attention_mask is not None
             else None
         )
 
-        # Cross attention block
         cross_attention_output, cross_attentions = self.cross_attention(
             self_attention_descriptors,
             encoder_hidden_states=encoder_hidden_states,
@@ -372,7 +297,6 @@ class LightGlueMatchAssignmentLayer(nn.Module):
 
     def forward(self, descriptors: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         batch_size, num_keypoints, descriptor_dim = descriptors.shape
-        # Final projection and similarity computation
         m_descriptors = self.final_projection(descriptors)
         m_descriptors = m_descriptors / torch.tensor(self.descriptor_dim, device=m_descriptors.device) ** 0.25
         m_descriptors = m_descriptors.reshape(batch_size // 2, 2, num_keypoints, descriptor_dim)
@@ -386,13 +310,11 @@ class LightGlueMatchAssignmentLayer(nn.Module):
             mask = mask0 * mask1
             similarity = similarity.masked_fill(mask == 0, torch.finfo(similarity.dtype).min)
 
-        # Compute matchability of descriptors
         matchability = self.matchability(descriptors)
         matchability = matchability.reshape(batch_size // 2, 2, num_keypoints, 1)
         matchability_0 = matchability[:, 0]
         matchability_1 = matchability[:, 1]
 
-        # Compute scores from similarity and matchability
         scores = sigmoid_log_double_softmax(similarity, matchability_0, matchability_1)
         return scores
 
@@ -417,10 +339,6 @@ class LightGlueTokenConfidenceLayer(nn.Module):
 
 @auto_docstring
 class LightGluePreTrainedModel(PreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
 
     config: LightGlueConfig
     base_model_prefix = "lightglue"
@@ -434,19 +352,16 @@ class LightGluePreTrainedModel(PreTrainedModel):
 def get_matches_from_scores(scores: torch.Tensor, threshold: float) -> tuple[torch.Tensor, torch.Tensor]:
     """obtain matches from a score matrix [Bx M+1 x N+1]"""
     batch_size, _, _ = scores.shape
-    # For each keypoint, get the best match
     max0 = scores[:, :-1, :-1].max(2)
     max1 = scores[:, :-1, :-1].max(1)
     matches0 = max0.indices
     matches1 = max1.indices
 
-    # Mutual check for matches
     indices0 = torch.arange(matches0.shape[1], device=matches0.device)[None]
     indices1 = torch.arange(matches1.shape[1], device=matches1.device)[None]
     mutual0 = indices0 == matches1.gather(1, matches0)
     mutual1 = indices1 == matches0.gather(1, matches1)
 
-    # Get matching scores and filter based on mutual check and thresholding
     max0 = max0.values.exp()
     zero = max0.new_tensor(0)
     matching_scores0 = torch.where(mutual0, max0, zero)
@@ -454,7 +369,6 @@ def get_matches_from_scores(scores: torch.Tensor, threshold: float) -> tuple[tor
     valid0 = mutual0 & (matching_scores0 > threshold)
     valid1 = mutual1 & valid0.gather(1, matches1)
 
-    # Filter matches based on mutual check and thresholding of scores
     matches0 = torch.where(valid0, matches0, -1)
     matches1 = torch.where(valid1, matches1, -1)
     matches = torch.stack([matches0, matches1]).transpose(0, 1).reshape(batch_size * 2, -1)
@@ -491,19 +405,6 @@ def normalize_keypoints(keypoints: torch.Tensor, height: int, width: int) -> tor
     """
 )
 class LightGlueForKeypointMatching(LightGluePreTrainedModel):
-    """
-    LightGlue is a model matching keypoints in images by leveraging detections from a keypoint detector such as
-    SuperPoint. It is based on the SuperGlue architecture and is designed to be lightweight and efficient.
-    It consists of :
-        1. Keypoint Encoder
-        2. A Graph Neural Network with self and cross attention layers
-        3. Matching Assignment layers
-
-    The correspondence ids use -1 to indicate non-matching points.
-
-    Philipp Lindenberger, Paul-Edouard Sarlin and Marc Pollefeys. LightGlue: Local Feature Matching at Light Speed.
-    In ICCV 2023. https://huggingface.co/papers/2306.13643
-    """
 
     def __init__(self, config: LightGlueConfig):
         super().__init__(config)
@@ -554,16 +455,12 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
         """evaluate whether we should stop inference based on the confidence of the keypoints"""
         batch_size, _ = mask.shape
         if layer_index < self.num_layers - 1:
-            # If the current layer is not the last layer, we compute the confidence of the keypoints and check
-            # if we should stop the forward pass through the transformer layers for each pair of images.
             keypoint_confidences = keypoint_confidences.masked_fill(mask == 0, 1)
             keypoint_confidences = keypoint_confidences.reshape(batch_size // 2, -1)
             threshold = self._get_confidence_threshold(layer_index)
             ratio_confident = 1.0 - (keypoint_confidences < threshold).float().sum(dim=1) / num_points
             early_stopped_pairs = ratio_confident > self.depth_confidence
         else:
-            # If the current layer is the last layer, we stop the forward pass through the transformer layers for
-            # all pairs of images.
             early_stopped_pairs = torch.ones(batch_size, dtype=torch.bool)
         return early_stopped_pairs
 
@@ -601,7 +498,6 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
         pruned_keypoints_mask = self._get_pruning_mask(keypoint_confidences, descriptors_matchability, layer_index)
         pruned_keypoints_mask = pruned_keypoints_mask.masked_fill(mask == 0, torch.tensor(False))
 
-        # For each image, we extract the pruned indices and the corresponding descriptors and keypoints.
         pruned_descriptors, pruned_keypoints_0, pruned_keypoints_1, pruned_mask, pruned_indices = (
             [t[mask] for t, mask in zip(tensor, pruned_keypoints_mask)]
             for tensor in [descriptors, keypoints[0], keypoints[1], pruned_keypoints_mask, indices]
@@ -609,7 +505,6 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
         for i in range(batch_size):
             prune_output[i, pruned_indices[i]] += 1
 
-        # Pad the pruned descriptors, keypoints, indices and mask to have the same shape across the batch.
         pruned_descriptors, pruned_keypoints_0, pruned_keypoints_1, pruned_mask = (
             pad_sequence(pruned_tensor, batch_first=True)
             for pruned_tensor in [pruned_descriptors, pruned_keypoints_0, pruned_keypoints_1, pruned_mask]
@@ -628,7 +523,6 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
         matching_scores,
     ):
         early_stops_indices = torch.stack(early_stops_indices)
-        # Rearrange tensors to have the same order as the input batch
         ids = torch.arange(early_stops_indices.shape[0])
         order_indices = early_stops_indices[ids]
         early_stops_indices = early_stops_indices[order_indices]
@@ -658,8 +552,6 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
         matching_scores: torch.Tensor,
         num_keypoints: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # (batch_size, num_keypoints) -> (batch_size // 2, 2, num_keypoints) -> 2 * (batch_size // 2, num_keypoints) to
-        # have tensors from
         batch_size, _ = indices.shape
         indices, matches, matching_scores = (
             tensor.reshape(batch_size // 2, 2, -1) for tensor in [indices, matches, matching_scores]
@@ -671,12 +563,10 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
         matching_scores0 = matching_scores[:, 0]
         matching_scores1 = matching_scores[:, 1]
 
-        # Prepare final matches and matching scores
         _matches = torch.full((batch_size // 2, 2, num_keypoints), -1, device=indices.device, dtype=matches.dtype)
         _matching_scores = torch.zeros(
             (batch_size // 2, 2, num_keypoints), device=indices.device, dtype=matching_scores.dtype
         )
-        # Fill the matches and matching scores for each image pair
         for i in range(batch_size // 2):
             _matches[i, 0, indices0[i]] = torch.where(
                 matches0[i] == -1, -1, indices1[i].gather(0, matches0[i].clamp(min=0))
@@ -714,12 +604,10 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
         device = keypoints.device
         batch_size, _, initial_num_keypoints, _ = keypoints.shape
         num_points_per_pair = torch.sum(mask.reshape(batch_size, -1), dim=1)
-        # (batch_size, 2, num_keypoints, 2) -> (batch_size * 2, num_keypoints, 2)
         keypoints = keypoints.reshape(batch_size * 2, initial_num_keypoints, 2)
         mask = mask.reshape(batch_size * 2, initial_num_keypoints) if mask is not None else None
         descriptors = descriptors.reshape(batch_size * 2, initial_num_keypoints, self.keypoint_detector_descriptor_dim)
         image_indices = torch.arange(batch_size * 2, device=device)
-        # Keypoint normalization
         keypoints = normalize_keypoints(keypoints, height, width)
 
         descriptors, keypoint_encoding_output = self._keypoint_processing(
@@ -728,11 +616,7 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
 
         keypoints = keypoint_encoding_output[0]
 
-        # Early stop consists of stopping the forward pass through the transformer layers when the confidence of the
-        # keypoints is above a certain threshold.
         do_early_stop = self.depth_confidence > 0
-        # Keypoint pruning consists of removing keypoints from the input of the transformer layers when the confidence of
-        # the keypoints is below a certain threshold.
         do_keypoint_pruning = self.width_confidence > 0
 
         early_stops_indices = []
@@ -750,7 +634,6 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
                     config=self.config,
                     inputs_embeds=descriptors[:, 0:1, :],  # force q_len == 1
                     attention_mask=mask,
-                    # Model is too sensitive to the FA backend --> force mask to avoid the backend
                     and_mask_function=lambda *args: torch.tensor(True, dtype=torch.bool),
                 )
             else:
@@ -771,21 +654,15 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
 
             if do_early_stop:
                 if layer_index < self.num_layers - 1:
-                    # Get the confidence of the keypoints for the current layer
                     keypoint_confidences = self.token_confidence[layer_index](descriptors)
 
-                    # Determine which pairs of images should be early stopped based on the confidence of the keypoints for
-                    # the current layer.
                     early_stopped_pairs = self._get_early_stopped_image_pairs(
                         keypoint_confidences, layer_index, mask, num_points=num_points_per_pair
                     )
                 else:
-                    # Early stopping always occurs at the last layer
                     early_stopped_pairs = torch.ones(batch_size, dtype=torch.bool)
 
                 if torch.any(early_stopped_pairs):
-                    # If a pair of images is considered early stopped, we compute the matches for the remaining
-                    # keypoints and stop the forward pass through the transformer layers for this pair of images.
                     early_stops = early_stopped_pairs.repeat_interleave(2)
                     early_stopped_image_indices = image_indices[early_stops]
                     early_stopped_matches, early_stopped_matching_scores = self._get_keypoint_matching(
@@ -798,7 +675,6 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
                         final_pruned_keypoints_indices.extend(list(pruned_keypoints_indices[early_stops]))
                         final_pruned_keypoints_iterations.extend(list(pruned_keypoints_iterations[early_stops]))
 
-                    # Remove image pairs that have been early stopped from the forward pass
                     num_points_per_pair = num_points_per_pair[~early_stopped_pairs]
                     descriptors, keypoints_0, keypoint_1, mask, image_indices = tuple(
                         tensor[~early_stops]
@@ -814,14 +690,10 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
                                 keypoint_confidences,
                             ]
                         )
-                # If all pairs of images are early stopped, we stop the forward pass through the transformer
-                # layers for all pairs of images.
                 if torch.all(early_stopped_pairs):
                     break
 
             if do_keypoint_pruning:
-                # Prune keypoints from the input of the transformer layers for the next iterations if the confidence of
-                # the keypoints is below a certain threshold.
                 descriptors, keypoints, pruned_keypoints_indices, mask, pruned_keypoints_iterations = (
                     self._do_layer_keypoint_pruning(
                         descriptors,
@@ -835,7 +707,6 @@ class LightGlueForKeypointMatching(LightGluePreTrainedModel):
                 )
 
         if do_early_stop and do_keypoint_pruning:
-            # Concatenate early stopped outputs together and perform final keypoint pruning
             final_pruned_keypoints_indices, final_pruned_keypoints_iterations, matches, matching_scores = (
                 self._concat_early_stopped_outputs(
                     early_stops_indices,

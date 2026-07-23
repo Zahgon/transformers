@@ -1,19 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Tokenizer class for Nougat.
-"""
 
 import re
 from functools import partial
@@ -52,30 +36,22 @@ def markdown_compatible(text: str) -> str:
     Returns:
         `str`: The Markdown-compatible text.
     """
-    # equation tag
-    # Replace lines that start with a pattern like (decimal) \[some text\] with \[[some text] \tag{decimal}\].
     text = re.sub(r"^\(([\d.]+[a-zA-Z]?)\) \\\[(.+?)\\\]$", r"\[\2 \\tag{\1}\]", text, flags=re.MULTILINE)
-    # Replace lines that start with a pattern like \[some text\] (decimal)  with \[[some text] \tag{decimal}\].
     text = re.sub(r"^\\\[(.+?)\\\] \(([\d.]+[a-zA-Z]?)\)$", r"\[\1 \\tag{\2}\]", text, flags=re.MULTILINE)
-    # Replace lines that start with a pattern like \[some text\] (digits) \[another text\]  with \[[some text] \tag{digits}\] [another text].
     text = re.sub(
         r"^\\\[(.+?)\\\] \(([\d.]+[a-zA-Z]?)\) (\\\[.+?\\\])$",
         r"\[\1 \\tag{\2}\] \3",
         text,
         flags=re.MULTILINE,
     )
-    # multi line
     text = text.replace(r"\. ", ". ")
-    # bold formatting
     text = text.replace(r"\bm{", r"\mathbf{").replace(r"{\\bm ", r"\mathbf{")
     text = re.sub(r"\\mbox{ ?\\boldmath\$(.*?)\$}", r"\\mathbf{\1}", text)
-    # Reformat urls (http, ftp and https only) to markdown [url](url) clickable format
     text = re.sub(
         r"((?:http|ftp|https):\/\/(?:[\w_-]+(?:(?:\.[\w_-]+)+))(?:[\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-]))",
         r"[\1](\1)",
         text,
     )
-    # algorithms
     text = re.sub(r"```\s*(.+?)\s*```", r"```\n\1\n```", text, flags=re.DOTALL)
 
     return text
@@ -116,7 +92,6 @@ def normalize_list_like_lines(generation):
             potential_numeral, _, rest = item.strip().partition(" ")
             if not rest:
                 continue
-            # Infer current nesting level based on detected numbering
             if re.match(r"^[\dixv]+((?:\.[\dixv])?)+$", potential_numeral, flags=re.IGNORECASE | re.MULTILINE):
                 level = potential_numeral.count(".")
 
@@ -172,10 +147,8 @@ def truncate_repetitions(text: str, min_len: int = 30) -> str:
     if text_length < 2 * min_len:
         return text
 
-    # try to find a length at which the tail is repeating
     max_repetition_length = None
     for repetition_length in range(min_len, int(text_length / 2)):
-        # check if there is a repetition at the end
         same = True
         for i in range(0, repetition_length):
             if text_lower[text_length - repetition_length - i - 1] != text_lower[text_length - i - 1]:
@@ -190,17 +163,14 @@ def truncate_repetitions(text: str, min_len: int = 30) -> str:
 
     lcs = text_lower[-max_repetition_length:]
 
-    # remove all but the last repetition
     substituted_text = text
     substituted_text_lower = text_lower
     while substituted_text_lower.endswith(lcs):
         substituted_text = substituted_text[:-max_repetition_length]
         substituted_text_lower = substituted_text_lower[:-max_repetition_length]
 
-    # this is the tail with the repetitions
     repeating_tail = text_lower[len(substituted_text_lower) :]
 
-    # add until next punctuation and make sure last sentence is not repeating
     substituted_text_lower_out = substituted_text_lower
     while True:
         sentence_end = find_next_punctuation(text_lower, len(substituted_text_lower_out))
@@ -296,7 +266,6 @@ def remove_slice_from_lines(lines, clean_text, slice) -> str:
     base = clean_text[slice[0]]
     section = list(slice)
     check_start_flag = False
-    # backwards pass, at most 5 lines
     for line_idx in range(max(0, slice[0] - 1), max(0, slice[0] - 5), -1):
         if not lines[line_idx]:
             continue
@@ -310,7 +279,6 @@ def remove_slice_from_lines(lines, clean_text, slice) -> str:
                 section[0] = line_idx
             check_start_flag = True
             break
-    # forward pass, at most 5 lines
     for line_idx in range(min(len(lines), slice[1]), min(len(lines), slice[1] + 5)):
         if ratio(base, remove_numbers(lines[line_idx])) < 0.9:
             section[1] = line_idx
@@ -318,7 +286,6 @@ def remove_slice_from_lines(lines, clean_text, slice) -> str:
     if len(lines) <= section[1]:
         section[1] = len(lines) - 1
     to_delete = "\n".join(lines[section[0] : section[1] + 1])
-    # cut off next page content
     itera, iterb = enumerate(lines[section[1] - 1]), enumerate(lines[section[1]])
     while True:
         try:
@@ -345,45 +312,6 @@ def remove_slice_from_lines(lines, clean_text, slice) -> str:
 
 
 class NougatTokenizer(TokenizersBackend):
-    """
-    Tokenizer for Nougat (backed by HuggingFace tokenizers library).
-
-    This tokenizer inherits from [`TokenizersBackend`] which contains most of the main methods. Users should
-    refer to this superclass for more information regarding those methods. This class mainly adds Nougat-specific
-    methods for postprocessing the generated text.
-
-    Args:
-        vocab_file (`str`, *optional*):
-            Path to the vocabulary file.
-        merges_file (`str`, *optional*):
-            Path to the merges file.
-        tokenizer_file (`str`, *optional*):
-            [tokenizers](https://github.com/huggingface/tokenizers) file (generally has a .json extension) that
-            contains everything needed to load the tokenizer.
-
-        clean_up_tokenization_spaces (`str`, *optional*, defaults to `False`):
-            Whether to cleanup spaces after decoding, cleanup consists in removing potential artifacts like extra
-            spaces.
-
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
-
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-
-        vocab (`str`, `dict` or `list`, *optional*):
-            Custom vocabulary dictionary. If not provided, vocabulary is loaded from vocab_file.
-
-        merges (`str` or `list`, *optional*):
-            Custom merges list. If not provided, merges are loaded from merges_file.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -456,7 +384,6 @@ class NougatTokenizer(TokenizersBackend):
             ],
         )
 
-        # Enable truncation and padding
         self._tokenizer.enable_truncation(max_length=4096)
         self._tokenizer.enable_padding(length=4096, pad_id=self.pad_token_id, pad_token=str(pad_token))
 
@@ -507,11 +434,9 @@ class NougatTokenizer(TokenizersBackend):
         "\\begin{table}\n\\begin{tabular}{l l} & \\ \\end{tabular}\n\\end{table}"
         ```
         """
-        # remove obvious wrong tables
         for l in generation.split("\n"):
             if l.count("\\begin{tabular}") > 15 or l.count("\\multicolumn") > 60 or l.count("&") > 400:
                 generation = generation.replace(l, "")
-        # whitespace corrections
 
         generation = generation.replace("\\begin{table} \\begin{tabular}", "\\begin{table}\n\\begin{tabular}")
         generation = generation.replace("\\end{tabular} \\end{table}", "\\end{tabular}\n\\end{table}")
@@ -519,9 +444,7 @@ class NougatTokenizer(TokenizersBackend):
 
         generation = re.sub(r"(^.+)\\begin{tab", r"\1\n\\begin{tab", generation, flags=re.MULTILINE)
 
-        # Remove left-aligned empty LaTeX tabular blocks.
         generation = generation.replace(r"\begin{tabular}{l l}  & \\ \end{tabular}", "")
-        # Remove tabulars with just 2 newline characters.
         generation = generation.replace("\\begin{tabular}{}\n\n\\end{tabular}", "")
         return generation
 
@@ -541,48 +464,34 @@ class NougatTokenizer(TokenizersBackend):
             r"(?:\n|^)#+ \d*\W? ?(.{100,})", r"\n\1", generation
         )  # too long section titles probably are none
         generation = generation.strip()
-        # Remove LaTeX left margin tag
         generation = generation.replace("\n* [leftmargin=*]\n", "\n")
-        # Remove lines with markdown headings starting with #, with numerals,
-        # and possibly roman numerals with trailing spaces and newlines
         generation = re.sub(r"^#+ (?:[\d+\.]+|[ixv\.]+)?\s*(?:$|\n\s*)", "", generation, flags=re.MULTILINE)
-        # most likely hallucinated titles
         lines = generation.split("\n")
         if lines[-1].startswith("#") and lines[-1].lstrip("#").startswith(" ") and len(lines) > 1:
             logger.info("Likely hallucinated title at the end of the page: " + lines[-1])
             generation = "\n".join(lines[:-1])
-        # obvious repetition detection
         generation = truncate_repetitions(generation)
-        # Reference corrections
         generation = self.remove_hallucinated_references(generation)
-        # Remove lines starting with asterisks and numbers like "*[1]" and followed by capital letters and periods (ie too long references)
         generation = re.sub(r"^\* \[\d+\](\s?[A-W]\.+\s?){10,}.*$", "", generation, flags=re.MULTILINE)
-        # Remove empty brackets after a reference number in brackets. *[12][]ABC will become *[12]ABC
         generation = re.sub(r"^(\* \[\d+\])\[\](.*)$", r"\1\2", generation, flags=re.MULTILINE)
-        # Remove single characters before or after 2 new lines
         generation = re.sub(r"(^\w\n\n|\n\n\w$)", "", generation)
-        # pmc math artifact correction
         generation = re.sub(
             r"([\s.,()])_([a-zA-Z0-9])__([a-zA-Z0-9]){1,3}_([\s.,:()])",
             r"\1\(\2_{\3}\)\4",
             generation,
         )
         generation = re.sub(r"([\s.,\d])_([a-zA-Z0-9])_([\s.,\d;])", r"\1\(\2\)\3", generation)
-        # footnote mistakes
         generation = re.sub(
             r"(\nFootnote .*?:) (?:footnotetext|thanks):\W*(.*(?:\n\n|$))",
             r"\1 \2",
             generation,
         )
-        # TODO Come up with footnote formatting inside a table
         generation = re.sub(r"\[FOOTNOTE:.+?\](.*?)\[ENDFOOTNOTE\]", "", generation)
-        # itemize post processing
         generation = normalize_list_like_lines(generation)
 
         if generation.endswith((".", "}")):
             generation += "\n\n"
         if re.match(r"[A-Z0-9,;:]$", generation):
-            # add space in case it there is a comma or word ending
             generation += " "
         elif generation.startswith(("#", "**", "\\begin")):
             generation = "\n\n" + generation
@@ -594,26 +503,18 @@ class NougatTokenizer(TokenizersBackend):
                 if last_word in nltk.corpus.words.words():
                     generation += " "
             except LookupError:
-                # add space just in case. Will split words but better than concatenating them
                 generation += " "
 
-        # table corrections
         generation = self.correct_tables(generation)
-        # Remove optional, empty square brackets after begin{array}
         generation = generation.replace("\\begin{array}[]{", "\\begin{array}{")
-        # Remove empty or malformed LaTeX tabular blocks with 2 or more columns specified, with spaces and ampersands.
         generation = re.sub(
             r"\\begin{tabular}{([clr ]){2,}}\s*[& ]*\s*(\\\\)? \\end{tabular}",
             "",
             generation,
         )
-        # Remove lines containing "S.A.B." one or more times. Was included in Nougat's code.
         generation = re.sub(r"(\*\*S\. A\. B\.\*\*\n+){2,}", "", generation)
-        # Remove markdown-style headers that are incomplete or empty on multiple lines.
         generation = re.sub(r"^#+( [\[\d\w])?$", "", generation, flags=re.MULTILINE)
-        # Remove lines with just one period.
         generation = re.sub(r"^\.\s*$", "", generation, flags=re.MULTILINE)
-        # Replace instances of three or more newlines with just two newlines.
         generation = re.sub(r"\n{3,}", "\n\n", generation)
         if fix_markdown:
             return markdown_compatible(generation)

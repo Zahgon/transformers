@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import copy
@@ -51,81 +38,16 @@ from ...utils import logging
 logger = logging.get_logger(__name__)
 
 
-# TODO(joaogante): block audio and video tokens from gemma4 from being sampled? (some logits processor)
 class DiffusionGemmaGenerationConfig(GenerationConfig):
-    # no-format
-    """
-    A GenerationConfig class with parameterization customized for [`DiffusionGemmaGenerationMixin.generate`].
-
-    Args:
-        > Parameters that control the length of the output
-
-        max_new_tokens (`int`, *optional*):
-            The maximum number of tokens to generate, ignoring the number of tokens in the prompt.
-        max_length (`int`, *optional*):
-            The maximum length of the output sequence. `max_new_tokens` is recommended for controlling how many tokens
-            the model generates.
-
-        > Diffusion parameters
-
-        max_denoising_steps (`int`):
-            The maximum number of denoising steps to perform.
-        sampler_config (`EntropyBoundSamplerConfig`):
-            The configuration for the sampler. See [`EntropyBoundSampler`] to learn how a sampler operates in a
-            text diffusion model.
-        t_min (`float`):
-            The final temperature in the schedule, i.e. at the last denoising step. See
-            [`LinearTemperatureScheduleLogitsProcessor`] for more details.
-        t_max (`float`):
-            The initial temperature in the schedule, i.e. at the first denoising step. See
-            [`LinearTemperatureScheduleLogitsProcessor`] for more details.
-        stability_threshold (`int`):
-            The number of steps for which the accepted canvas must be the same to trigger the stopping criteria.
-            See [`StableAndConfidentStoppingCriteria`] for more details.
-        confidence_threshold (`float`):
-            The threshold for the mean of the entropy of temperature-scaled logits to trigger the stopping criteria.
-            See [`StableAndConfidentStoppingCriteria`] for more details.
-
-        > Parameters that control the cache
-
-        cache_implementation (`str`, *optional*):
-            Name of the cache class that will be instantiated in `generate`, for faster decoding. Possible values are:
-
-            - `"dynamic"`: [`DynamicCache`]
-            - `"static"`: [`StaticCache`]
-            - `"offloaded"`: [`DynamicCache(offloaded=True)`]
-            - `"offloaded_static"`: [`StaticCache(offloaded=True)`]
-            - `"quantized"`: [`QuantizedCache`]
-
-            If none is specified, we will use the default cache for the model (which is often [`DynamicCache`]). See
-            our [cache documentation](https://huggingface.co/docs/transformers/en/kv_cache) for further information.
-        cache_config (`dict`, *optional*, default to `None`):
-            Arguments used in the key-value cache class can be passed in `cache_config`.
-
-        > Special tokens that can be used at generation time
-
-        bos_token_id (`int`, *optional*):
-            The id of the *beginning-of-sequence* token.
-        pad_token_id (`int`, *optional*):
-            The id of the *padding* token.
-        eos_token_id (`Union[int, list[int]]`, *optional*):
-            The id of the *end-of-sequence* token. Optionally, use a list to set multiple *end-of-sequence* tokens.
-    """
 
     def __init__(self, **kwargs):
-        # TODO(joao): test other common `GenerationConfig` flags like top-k, and whitelist them.
 
-        # We intentionally DON'T call super().__init__(): we don't want most of the attributes of the parent class.
 
-        # Parameters that control the length of the output
         self.max_new_tokens: int | None = kwargs.pop("max_new_tokens", None)
         self.max_length: int | None = kwargs.pop("max_length", None)
 
-        # Parameter that controls the format of generate
         self.return_dict_in_generate: bool = kwargs.pop("return_dict_in_generate", True)
 
-        # Diffusion parameters
-        # There can be only one sampler at a time, but multiple logits processors and/or stopping criteria.
         self.max_denoising_steps: int = kwargs.pop("max_denoising_steps", None)
         self.sampler_config: EntropyBoundSamplerConfig = kwargs.pop("sampler_config", None)
         self.t_min: float = kwargs.pop("t_min", None)
@@ -133,31 +55,25 @@ class DiffusionGemmaGenerationConfig(GenerationConfig):
         self.stability_threshold: int = kwargs.pop("stability_threshold", None)
         self.confidence_threshold: float = kwargs.pop("confidence_threshold", None)
 
-        # Parameters that control the cache
         self.cache_implementation: str | None = kwargs.pop("cache_implementation", None)
         self.cache_config: dict[str, Any] | None = kwargs.pop("cache_config", None)
         self.disable_compile: str | None = kwargs.pop("disable_compile", None)
 
-        # Special tokens that can be used at generation time
         self.bos_token_id: int | None = kwargs.pop("bos_token_id", None)
         self.pad_token_id: int | None = kwargs.pop("pad_token_id", None)
         self.eos_token_id: list[int] | int | None = kwargs.pop("eos_token_id", None)
 
-        # Metadata
         self._commit_hash: str | None = kwargs.pop("_commit_hash", None)
         self._from_model_config: bool | None = kwargs.pop("_from_model_config", None)
         self.transformers_version: str | None = kwargs.pop("transformers_version", None)
 
-        # kwargs must be empty at this point. If it is not, then it received unexpected kwargs.
         if len(kwargs) > 0:
             raise ValueError(f"Unexpected kwargs: {kwargs.keys()}")
 
-        # Validate the values of the attributes
         self._resolve_dataclasses()
         self.validate()
 
     def validate(self, **unused_kwargs):
-        # 1. Diffusion-specific attributes
         if self.max_denoising_steps is not None and (
             not isinstance(self.max_denoising_steps, int) or self.max_denoising_steps <= 0
         ):
@@ -183,7 +99,6 @@ class DiffusionGemmaGenerationConfig(GenerationConfig):
         ):
             raise ValueError(f"`confidence_threshold` must be a float > 0 (got {self.entropy_bound})")
 
-        # 2. Other attributes (often used in AR)
         if self.max_length is not None and self.max_length <= 0:
             raise ValueError(f"`max_length` must be a positive integer, but got {self.max_length}")
         if self.max_new_tokens is not None and self.max_new_tokens <= 0:
@@ -202,12 +117,10 @@ class DiffusionGemmaGenerationConfig(GenerationConfig):
         NOTE: this dictionary input format is intentionally not documented in __init__, to ensure
         users use the dataclasses -- they have built-in validation.
         """
-        # Assumption: all dataclasses that we want to load can be instantiated in this file
         current_module = sys.modules[__name__]
 
         for attr_name in ("sampler_config",):
             attr = getattr(self, attr_name)
-            # Load the right dataclass using the `_cls_name` field
             if isinstance(attr, dict):
                 cls_name = attr.pop("_cls_name", None)
                 config_dataclass = getattr(current_module, cls_name)
@@ -233,37 +146,15 @@ class DiffusionGemmaGenerationConfig(GenerationConfig):
             "confidence_threshold": 0.005,
         }
 
-    # Overriding GenerationMixin-related functions that are not relevant to DiffusionGemma.
-    # (These functions being tightly coupled to the GenerationMixin is a sign they should be moved into GenerationMixin)
     def get_generation_mode(self, *args, **kwargs):
         raise NotImplementedError("DiffusionGemmaGenerationConfig does not support `get_generation_mode`")
 
-    # Legacy support from `GenerationConfig`
     def from_model_config(self, *args, **kwargs):
         raise NotImplementedError("DiffusionGemmaGenerationConfig does not support `from_model_config`")
 
 
 @dataclass
 class DiffusionGemmaGenerationOutput(ModelOutput):
-    """
-    Output class for DiffusionGemma generation.
-
-    Args:
-        sequences (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
-            The generated sequences, including the prompt if `input_ids` was provided to the `generate` method.
-        tokens_per_forward (`torch.LongTensor` of shape (`batch_size`)):
-            The number of tokens per forward in this `generate` call, for each member in the batch. This is often
-            used as a secondary evaluation metric for text diffusion models.
-        past_key_values (`Cache`):
-            The cache used for generation. It can be passed to subsequent calls to `generate` to speed up generation,
-            in multi-turn sessions.
-        logits (`None`):
-            Unused. Kept in the interface for BC.
-        scores (`None`):
-            Unused. Kept in the interface for BC.
-        hidden_states (`None`):
-            Unused. Kept in the interface for BC.
-    """
 
     sequences: torch.LongTensor
     tokens_per_forward: int | None = None
@@ -274,20 +165,6 @@ class DiffusionGemmaGenerationOutput(ModelOutput):
 
 
 class LinearTemperatureScheduleLogitsProcessor(LogitsProcessor):
-    r"""
-    Logits processor that applies a linear temperature schedule to the logits. This is similar to
-    `TemperatureLogitsWarper`, except that the temperature is a function of the current step.
-
-    At step n out of N, the temperature t is given by t = t_min + ((t_max - t_min) * (n/N)).
-
-    Args:
-        t_min (`float`):
-            The final temperature in the schedule, i.e. at the last denoising step.
-        t_max (`float`):
-            The initial temperature in the schedule, i.e. at the first denoising step.
-        max_denoising_steps (`int`):
-            The maximum number of denoising steps.
-    """
 
     def __init__(self, t_min: float, t_max: float, max_denoising_steps: int):
         self.t_min = t_min
@@ -318,14 +195,6 @@ class LinearTemperatureScheduleLogitsProcessor(LogitsProcessor):
 
 @dataclass
 class EntropyBoundSamplerConfig:
-    """
-    Configuration class for the entropy bound sampler.
-
-    Args:
-        entropy_bound (`float`):
-            The entropy bound. The higher this value is, the more tokens will be accepted. See the docstring of
-            [`EntropyBoundSampler.accept_canvas`] for more details on how it is applied.
-    """
 
     entropy_bound: float
 
@@ -334,54 +203,12 @@ class EntropyBoundSamplerConfig:
             raise ValueError(f"`entropy_bound` must be a float > 0 (got {self.entropy_bound})")
 
     def to_dict(self):
-        # Stores the class name as well, so we can load it back
         obj_dict = copy.deepcopy(self.__dict__)
         obj_dict["_cls_name"] = self.__class__.__name__
         return obj_dict
 
 
 class EntropyBoundSampler:
-    r"""
-    Sampler class that initializes a canvas with random tokens, accepts tokens based on token-level entropy, and
-    renoises non-accepted tokens.
-
-    Here is a rough sketch of how the sampler loop works:
-    ```
-              +-----------------------+
-              | Canvas initialization |
-              | x_T ∈ U(V)            |
-              +-----------+-----------+
-                          |
-                          v
-               +----------+---------+       +---------------------+
-    +--------->| Current canvas x_t |------>| Denoiser canvas x_D |
-    |          +----------+---------+       +----------+----------+
-    |                      \                          /
-    |                       \                        /
-    |                        \   Acceptance logic   /
-    |                         v                    v
-    |                       +-------------------------+
-    | Stop if max           | Accepted canvas x_{t-1} |
-    | denosing steps        +------------+------------+      +-------------------+
-    | reached or                          \                  | New canvas ∈ U(V) |
-    | adaptive stopping                    \                 +---------+---------+
-    | triggers                              \    Renoising logic      /
-    |                                        v                       v
-    |                                       +-------------------------+
-    +---------------------------------------| Next canvas x_{t-1}     |
-                                            +-------------------------+
-    ```
-
-    Args:
-        config (`EntropyBoundSamplerConfig`):
-            The configuration of the sampler.
-        canvas_length (`int`):
-            The length of the canvas.
-        vocab_size (`int`):
-            The size of the vocabulary.
-        max_denoising_steps (`int`):
-            The maximum number of denoising steps. (Unused in this sampler)
-    """
 
     def __init__(
         self, config: EntropyBoundSamplerConfig, canvas_length: int, vocab_size: int, max_denoising_steps: int
@@ -439,7 +266,6 @@ class EntropyBoundSampler:
         sorted_token_entropy, sorted_indices = torch.sort(token_entropy, dim=-1, descending=False)
         cumulative_entropy = torch.cumsum(sorted_token_entropy, dim=-1)
 
-        # Note: sorted_token_entropy = cumulative maximum entropy, because it's sorted in ascending order
         sorted_selection_mask = cumulative_entropy - sorted_token_entropy <= self.entropy_bound
         self.accepted_token_mask = torch.scatter(
             input=torch.zeros_like(sorted_selection_mask), dim=-1, index=sorted_indices, src=sorted_selection_mask
@@ -470,9 +296,6 @@ class EntropyBoundSampler:
 
 
 class DiffusionGemmaAdaptiveStopping(ABC):
-    """
-    Base class for DiffusionGemma adaptive stopping strategies. It may be stateful or stateless.
-    """
 
     @abstractmethod
     def __call__(self, argmax_canvas: torch.LongTensor, logits: torch.FloatTensor, **kwargs) -> torch.BoolTensor: ...
@@ -482,18 +305,6 @@ class DiffusionGemmaAdaptiveStopping(ABC):
 
 
 class StableAndConfidentStoppingCriteria(DiffusionGemmaAdaptiveStopping):
-    """
-    Adaptive stopping strategy that stops when the diffusion process is confident and stable. To be more specific:
-    - The diffusion process is stable when the accepted canvas are the same across `stability_threshold` steps.
-    - The diffusion process is confident when the mean of the entropy of the processed logits is below
-      `confidence_threshold`.
-
-    Args:
-        stability_threshold (`int`):
-            The number of steps for which the accepted canvas must be the same to trigger the stopping criteria.
-        confidence_threshold (`float`):
-            The threshold for the mean of the entropy of temperature-scaled logits to trigger the stopping criteria.
-    """
 
     def __init__(self, stability_threshold: int, confidence_threshold: float):
         self.stability_threshold = stability_threshold
@@ -514,7 +325,6 @@ class StableAndConfidentStoppingCriteria(DiffusionGemmaAdaptiveStopping):
         Returns:
             torch.BoolTensor: A boolean tensor indicating whether to stop.
         """
-        # 1. Stability criteria
         if self.stability_threshold == 0:
             stable = torch.ones((logits.shape[0]), device=logits.device, dtype=torch.bool)
         else:
@@ -529,7 +339,6 @@ class StableAndConfidentStoppingCriteria(DiffusionGemmaAdaptiveStopping):
             self.argmax_canvas_history = torch.roll(self.argmax_canvas_history, shifts=-1, dims=0)
             self.argmax_canvas_history[-1] = argmax_canvas
 
-        # 2. Confidence criteria
         dist = torch.distributions.Categorical(logits=logits)
         token_entropy = dist.entropy()
         confident = torch.mean(token_entropy, dim=-1) < self.confidence_threshold
@@ -541,9 +350,6 @@ class StableAndConfidentStoppingCriteria(DiffusionGemmaAdaptiveStopping):
 
 
 class DiffusionGemmaGenerationMixin:
-    """
-    Mixin class for DiffusionGemma generation. Contains all the model-level methods.
-    """
 
     @torch.no_grad()
     def generate(
@@ -634,14 +440,9 @@ class DiffusionGemmaGenerationMixin:
         >>> model.generate(input_ids.to(model.device), max_new_tokens=512, streamer=streamer)
         ```
         """
-        # 0. Input preparation
-        # 0.a. Prepare the generation config, respecting the kwarg-based parameterization from the original AR
-        # `generate`
         generation_config, model_kwargs = self._prepare_generation_config(generation_config, **kwargs)
         return_dict_in_generate = getattr(generation_config, "return_dict_in_generate", True)
 
-        # 0.b. Set generation or output control variables. As in AR generation, `max_new_tokens` takes precedence
-        # over `max_length` (we check against the default value, 256).
         batch_size, cur_len = input_ids.shape
         initial_input_ids_len = cur_len
         if past_key_values is not None:
@@ -649,7 +450,6 @@ class DiffusionGemmaGenerationMixin:
         max_length, max_new_tokens = self._prepare_generated_length(generation_config, cur_len)
         max_new_canvases = math.ceil(max_new_tokens / self.config.canvas_length)
 
-        # 0.c. Sanity-checks, before spending time in the generation loop
         if past_key_values is not None and generation_config.cache_implementation is not None:
             raise ValueError("Cannot provide both `past_key_values` and `generation_config.cache_implementation`.")
         if (
@@ -663,7 +463,6 @@ class DiffusionGemmaGenerationMixin:
                 "`return_dict=True`, and pass the resulting dictionary to `generate`."
             )
 
-        # 0.d. Initialize tensor or tensor-based data and variables
         device = input_ids.device
         canvas_length = self.config.canvas_length
         current_canvas = None
@@ -694,7 +493,6 @@ class DiffusionGemmaGenerationMixin:
             attention_mask = torch.ones((batch_size, cur_len), dtype=torch.bool, device=input_ids.device)
         decoder_attention_mask = torch.nn.functional.pad(attention_mask, (0, canvas_length), value=True)
 
-        # 0.e. Initialize samplers, logits processors, and stopping criteria
         sampler = self._prepare_sampler(generation_config)
         logits_processor = self._prepare_logits_processor(generation_config, logits_processor)
         stopping_criteria = self._prepare_ar_stopping_criteria(generation_config, stopping_criteria)
@@ -702,7 +500,6 @@ class DiffusionGemmaGenerationMixin:
         if streamer is not None:
             streamer.put(input_ids.cpu())
 
-        # 0.f performance tuning
         is_compiling = (
             past_key_values is not None and past_key_values.is_compileable and not generation_config.disable_compile
         )
@@ -714,11 +511,8 @@ class DiffusionGemmaGenerationMixin:
             decoder_forward = self.forward
             encoder_forward_after_prefill = self.model.encoder
 
-        # 1. Autoregressive canvas generation loop
-        # NOTE: please keep the docstring in sync with this section's comments.
         is_prefill = True
         for _ in range(max_new_canvases):
-            # 1.a. Encode all previous tokens using the encoder, to get the KV cache.
             unprocessed_input_ids, encoder_mask_mapping = self._prepare_encoder_inputs(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -741,7 +535,6 @@ class DiffusionGemmaGenerationMixin:
             past_key_values = encoder_outputs.past_key_values
             is_prefill = False
 
-            # 1.b. Prepare data for the new denoising loop
             current_canvas, self_conditioning_logits, mask_mapping, finished_denoising = self._prepare_denoiser_inputs(
                 decoder_attention_mask=decoder_attention_mask,
                 past_key_values=past_key_values,
@@ -753,11 +546,7 @@ class DiffusionGemmaGenerationMixin:
             )
             argmax_canvas = current_canvas
 
-            # 1.c For each denoising (diffusion) step:
-            # NOTE: we iterate in reverse order, as denoising is the reverse diffusion process (N..1).
             for cur_step in reversed(range(1, generation_config.max_denoising_steps + 1)):
-                # Unfinished batch items get their decoder forward pass counter incremented
-                # Finished batch items wouldn't have this decoder pass if we were running with bsz == 1
                 decoder_forward_passes += ~(finished_denoising | finished_sequences)
 
                 current_canvas, argmax_canvas, self_conditioning_logits, finished_denoising = self._denoising_step(
@@ -777,23 +566,17 @@ class DiffusionGemmaGenerationMixin:
                     **model_kwargs,
                 )
 
-                # If we have a draft-compatible streamer, put out the latest draft. We consider `argmax_canvas`
-                # to be the draft, as it is often the closest to the final output.
                 if streamer is not None and hasattr(streamer, "put_draft"):
                     streamer_kwargs = {"value": argmax_canvas.cpu()}
                     if getattr(streamer, "_takes_logits", False):
                         streamer_kwargs = {"logits": self_conditioning_logits.cpu()}
                     streamer.put_draft(**streamer_kwargs)
 
-                # Early exit if no more denoising steps are needed
                 if torch.all(finished_denoising):
                     break
 
-            # 1.d. Append the new denoised canvas to the sequence of generated tokens.
             input_ids = torch.cat([input_ids, argmax_canvas], dim=-1)
 
-            # 1.e. Check if any autoregressive stopping criteria are met, and break the outer loop if all sequences
-            # have met them. Replaces generated tokens in finished sequences by pad.
             input_ids, finished_sequences = self._finalize_canvas(
                 input_ids=input_ids,
                 finished_sequences=finished_sequences,
@@ -809,7 +592,6 @@ class DiffusionGemmaGenerationMixin:
             if torch.all(finished_sequences):
                 break
 
-            # 1.f. Prepare tensors for the next block
             cur_len, decoder_attention_mask, attention_mask, encoder_position_ids, decoder_position_ids = (
                 self._prepare_kwargs_for_next_canvas(
                     attention_mask=attention_mask,
@@ -820,7 +602,6 @@ class DiffusionGemmaGenerationMixin:
                 )
             )
 
-        # 2. Finalize and return
         if streamer is not None:
             streamer.end()
         if not return_dict_in_generate:
@@ -861,18 +642,12 @@ class DiffusionGemmaGenerationMixin:
         """
         Prepares the base generation config, then applies any generation configuration options from kwargs.
         """
-        # TODO(joao, raushan): refactor `GenerationMixin` and this to reuse logic without requiring inheritance.
 
-        # priority for baseline parameterization: ad hoc kwargs passed to `generate` > provided `generation_config` >
-        # `self.generation_config` > global defaults
         generation_config = generation_config or self.generation_config or DiffusionGemmaGenerationConfig()
-        # copy: don't modify the original generation config when applying global defaults or kwargs
         generation_config = copy.deepcopy(generation_config)
-        # apply global defaults to unset parameters
         global_defaults = generation_config._get_default_generation_params()
         generation_config.update(**self.generation_config.to_dict(), defaults_only=True, allow_custom_entries=True)
         generation_config.update(**global_defaults, defaults_only=True)
-        # kwargs rejected from updating the generation config are model_kwargs
         model_kwargs = generation_config.update(**kwargs)
         generation_config.validate()
         return generation_config, model_kwargs
@@ -883,7 +658,6 @@ class DiffusionGemmaGenerationMixin:
         cur_len: int,
     ):
         """Prepared max length in generation configs to avoid clashes between similar attributes"""
-        # TODO(joao, raushan): refactor `GenerationMixin` and this to reuse logic without requiring inheritance.
 
         if generation_config.max_length and generation_config.max_new_tokens == 256:
             max_length = generation_config.max_length
@@ -902,9 +676,7 @@ class DiffusionGemmaGenerationMixin:
         (NOTE: Originally copied from `GenerationMixin._prepare_cache_for_generation` on 2026-03-27, and stripped down
         for DiffusionGemma.)
         """
-        # TODO(joao, raushan): refactor `GenerationMixin` and this to reuse logic without requiring inheritance.
 
-        # Static Caches
         if generation_config.cache_implementation in ALL_STATIC_CACHE_IMPLEMENTATIONS:
             if generation_config.cache_implementation in DEPRECATED_STATIC_CACHE_IMPLEMENTATIONS:
                 logger.warning_once(
@@ -923,7 +695,6 @@ class DiffusionGemmaGenerationMixin:
             backend = cache_config.pop("backend", "quanto")
             past_key_values = QuantizedCache(backend=backend, **cache_config)
 
-        # Dynamic Caches
         else:
             dynamic_cache_kwargs = {"config": self.config.get_text_config(decoder=True)}
             if generation_config.cache_implementation == "offloaded":
@@ -945,16 +716,13 @@ class DiffusionGemmaGenerationMixin:
     ) -> tuple[torch.Tensor, dict]:
         """Prepares the inputs for the encoder"""
         unprocessed_input_ids = input_ids if is_prefill else input_ids[:, -canvas_length:]
-        # Clone with `memory_format=torch.contiguous_format` to prevent stride-related graph breaks
         unprocessed_input_ids = unprocessed_input_ids.clone(memory_format=torch.contiguous_format)
 
-        # 2D -> 4D attention mask mapping. Calling it in advance prevents graph breaks
         dummy_input_embeds = torch.empty(
             (batch_size, unprocessed_input_ids.shape[1], 0), dtype=self.dtype, device=input_ids.device
         )
         encoder_mask_mapping = self.model.encoder.create_masks_for_generate(
             config=self.config,
-            # we only need batch size, seq_length, dtype and device here - so we pass a 0-sized tensor with only the metadata
             inputs_embeds=dummy_input_embeds,
             attention_mask=attention_mask,
             past_key_values=past_key_values,
@@ -974,18 +742,13 @@ class DiffusionGemmaGenerationMixin:
         model_kwargs: dict,
     ) -> tuple:
         """Prepares the inputs for the denoising loop"""
-        # These `model_kwargs` keys, when set, are consumed in the first encoder call
         for key in ("pixel_values", "image_position_ids", "mm_token_type_ids"):
             if key in model_kwargs:
                 del model_kwargs[key]
 
-        # Randomly initialize a canvas of `canvas_length` tokens and prepare the 4D decoder attention mask
-        # (The exception is if a user provides their own starting canvas, which gets consumed in the first
-        # decoder call)
         current_canvas = model_kwargs.pop(
             "decoder_input_ids", sampler.initialize_canvas(batch_size=batch_size, device=device)
         )
-        # (The same applies to the self-conditioning logits)
         self_conditioning_logits = model_kwargs.pop("self_conditioning_logits", None)
 
         mask_mapping = self.model.decoder.create_diffusion_decoder_attention_mask(
@@ -1020,12 +783,9 @@ class DiffusionGemmaGenerationMixin:
         """
         Runs one denoising step. Please refer to the docstring in `generate` for more details.
         """
-        # if we're compiling inner functions, `cur_step` as a plain `int` will trigger recompilations
         cur_step = torch.tensor(cur_step, device=current_canvas.device, dtype=torch.int32)
         torch.compiler.cudagraph_mark_step_begin()  # needed for the compiled EB sampler
 
-        # 1.c.i Run the decoder, taking the current canvas, the encoder KV cache, and the self-conditioning
-        # logits (if available) as inputs.
         decoder_outputs = decoder_forward(
             decoder_input_ids=current_canvas,
             self_conditioning_logits=self_conditioning_logits,
@@ -1036,25 +796,20 @@ class DiffusionGemmaGenerationMixin:
         )
         raw_logits = decoder_outputs.logits
 
-        # 1.c.ii Select new canvas tokens from the output logits.
         processed_logits = logits_processor(input_ids, raw_logits, cur_step=cur_step)
         probs = torch.softmax(processed_logits, dim=-1, dtype=torch.float32)
-        # `torch.multinomial` only works on 2D tensors, so we flatten/unflatten
         vocab_size = self.config.text_config.vocab_size
         batch_size, canvas_length = current_canvas.shape
         denoiser_canvas = torch.multinomial(probs.view(-1, vocab_size), num_samples=1)
         denoiser_canvas = denoiser_canvas.squeeze(-1).view(batch_size, canvas_length)
         new_argmax_canvas = torch.argmax(processed_logits, dim=-1)
 
-        # 1.c.iii Apply the sampler acceptance and renoising logic.
         accepted_canvas = sampler.accept_canvas(current_canvas, denoiser_canvas, processed_logits, cur_step)
         accepted_canvas = accepted_canvas.clone()  # clone needed for compiled sampler
         new_current_canvas = sampler.renoise_canvas(accepted_canvas, cur_step)
         new_current_canvas = new_current_canvas.clone()  # clone needed for compiled sampler
 
-        # 1.c.iv Update the diffusion stopping criteria.
         if diffusion_stopping_criteria is not None:
-            # If we have any batch item that has finished before, we don't want to update its results!
             if finished_denoising.any():
                 new_argmax_canvas = torch.where(finished_denoising[:, None], argmax_canvas, new_argmax_canvas)
                 new_current_canvas = torch.where(finished_denoising[:, None], current_canvas, new_current_canvas)
@@ -1064,7 +819,6 @@ class DiffusionGemmaGenerationMixin:
 
             finished_denoising |= diffusion_stopping_criteria(new_argmax_canvas, processed_logits)
 
-        # 1.c.v Use the output logits as self-conditioning logits for the next step.
         embeddings_dtype = self.model.decoder.embed_tokens.weight.dtype
         self_conditioning_logits = processed_logits.to(embeddings_dtype)
 
@@ -1088,16 +842,13 @@ class DiffusionGemmaGenerationMixin:
         finished_this_canvas = stopping_criteria(
             input_ids,
             None,
-            # `new_token_length` is used in the EosTokenCriteria to look for eos tokens in the whole canvas
             new_token_length=canvas_length,
         )
         previously_finished_sequences = finished_sequences
         finished_sequences = previously_finished_sequences | finished_this_canvas
         pad_mask = None
         if generation_config.pad_token_id is not None and torch.any(finished_sequences):
-            # finished sequences from previous canvases: all generated tokens get replaced by pad
             input_ids[previously_finished_sequences, -canvas_length:] = generation_config.pad_token_id
-            # finished sequences from this canvas: all tokens after eos get replaced by pad
             if generation_config.eos_token_id is not None and torch.any(finished_this_canvas):
                 new_tokens = input_ids[:, -canvas_length:]
                 is_eos = torch.isin(new_tokens, eos_tensor)
@@ -1134,7 +885,6 @@ class DiffusionGemmaGenerationMixin:
         (NOTE: Originally copied from `GenerationMixin._prepare_static_cache` on 2026-03-27, and stripped down
         for DiffusionGemma.)
         """
-        # TODO(joao, raushan): refactor `GenerationMixin` and this to reuse logic without requiring inheritance.
         offload_cache = "offloaded" in cache_implementation
 
         cache_to_check: StaticCache | None = None
@@ -1165,9 +915,7 @@ class DiffusionGemmaGenerationMixin:
         """
         Prepares and returns the logits processor for generation, given the parameterization in `generation_config`.
         """
-        # TODO(joao, raushan): refactor `GenerationMixin` and this to reuse logic without requiring inheritance.
 
-        # Externally defined `logits_processor` will be applied first.
         if logits_processor is None:
             logits_processor = LogitsProcessorList()
 
@@ -1191,9 +939,7 @@ class DiffusionGemmaGenerationMixin:
         Prepares and returns the autoregressive stopping criteria for generation, given the parameterization in
         `generation_config`.
         """
-        # TODO(joao, raushan): refactor `GenerationMixin` and this to reuse logic without requiring inheritance.
 
-        # Externally defined `stopping_criteria` will be applied first.
         if stopping_criteria is None:
             stopping_criteria = StoppingCriteriaList()
 
@@ -1224,7 +970,6 @@ class DiffusionGemmaGenerationMixin:
         """
         Prepares and returns the sampler for generation, given the parameterization in `generation_config`.
         """
-        # Assumption: validation of the type in `sampler_config` happens in `generation_config.validate()`
         return EntropyBoundSampler(
             config=generation_config.sampler_config,
             canvas_length=self.config.canvas_length,
@@ -1286,7 +1031,6 @@ class DiffusionGemmaGenerationMixin:
         (NOTE: Originally copied from `GenerationMixin.adjust_generation_fn` on 2026-05-04, and stripped down
         for DiffusionGemma.)
         """
-        # TODO(joao, raushan): refactor `GenerationMixin` and this to reuse logic without requiring inheritance.
         del trust_remote_code  # unused
 
         if self.can_generate() and generation_config is not None:
@@ -1302,7 +1046,6 @@ class DiffusionGemmaGenerationMixin:
                 "subfolder": subfolder,
                 **kwargs,
             }
-            # Load generation config
             try:
                 self.generation_config = self.generation_config_class.from_pretrained(
                     pretrained_model_name_or_path,

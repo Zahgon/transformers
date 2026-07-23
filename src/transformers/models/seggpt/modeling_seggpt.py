@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SegGpt model."""
 
 import collections.abc
 from dataclasses import dataclass
@@ -38,20 +24,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class SegGptEncoderOutput(ModelOutput):
-    r"""
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, patch_height, patch_width, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the model.
-    hidden_states (`tuple[torch.FloatTensor]`, `optional`, returned when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each layer)
-        of shape `(batch_size, patch_height, patch_width, hidden_size)`.
-    attentions (`tuple[torch.FloatTensor]`, `optional`, returned when `config.output_attentions=True`):
-        Tuple of *torch.FloatTensor* (one for each layer) of shape
-        `(batch_size, num_heads, seq_len, seq_len)`.
-    intermediate_hidden_states (`tuple[torch.FloatTensor]`, *optional*, returned when `config.intermediate_hidden_state_indices` is set):
-        Tuple of `torch.FloatTensor` of shape `(batch_size, patch_height, patch_width, hidden_size)`.
-        Each element in the Tuple corresponds to the output of the layer specified in `config.intermediate_hidden_state_indices`.
-        Additionally, each feature passes through a LayerNorm.
-    """
 
     last_hidden_state: torch.FloatTensor
     hidden_states: tuple[torch.FloatTensor] | None = None
@@ -66,18 +38,6 @@ class SegGptEncoderOutput(ModelOutput):
 )
 @dataclass
 class SegGptImageSegmentationOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor`, *optional*, returned when `labels` is provided):
-        The loss value.
-    pred_masks (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
-        The predicted masks.
-    hidden_states (`tuple[torch.FloatTensor]`, `optional`, returned when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each layer)
-        of shape `(batch_size, patch_height, patch_width, hidden_size)`.
-    attentions (`tuple[torch.FloatTensor]`, `optional`, returned when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape
-        `(batch_size, num_heads, seq_len, seq_len)`.
-    """
 
     loss: torch.FloatTensor | None = None
     pred_masks: torch.FloatTensor | None = None
@@ -85,13 +45,7 @@ class SegGptImageSegmentationOutput(ModelOutput):
     attentions: tuple[torch.FloatTensor] | None = None
 
 
-# Copied from transformers.models.sam.modeling_sam.SamPatchEmbeddings with Sam->SegGpt
 class SegGptPatchEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
-    `hidden_states` (patch embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
-    Transformer.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -122,9 +76,6 @@ class SegGptPatchEmbeddings(nn.Module):
 
 
 class SegGptEmbeddings(nn.Module):
-    """
-    Construct the embeddings from patch, position embeddings for input and prompt.
-    """
 
     def __init__(self, config: SegGptConfig) -> None:
         super().__init__()
@@ -132,7 +83,6 @@ class SegGptEmbeddings(nn.Module):
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, config.hidden_size))
         self.segment_token_input = nn.Parameter(torch.zeros(1, 1, 1, config.hidden_size))
         self.segment_token_prompt = nn.Parameter(torch.zeros(1, 1, 1, config.hidden_size))
-        # token for seg types
         self.type_token_semantic = nn.Parameter(torch.zeros(1, 1, 1, config.hidden_size))
         self.type_token_instance = nn.Parameter(torch.zeros(1, 1, 1, config.hidden_size))
 
@@ -147,7 +97,6 @@ class SegGptEmbeddings(nn.Module):
         num_patches = patch_pos_embed.shape[1]
         pretrain_patch_size = torch_int(num_patches**0.5)
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if torch.jit.is_tracing() or pretrain_patch_size != height or pretrain_patch_size != width:
             patch_pos_embed = F.interpolate(
                 patch_pos_embed.reshape(1, pretrain_patch_size, pretrain_patch_size, -1).permute(0, 3, 1, 2),
@@ -173,7 +122,6 @@ class SegGptEmbeddings(nn.Module):
         batch_size, patch_height, patch_width, _ = input_embeddings.shape
 
         mask_token = self.mask_token.expand(batch_size, patch_height, patch_width, -1)
-        # replace the masked visual tokens by mask_token
         w = bool_masked_pos.unsqueeze(-1).type_as(mask_token).reshape(-1, patch_height, patch_width, 1)
         prompt_embeddings = prompt_embeddings * (1 - w) + mask_token * w
 
@@ -182,15 +130,12 @@ class SegGptEmbeddings(nn.Module):
         # add positional encoding to each token
         pos_embed = self.interpolate_pos_encoding(patch_height, patch_width)
 
-        # add segment token
         input_embeddings = input_embeddings + self.segment_token_input
         prompt_embeddings = prompt_embeddings + self.segment_token_prompt
 
-        # add position embedding skipping CLS
         input_embeddings = input_embeddings + pos_embed
         prompt_embeddings = prompt_embeddings + pos_embed
 
-        # add type embedding to each token
         if embedding_type == "semantic":
             type_embedding = self.type_token_semantic
         elif embedding_type == "instance":
@@ -207,7 +152,6 @@ class SegGptEmbeddings(nn.Module):
 
 
 class SegGptAttention(nn.Module):
-    """Multi-head Attention block with relative position embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -229,7 +173,6 @@ class SegGptAttention(nn.Module):
             if input_size is None:
                 raise ValueError("Input size must be provided if using relative positional encoding.")
 
-            # initialize relative positional embeddings
             self.rel_pos_h = nn.Parameter(torch.zeros(2 * input_size[0] - 1, head_dim))
             self.rel_pos_w = nn.Parameter(torch.zeros(2 * input_size[1] - 1, head_dim))
 
@@ -250,7 +193,6 @@ class SegGptAttention(nn.Module):
             Extracted positional embeddings according to relative positions.
         """
         max_rel_dist = int(2 * max(q_size, k_size) - 1)
-        # Interpolate rel pos.
         rel_pos_resized = F.interpolate(
             rel_pos.reshape(1, rel_pos.shape[0], -1).permute(0, 2, 1),
             size=max_rel_dist,
@@ -258,7 +200,6 @@ class SegGptAttention(nn.Module):
         )
         rel_pos_resized = rel_pos_resized.reshape(-1, max_rel_dist).permute(1, 0)
 
-        # Scale the coords with short length if shapes for q and k are different.
         q_coords = torch.arange(q_size)[:, None] * max(k_size / q_size, 1.0)
         k_coords = torch.arange(k_size)[None, :] * max(q_size / k_size, 1.0)
         relative_coords = (q_coords - k_coords) + (k_size - 1) * max(q_size / k_size, 1.0)
@@ -312,13 +253,11 @@ class SegGptAttention(nn.Module):
 
     def forward(self, hidden_states: torch.Tensor, output_attentions=False) -> torch.Tensor:
         batch_size, height, width, _ = hidden_states.shape
-        # qkv with shape (3, batch_size, nHead, height * width, channel)
         qkv = (
             self.qkv(hidden_states)
             .reshape(batch_size, height * width, 3, self.num_attention_heads, -1)
             .permute(2, 0, 3, 1, 4)
         )
-        # q, k, v with shape (batch_size * nHead, height * width, channel)
         query, key, value = qkv.reshape(3, batch_size * self.num_attention_heads, height * width, -1).unbind(0)
 
         attn_weights = (query * self.scale) @ key.transpose(-2, -1)
@@ -331,10 +270,6 @@ class SegGptAttention(nn.Module):
         attn_weights = torch.nn.functional.softmax(attn_weights, dtype=torch.float32, dim=-1).to(query.dtype)
 
         if output_attentions:
-            # this operation is a bit awkward, but it's required to
-            # make sure that attn_weights keeps its gradient.
-            # In order to do so, attn_weights have to reshaped
-            # twice and have to be reused in the following
             attn_weights_reshaped = attn_weights.view(batch_size, self.num_attention_heads, height * width, -1)
             attn_weights = attn_weights_reshaped.view(batch_size * self.num_attention_heads, height * width, -1)
         else:
@@ -348,7 +283,6 @@ class SegGptAttention(nn.Module):
         return (attn_output, attn_weights_reshaped)
 
 
-# Copied from transformers.models.sam.modeling_sam.SamMLPBlock with SamMLPBlock->SegGptMlp
 class SegGptMlp(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -363,13 +297,7 @@ class SegGptMlp(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->SegGptDropPath
 class SegGptDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -385,7 +313,7 @@ class SegGptDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class SegGptLayer(GradientCheckpointingLayer):
@@ -422,7 +350,6 @@ class SegGptLayer(GradientCheckpointingLayer):
                 inputs = inputs.mean(dim=0, keepdim=True).expand_as(inputs)
             attention_output = torch.cat([prompt, inputs], dim=1)
 
-        # first residual connection
         hidden_states = self.drop_path(attention_output) + hidden_states
         residual = hidden_states
 
@@ -460,7 +387,6 @@ class SegGptEncoder(nn.Module):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
-            # Condition to check if we have the appropriate number of prompts to ensemble
             ensemble_cond = 2 if self.config.merge_index > i else 1
 
             layer_outputs = layer_module(hidden_states, ensemble_cond, feature_ensemble, output_attentions)
@@ -495,12 +421,7 @@ class SegGptEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.convnext.modeling_convnext.ConvNextLayerNorm with ConvNext->SegGpt
 class SegGptLayerNorm(nn.LayerNorm):
-    r"""LayerNorm that supports two data formats: channels_last (default) or channels_first.
-    The ordering of the dimensions in the inputs. channels_last corresponds to inputs with shape (batch_size, height,
-    width, channels) while channels_first corresponds to inputs with shape (batch_size, channels, height, width).
-    """
 
     def __init__(self, normalized_shape, *, eps=1e-6, data_format="channels_last", **kwargs):
         super().__init__(normalized_shape, eps=eps, **kwargs)
@@ -618,7 +539,6 @@ class SegGptModel(SegGptPreTrainedModel):
         self.embeddings = SegGptEmbeddings(config)
         self.encoder = SegGptEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> SegGptPatchEmbeddings:
@@ -701,7 +621,6 @@ class SegGptModel(SegGptPreTrainedModel):
         pixel_values = pixel_values.to(expected_dtype)
         prompt_pixel_values = prompt_pixel_values.to(expected_dtype)
 
-        # Prepare inputs
         pixel_values = torch.cat((prompt_pixel_values, pixel_values), dim=2)
         prompt_pixel_values = (
             torch.cat((prompt_masks, prompt_masks), dim=2)
@@ -714,10 +633,6 @@ class SegGptModel(SegGptPreTrainedModel):
                 "Labels were provided, but bool_masked_pos were not. It will be set to default value. If you're training the model, make sure to provide a bool_masked_pos."
             )
 
-        # We concat on height axis so SegGPT can handle as a single image, hence we need to mask the portion
-        # of the mask prompt pixels that will be destinated to the prediction as they don't add any information.
-        # This is only the case for inference. In training, the model concat of prompt mask and label is masked
-        # and reconstructed together (In-Context Painting).
         if bool_masked_pos is None:
             num_patches = self.embeddings.patch_embeddings.num_patches
             bool_masked_pos_zeros = torch.zeros(num_patches // 2, dtype=torch.bool, device=pixel_values.device)
@@ -824,7 +739,6 @@ class SegGptForImageSegmentation(SegGptPreTrainedModel):
         self.model = SegGptModel(config)
         self.decoder = SegGptDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

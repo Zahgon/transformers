@@ -1,17 +1,3 @@
-# Copyright 2022 Microsoft Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Swin Transformer model."""
 
 import collections.abc
 import math
@@ -46,11 +32,6 @@ logger = logging.get_logger(__name__)
 
 
 class SwinDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -66,7 +47,7 @@ class SwinDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 @auto_docstring(
@@ -76,14 +57,6 @@ class SwinDropPath(nn.Module):
 )
 @dataclass
 class SwinEncoderOutput(ModelOutput):
-    r"""
-    reshaped_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, hidden_size, height, width)`.
-
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs reshaped to
-        include the spatial dimensions.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     hidden_states: tuple[torch.FloatTensor, ...] | None = None
@@ -98,16 +71,6 @@ class SwinEncoderOutput(ModelOutput):
 )
 @dataclass
 class SwinModelOutput(ModelOutput):
-    r"""
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, hidden_size)`, *optional*, returned when `add_pooling_layer=True` is passed):
-        Average pooling of the last layer hidden-state.
-    reshaped_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, hidden_size, height, width)`.
-
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs reshaped to
-        include the spatial dimensions.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     pooler_output: torch.FloatTensor | None = None
@@ -123,18 +86,6 @@ class SwinModelOutput(ModelOutput):
 )
 @dataclass
 class SwinMaskedImageModelingOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `bool_masked_pos` is provided):
-        Masked image modeling (MLM) loss.
-    reconstruction (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
-        Reconstructed pixel values.
-    reshaped_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, hidden_size, height, width)`.
-
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs reshaped to
-        include the spatial dimensions.
-    """
 
     loss: torch.FloatTensor | None = None
     reconstruction: torch.FloatTensor | None = None
@@ -150,18 +101,6 @@ class SwinMaskedImageModelingOutput(ModelOutput):
 )
 @dataclass
 class SwinImageClassifierOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Classification (or regression if config.num_labels==1) loss.
-    logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Classification (or regression if config.num_labels==1) scores (before SoftMax).
-    reshaped_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, hidden_size, height, width)`.
-
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs reshaped to
-        include the spatial dimensions.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -193,9 +132,6 @@ def window_reverse(windows, window_size, height, width):
 
 
 class SwinEmbeddings(nn.Module):
-    """
-    Construct the patch and position embeddings. Optionally, also the mask token.
-    """
 
     def __init__(self, config, use_mask_token=False):
         super().__init__()
@@ -222,7 +158,6 @@ class SwinEmbeddings(nn.Module):
         num_patches = embeddings.shape[1]
         num_positions = self.position_embeddings.shape[1]
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
@@ -257,7 +192,6 @@ class SwinEmbeddings(nn.Module):
 
         if bool_masked_pos is not None:
             mask_tokens = self.mask_token.expand(batch_size, seq_len, -1)
-            # replace the masked visual tokens by mask_tokens
             mask = bool_masked_pos.unsqueeze(-1).type_as(mask_tokens)
             embeddings = embeddings * (1.0 - mask) + mask_tokens * mask
 
@@ -273,11 +207,6 @@ class SwinEmbeddings(nn.Module):
 
 
 class SwinPatchEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
-    `hidden_states` (patch embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
-    Transformer.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -304,7 +233,6 @@ class SwinPatchEmbeddings(nn.Module):
 
     def forward(self, pixel_values: torch.FloatTensor | None) -> tuple[torch.Tensor, tuple[int]]:
         _, num_channels, height, width = pixel_values.shape
-        # pad the input to be divisible by self.patch_size, if needed
         pixel_values = self.maybe_pad(pixel_values, height, width)
         embeddings = self.projection(pixel_values)
         _, _, height, width = embeddings.shape
@@ -315,13 +243,6 @@ class SwinPatchEmbeddings(nn.Module):
 
 
 class SwinPatchMerging(nn.Module):
-    """
-    Patch Merging Layer.
-
-    Args:
-        dim (`int`):
-            Number of input channels.
-    """
 
     def __init__(self, dim: int) -> None:
         super().__init__()
@@ -336,13 +257,10 @@ class SwinPatchMerging(nn.Module):
 
     def forward(self, input_feature: torch.Tensor, input_dimensions: tuple[int, int]) -> torch.Tensor:
         height, width = input_dimensions
-        # `dim` is height * width
         batch_size, dim, num_channels = input_feature.shape
 
         input_feature = input_feature.view(batch_size, height, width, num_channels)
-        # pad input to be divisible by width and height, if needed
         input_feature = self.maybe_pad(input_feature, height, width)
-        # Interleave rows and columns to produce [batch_size, height/2*width/2, 4*num_channels]
         input_feature = torch.cat(
             [input_feature[:, row::2, col::2, :] for col in range(2) for row in range(2)], dim=-1
         )
@@ -355,14 +273,6 @@ class SwinPatchMerging(nn.Module):
 
 
 class SwinRelativePositionBias(nn.Module):
-    """
-    Relative position bias for Swin's window-based attention, following the style of BeitRelativePositionBias.
-
-    Unlike BeiT, Swin has no CLS token, so the table covers exactly (2*ws_h-1)*(2*ws_w-1) unique
-    relative positions. The lookup index is purely determined by window_size (static), so it is stored
-    as a non-persistent buffer (recomputed from config on load, never serialised). The table values
-    are learned parameters and must be re-read on every forward call.
-    """
 
     def __init__(self, num_heads: int, window_size: tuple[int, int]):
         super().__init__()
@@ -371,8 +281,6 @@ class SwinRelativePositionBias(nn.Module):
         self.relative_position_bias_table = nn.Parameter(
             torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads)
         )
-        # Non-persistent: fully determined by window_size, no need to serialise.
-        # Stored flat so forward avoids an extra .view() call.
         self.register_buffer(
             "relative_position_index",
             self._create_relative_position_index().view(-1),
@@ -389,7 +297,6 @@ class SwinRelativePositionBias(nn.Module):
         relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
         relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
 
-        # shift to start from 0 and compute a unique flat index for each (dh, dw) pair
         relative_coords[:, :, 0] += self.window_size[0] - 1
         relative_coords[:, :, 1] += self.window_size[1] - 1
         relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
@@ -422,7 +329,6 @@ class SwinAttention(ViTAttention):
         attention_mask: torch.FloatTensor | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # hidden_states: (batch_size * num_windows, window_size * window_size, channels)
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
 
@@ -430,14 +336,11 @@ class SwinAttention(ViTAttention):
         key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Combine relative position bias with the cyclic-shift attention mask for SW-MSA
         relative_position_bias = self.relative_position_bias()  # 1, num_heads, ws*ws, ws*ws
         if attention_mask is not None:
-            # attention_mask: (num_windows, ws*ws, ws*ws)
             num_windows = attention_mask.shape[0]
             batch_size = input_shape[0] // num_windows
             seq_len = input_shape[1]
-            # Expand to (batch * num_windows, 1, ws*ws, ws*ws) for broadcasting
             attention_mask = (
                 attention_mask.unsqueeze(1)  # (num_windows, 1, ws*ws, ws*ws)
                 .unsqueeze(0)  # (1, num_windows, 1, ws*ws, ws*ws)
@@ -565,7 +468,6 @@ class SwinLayer(ViTLayer):
         hidden_states = self.layernorm_before(hidden_states)
         hidden_states = hidden_states.view(batch_size, height, width, channels)
 
-        # pad hidden_states to multiples of window size
         hidden_states, pad_values = self.maybe_pad(hidden_states, height, width)
         _, height_pad, width_pad, _ = hidden_states.shape
 
@@ -683,19 +585,12 @@ class SwinPreTrainedModel(ViTPreTrainedModel):
     _no_split_modules = ["SwinStage"]
     _supports_flash_attn = False
     _supports_flex_attn = False
-    # relative_position_index is now a non-persistent buffer (recomputed from window_size in __init__).
     _keys_to_ignore_on_load_unexpected = [
         r"attention\.self\.relative_position_index",
         r"attention\.relative_position_bias\.relative_position_index",
     ]
     _can_record_outputs = {
-        # capture_initial_hidden_state=True: prepend the embedding input (args[0] of SwinStage 0) so that
-        # hidden_states[0] has the same shape as the patch embeddings (num_patches, embed_dim).
         "hidden_states": OutputRecorder(SwinStage, index=0, capture_initial_hidden_state=True),
-        # reshaped_hidden_states are collected explicitly by SwinEncoder (per stage) and the stem
-        # is prepended in SwinModel.forward, so they are NOT captured via hooks here.
-        # index=2: SwinStage returns (hidden_states, reshaped_hidden_states, last_attn_weights);
-        # capture the last block's attention weights at index 2, giving one entry per stage.
         "attentions": OutputRecorder(SwinStage, index=2, capture_initial_hidden_state=False),
     }
 
@@ -757,8 +652,6 @@ class SwinEncoder(SwinPreTrainedModel):
         """
         all_reshaped_hidden_states = None
         if output_hidden_states:
-            # Prepend the stem: hidden_states is the patch embedding output (B, N, C),
-            # reshape it to spatial (B, C, H, W) as the first reshaped hidden state.
             batch_size, _, hidden_size = hidden_states.shape
             stem_spatial = (
                 hidden_states.view(batch_size, *input_dimensions, hidden_size).permute(0, 3, 1, 2).contiguous()
@@ -804,7 +697,6 @@ class SwinModel(SwinPreTrainedModel):
         self.layernorm = nn.LayerNorm(self.num_features, eps=config.layer_norm_eps)
         self.pooler = nn.AdaptiveAvgPool1d(1) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -820,8 +712,6 @@ class SwinModel(SwinPreTrainedModel):
         bool_masked_pos (`torch.BoolTensor` of shape `(batch_size, num_patches)`, *optional*):
             Boolean masked positions. Indicates which patches are masked (1) and which aren't (0).
         """
-        # FIXME: output_hidden_states must be popped manually here because SwinEncoder takes it as an
-        # explicit argument (not via **kwargs), so it is not captured by the @capture_outputs decorator.
         output_hidden_states = kwargs.pop("output_hidden_states", self.config.output_hidden_states)
 
         embedding_output, input_dimensions = self.embeddings(
@@ -878,7 +768,6 @@ class SwinForMaskedImageModeling(SwinPreTrainedModel):
             nn.PixelShuffle(config.encoder_stride),
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -927,13 +816,11 @@ class SwinForMaskedImageModeling(SwinPreTrainedModel):
         )
 
         sequence_output = outputs.last_hidden_state
-        # Reshape to (batch_size, num_channels, height, width)
         sequence_output = sequence_output.transpose(1, 2)
         batch_size, num_channels, sequence_length = sequence_output.shape
         height = width = math.floor(sequence_length**0.5)
         sequence_output = sequence_output.reshape(batch_size, num_channels, height, width)
 
-        # Reconstruct pixel values
         reconstructed_pixel_values = self.decoder(sequence_output)
 
         masked_im_loss = None
@@ -979,12 +866,10 @@ class SwinForImageClassification(SwinPreTrainedModel):
         self.num_labels = config.num_labels
         self.swin = SwinModel(config)
 
-        # Classifier head
         self.classifier = (
             nn.Linear(self.swin.num_features, config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1039,13 +924,11 @@ class SwinBackbone(BackboneMixin, SwinPreTrainedModel):
         self.num_features = [config.embed_dim] + [int(config.embed_dim * 2**i) for i in range(len(config.depths))]
         self.swin = SwinModel(config, add_pooling_layer=False)
 
-        # Add layer norms to hidden states of out_features
         hidden_states_norms = {}
         for stage, num_channels in zip(self.out_features, self.channels):
             hidden_states_norms[stage] = nn.LayerNorm(num_channels)
         self.hidden_states_norms = nn.ModuleDict(hidden_states_norms)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1082,8 +965,6 @@ class SwinBackbone(BackboneMixin, SwinPreTrainedModel):
         [1, 768, 7, 7]
         ```
         """
-        # always_partition=True preserves shifted-window attention at all resolutions.
-        # output_hidden_states_before_downsampling=True captures pre-downsampling feature maps per stage.
         outputs = self.swin(
             pixel_values,
             always_partition=True,

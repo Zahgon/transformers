@@ -1,17 +1,3 @@
-# Copyright 2021 The Fairseq Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""BART model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,21 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="facebook/bart-large")
 @strict
 class BartConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import BartConfig, BartModel
-
-    >>> # Initializing a BART facebook/bart-large style configuration
-    >>> configuration = BartConfig()
-
-    >>> # Initializing a model (with random weights) from the facebook/bart-large style configuration
-    >>> model = BartModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "bart"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -75,8 +46,6 @@ class BartConfig(PreTrainedConfig):
     tie_word_embeddings: bool = True
 
     def __post_init__(self, **kwargs):
-        # Set the default `num_labels` only if `id2label` is not
-        # yet set, i.e. user didn't pass `id2label/lable2id` in kwargs
         if self.id2label is None:
             self.num_labels = kwargs.pop("num_labels", 3)
 

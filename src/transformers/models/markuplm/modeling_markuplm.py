@@ -1,17 +1,3 @@
-# Copyright 2022 Microsoft Research Asia and the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch MarkupLM model."""
 
 from collections.abc import Callable
 
@@ -43,10 +29,6 @@ logger = logging.get_logger(__name__)
 
 
 class XPathEmbeddings(nn.Module):
-    """Construct the embeddings from xpath tags and subscripts.
-
-    We drop tree-id in this version, as its info can be covered by xpath.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -93,7 +75,6 @@ class XPathEmbeddings(nn.Module):
 
 
 class MarkupLMEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -120,7 +101,6 @@ class MarkupLMEmbeddings(nn.Module):
         )
 
     @staticmethod
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaEmbeddings.create_position_ids_from_inputs_embeds
     def create_position_ids_from_inputs_embeds(inputs_embeds, padding_idx):
         """
         We are provided embeddings directly. We cannot infer which are padded so just generate sequential position ids.
@@ -139,7 +119,6 @@ class MarkupLMEmbeddings(nn.Module):
         return position_ids.unsqueeze(0).expand(input_shape)
 
     @staticmethod
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaEmbeddings.create_position_ids_from_input_ids
     def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_length=0):
         """
         Replace non-padding symbols with their position numbers. Position numbers begin at padding_idx+1. Padding symbols
@@ -150,7 +129,6 @@ class MarkupLMEmbeddings(nn.Module):
 
         Returns: torch.Tensor
         """
-        # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
         mask = input_ids.ne(padding_idx).int()
         incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
         return incremental_indices.long() + padding_idx
@@ -173,7 +151,6 @@ class MarkupLMEmbeddings(nn.Module):
 
         if position_ids is None:
             if input_ids is not None:
-                # Create the position ids from the input token ids. Any padded tokens remain padded.
                 position_ids = self.create_position_ids_from_input_ids(input_ids, self.padding_idx)
             else:
                 position_ids = self.create_position_ids_from_inputs_embeds(inputs_embeds, self.padding_idx)
@@ -184,7 +161,6 @@ class MarkupLMEmbeddings(nn.Module):
         if inputs_embeds is None:
             inputs_embeds = self.word_embeddings(input_ids)
 
-        # prepare xpath seq
         if xpath_tags_seq is None:
             xpath_tags_seq = self.config.tag_pad_id * torch.ones(
                 tuple(list(input_shape) + [self.max_depth]), dtype=torch.long, device=device
@@ -207,7 +183,6 @@ class MarkupLMEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput with Bert->MarkupLM
 class MarkupLMSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -222,7 +197,6 @@ class MarkupLMSelfOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate
 class MarkupLMIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -238,7 +212,6 @@ class MarkupLMIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput with Bert->MarkupLM
 class MarkupLMOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -253,7 +226,6 @@ class MarkupLMOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler
 class MarkupLMPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -261,15 +233,12 @@ class MarkupLMPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPredictionHeadTransform with Bert->MarkupLM
 class MarkupLMPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -287,14 +256,11 @@ class MarkupLMPredictionHeadTransform(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertLMPredictionHead with Bert->MarkupLM
 class MarkupLMLMPredictionHead(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.transform = MarkupLMPredictionHeadTransform(config)
 
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=True)
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
@@ -304,7 +270,6 @@ class MarkupLMLMPredictionHead(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOnlyMLMHead with Bert->MarkupLM
 class MarkupLMOnlyMLMHead(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -315,7 +280,6 @@ class MarkupLMOnlyMLMHead(nn.Module):
         return prediction_scores
 
 
-# Copied from transformers.models.align.modeling_align.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -338,7 +302,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextSelfAttention with AlignText->MarkupLM
 class MarkupLMSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -393,7 +356,6 @@ class MarkupLMSelfAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextAttention with AlignText->MarkupLM
 class MarkupLMAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -416,7 +378,6 @@ class MarkupLMAttention(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextLayer with AlignText->MarkupLM
 class MarkupLMLayer(GradientCheckpointingLayer):
     def __init__(self, config):
         super().__init__()
@@ -450,7 +411,6 @@ class MarkupLMLayer(GradientCheckpointingLayer):
         return layer_output
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextEncoder with AlignText->MarkupLM
 class MarkupLMEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -497,7 +457,6 @@ class MarkupLMPreTrainedModel(PreTrainedModel):
 
 @auto_docstring
 class MarkupLMModel(MarkupLMPreTrainedModel):
-    # Copied from transformers.models.clap.modeling_clap.ClapTextModel.__init__ with ClapText->MarkupLM
     def __init__(self, config, add_pooling_layer=True):
         r"""
         add_pooling_layer (bool, *optional*, defaults to `True`):
@@ -511,7 +470,6 @@ class MarkupLMModel(MarkupLMPreTrainedModel):
 
         self.pooler = MarkupLMPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -603,7 +561,6 @@ class MarkupLMModel(MarkupLMPreTrainedModel):
 
 @auto_docstring
 class MarkupLMForQuestionAnswering(MarkupLMPreTrainedModel):
-    # Copied from transformers.models.bert.modeling_bert.BertForQuestionAnswering.__init__ with bert->markuplm, Bert->MarkupLM
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -611,7 +568,6 @@ class MarkupLMForQuestionAnswering(MarkupLMPreTrainedModel):
         self.markuplm = MarkupLMModel(config, add_pooling_layer=False)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -679,12 +635,10 @@ class MarkupLMForQuestionAnswering(MarkupLMPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions.clamp_(0, ignored_index)
             end_positions.clamp_(0, ignored_index)
@@ -709,7 +663,6 @@ class MarkupLMForQuestionAnswering(MarkupLMPreTrainedModel):
     """
 )
 class MarkupLMForTokenClassification(MarkupLMPreTrainedModel):
-    # Copied from transformers.models.bert.modeling_bert.BertForTokenClassification.__init__ with bert->markuplm, Bert->MarkupLM
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -721,7 +674,6 @@ class MarkupLMForTokenClassification(MarkupLMPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -804,7 +756,6 @@ class MarkupLMForTokenClassification(MarkupLMPreTrainedModel):
     """
 )
 class MarkupLMForSequenceClassification(MarkupLMPreTrainedModel):
-    # Copied from transformers.models.bert.modeling_bert.BertForSequenceClassification.__init__ with bert->markuplm, Bert->MarkupLM
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -817,7 +768,6 @@ class MarkupLMForSequenceClassification(MarkupLMPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

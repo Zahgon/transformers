@@ -1,16 +1,3 @@
-# Copyright 2025 The ZhipuAI Inc. team and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections.abc import Callable
 
 import torch
@@ -59,32 +46,10 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="zai-org/GLM-4.5V")
 @strict
 class Glm4vMoeTextConfig(Glm4MoeConfig):
-    r"""
-    n_group (`int`, *optional*, defaults to 1):
-        Number of groups for routed experts.
-    first_k_dense_replace (`int`, *optional*, defaults to 1):
-        Number of dense layers in shallow layers(embed->dense->dense->...->dense->moe->moe...->lm_head).
-                                                                \--k dense layers--/
-
-    Example:
-
-    ```python
-    >>> from transformers import Glm4vMoeTextModel, Glm4vMoeConfig
-
-    >>> # Initializing a GLM-4.5V style configuration
-    >>> configuration = Glm4vMoeConfig()
-
-    >>> # Initializing a model from the GLM-4.5V style configuration
-    >>> model = Glm4vMoeTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "glm4v_moe_text"
     base_config_key = "text_config"
     keys_to_ignore_at_inference = ["past_key_values"]
-    # Default tensor parallel plan for base model `Glm4vMoe`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",
@@ -115,28 +80,6 @@ class Glm4vMoeTextConfig(Glm4MoeConfig):
 @auto_docstring(checkpoint="zai-org/GLM-4.5V")
 @strict
 class Glm4vMoeConfig(Glm4vConfig):
-    r"""
-    image_start_token_id (`int`, *optional*, defaults to 151339):
-        The image start token index to encode the start of image.
-    image_end_token_id (`int`, *optional*, defaults to 151340):
-        The image end token index to encode the end of image.
-    video_start_token_id (`int`, *optional*, defaults to 151341):
-        The video start token index to encode the start of video.
-    video_end_token_id (`int`, *optional*, defaults to 151342):
-        The video end token index to encode the end of video.
-
-    ```python
-    >>> from transformers import Glm4vMoeForConditionalGeneration, Glm4vMoeConfig
-
-    >>> # Initializing a GLM-4.5V style configuration
-    >>> configuration = Glm4vMoeConfig()
-
-    >>> # Initializing a model from the GLM-4.5V style configuration
-    >>> model = Glm4vMoeForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     image_token_id: int = 151363
     video_token_id: int = 151364
@@ -270,14 +213,12 @@ class Glm4vMoeTextModel(Glm4vTextModel):
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        # torch.jit.trace() doesn't support cache objects in the output
         if use_cache and past_key_values is None and not torch.jit.is_tracing():
             past_key_values = DynamicCache(config=self.config)
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # the hard coded `3` is for temporal, height and width.
         if position_ids is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
@@ -285,21 +226,10 @@ class Glm4vMoeTextModel(Glm4vTextModel):
         elif position_ids.ndim == 2:
             position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
 
-        # NOTE: we need to pass text position ids for packing. Qwen2-VL uses 3D positions
-        # where each dim indicates visual spatial positions for temporal/height/width grids.
-        # There are two scenarios when FA2-like packed masking might be activated.
-        # 1. User specifically passed packed `position_ids` and no attention mask.
-        #    In this case we expect the user to create correct position ids for all 3 grids
-        #    and prepend text-only position ids to it. The final tensor will be [4, bs, seq-len]
-        # 2. User runs forward with no attention mask and no position ids. In this case, position ids
-        #    are prepared by the model (`get_rope_index`) as `[4, bs, seq-len]` tensor. Text-only positions are
-        #    prepended by us when creating positions so that the mask is constructed correctly. NOTE: failing to pass
-        #    text-only positions will cause incorrect mask construction, do not change `prepare_input_for_generation`
         if position_ids.ndim == 3 and position_ids.shape[0] == 4:
             text_position_ids = position_ids[0]
             position_ids = position_ids[1:]
         else:
-            # If inputs are not packed (usual 3D positions), do not prepare mask from position_ids
             text_position_ids = None
 
         mask_kwargs = {
@@ -309,12 +239,10 @@ class Glm4vMoeTextModel(Glm4vTextModel):
             "past_key_values": past_key_values,
             "position_ids": text_position_ids,
         }
-        # Create the masks
         causal_mask = create_causal_mask(**mask_kwargs)
 
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         for i, decoder_layer in enumerate(self.layers[: self.config.num_hidden_layers]):
@@ -379,7 +307,6 @@ class Glm4vMoeForConditionalGeneration(Glm4vForConditionalGeneration):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

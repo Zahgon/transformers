@@ -1,17 +1,3 @@
-# Copyright 2022 Meta Platforms, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch LeViT model."""
 
 import itertools
 from dataclasses import dataclass
@@ -41,16 +27,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class LevitForImageClassificationWithTeacherOutput(ModelOutput):
-    r"""
-    logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Prediction scores as the average of the `cls_logits` and `distillation_logits`.
-    cls_logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Prediction scores of the classification head (i.e. the linear layer on top of the final hidden state of the
-        class token).
-    distillation_logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Prediction scores of the distillation head (i.e. the linear layer on top of the final hidden state of the
-        distillation token).
-    """
 
     logits: torch.FloatTensor | None = None
     cls_logits: torch.FloatTensor | None = None
@@ -59,9 +35,6 @@ class LevitForImageClassificationWithTeacherOutput(ModelOutput):
 
 
 class LevitConvEmbeddings(nn.Module):
-    """
-    LeViT Conv Embeddings with Batch Norm, used in the initial patch embedding layer.
-    """
 
     def __init__(
         self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, groups=1, bn_weight_init=1
@@ -79,10 +52,6 @@ class LevitConvEmbeddings(nn.Module):
 
 
 class LevitPatchEmbeddings(nn.Module):
-    """
-    LeViT patch embeddings, for final embeddings to be passed to transformer blocks. It consists of multiple
-    `LevitConvEmbeddings`.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -232,7 +201,6 @@ class LevitAttentionSubsample(nn.Module):
         self.out_dim_keys_values = attention_ratio * key_dim * num_attention_heads + key_dim * num_attention_heads
         self.out_dim_projection = attention_ratio * key_dim * num_attention_heads
         self.resolution_out = resolution_out
-        # resolution_in is the initial resolution, resolution_out is final resolution after downsampling
         self.keys_values = MLPLayerWithBN(input_dim, self.out_dim_keys_values)
         self.queries_subsample = LevitSubsample(stride, resolution_in)
         self.queries = MLPLayerWithBN(input_dim, key_dim * num_attention_heads)
@@ -299,9 +267,6 @@ class LevitAttentionSubsample(nn.Module):
 
 
 class LevitMLPLayer(nn.Module):
-    """
-    MLP Layer with `2X` expansion in contrast to ViT with `4X`.
-    """
 
     def __init__(self, input_dim, hidden_dim):
         super().__init__()
@@ -317,9 +282,6 @@ class LevitMLPLayer(nn.Module):
 
 
 class LevitResidualLayer(nn.Module):
-    """
-    Residual Block for LeViT
-    """
 
     def __init__(self, module, drop_rate):
         super().__init__()
@@ -338,9 +300,6 @@ class LevitResidualLayer(nn.Module):
 
 
 class LevitStage(nn.Module):
-    """
-    LeViT Stage consisting of `LevitMLPLayer` and `LevitAttention` layers.
-    """
 
     def __init__(
         self,
@@ -359,7 +318,6 @@ class LevitStage(nn.Module):
         self.layers = []
         self.config = config
         self.resolution_in = resolution_in
-        # resolution_in is the initial resolution, resolution_out is final resolution after downsampling
         for _ in range(depths):
             self.layers.append(
                 LevitResidualLayer(
@@ -407,9 +365,6 @@ class LevitStage(nn.Module):
 
 
 class LevitEncoder(nn.Module):
-    """
-    LeViT Encoder consisting of multiple `LevitStage` stages.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -453,9 +408,6 @@ class LevitEncoder(nn.Module):
 
 
 class LevitClassificationLayer(nn.Module):
-    """
-    LeViT Classification Layer
-    """
 
     def __init__(self, input_dim, output_dim):
         super().__init__()
@@ -496,7 +448,6 @@ class LevitModel(LevitPreTrainedModel):
         self.config = config
         self.patch_embeddings = LevitPatchEmbeddings(config)
         self.encoder = LevitEncoder(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -524,7 +475,6 @@ class LevitModel(LevitPreTrainedModel):
 
         last_hidden_state = encoder_outputs[0]
 
-        # global average pooling, (batch_size, seq_length, hidden_sizes) -> (batch_size, hidden_sizes)
         pooled_output = last_hidden_state.mean(dim=1)
 
         if not return_dict:
@@ -550,14 +500,12 @@ class LevitForImageClassification(LevitPreTrainedModel):
         self.num_labels = config.num_labels
         self.levit = LevitModel(config)
 
-        # Classifier head
         self.classifier = (
             LevitClassificationLayer(config.hidden_sizes[-1], config.num_labels)
             if config.num_labels > 0
             else torch.nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -613,7 +561,6 @@ class LevitForImageClassificationWithTeacher(LevitPreTrainedModel):
         self.num_labels = config.num_labels
         self.levit = LevitModel(config)
 
-        # Classifier head
         self.classifier = (
             LevitClassificationLayer(config.hidden_sizes[-1], config.num_labels)
             if config.num_labels > 0
@@ -625,7 +572,6 @@ class LevitForImageClassificationWithTeacher(LevitPreTrainedModel):
             else torch.nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

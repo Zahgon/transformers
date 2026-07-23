@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from dataclasses import dataclass
@@ -56,7 +43,6 @@ class VoxtralPreTrainedModel(Qwen2AudioPreTrainedModel):
     _no_split_modules = None
 
 
-# TODO: @eustlb, I would really prefer to use WhisperEncoder but it's messing with modular
 @auto_docstring(
     custom_intro="""
     The Voxtral encoder, which is a Whisper encoder.
@@ -137,10 +123,6 @@ class VoxtralMultiModalProjector(nn.Module):
 )
 @dataclass
 class VoxtralModelOutputWithPast(BaseModelOutputWithPast):
-    r"""
-    audio_hidden_states (`torch.FloatTensor`, *optional*):
-        Projected audio hidden states.
-    """
 
     audio_hidden_states: torch.FloatTensor | None = None
 
@@ -226,7 +208,6 @@ class VoxtralModel(VoxtralPreTrainedModel):
         if input_features is not None and input_ids is not None:
             audio_embeds = self.get_audio_features(input_features, return_dict=True).pooler_output
 
-            # replace text-audio token placeholders with audio embeddings
             special_audio_mask = self.get_placeholder_mask(
                 input_ids, inputs_embeds=inputs_embeds, audio_features=audio_embeds
             )
@@ -345,7 +326,6 @@ class VoxtralForConditionalGeneration(VoxtralPreTrainedModel, GenerationMixin):
         )
 
     def prepare_inputs_for_generation(self, *args, **kwargs):
-        # Overwritten -- we should not pass input_features when we are in cached decoding stage
 
         input_features = kwargs.pop("input_features", None)
         is_first_iteration = kwargs.get("is_first_iteration", False)
@@ -353,7 +333,6 @@ class VoxtralForConditionalGeneration(VoxtralPreTrainedModel, GenerationMixin):
         model_inputs = super().prepare_inputs_for_generation(*args, **kwargs)
 
         if is_first_iteration or not kwargs.get("use_cache", True):
-            # input_features should only be passed when we are not in cached decoding stage
             model_inputs["input_features"] = input_features
 
         return model_inputs

@@ -1,17 +1,3 @@
-# Copyright 2025 The Qwen Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""video processor class for Qwen3-VL."""
 
 import math
 
@@ -123,47 +109,7 @@ class Qwen3VLVideoProcessor(BaseVideoProcessor):
         fps: int | float | None = None,
         **kwargs,
     ):
-        """
-        Default sampling function which uniformly samples the desired number of frames between 0 and total number of frames.
-        If `fps` is passed along with metadata, `fps` frames per second are sampled uniformty. Arguments `num_frames`
-        and `fps` are mutually exclusive.
-
-        Args:
-            video (`torch.Tensor`):
-                Video that need to be sampled.
-            metadata (`VideoMetadata`):
-                Metadata of the video containing information about total duration, fps and total number of frames.
-            num_frames (`int`, *optional*):
-                Maximum number of frames to sample. Defaults to `self.num_frames`.
-            fps (`int` or `float`, *optional*):
-                Target frames to sample per second. Defaults to `self.fps`.
-        Returns:
-            torch.Tensor:
-                Sampled video frames.
-        """
-        if fps is not None and num_frames is not None:
-            raise ValueError("`num_frames` and `fps` are mutually exclusive arguments, please use only one!")
-
-        total_num_frames = metadata.total_num_frames
-        fps = fps if fps is not None else self.fps
-
-        # If num_frames is not given but fps is, calculate num_frames from fps
-        if num_frames is None and fps is not None:
-            if metadata.fps is None:
-                metadata.fps = 24
-                logger.warning_once(
-                    "Asked to sample `fps` frames per second but no video metadata was provided which is required when sampling with `fps`. "
-                    "Defaulting to `fps=24`. Please provide `video_metadata` for more accurate results."
-                )
-            num_frames = int(total_num_frames / metadata.fps * fps)
-            num_frames = min(max(num_frames, self.min_frames), self.max_frames, total_num_frames)
-
-        if num_frames is None:
-            num_frames = min(max(total_num_frames, self.min_frames), self.max_frames)
-
-        indices = np.linspace(0, total_num_frames - 1, num_frames).round().astype(int)
-
-        return indices
+        pass
 
     def _preprocess(
         self,
@@ -211,21 +157,17 @@ class Qwen3VLVideoProcessor(BaseVideoProcessor):
             resized_videos_grouped[shape] = stacked_videos
         resized_videos = reorder_videos(resized_videos_grouped, grouped_videos_index)
 
-        # Group videos by size for further processing
-        # Needed in case do_resize is False, or resize returns videos with different sizes
         grouped_videos, grouped_videos_index = group_videos_by_shape(resized_videos)
         processed_videos_grouped = {}
         processed_grids = {}
         for shape, stacked_videos in grouped_videos.items():
             resized_height, resized_width = get_image_size(stacked_videos[0], channel_dim=ChannelDimension.FIRST)
 
-            # Fused rescale and normalize
             stacked_videos = self.rescale_and_normalize(
                 stacked_videos, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
             patches = stacked_videos
 
-            # Check that videos have `num_frames` divisible by `temporal_patch_size`
             T = patches.shape[1]
             if pad := -T % temporal_patch_size:
                 repeats = patches[:, -1:].expand(-1, pad, -1, -1, -1)

@@ -1,16 +1,3 @@
-# Copyright 2025 Deepseek AI and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -34,11 +21,6 @@ from ...utils import (
 
 
 class JanusImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    min_size (`int`, *optional*, defaults to 14):
-        The minimum allowed size for the resized image. Ensures that neither the height nor width
-        falls below this value after resizing.
-    """
 
     min_size: int
 
@@ -83,7 +65,6 @@ class JanusImageProcessor(TorchvisionBackend):
         max_size = max(height, width)
 
         delta = size / max_size
-        # Largest side becomes `size` and the other side is scaled according to the aspect ratio.
         output_size_nonpadded = SizeDict(
             height=max(round(height * delta), min_size),
             width=max(round(width * delta), min_size),
@@ -119,7 +100,6 @@ class JanusImageProcessor(TorchvisionBackend):
 
         max_dim = max(height, width)
 
-        # Ensure background_color is the correct shape
         if isinstance(background_color, int):
             background_color = [background_color]
         elif len(background_color) != num_channels:
@@ -158,7 +138,6 @@ class JanusImageProcessor(TorchvisionBackend):
         do_pad: bool = True,
         **kwargs,
     ) -> BatchFeature:
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -167,14 +146,11 @@ class JanusImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_pad:
                 stacked_images = self.pad_to_square(stacked_images, background_color=self.background_color)
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )

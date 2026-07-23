@@ -1,16 +1,3 @@
-# Copyright 2020 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import torch
 import torch.nn as nn
@@ -34,21 +21,11 @@ if is_vision_available():
     from transformers.image_transforms import center_to_corners_format
 
 
-# different for RT-DETR: not slicing the last element like in DETR one
 def _set_aux_loss(outputs_class, outputs_coord):
-    return [{"logits": a, "pred_boxes": b} for a, b in zip(outputs_class, outputs_coord)]
+    pass
 
 
 class RTDetrHungarianMatcher(nn.Module):
-    """This class computes an assignment between the targets and the predictions of the network
-
-    For efficiency reasons, the targets don't include the no_object. Because of this, in general, there are more
-    predictions than targets. In this case, we do a 1-to-1 matching of the best predictions, while the others are
-    un-matched (and thus treated as non-objects).
-
-    Args:
-        config: RTDetrConfig
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -88,14 +65,9 @@ class RTDetrHungarianMatcher(nn.Module):
         """
         batch_size, num_queries = outputs["logits"].shape[:2]
 
-        # We flatten to compute the cost matrices in a batch
         out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]
-        # Also concat the target labels and boxes
         target_ids = torch.cat([v["class_labels"] for v in targets])
         target_bbox = torch.cat([v["boxes"] for v in targets])
-        # Compute the classification cost. Contrary to the loss, we don't use the NLL,
-        # but approximate it in 1 - proba[target class].
-        # The 1 is a constant that doesn't change the matching, it can be omitted.
         if self.use_focal_loss:
             out_prob = F.sigmoid(outputs["logits"].flatten(0, 1))
             out_prob = out_prob[:, target_ids]
@@ -106,11 +78,8 @@ class RTDetrHungarianMatcher(nn.Module):
             out_prob = outputs["logits"].flatten(0, 1).softmax(-1)  # [batch_size * num_queries, num_classes]
             class_cost = -out_prob[:, target_ids]
 
-        # Compute the L1 cost between boxes
         bbox_cost = torch.cdist(out_bbox, target_bbox, p=1)
-        # Compute the giou cost between boxes
         giou_cost = -generalized_box_iou(center_to_corners_format(out_bbox), center_to_corners_format(target_bbox))
-        # Compute the final cost matrix
         cost_matrix = self.bbox_cost * bbox_cost + self.class_cost * class_cost + self.giou_cost * giou_cost
         cost_matrix = cost_matrix.view(batch_size, num_queries, -1).cpu()
 
@@ -121,28 +90,6 @@ class RTDetrHungarianMatcher(nn.Module):
 
 
 class RTDetrLoss(nn.Module):
-    """
-    This class computes the losses for RTDetr. The process happens in two steps: 1) we compute hungarian assignment
-    between ground truth boxes and the outputs of the model 2) we supervise each pair of matched ground-truth /
-    prediction (supervise class and box).
-
-    Args:
-        matcher (`DetrHungarianMatcher`):
-            Module able to compute a matching between targets and proposals.
-        weight_dict (`Dict`):
-            Dictionary relating each loss with its weights. These losses are configured in RTDetrConf as
-            `weight_loss_vfl`, `weight_loss_bbox`, `weight_loss_giou`
-        losses (`list[str]`):
-            List of all the losses to be applied. See `get_loss` for a list of all available losses.
-        alpha (`float`):
-            Parameter alpha used to compute the focal loss.
-        gamma (`float`):
-            Parameter gamma used to compute the focal loss.
-        eos_coef (`float`):
-            Relative classification weight applied to the no-object category.
-        num_classes (`int`):
-            Number of object categories, omitting the special no-object category.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -163,37 +110,7 @@ class RTDetrLoss(nn.Module):
         self.gamma = config.focal_loss_gamma
 
     def loss_labels_vfl(self, outputs, targets, indices, num_boxes, log=True):
-        if "pred_boxes" not in outputs:
-            raise KeyError("No predicted boxes found in outputs")
-        if "logits" not in outputs:
-            raise KeyError("No predicted logits found in outputs")
-        idx = self._get_source_permutation_idx(indices)
-
-        src_boxes = outputs["pred_boxes"][idx]
-        target_boxes = torch.cat([_target["boxes"][i] for _target, (_, i) in zip(targets, indices)], dim=0)
-        ious, _ = box_iou(center_to_corners_format(src_boxes.detach()), center_to_corners_format(target_boxes))
-        ious = torch.diag(ious)
-
-        src_logits = outputs["logits"]
-        dtype = src_logits.dtype
-        target_classes_original = torch.cat([_target["class_labels"][i] for _target, (_, i) in zip(targets, indices)])
-        target_classes = torch.full(
-            src_logits.shape[:2], self.num_classes, dtype=torch.int64, device=src_logits.device
-        )
-        target_classes[idx] = target_classes_original
-        target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1]
-
-        target_score_original = torch.zeros_like(target_classes, dtype=dtype)
-        target_score_original[idx] = ious.to(dtype)
-        target_score = target_score_original.unsqueeze(-1) * target
-
-        pred_score = F.sigmoid(src_logits.detach())
-        # pow promotes to float32 under float16 CUDA autocast; cast back to preserve original dtype
-        weight = (self.alpha * pred_score.pow(self.gamma) * (1 - target) + target_score).to(dtype)
-
-        loss = F.binary_cross_entropy_with_logits(src_logits, target_score, weight=weight, reduction="none")
-        loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
-        return {"loss_vfl": loss}
+        pass
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
         """Classification loss (NLL)
@@ -217,41 +134,10 @@ class RTDetrLoss(nn.Module):
 
     @torch.no_grad()
     def loss_cardinality(self, outputs, targets, indices, num_boxes):
-        """
-        Compute the cardinality error, i.e. the absolute error in the number of predicted non-empty boxes. This is not
-        really a loss, it is intended for logging purposes only. It doesn't propagate gradients.
-        """
-        logits = outputs["logits"]
-        device = logits.device
-        target_lengths = torch.as_tensor([len(v["class_labels"]) for v in targets], device=device)
-        # Count the number of predictions that are NOT "no-object" (sigmoid > 0.5 threshold)
-        card_pred = (logits.sigmoid().max(-1).values > 0.5).sum(1)
-        card_err = nn.functional.l1_loss(card_pred.float(), target_lengths.float())
-        losses = {"cardinality_error": card_err}
-        return losses
+        pass
 
     def loss_boxes(self, outputs, targets, indices, num_boxes):
-        """
-        Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss. Targets dicts must
-        contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]. The target boxes are expected in
-        format (center_x, center_y, w, h), normalized by the image size.
-        """
-        if "pred_boxes" not in outputs:
-            raise KeyError("No predicted boxes found in outputs")
-        idx = self._get_source_permutation_idx(indices)
-        src_boxes = outputs["pred_boxes"][idx]
-        target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
-
-        losses = {}
-
-        loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction="none")
-        losses["loss_bbox"] = loss_bbox.sum() / num_boxes
-
-        loss_giou = 1 - torch.diag(
-            generalized_box_iou(center_to_corners_format(src_boxes), center_to_corners_format(target_boxes))
-        )
-        losses["loss_giou"] = loss_giou.sum() / num_boxes
-        return losses
+        pass
 
     def loss_masks(self, outputs, targets, indices, num_boxes):
         """
@@ -270,7 +156,6 @@ class RTDetrLoss(nn.Module):
         target_masks = target_masks.to(source_masks)
         target_masks = target_masks[target_idx]
 
-        # upsample predictions to the target size
         source_masks = nn.functional.interpolate(
             source_masks[:, None], size=target_masks.shape[-2:], mode="bilinear", align_corners=False
         )
@@ -285,48 +170,20 @@ class RTDetrLoss(nn.Module):
         return losses
 
     def loss_labels_bce(self, outputs, targets, indices, num_boxes, log=True):
-        src_logits = outputs["logits"]
-        idx = self._get_source_permutation_idx(indices)
-        target_classes_original = torch.cat([_target["class_labels"][i] for _target, (_, i) in zip(targets, indices)])
-        target_classes = torch.full(
-            src_logits.shape[:2], self.num_classes, dtype=torch.int64, device=src_logits.device
-        )
-        target_classes[idx] = target_classes_original
-
-        target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1]
-        loss = F.binary_cross_entropy_with_logits(src_logits, target * 1.0, reduction="none")
-        loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
-        return {"loss_bce": loss}
+        pass
 
     def _get_source_permutation_idx(self, indices):
-        # permute predictions following indices
         batch_idx = torch.cat([torch.full_like(source, i) for i, (source, _) in enumerate(indices)])
         source_idx = torch.cat([source for (source, _) in indices])
         return batch_idx, source_idx
 
     def _get_target_permutation_idx(self, indices):
-        # permute targets following indices
         batch_idx = torch.cat([torch.full_like(target, i) for i, (_, target) in enumerate(indices)])
         target_idx = torch.cat([target for (_, target) in indices])
         return batch_idx, target_idx
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes, log=True):
-        if "logits" not in outputs:
-            raise KeyError("No logits found in outputs")
-
-        src_logits = outputs["logits"]
-
-        idx = self._get_source_permutation_idx(indices)
-        target_classes_original = torch.cat([_target["class_labels"][i] for _target, (_, i) in zip(targets, indices)])
-        target_classes = torch.full(
-            src_logits.shape[:2], self.num_classes, dtype=torch.int64, device=src_logits.device
-        )
-        target_classes[idx] = target_classes_original
-
-        target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1]
-        loss = sigmoid_focal_loss(src_logits, target, self.alpha, self.gamma)
-        loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
-        return {"loss_focal": loss}
+        pass
 
     def get_loss(self, loss, outputs, targets, indices, num_boxes):
         loss_map = {
@@ -378,35 +235,29 @@ class RTDetrLoss(nn.Module):
         """
         outputs_without_aux = {k: v for k, v in outputs.items() if "auxiliary_outputs" not in k}
 
-        # Retrieve the matching between the outputs of the last layer and the targets
         indices = self.matcher(outputs_without_aux, targets)
 
-        # Compute the average number of target boxes across all nodes, for normalization purposes
         num_boxes = sum(len(t["class_labels"]) for t in targets)
         num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=next(iter(outputs.values())).device)
         num_boxes = torch.clamp(num_boxes, min=1).item()
 
-        # Compute all the requested losses
         losses = {}
         for loss in self.losses:
             l_dict = self.get_loss(loss, outputs, targets, indices, num_boxes)
             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
             losses.update(l_dict)
 
-        # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
         if "auxiliary_outputs" in outputs:
             for i, auxiliary_outputs in enumerate(outputs["auxiliary_outputs"]):
                 indices = self.matcher(auxiliary_outputs, targets)
                 for loss in self.losses:
                     if loss == "masks":
-                        # Intermediate masks losses are too costly to compute, we ignore them.
                         continue
                     l_dict = self.get_loss(loss, auxiliary_outputs, targets, indices, num_boxes)
                     l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
                     l_dict = {k + f"_aux_{i}": v for k, v in l_dict.items()}
                     losses.update(l_dict)
 
-        # In case of cdn auxiliary losses. For rtdetr
         if "dn_auxiliary_outputs" in outputs:
             if "denoising_meta_values" not in outputs:
                 raise ValueError(
@@ -416,10 +267,8 @@ class RTDetrLoss(nn.Module):
             num_boxes = num_boxes * outputs["denoising_meta_values"]["dn_num_group"]
 
             for i, auxiliary_outputs in enumerate(outputs["dn_auxiliary_outputs"]):
-                # indices = self.matcher(auxiliary_outputs, targets)
                 for loss in self.losses:
                     if loss == "masks":
-                        # Intermediate masks losses are too costly to compute, we ignore them.
                         continue
                     kwargs = {}
                     l_dict = self.get_loss(loss, auxiliary_outputs, targets, indices, num_boxes, **kwargs)
@@ -443,28 +292,4 @@ def RTDetrForObjectDetectionLoss(
     denoising_meta_values=None,
     **kwargs,
 ):
-    criterion = RTDetrLoss(config)
-    criterion.to(device)
-    # Second: compute the losses, based on outputs and labels
-    outputs_loss = {}
-    outputs_loss["logits"] = logits
-    outputs_loss["pred_boxes"] = pred_boxes
-    auxiliary_outputs = None
-    if config.auxiliary_loss:
-        if denoising_meta_values is not None:
-            dn_out_coord, outputs_coord = torch.split(outputs_coord, denoising_meta_values["dn_num_split"], dim=2)
-            dn_out_class, outputs_class = torch.split(outputs_class, denoising_meta_values["dn_num_split"], dim=2)
-
-        auxiliary_outputs = _set_aux_loss(outputs_class[:, :-1].transpose(0, 1), outputs_coord[:, :-1].transpose(0, 1))
-        outputs_loss["auxiliary_outputs"] = auxiliary_outputs
-        outputs_loss["auxiliary_outputs"].extend(_set_aux_loss([enc_topk_logits], [enc_topk_bboxes]))
-        if denoising_meta_values is not None:
-            outputs_loss["dn_auxiliary_outputs"] = _set_aux_loss(
-                dn_out_class.transpose(0, 1), dn_out_coord.transpose(0, 1)
-            )
-            outputs_loss["denoising_meta_values"] = denoising_meta_values
-
-    loss_dict = criterion(outputs_loss, labels)
-
-    loss = sum(loss_dict.values())
-    return loss, loss_dict, auxiliary_outputs
+    pass

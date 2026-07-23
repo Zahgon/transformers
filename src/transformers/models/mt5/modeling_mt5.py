@@ -1,17 +1,3 @@
-# Copyright 2020 Mesh TensorFlow authors, T5 Authors and HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch mT5 model."""
 
 import copy
 import math
@@ -43,7 +29,6 @@ from .configuration_mt5 import MT5Config
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerNorm with T5->MT5
 class MT5LayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-6):
         """
@@ -54,22 +39,16 @@ class MT5LayerNorm(nn.Module):
         self.variance_epsilon = eps
 
     def forward(self, hidden_states):
-        # MT5 uses a layer_norm which only scales and doesn't shift, which is also known as Root Mean
-        # Square Layer Normalization https://huggingface.co/papers/1910.07467 thus variance is calculated
-        # w/o mean and there is no bias. Additionally we want to make sure that the accumulation for
-        # half-precision inputs is done in fp32
 
         variance = hidden_states.to(torch.float32).pow(2).mean(-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
 
-        # convert into half-precision if necessary
         if self.weight.dtype in [torch.float16, torch.bfloat16]:
             hidden_states = hidden_states.to(self.weight.dtype)
 
         return self.weight * hidden_states
 
 
-# Copied from transformers.models.t5.modeling_t5.T5DenseActDense with T5->MT5
 class MT5DenseActDense(nn.Module):
     def __init__(self, config: MT5Config):
         super().__init__()
@@ -92,7 +71,6 @@ class MT5DenseActDense(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.t5.modeling_t5.T5DenseGatedActDense with T5->MT5
 class MT5DenseGatedActDense(nn.Module):
     def __init__(self, config: MT5Config):
         super().__init__()
@@ -108,9 +86,6 @@ class MT5DenseGatedActDense(nn.Module):
         hidden_states = hidden_gelu * hidden_linear
         hidden_states = self.dropout(hidden_states)
 
-        # To make 8bit quantization work for google/flan-t5-xxl, self.wo is kept in float32.
-        # See https://github.com/huggingface/transformers/issues/20287
-        # we also make sure the weights are not in `int8` in case users will force `_keep_in_fp32_modules` to be `None``
         if (
             isinstance(self.wo.weight, torch.Tensor)
             and hidden_states.dtype != self.wo.weight.dtype
@@ -122,7 +97,6 @@ class MT5DenseGatedActDense(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerFF with T5->MT5
 class MT5LayerFF(nn.Module):
     def __init__(self, config: MT5Config):
         super().__init__()
@@ -141,7 +115,6 @@ class MT5LayerFF(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.t5.modeling_t5.T5Attention with T5->MT5
 class MT5Attention(nn.Module):
     def __init__(
         self,
@@ -206,13 +179,10 @@ class MT5Attention(nn.Module):
             relative_position = torch.abs(relative_position)
         else:
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
-        # now relative_position is in the range [0, inf)
 
-        # half of the buckets are for exact increments in positions
         max_exact = num_buckets // 2
         is_small = relative_position < max_exact
 
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
         relative_position_if_large = max_exact + (
             torch.log(relative_position.float() / max_exact)
             / math.log(max_distance / max_exact)
@@ -255,25 +225,19 @@ class MT5Attention(nn.Module):
         """
         Self-attention (if key_value_states is None) or attention over source sentence (provided by key_value_states).
         """
-        # Input is (batch_size, seq_length, dim)
-        # Mask is (batch_size, 1, 1, key_length) (non-causal encoder) or (batch_size, 1, seq_length, key_length) (causal decoder)
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.key_value_proj_dim)
         past_seen_tokens = past_key_values.get_seq_length(self.layer_idx) if past_key_values is not None else 0
-        # We clone here for StaticCache, as we get the value before updating it, but use it after and it's the same ref
         past_seen_tokens = past_seen_tokens.clone() if isinstance(past_seen_tokens, torch.Tensor) else past_seen_tokens
 
-        # if key_value_states are provided this layer is used as a cross-attention layer for the decoder
         is_cross_attention = key_value_states is not None
 
         query_states = self.q(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Check is encoder-decoder model is being used. Otherwise we'll get `DynamicCache`
         is_updated = False
         if isinstance(past_key_values, EncoderDecoderCache):
             is_updated = past_key_values.is_updated.get(self.layer_idx)
             if is_cross_attention:
-                # after the first generated id, we can subsequently re-use all key/value_states from cache
                 curr_past_key_values = past_key_values.cross_attention_cache
             else:
                 curr_past_key_values = past_key_values.self_attention_cache
@@ -282,7 +246,6 @@ class MT5Attention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -292,11 +255,9 @@ class MT5Attention(nn.Module):
 
             if past_key_values is not None:
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
-        # compute scores, equivalent of torch.einsum("bnqd,bnkd->bnqk", query_states, key_states), compatible with onnx op>9
         scores = torch.matmul(query_states, key_states.transpose(3, 2))
 
         if position_bias is None:
@@ -319,7 +280,6 @@ class MT5Attention(nn.Module):
         position_bias_masked = position_bias
         scores += position_bias_masked
 
-        # (batch_size, n_heads, seq_length, key_length)
         attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(scores)
         attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
 
@@ -336,7 +296,6 @@ class MT5Attention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerSelfAttention with T5->MT5
 class MT5LayerSelfAttention(nn.Module):
     def __init__(self, config, has_relative_attention_bias=False, layer_idx: int | None = None):
         super().__init__()
@@ -370,7 +329,6 @@ class MT5LayerSelfAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerCrossAttention with T5->MT5
 class MT5LayerCrossAttention(nn.Module):
     def __init__(self, config, layer_idx: int | None = None):
         super().__init__()
@@ -402,7 +360,6 @@ class MT5LayerCrossAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.t5.modeling_t5.T5Block with T5->MT5
 class MT5Block(GradientCheckpointingLayer):
     def __init__(self, config, has_relative_attention_bias=False, layer_idx: int | None = None):
         super().__init__()
@@ -441,7 +398,6 @@ class MT5Block(GradientCheckpointingLayer):
         hidden_states = self_attention_outputs[0]
         attention_outputs = self_attention_outputs[1:]  # Keep self-attention outputs and relative position weights
 
-        # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16:
             clamp_value = torch.where(
                 torch.isinf(hidden_states).any(),
@@ -462,7 +418,6 @@ class MT5Block(GradientCheckpointingLayer):
             )
             hidden_states = cross_attention_outputs[0]
 
-            # clamp inf values to enable fp16 training
             if hidden_states.dtype == torch.float16:
                 clamp_value = torch.where(
                     torch.isinf(hidden_states).any(),
@@ -471,13 +426,10 @@ class MT5Block(GradientCheckpointingLayer):
                 )
                 hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
 
-            # Keep cross-attention outputs and relative position weights
             attention_outputs = attention_outputs + cross_attention_outputs[1:]
 
-        # Apply Feed Forward layer
         hidden_states = self.layer[-1](hidden_states)
 
-        # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16:
             clamp_value = torch.where(
                 torch.isinf(hidden_states).any(),
@@ -493,9 +445,7 @@ class MT5Block(GradientCheckpointingLayer):
         )  # hidden-states, (self-attention position bias), (self-attention weights), (cross-attention position bias), (cross-attention weights)
 
 
-# Copied from transformers.models.t5.modeling_t5.T5ClassificationHead with T5->MT5
 class MT5ClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config: MT5Config):
         super().__init__()
@@ -513,7 +463,6 @@ class MT5ClassificationHead(nn.Module):
 
 
 @auto_docstring
-# Copied from transformers.models.t5.modeling_t5.T5PreTrainedModel with T5->MT5, t5->mt5
 class MT5PreTrainedModel(PreTrainedModel):
     config: MT5Config
     base_model_prefix = "transformer"
@@ -525,14 +474,7 @@ class MT5PreTrainedModel(PreTrainedModel):
 
     @property
     def dummy_inputs(self):
-        input_ids = torch.tensor(DUMMY_INPUTS)
-        input_mask = torch.tensor(DUMMY_MASK)
-        dummy_inputs = {
-            "decoder_input_ids": input_ids,
-            "input_ids": input_ids,
-            "decoder_attention_mask": input_mask,
-        }
-        return dummy_inputs
+        pass
 
     @torch.no_grad()
     def _init_weights(self, module):
@@ -606,13 +548,11 @@ class MT5PreTrainedModel(PreTrainedModel):
 
         if pad_token_id is None:
             raise ValueError("self.model.config.pad_token_id has to be defined.")
-        # replace possible -100 values in labels by `pad_token_id`
         shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
         return shifted_input_ids
 
 
-# Copied from transformers.models.t5.modeling_t5.T5Stack with T5->MT5
 class MT5Stack(MT5PreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -626,7 +566,6 @@ class MT5Stack(MT5PreTrainedModel):
         self.final_layer_norm = MT5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
 
-        # Initialize weights and apply final processing
         self.post_init()
         self.gradient_checkpointing = False
 
@@ -695,8 +634,6 @@ class MT5Stack(MT5PreTrainedModel):
                 else:
                     past_key_values = DynamicCache(config=self.config)
         elif not self.is_decoder:
-            # do not pass cache object down the line for encoder stack
-            # it messes indexing later in decoder-stack because cache object is modified in-place
             past_key_values = None
 
         if self.config.is_decoder:
@@ -751,9 +688,6 @@ class MT5Stack(MT5PreTrainedModel):
 
             hidden_states = layer_outputs[0]
 
-            # We share the position biases between the layers - the first layer store them
-            # layer_outputs = hidden-states, key-value-states (self-attention position bias), (self-attention weights),
-            # (cross-attention position bias), (cross-attention weights)
             position_bias = layer_outputs[1]
             if self.is_decoder and encoder_hidden_states is not None:
                 encoder_decoder_position_bias = layer_outputs[3 if output_attentions else 2]
@@ -766,7 +700,6 @@ class MT5Stack(MT5PreTrainedModel):
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.dropout(hidden_states)
 
-        # Add last layer
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -793,22 +726,6 @@ class MT5Stack(MT5PreTrainedModel):
 
 @auto_docstring
 class MT5Model(MT5PreTrainedModel):
-    r"""
-    Examples:
-
-    ```python
-    >>> from transformers import MT5Model, AutoTokenizer
-
-    >>> model = MT5Model.from_pretrained("google/mt5-small")
-    >>> tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
-    >>> article = "UN Offizier sagt, dass weiter verhandelt werden muss in Syrien."
-    >>> summary = "Weiter Verhandlung in Syrien."
-    >>> inputs = tokenizer(article, return_tensors="pt")
-    >>> labels = tokenizer(text_target=summary, return_tensors="pt")
-
-    >>> outputs = model(input_ids=inputs["input_ids"], decoder_input_ids=labels["input_ids"])
-    >>> hidden_states = outputs.last_hidden_state
-    ```"""
 
     model_type = "mt5"
     config: MT5Config
@@ -818,7 +735,6 @@ class MT5Model(MT5PreTrainedModel):
         "decoder.embed_tokens.weight": "shared.weight",
     }
 
-    # Copied from transformers.models.t5.modeling_t5.T5Model.__init__ with T5->MT5
     def __init__(self, config: MT5Config):
         super().__init__(config)
         self.shared = nn.Embedding(config.vocab_size, config.d_model)
@@ -833,21 +749,17 @@ class MT5Model(MT5PreTrainedModel):
         decoder_config.num_layers = config.num_decoder_layers
         self.decoder = MT5Stack(decoder_config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.t5.modeling_t5.T5Model.get_input_embeddings
     def get_input_embeddings(self):
         return self.shared
 
-    # Copied from transformers.models.t5.modeling_t5.T5Model.set_input_embeddings
     def set_input_embeddings(self, new_embeddings):
         self.shared = new_embeddings
         self.encoder.set_input_embeddings(new_embeddings)
         self.decoder.set_input_embeddings(new_embeddings)
 
     @auto_docstring
-    # Copied from transformers.models.t5.modeling_t5.T5Model.forward with google-t5/->google/, T5->MT5, t5->mt5
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -916,7 +828,6 @@ class MT5Model(MT5PreTrainedModel):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # Encode if needed (training, first prediction pass)
         if encoder_outputs is None:
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
@@ -935,7 +846,6 @@ class MT5Model(MT5PreTrainedModel):
 
         hidden_states = encoder_outputs[0]
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -970,21 +880,6 @@ class MT5Model(MT5PreTrainedModel):
     """
 )
 class MT5ForConditionalGeneration(MT5PreTrainedModel, GenerationMixin):
-    r"""
-    Examples:
-
-    ```python
-    >>> from transformers import MT5ForConditionalGeneration, AutoTokenizer
-
-    >>> model = MT5ForConditionalGeneration.from_pretrained("google/mt5-small")
-    >>> tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
-    >>> article = "UN Offizier sagt, dass weiter verhandelt werden muss in Syrien."
-    >>> summary = "Weiter Verhandlung in Syrien."
-    >>> inputs = tokenizer(article, text_target=summary, return_tensors="pt")
-
-    >>> outputs = model(**inputs)
-    >>> loss = outputs.loss
-    ```"""
 
     model_type = "mt5"
     config: MT5Config
@@ -995,7 +890,6 @@ class MT5ForConditionalGeneration(MT5PreTrainedModel, GenerationMixin):
         "lm_head.weight": "shared.weight",
     }
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForConditionalGeneration.__init__ with T5->MT5
     def __init__(self, config: MT5Config):
         super().__init__(config)
         self.model_dim = config.d_model
@@ -1014,7 +908,6 @@ class MT5ForConditionalGeneration(MT5PreTrainedModel, GenerationMixin):
 
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1101,9 +994,7 @@ class MT5ForConditionalGeneration(MT5PreTrainedModel, GenerationMixin):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # Encode if needed (training, first prediction pass)
         if encoder_outputs is None:
-            # Convert encoder inputs in embeddings if needed
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -1122,10 +1013,8 @@ class MT5ForConditionalGeneration(MT5PreTrainedModel, GenerationMixin):
         hidden_states = encoder_outputs[0]
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
-            # get decoder inputs from shifting lm labels to the right
             decoder_input_ids = self._shift_right(labels)
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -1146,7 +1035,6 @@ class MT5ForConditionalGeneration(MT5PreTrainedModel, GenerationMixin):
         loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-100)
-            # move labels to correct device to enable PP
             labels = labels.to(lm_logits.device)
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
 
@@ -1166,26 +1054,12 @@ class MT5ForConditionalGeneration(MT5PreTrainedModel, GenerationMixin):
             encoder_attentions=encoder_outputs.attentions,
         )
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForConditionalGeneration.prepare_decoder_input_ids_from_labels
     def prepare_decoder_input_ids_from_labels(self, labels: torch.Tensor):
         return self._shift_right(labels)
 
 
 @auto_docstring
 class MT5EncoderModel(MT5PreTrainedModel):
-    r"""
-    Examples:
-
-    ```python
-    >>> from transformers import MT5EncoderModel, AutoTokenizer
-
-    >>> model = MT5EncoderModel.from_pretrained("google/mt5-small")
-    >>> tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
-    >>> article = "UN Offizier sagt, dass weiter verhandelt werden muss in Syrien."
-    >>> input_ids = tokenizer(article, return_tensors="pt").input_ids
-    >>> outputs = model(input_ids)
-    >>> hidden_state = outputs.last_hidden_state
-    ```"""
 
     model_type = "mt5"
     config: MT5Config
@@ -1193,7 +1067,6 @@ class MT5EncoderModel(MT5PreTrainedModel):
         "encoder.embed_tokens.weight": "shared.weight",
     }
 
-    # Copied from transformers.models.t5.modeling_t5.T5EncoderModel.__init__ with T5->MT5
     def __init__(self, config: MT5Config):
         super().__init__(config)
         self.shared = nn.Embedding(config.vocab_size, config.d_model)
@@ -1203,20 +1076,16 @@ class MT5EncoderModel(MT5PreTrainedModel):
         encoder_config.is_encoder_decoder = False
         self.encoder = MT5Stack(encoder_config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.t5.modeling_t5.T5EncoderModel.get_input_embeddings
     def get_input_embeddings(self):
         return self.shared
 
-    # Copied from transformers.models.t5.modeling_t5.T5EncoderModel.set_input_embeddings
     def set_input_embeddings(self, new_embeddings):
         self.shared = new_embeddings
         self.encoder.set_input_embeddings(new_embeddings)
 
     @auto_docstring
-    # Copied from transformers.models.t5.modeling_t5.T5EncoderModel.forward with google-t5/->google/, T5->MT5, t5->mt5
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -1273,17 +1142,14 @@ class MT5EncoderModel(MT5PreTrainedModel):
 class MT5ForSequenceClassification(MT5PreTrainedModel):
     _keys_to_ignore_on_load_unexpected = ["decoder.block.0.layer.1.EncDecAttention.relative_attention_bias.weight"]
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForSequenceClassification.__init__ with T5->MT5
     def __init__(self, config: MT5Config):
         super().__init__(config)
         self.transformer = MT5Model(config)
         self.classification_head = MT5ClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
-    # Copied from transformers.models.t5.modeling_t5.T5ForSequenceClassification.forward with T5->MT5, t5->mt5
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -1340,8 +1206,6 @@ class MT5ForSequenceClassification(MT5PreTrainedModel):
                 f"Passing input embeddings is currently not supported for {self.__class__.__name__}"
             )
 
-        # Copied from models.bart.modeling_bart.BartModel.forward different to other models, MT5 automatically creates
-        # decoder_input_ids from input_ids if no decoder_input_ids are provided
         if decoder_input_ids is None and decoder_inputs_embeds is None:
             if input_ids is None:
                 raise ValueError(
@@ -1423,7 +1287,6 @@ class MT5ForSequenceClassification(MT5PreTrainedModel):
 
 @auto_docstring
 class MT5ForTokenClassification(MT5PreTrainedModel):
-    # Copied from transformers.models.t5.modeling_t5.T5ForTokenClassification.__init__ with T5->MT5
     def __init__(self, config: MT5Config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -1432,11 +1295,9 @@ class MT5ForTokenClassification(MT5PreTrainedModel):
         self.dropout = nn.Dropout(config.classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
-    # Copied from transformers.models.t5.modeling_t5.T5ForTokenClassification.forward with T5->MT5
     def forward(
         self,
         input_ids: torch.Tensor | None = None,
@@ -1502,7 +1363,6 @@ class MT5ForQuestionAnswering(MT5PreTrainedModel):
         "decoder.embed_tokens.weight": "shared.weight",
     }
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForQuestionAnswering.__init__ with T5->MT5
     def __init__(self, config: MT5Config):
         super().__init__(config)
         self.model_dim = config.d_model
@@ -1522,21 +1382,17 @@ class MT5ForQuestionAnswering(MT5PreTrainedModel):
         self.num_labels = config.num_labels
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForQuestionAnswering.get_input_embeddings
     def get_input_embeddings(self):
         return self.shared
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForQuestionAnswering.set_input_embeddings
     def set_input_embeddings(self, new_embeddings):
         self.shared = new_embeddings
         self.encoder.set_input_embeddings(new_embeddings)
         self.decoder.set_input_embeddings(new_embeddings)
 
     @auto_docstring
-    # Copied from transformers.models.t5.modeling_t5.T5ForQuestionAnswering.forward
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -1587,9 +1443,6 @@ class MT5ForQuestionAnswering(MT5PreTrainedModel):
         if start_positions is not None and end_positions is not None:
             use_cache = False
 
-        # Copied from models.bart.modeling_bart.BartModel.forward
-        #   different to other models, T5 automatically creates decoder_input_ids from
-        #   input_ids if no decoder_input_ids are provided
         if decoder_input_ids is None and decoder_inputs_embeds is None:
             if input_ids is None:
                 raise ValueError(
@@ -1602,7 +1455,6 @@ class MT5ForQuestionAnswering(MT5PreTrainedModel):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # Encode if needed (training, first prediction pass)
         if encoder_outputs is None:
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
@@ -1621,7 +1473,6 @@ class MT5ForQuestionAnswering(MT5PreTrainedModel):
 
         hidden_states = encoder_outputs[0]
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -1644,12 +1495,10 @@ class MT5ForQuestionAnswering(MT5PreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1).to(start_logits.device)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1).to(end_logits.device)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

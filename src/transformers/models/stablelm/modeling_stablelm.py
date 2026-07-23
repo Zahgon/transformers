@@ -1,22 +1,3 @@
-# Copyright 2024 EleutherAI and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch StableLM model."""
 
 from collections.abc import Callable
 from typing import Optional
@@ -52,7 +33,6 @@ from .configuration_stablelm import StableLmConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->StableLm
 class StableLmRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
@@ -73,7 +53,6 @@ class StableLmRotaryEmbedding(nn.Module):
         self.register_buffer("original_inv_freq", inv_freq.clone(), persistent=False)
 
     @staticmethod
-    # Ignore copy
     def compute_default_rope_parameters(
         config: StableLmConfig | None = None,
         device: Optional["torch.device"] = None,
@@ -99,7 +78,6 @@ class StableLmRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
@@ -121,7 +99,6 @@ class StableLmRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-# Copied from transformers.models.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
@@ -129,7 +106,6 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-# Copied from transformers.models.llama.modeling_llama.apply_rotary_pos_emb
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
 
@@ -155,7 +131,6 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     return q_embed, k_embed
 
 
-# Copied from transformers.models.mistral.modeling_mistral.MistralMLP with Mistral->StableLm
 class StableLmMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -180,14 +155,10 @@ class StableLmLayerNormPerHead(nn.Module):
         self.norms = nn.ModuleList([nn.LayerNorm(dim, eps=eps, bias=bias) for _ in range(self.num_heads)])
 
     def forward(self, hidden_states: torch.Tensor):
-        # Split along the num_heads axis to get per-head inputs
-        # [batch_size, num_heads, seq_len, head_dim] -> [batch_size, 1, seq_len, head_dim] * num_heads
         states_per_heads = torch.split(hidden_states, 1, dim=1)
-        # Normalize and merge the heads back together
         return torch.cat([norm(hidden_states) for norm, hidden_states in zip(self.norms, states_per_heads)], dim=1)
 
 
-# Copied from transformers.models.llama.modeling_llama.repeat_kv
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -200,7 +171,6 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
-# Copied from transformers.models.llama.modeling_llama.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -227,7 +197,6 @@ def eager_attention_forward(
 
 
 class StableLmAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: StableLmConfig, layer_idx: int | None = None):
         super().__init__()
@@ -303,10 +272,8 @@ class StableLmAttention(nn.Module):
             key_states[..., : self.rotary_ndims],
             key_states[..., self.rotary_ndims :],
         )
-        # [batch_size, seq_length, num_heads, head_dim // config.partial_rotary_factor]
         query_rot, key_rot = apply_rotary_pos_emb(query_rot, key_rot, cos, sin)
 
-        # [batch_size, seq_length, num_heads, head_dim]
         query_states = torch.cat((query_rot, query_pass), dim=-1)
         key_states = torch.cat((key_rot, key_pass), dim=-1)
 
@@ -362,7 +329,6 @@ class StableLmDecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         self_attn_output, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -372,18 +338,12 @@ class StableLmDecoderLayer(GradientCheckpointingLayer):
             position_embeddings=position_embeddings,
         )
 
-        # copied from transformers.models.gpt_neox.modeling_gpt_neox.GPTNeoXLayer.forward
         if self.use_parallel_residual:
-            # x = x + attn(ln1(x)) + mlp(ln1(x))
-            # Fully Connected
             mlp_output = self.mlp(hidden_states)
             mlp_output = self.dropout(mlp_output)
             hidden_states = residual + self_attn_output + mlp_output
         else:
-            # x = x + attn(ln1(x))
-            # x = x + mlp(ln2(x))
             residual = residual + self_attn_output
-            # Fully Connected
             mlp_output = self.mlp(self.post_attention_layernorm(residual))
             mlp_output = self.dropout(mlp_output)
             hidden_states = residual + mlp_output
@@ -409,12 +369,6 @@ class StableLmPreTrainedModel(PreTrainedModel):
 
 @auto_docstring
 class StableLmModel(StableLmPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`StableLmDecoderLayer`]
-
-    Args:
-        config: StableLmConfig
-    """
 
     def __init__(self, config: StableLmConfig):
         super().__init__(config)
@@ -431,7 +385,6 @@ class StableLmModel(StableLmPreTrainedModel):
         self.gradient_checkpointing = False
         self.rotary_emb = StableLmRotaryEmbedding(config=self.config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -491,23 +444,19 @@ class StableLmModel(StableLmPreTrainedModel):
         )
 
 
-# Copied from transformers.models.persimmon.modeling_persimmon.PersimmonForCausalLM with PERSIMMON->STABLELM,Persimmon->StableLm
 class StableLmForCausalLM(StableLmPreTrainedModel, GenerationMixin):
     _tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}
 
-    # Copied from transformers.models.llama.modeling_llama.LlamaForCausalLM.__init__ with LLAMA->STABLELM,Llama->StableLm
     def __init__(self, config):
         super().__init__(config)
         self.model = StableLmModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
     @auto_docstring
-    # Ignore copy
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,

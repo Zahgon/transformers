@@ -1,17 +1,3 @@
-# Copyright 2022 University of Wisconsin-Madison and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch YOSO model."""
 
 import math
 
@@ -117,19 +103,7 @@ class YosoCumulation(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad):
-        grad = to_contiguous(grad)
-
-        query_mask, key_mask, expectation, query, key, value = ctx.saved_tensors
-        config = ctx.config
-
-        hash_code_len = config["hash_code_len"]
-
-        weighted_exp = torch.matmul(grad, value.transpose(-1, -2)) * expectation
-        grad_query = torch.matmul(weighted_exp, (hash_code_len / 2) * key)
-        grad_key = torch.matmul(weighted_exp.transpose(-1, -2), (hash_code_len / 2) * query)
-        grad_value = torch.matmul(expectation.transpose(-1, -2), grad)
-
-        return None, None, grad_query, grad_key, grad_value, None
+        pass
 
 
 class YosoLSHCumulation(torch.autograd.Function):
@@ -173,57 +147,10 @@ class YosoLSHCumulation(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad):
-        grad = to_contiguous(grad)
-
-        query_mask, key_mask, query_hash_code, key_hash_code, query, key, value = ctx.saved_tensors
-        config = ctx.config
-
-        use_cuda = grad.is_cuda
-        hash_code_len = config["hash_code_len"]
-        hashtable_capacity = int(2**hash_code_len)
-
-        if config["lsh_backward"]:
-            grad_value = lsh_cumulation.lsh_cumulation(
-                key_mask, key_hash_code, query_mask, query_hash_code, grad, hashtable_capacity, use_cuda, 1
-            )
-            grad_query = lsh_cumulation.lsh_weighted_cumulation(
-                query_mask,
-                query_hash_code,
-                grad,
-                key_mask,
-                key_hash_code,
-                value,
-                (hash_code_len / 2) * key,
-                hashtable_capacity,
-                use_cuda,
-                4,
-            )
-            grad_key = lsh_cumulation.lsh_weighted_cumulation(
-                key_mask,
-                key_hash_code,
-                value,
-                query_mask,
-                query_hash_code,
-                grad,
-                (hash_code_len / 2) * query,
-                hashtable_capacity,
-                use_cuda,
-                4,
-            )
-        else:
-            expectation = (1 - torch.acos(torch.matmul(query, key.transpose(-1, -2))) / math.pi) ** hash_code_len
-            expectation = expectation * query_mask[:, :, None] * key_mask[:, None, :]
-            weighted_exp = torch.matmul(grad, value.transpose(-1, -2)) * expectation
-            grad_query = torch.matmul(weighted_exp, (hash_code_len / 2) * key)
-            grad_key = torch.matmul(weighted_exp.transpose(-1, -2), (hash_code_len / 2) * query)
-            grad_value = torch.matmul(expectation.transpose(-1, -2), grad)
-
-        return None, None, grad_query, grad_key, grad_value, None
+        pass
 
 
-# Copied from transformers.models.nystromformer.modeling_nystromformer.NystromformerEmbeddings
 class YosoEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -234,7 +161,6 @@ class YosoEmbeddings(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)) + 2, persistent=False
         )
@@ -255,9 +181,6 @@ class YosoEmbeddings(nn.Module):
         if position_ids is None:
             position_ids = self.position_ids[:, :seq_length]
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
                 buffered_token_type_ids = self.token_type_ids[:, :seq_length]
@@ -363,8 +286,6 @@ class YosoSelfAttention(nn.Module):
             .int()
         )
 
-        # The CUDA kernels are most efficient with inputs whose size is a multiple of a GPU's warp size (32). Inputs
-        # smaller than this are padded with zeros.
         gpu_warp_size = 32
 
         if (not self.use_expectation) and head_dim < gpu_warp_size:
@@ -423,7 +344,6 @@ class YosoSelfAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput
 class YosoSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -451,7 +371,6 @@ class YosoAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate
 class YosoIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -467,7 +386,6 @@ class YosoIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput
 class YosoOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -551,7 +469,6 @@ class YosoEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPredictionHeadTransform
 class YosoPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -569,14 +486,11 @@ class YosoPredictionHeadTransform(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertLMPredictionHead with Bert->Yoso
 class YosoLMPredictionHead(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.transform = YosoPredictionHeadTransform(config)
 
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=True)
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
@@ -586,7 +500,6 @@ class YosoLMPredictionHead(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOnlyMLMHead with Bert->Yoso
 class YosoOnlyMLMHead(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -623,7 +536,6 @@ class YosoModel(YosoPreTrainedModel):
         self.embeddings = YosoEmbeddings(config)
         self.encoder = YosoEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -714,7 +626,6 @@ class YosoForMaskedLM(YosoPreTrainedModel):
         self.yoso = YosoModel(config)
         self.cls = YosoOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -778,7 +689,6 @@ class YosoForMaskedLM(YosoPreTrainedModel):
 
 
 class YosoClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config):
         super().__init__()
@@ -811,7 +721,6 @@ class YosoForSequenceClassification(YosoPreTrainedModel):
         self.yoso = YosoModel(config)
         self.classifier = YosoClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -893,7 +802,6 @@ class YosoForMultipleChoice(YosoPreTrainedModel):
         self.pre_classifier = nn.Linear(config.hidden_size, config.hidden_size)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -999,7 +907,6 @@ class YosoForTokenClassification(YosoPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1041,7 +948,6 @@ class YosoForTokenClassification(YosoPreTrainedModel):
         loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
-            # Only keep active parts of the loss
             if attention_mask is not None:
                 active_loss = attention_mask.view(-1) == 1
                 active_logits = logits.view(-1, self.num_labels)
@@ -1075,7 +981,6 @@ class YosoForQuestionAnswering(YosoPreTrainedModel):
         self.yoso = YosoModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1115,12 +1020,10 @@ class YosoForQuestionAnswering(YosoPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

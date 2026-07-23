@@ -1,16 +1,3 @@
-# Copyright 2022 Meta Platforms, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import sys
 from argparse import ArgumentParser
 from collections.abc import Iterator
@@ -76,11 +63,9 @@ class TrackedStateDict:
         return set(self.to_track.keys()) - self._seen
 
     def copy(self) -> dict:
-        # proxy the call to the internal dictionary
         return self.to_track.copy()
 
 
-# We will verify our results on an image of cute cats
 def prepare_img():
     url = "http://images.cocodataset.org/val2017/000000039769.jpg"
     with httpx.stream("GET", url) as response:
@@ -90,19 +75,12 @@ def prepare_img():
 
 @dataclass
 class Args:
-    """Fake command line arguments needed by maskformer/detectron implementation"""
 
     config_file: str
 
 
 def setup_cfg(args: Args):
-    # load config from file and command-line arguments
-    cfg = get_cfg()
-    add_deeplab_config(cfg)
-    add_mask_former_config(cfg)
-    cfg.merge_from_file(args.config_file)
-    cfg.freeze()
-    return cfg
+    pass
 
 
 class OriginalMaskFormerConfigToOursConverter:
@@ -156,7 +134,6 @@ class OriginalMaskFormerConfigToOursConverter:
                 "scale_embedding": False,
                 "auxiliary_loss": False,
                 "dilation": False,
-                # default pretrained config values
             },
             id2label=id2label,
             label2id=label2id,
@@ -223,8 +200,6 @@ class OriginalMaskFormerCheckpointToOursConverter:
                         ),
                     ]
                 )
-                # now we need to handle the attentions
-                # read in weights + bias of input projection layer of cross-attention
 
                 src_att_weight = src_state_dict[f"{src_prefix}.layers.{layer_idx}.blocks.{block_idx}.attn.qkv.weight"]
                 src_att_bias = src_state_dict[f"{src_prefix}.layers.{layer_idx}.blocks.{block_idx}.attn.qkv.bias"]
@@ -252,10 +227,8 @@ class OriginalMaskFormerCheckpointToOursConverter:
                     f"{dst_prefix}.model.encoder.layers.{layer_idx}.blocks.{block_idx}.attention.self.value.bias"
                 ] = src_att_bias[-offset:]
 
-                # let's pop them
                 src_state_dict.pop(f"{src_prefix}.layers.{layer_idx}.blocks.{block_idx}.attn.qkv.weight")
                 src_state_dict.pop(f"{src_prefix}.layers.{layer_idx}.blocks.{block_idx}.attn.qkv.bias")
-                # proj
                 renamed_keys.extend(
                     [
                         (
@@ -269,7 +242,6 @@ class OriginalMaskFormerCheckpointToOursConverter:
                     ]
                 )
 
-                # second norm
                 renamed_keys.extend(
                     [
                         (
@@ -283,7 +255,6 @@ class OriginalMaskFormerCheckpointToOursConverter:
                     ]
                 )
 
-                # mlp
                 renamed_keys.extend(
                     [
                         (
@@ -315,7 +286,6 @@ class OriginalMaskFormerCheckpointToOursConverter:
                 )
 
             if layer_idx < num_layers - 1:
-                # patch merging
                 renamed_keys.extend(
                     [
                         (
@@ -333,7 +303,6 @@ class OriginalMaskFormerCheckpointToOursConverter:
                     ]
                 )
 
-            # hidden states norms
             renamed_keys.extend(
                 [
                     (
@@ -357,7 +326,6 @@ class OriginalMaskFormerCheckpointToOursConverter:
         def rename_keys_for_conv(detectron_conv: str, mine_conv: str):
             return [
                 (f"{detectron_conv}.weight", f"{mine_conv}.0.weight"),
-                # 2 cuz the have act in the middle -> rename it
                 (f"{detectron_conv}.norm.weight", f"{mine_conv}.1.weight"),
                 (f"{detectron_conv}.norm.bias", f"{mine_conv}.1.bias"),
             ]
@@ -365,12 +333,10 @@ class OriginalMaskFormerCheckpointToOursConverter:
         renamed_keys = [
             (f"{src_prefix}.mask_features.weight", f"{dst_prefix}.mask_projection.weight"),
             (f"{src_prefix}.mask_features.bias", f"{dst_prefix}.mask_projection.bias"),
-            # the layers in the original one are in reverse order, stem is the last one!
         ]
 
         renamed_keys.extend(rename_keys_for_conv(f"{src_prefix}.layer_4", f"{dst_prefix}.fpn.stem"))
 
-        # add all the fpn layers (here we need some config parameters to know the size in advance)
         for src_i, dst_i in zip(range(3, 0, -1), range(0, 3)):
             renamed_keys.extend(
                 rename_keys_for_conv(f"{src_prefix}.adapter_{src_i}", f"{dst_prefix}.fpn.layers.{dst_i}.proj")
@@ -384,11 +350,8 @@ class OriginalMaskFormerCheckpointToOursConverter:
     def rename_keys_in_detr_decoder(self, dst_state_dict: StateDict, src_state_dict: StateDict):
         dst_prefix: str = "transformer_module.decoder"
         src_prefix: str = "sem_seg_head.predictor.transformer.decoder"
-        # not sure why we are not popping direcetly here!
-        # here we list all keys to be renamed (original name on the left, our name on the right)
         rename_keys = []
         for i in range(self.config.decoder_config.decoder_layers):
-            # decoder layers: 2 times output projection, 2 feedforward neural networks and 3 layernorms
             rename_keys.append(
                 (
                     f"{src_prefix}.layers.{i}.self_attn.out_proj.weight",
@@ -442,20 +405,16 @@ class OriginalMaskFormerCheckpointToOursConverter:
         dst_prefix: str = "transformer_module.decoder"
         src_prefix: str = "sem_seg_head.predictor.transformer.decoder"
         for i in range(self.config.decoder_config.decoder_layers):
-            # read in weights + bias of input projection layer of self-attention
             in_proj_weight = src_state_dict.pop(f"{src_prefix}.layers.{i}.self_attn.in_proj_weight")
             in_proj_bias = src_state_dict.pop(f"{src_prefix}.layers.{i}.self_attn.in_proj_bias")
-            # next, add query, keys and values (in that order) to the state dict
             dst_state_dict[f"{dst_prefix}.layers.{i}.self_attn.q_proj.weight"] = in_proj_weight[:256, :]
             dst_state_dict[f"{dst_prefix}.layers.{i}.self_attn.q_proj.bias"] = in_proj_bias[:256]
             dst_state_dict[f"{dst_prefix}.layers.{i}.self_attn.k_proj.weight"] = in_proj_weight[256:512, :]
             dst_state_dict[f"{dst_prefix}.layers.{i}.self_attn.k_proj.bias"] = in_proj_bias[256:512]
             dst_state_dict[f"{dst_prefix}.layers.{i}.self_attn.v_proj.weight"] = in_proj_weight[-256:, :]
             dst_state_dict[f"{dst_prefix}.layers.{i}.self_attn.v_proj.bias"] = in_proj_bias[-256:]
-            # read in weights + bias of input projection layer of cross-attention
             in_proj_weight_cross_attn = src_state_dict.pop(f"{src_prefix}.layers.{i}.multihead_attn.in_proj_weight")
             in_proj_bias_cross_attn = src_state_dict.pop(f"{src_prefix}.layers.{i}.multihead_attn.in_proj_bias")
-            # next, add query, keys and values (in that order) of cross-attention to the state dict
             dst_state_dict[f"{dst_prefix}.layers.{i}.encoder_attn.q_proj.weight"] = in_proj_weight_cross_attn[:256, :]
             dst_state_dict[f"{dst_prefix}.layers.{i}.encoder_attn.q_proj.bias"] = in_proj_bias_cross_attn[:256]
             dst_state_dict[f"{dst_prefix}.layers.{i}.encoder_attn.k_proj.weight"] = in_proj_weight_cross_attn[
@@ -469,7 +428,6 @@ class OriginalMaskFormerCheckpointToOursConverter:
         dst_prefix: str = "transformer_module.decoder"
         src_prefix: str = "sem_seg_head.predictor.transformer.decoder"
         renamed_keys = self.rename_keys_in_detr_decoder(dst_state_dict, src_state_dict)
-        # add more
         renamed_keys.extend(
             [
                 (f"{src_prefix}.norm.weight", f"{dst_prefix}.layernorm.weight"),
@@ -496,25 +454,7 @@ class OriginalMaskFormerCheckpointToOursConverter:
         self.pop_all(renamed_keys, dst_state_dict, src_state_dict)
 
     def replace_instance_segmentation_module(self, dst_state_dict: StateDict, src_state_dict: StateDict):
-        # NOTE in our case we don't have a prefix, thus we removed the "." from the keys later on!
-        dst_prefix: str = ""
-        src_prefix: str = "sem_seg_head.predictor"
-
-        renamed_keys = [
-            (f"{src_prefix}.class_embed.weight", f"{dst_prefix}class_predictor.weight"),
-            (f"{src_prefix}.class_embed.bias", f"{dst_prefix}class_predictor.bias"),
-        ]
-
-        mlp_len = 3
-        for i in range(mlp_len):
-            renamed_keys.extend(
-                [
-                    (f"{src_prefix}.mask_embed.layers.{i}.weight", f"{dst_prefix}mask_embedder.{i}.0.weight"),
-                    (f"{src_prefix}.mask_embed.layers.{i}.bias", f"{dst_prefix}mask_embedder.{i}.0.bias"),
-                ]
-            )
-        logger.info(f"Replacing keys {pformat(renamed_keys)}")
-        self.pop_all(renamed_keys, dst_state_dict, src_state_dict)
+        pass
 
     def convert(self, mask_former: MaskFormerModel) -> MaskFormerModel:
         dst_state_dict = TrackedStateDict(mask_former.state_dict())
@@ -534,25 +474,11 @@ class OriginalMaskFormerCheckpointToOursConverter:
     def convert_instance_segmentation(
         self, mask_former: MaskFormerForInstanceSegmentation
     ) -> MaskFormerForInstanceSegmentation:
-        dst_state_dict = TrackedStateDict(mask_former.state_dict())
-        src_state_dict = self.original_model.state_dict()
-
-        self.replace_instance_segmentation_module(dst_state_dict, src_state_dict)
-
-        mask_former.load_state_dict(dst_state_dict)
-
-        return mask_former
+        pass
 
     @staticmethod
     def using_dirs(checkpoints_dir: Path, config_dir: Path) -> Iterator[tuple[object, Path, Path]]:
-        checkpoints: list[Path] = checkpoints_dir.glob("**/*.pkl")
-
-        for checkpoint in checkpoints:
-            logger.info(f"Converting {checkpoint.stem}")
-            # find associated config file
-            config: Path = config_dir / checkpoint.parents[0].stem / "swin" / f"{checkpoint.stem}.yaml"
-
-            yield config, checkpoint
+        pass
 
 
 def test(original_model, our_model: MaskFormerForInstanceSegmentation, image_processor: MaskFormerImageProcessor):
@@ -594,7 +520,6 @@ def test(original_model, our_model: MaskFormerForInstanceSegmentation, image_pro
             original_model_pixel_out[0], our_model_output.pixel_decoder_last_hidden_state, atol=1e-4
         ), "The pixel decoder feature are not the same"
 
-        # let's test the full model
         original_model_out = original_model([{"image": x.squeeze(0)}])
 
         original_segmentation = original_model_out[0]["sem_seg"]
@@ -612,7 +537,6 @@ def test(original_model, our_model: MaskFormerForInstanceSegmentation, image_pro
 
 def get_name(checkpoint_file: Path):
     model_name_raw: str = checkpoint_file.stem
-    # model_name_raw is something like maskformer_panoptic_swin_base_IN21k_384_bs64_554k
     parent_name: str = checkpoint_file.parents[0].stem
     backbone = "swin"
     dataset = ""
@@ -676,9 +600,7 @@ if __name__ == "__main__":
     config_dir: Path = args.configs_dir
     save_directory: Path = args.pytorch_dump_folder_path
     maskformer_dir: Path = args.maskformer_dir
-    # append the path to the parents to maskformer dir
     sys.path.append(str(maskformer_dir.parent))
-    # and import what's needed
     from MaskFormer.mask_former import add_mask_former_config
     from MaskFormer.mask_former.mask_former_model import MaskFormer as OriginalMaskFormer
 

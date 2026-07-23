@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for ViTMatte."""
 
 import numpy as np
 
@@ -34,12 +20,7 @@ if is_torch_available():
     pass
 
 
-# Adapted from transformers.models.vitmatte.image_processing_vitmatte.VitMatteImageProcessorKwargs
 class VitMatteImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    size_divisor (`int`, *optional*, defaults to `self.size_divisor`):
-        The width and height of the image will be padded to be divisible by this number.
-    """
 
     size_divisor: int
 
@@ -143,8 +124,6 @@ class VitMatteImageProcessorPil(PilBackend):
                 trimap = self.rescale(trimap, rescale_factor)
             if do_normalize:
                 image = self.normalize(image, image_mean, image_std)
-            # Concatenate images and trimaps along channel dimension
-            # trimap is already (1, H, W) from _prepare_image_like_inputs with expected_ndims=2
             if trimap.ndim == 3 and trimap.shape[0] == 1:
                 image = np.concatenate([image, trimap], axis=0)
             else:

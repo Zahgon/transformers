@@ -1,16 +1,3 @@
-# Copyright 2026 Microsoft and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import json
 import re
@@ -46,29 +33,6 @@ class VibeVoiceAsrProcessorKwargs(ProcessingKwargs, total=False):
 
 
 class VibeVoiceAsrProcessor(ProcessorMixin):
-    r"""
-    Constructs a VibeVoice ASR processor which wraps [`VibeVoiceAcousticTokenizerFeatureExtractor`] and
-    [`Qwen2TokenizerFast`] into a single processor that inherits both the audio feature extraction and
-    tokenizer functionalities.
-
-    See the [`~VibeVoiceAsrProcessor.__call__`] for more information.
-
-    Args:
-        feature_extractor (`VibeVoiceAcousticTokenizerFeatureExtractor`):
-            The feature extractor for audio processing.
-        tokenizer (`Qwen2TokenizerFast`):
-            The tokenizer for text processing.
-        chat_template (`str`, *optional*):
-            A Jinja template which will be used to convert lists of messages in a chat into a tokenizable string.
-        audio_token (`str`, *optional*, defaults to `"<|box_start|>"`):
-            The audio token placeholder to use in the chat template.
-        audio_bos_token (`str`, *optional*, defaults to `"<|object_ref_start|>"`):
-            The audio begin-of-sequence token placeholder to use in the chat template.
-        audio_eos_token (`str`, *optional*, defaults to `"<|object_ref_end|>"`):
-            The audio end-of-sequence token placeholder to use in the chat template.
-        audio_duration_token (`str`, *optional*, defaults to `"<|AUDIO_DURATION|>"`):
-            The audio duration token placeholder to use in the chat template.
-    """
 
     feature_extractor_class = "VibeVoiceAcousticTokenizerFeatureExtractor"
     tokenizer_class = "Qwen2TokenizerFast"
@@ -142,14 +106,12 @@ class VibeVoiceAsrProcessor(ProcessorMixin):
             raise ValueError(f"Got {len(text)} text but {len(audio)} audios; they must match 1:1.")
         data = self.feature_extractor(audio, **audio_kwargs)
 
-        # Replace audio duration placeholders in text
         audio_lengths = data["padding_mask"].sum(dim=-1).cpu().numpy()
         audio_durations = audio_lengths / self.feature_extractor.sampling_rate
         audio_duration_pattern = re.compile(re.escape(self.audio_duration_token))
         for i in range(len(text)):
             text[i] = audio_duration_pattern.sub(f"{audio_durations[i]:.2f}", text[i])
 
-        # Expand audio tokens in text
         num_audio_tokens = np.ceil(audio_lengths / audio_kwargs["pad_to_multiple_of"]).astype(int).tolist()
         audio_token_pattern = re.compile(re.escape(self.audio_token))
         for i, num_tokens in enumerate(num_audio_tokens):
@@ -174,52 +136,7 @@ class VibeVoiceAsrProcessor(ProcessorMixin):
         prompt: str | list[str] | None = None,
         **kwargs: Unpack[VibeVoiceAsrProcessorKwargs],
     ) -> BatchFeature:
-        """
-        Prepare inputs for automatic speech recognition without manually writing the chat template.
-
-        Args:
-            audio (`str`, `list[str]`, `np.ndarray`, `torch.Tensor`, `list[np.ndarray]`, `list[torch.Tensor]`):
-                Audio to transcribe. Strings are interpreted as local paths or URLs and will be loaded automatically by
-                the chat template loader; NumPy arrays and PyTorch tensors are forwarded directly.
-            prompt (`str` or `list[str]`, *optional*):
-                Custom prompt(s) to include in the user turn as extra context. A list must be the same length as the
-                batch. When `None`, no additional context is provided.
-            **kwargs:
-                Additional keyword arguments forwarded to [`~VibeVoiceAsrProcessor.apply_chat_template`] (for example
-                `text_kwargs`, `audio_kwargs`, ...).
-
-        Returns:
-            [`BatchFeature`]: Processor outputs ready to be passed to [`VibeVoiceAsrForConditionalGeneration.generate`].
-        """
-
-        audio_items: list[str | np.ndarray] = list(make_list_of_audio_chat_template(audio))
-
-        batch_size = len(audio_items)
-        if batch_size == 0:
-            raise ValueError("`audio` must contain at least one sample.")
-
-        prompts = prepare_prompt_input(prompt, batch_size, input_name="prompt")
-
-        conversations = []
-        for prompt_text, audio_item in zip(prompts, audio_items):
-            content = []
-            if isinstance(audio_item, str):
-                content.append({"type": "audio", "path": audio_item})
-            else:
-                content.append({"type": "audio", "audio": audio_item})
-
-            if prompt_text is not None:
-                content.append({"type": "text", "text": prompt_text})
-
-            conversations.append([{"role": "user", "content": content}])
-
-        return self.apply_chat_template(
-            conversations,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
-            **kwargs,
-        )
+        pass
 
     def decode(self, *args, return_format="raw", **kwargs):
         """
@@ -338,7 +255,6 @@ class VibeVoiceAsrProcessor(ProcessorMixin):
         for t in text:
             dict_output = self.extract_speaker_dict(t)
 
-            # If parsing failed, dict_output is the original string
             if isinstance(dict_output, str):
                 transcriptions.append(dict_output)
             else:

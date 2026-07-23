@@ -1,17 +1,3 @@
-# Copyright 2023 Alibaba Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch MGP-STR model."""
 
 import collections.abc
 from dataclasses import dataclass
@@ -34,21 +20,6 @@ from .configuration_mgp_str import MgpstrConfig
 )
 @dataclass
 class MgpstrModelOutput(ModelOutput):
-    r"""
-    logits (`tuple(torch.FloatTensor)` of shape `(batch_size, config.num_character_labels)`):
-        Tuple of `torch.FloatTensor` (one for the output of character of shape `(batch_size,
-        config.max_token_length, config.num_character_labels)`, + one for the output of bpe of shape `(batch_size,
-        config.max_token_length, config.num_bpe_labels)`, + one for the output of wordpiece of shape `(batch_size,
-        config.max_token_length, config.num_wordpiece_labels)`) .
-
-        Classification scores (before SoftMax) of character, bpe and wordpiece.
-    a3_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_a3_attentions=True` is passed or when `config.output_a3_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for the attention of character, + one for the attention of bpe`, + one
-        for the attention of wordpiece) of shape `(batch_size, config.max_token_length, sequence_length)`.
-
-        Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
-        heads.
-    """
 
     logits: tuple[torch.FloatTensor] | None = None
     hidden_states: tuple[torch.FloatTensor] | None = None
@@ -57,7 +28,6 @@ class MgpstrModelOutput(ModelOutput):
 
 
 class MgpstrEmbeddings(nn.Module):
-    """2D Image to Patch Embedding"""
 
     def __init__(self, config: MgpstrConfig):
         super().__init__()
@@ -103,7 +73,6 @@ class MgpstrEmbeddings(nn.Module):
 
 
 class MgpstrMlp(nn.Module):
-    """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
 
     def __init__(self, config: MgpstrConfig, hidden_features):
         super().__init__()
@@ -153,13 +122,7 @@ class MgpstrAttention(nn.Module):
         return (context_layer, attention_probs)
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->MgpStrDropPath
 class MgpStrDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -175,7 +138,7 @@ class MgpStrDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class MgpstrLayer(nn.Module):
@@ -183,7 +146,6 @@ class MgpstrLayer(nn.Module):
         super().__init__()
         self.norm1 = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.attn = MgpstrAttention(config)
-        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = MgpStrDropPath(drop_path) if drop_path is not None else nn.Identity()
         self.norm2 = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         mlp_hidden_dim = int(config.hidden_size * config.mlp_ratio)
@@ -194,10 +156,8 @@ class MgpstrLayer(nn.Module):
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1]
 
-        # first residual connection
         hidden_states = self.drop_path(attention_output) + hidden_states
 
-        # second residual connection is done here
         layer_output = hidden_states + self.drop_path(self.mlp(self.norm2(hidden_states)))
 
         outputs = (layer_output, outputs)
@@ -207,7 +167,6 @@ class MgpstrLayer(nn.Module):
 class MgpstrEncoder(nn.Module):
     def __init__(self, config: MgpstrConfig):
         super().__init__()
-        # stochastic depth decay rule
         dpr = [x.item() for x in torch.linspace(0, config.drop_path_rate, config.num_hidden_layers, device="cpu")]
 
         self.blocks = nn.Sequential(
@@ -296,7 +255,6 @@ class MgpstrModel(MgpstrPreTrainedModel):
         self.embeddings = MgpstrEmbeddings(config)
         self.encoder = MgpstrEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> nn.Module:
@@ -362,7 +320,6 @@ class MgpstrForSceneTextRecognition(MgpstrPreTrainedModel):
         self.bpe_head = nn.Linear(config.hidden_size, config.num_bpe_labels)
         self.wp_head = nn.Linear(config.hidden_size, config.num_wordpiece_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

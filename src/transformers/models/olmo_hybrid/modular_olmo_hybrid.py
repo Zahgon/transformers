@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from __future__ import annotations
 
@@ -76,46 +63,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="allenai/Olmo-Hybrid-7B")
 @strict
 class OlmoHybridConfig(LlamaConfig):
-    r"""
-    linear_num_key_heads (`int`, *optional*):
-        Number of key heads for the linear attention layers. Defaults to `num_attention_heads`.
-    linear_num_value_heads (`int`, *optional*):
-        Number of value heads for the linear attention layers. Defaults to `num_attention_heads`.
-    linear_key_head_dim (`int`, *optional*):
-        Dimension of each key head in linear attention layers. Defaults to `0.75 * hidden_size / linear_num_key_heads`.
-    linear_value_head_dim (`int`, *optional*):
-        Dimension of each value head in linear attention layers. Defaults to `2 * linear_key_head_dim`.
-    linear_a_log_min (`float`, *optional*, defaults to 0.0):
-        Minimum value for uniform initialization of A_log in GatedDeltaNet layers.
-    linear_a_log_max (`float`, *optional*, defaults to 16.0):
-        Maximum value for uniform initialization of A_log in GatedDeltaNet layers.
-    linear_dt_min (`float`, *optional*, defaults to 0.001):
-        Minimum value for dt initialization in GatedDeltaNet layers.
-    linear_dt_max (`float`, *optional*, defaults to 0.1):
-        Maximum value for dt initialization in GatedDeltaNet layers.
-    linear_dt_init_floor (`float`, *optional*, defaults to 0.0001):
-        Floor value for clamping dt during initialization in GatedDeltaNet layers.
-    linear_conv_kernel_dim (`int`, *optional*, defaults to 4):
-        Kernel size for the short convolution applied to queries, keys, and values in linear attention layers.
-    linear_allow_neg_eigval (`bool`, *optional*, defaults to `True`):
-        Whether to allow negative eigenvalues in the GatedDeltaNet recurrence. When `True`, the beta
-        parameter is scaled by 2.0 to allow values in range [0, 2] instead of [0, 1].
-
-    Example:
-
-    ```python
-    >>> from transformers import OlmoHybridModel, OlmoHybridConfig
-
-    >>> # Initializing an OlmoHybrid style configuration
-    >>> configuration = OlmoHybridConfig()
-
-    >>> # Initializing a model from the OlmoHybrid style configuration
-    >>> model = OlmoHybridModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "olmo_hybrid"
     base_model_tp_plan = {
@@ -158,12 +105,10 @@ class OlmoHybridConfig(LlamaConfig):
 
     def __post_init__(self, **kwargs):
         if self.layer_types is None:
-            # Default: linear attention for most layers, full attention every 4th layer
             self.layer_types = ["linear_attention"] * int(self.num_hidden_layers)
             for i in range(int(self.num_hidden_layers)):
                 if i % 4 == 3:
                     self.layer_types[i] = "full_attention"
-            # Ensure at least one full attention layer for small num_hidden_layers
             if "full_attention" not in self.layer_types:
                 self.layer_types[-1] = "full_attention"
         else:
@@ -183,19 +128,10 @@ class OlmoHybridConfig(LlamaConfig):
         PreTrainedConfig.__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if "linear_attention" not in self.layer_types:
-            raise ValueError("OLMoHybrid expects at least one 'linear_attention' layer.")
-        if all(t == "linear_attention" for t in self.layer_types):
-            raise ValueError("OLMoHybrid expects at least one attention layer.")
+        pass
 
 
 class OlmoHybridDynamicCache:
-    """
-    Cache for hybrid model supporting both attention KV cache and linear attention state.
-
-    The main difference is that this cache stores separate conv states for q, k, v (instead of a single conv_states).
-    """
 
     is_compileable = False
 
@@ -209,7 +145,6 @@ class OlmoHybridDynamicCache:
         self.recurrent_states = [None for _ in range(config.num_hidden_layers)]
         self.key_cache = [None for _ in range(config.num_hidden_layers)]
         self.value_cache = [None for _ in range(config.num_hidden_layers)]
-        # Replace single conv_states with separate q, k, v conv states
         self.conv_states_q = [None for _ in range(config.num_hidden_layers)]
         self.conv_states_k = [None for _ in range(config.num_hidden_layers)]
         self.conv_states_v = [None for _ in range(config.num_hidden_layers)]
@@ -234,43 +169,10 @@ class OlmoHybridDynamicCache:
         return self.key_cache[layer_idx], self.value_cache[layer_idx]
 
     def reorder_cache(self, beam_idx: torch.LongTensor):
-        """Reorders the cache for beam search, given the selected beam indices."""
-        batch_size = beam_idx.shape[0]
-        for layer_idx in range(len(self.key_cache)):
-            if self.key_cache[layer_idx] is not None:
-                if self.key_cache[layer_idx].shape[0] < batch_size:
-                    expand_ratio = batch_size // self.key_cache[layer_idx].shape[0]
-                    self.key_cache[layer_idx] = self.key_cache[layer_idx].repeat_interleave(expand_ratio, dim=0)
-                    self.value_cache[layer_idx] = self.value_cache[layer_idx].repeat_interleave(expand_ratio, dim=0)
-                device = self.key_cache[layer_idx].device
-                self.key_cache[layer_idx] = self.key_cache[layer_idx].index_select(0, beam_idx.to(device))
-                self.value_cache[layer_idx] = self.value_cache[layer_idx].index_select(0, beam_idx.to(device))
-            if self.conv_states_q[layer_idx] is not None:
-                if self.conv_states_q[layer_idx].shape[0] < batch_size:
-                    expand_ratio = batch_size // self.conv_states_q[layer_idx].shape[0]
-                    self.conv_states_q[layer_idx] = self.conv_states_q[layer_idx].repeat_interleave(
-                        expand_ratio, dim=0
-                    )
-                    self.conv_states_k[layer_idx] = self.conv_states_k[layer_idx].repeat_interleave(
-                        expand_ratio, dim=0
-                    )
-                    self.conv_states_v[layer_idx] = self.conv_states_v[layer_idx].repeat_interleave(
-                        expand_ratio, dim=0
-                    )
-                    self.recurrent_states[layer_idx] = self.recurrent_states[layer_idx].repeat_interleave(
-                        expand_ratio, dim=0
-                    )
-                device = self.conv_states_q[layer_idx].device
-                self.conv_states_q[layer_idx] = self.conv_states_q[layer_idx].index_select(0, beam_idx.to(device))
-                self.conv_states_k[layer_idx] = self.conv_states_k[layer_idx].index_select(0, beam_idx.to(device))
-                self.conv_states_v[layer_idx] = self.conv_states_v[layer_idx].index_select(0, beam_idx.to(device))
-                self.recurrent_states[layer_idx] = self.recurrent_states[layer_idx].index_select(
-                    0, beam_idx.to(device)
-                )
+        pass
 
     def get_seq_length(self, layer_idx: int | None = 0) -> int:
         """Returns the sequence length of the cached states. A layer index can be optionally passed."""
-        # take any layer that contains cache and not empty tensor
         layer_idx = self.transformer_layers[0] if layer_idx not in self.transformer_layers else layer_idx
         if len(self.key_cache) <= layer_idx or self.key_cache[layer_idx] is None:
             return 0
@@ -335,7 +237,6 @@ class OlmoHybridShortConvolution(nn.Conv1d):
         hidden_states = hidden_states.transpose(1, 2)
 
         if use_precomputed and seq_len == 1:
-            # Single-token decode: rolling-window update against the cached context.
             x_with_state = torch.cat([cache, hidden_states], dim=-1)
             out = F.conv1d(
                 x_with_state,
@@ -346,11 +247,7 @@ class OlmoHybridShortConvolution(nn.Conv1d):
             )
             conv_state = x_with_state[:, :, 1:]
         else:
-            # Multi-token forward (prefill, or chunked-tokens decode when the cache has prior state).
             if use_precomputed:
-                # Cached chunked-tokens decode: prepend the cached conv context so the causal conv
-                # sees the correct left-context rather than zero-padding. Dropped from the output
-                # at the end of this branch.
                 hidden_states = torch.cat([cache, hidden_states], dim=-1)
             out = F.conv1d(hidden_states, self.weight, self.bias, padding=self.conv_kernel_size - 1, groups=dim)
             out = out[:, :, : hidden_states.shape[-1]]
@@ -364,17 +261,9 @@ class OlmoHybridShortConvolution(nn.Conv1d):
 
 
 class OlmoHybridAttention(Olmo3Attention):
-    """
-    Multi-headed attention for OLMo Hybrid that supports optional RoPE (NoPE mode).
-
-    Inherits from Olmo3Attention. The only behavioral difference is that when
-    position_embeddings is None, rotary position embeddings are skipped entirely,
-    enabling NoPE mode for long context extension.
-    """
 
     def __init__(self, config: OlmoHybridConfig, layer_idx: int):
         super().__init__(config, layer_idx)
-        # Hybrid model doesn't use sliding window attention
         del self.sliding_window
         del self.attention_type
 
@@ -397,7 +286,6 @@ class OlmoHybridAttention(Olmo3Attention):
         key_states = key_states.view(hidden_shape).transpose(1, 2)
         value_states = value_states.view(hidden_shape).transpose(1, 2)
 
-        # NoPE mode: skip RoPE when position_embeddings is None
         cos, sin = None, None
         if position_embeddings is not None:
             cos, sin = position_embeddings
@@ -427,9 +315,6 @@ class OlmoHybridAttention(Olmo3Attention):
 
 
 class OlmoHybridRotaryEmbedding(Olmo2RotaryEmbedding):
-    """
-    RoPE for OLMo Hybrid that returns float32 cos/sin to match OLMo-core.
-    """
 
     def forward(self, x, position_ids):
         inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1).to(x.device)
@@ -442,20 +327,10 @@ class OlmoHybridRotaryEmbedding(Olmo2RotaryEmbedding):
             cos = emb.cos() * self.attention_scaling
             sin = emb.sin() * self.attention_scaling
 
-        # KEY difference from parent: return float32, don't cast to x.dtype
         return cos, sin
 
 
 class OlmoHybridGatedDeltaNet(nn.Module):
-    """
-    GatedDeltaNet linear attention for OLMo Hybrid.
-
-    Key differences from Qwen3NextGatedDeltaNet:
-    - Fully separate q/k/v/a/b projections (vs. fused qkvz + partially split ba)
-    - Per-projection conv1d for q, k, v (vs. single conv1d over concatenated qkv)
-    - Dedicated g_proj gate (vs. z derived from the fused qkvz projection)
-    - Supports allow_neg_eigval: scales beta by 2.0 to allow range [0, 2]
-    """
 
     def __init__(self, config: OlmoHybridConfig, layer_idx: int):
         super().__init__()
@@ -515,7 +390,6 @@ class OlmoHybridGatedDeltaNet(nn.Module):
         inv_dt = dt + torch.log(-torch.expm1(-dt))
         self.dt_bias = nn.Parameter(inv_dt)
 
-        # Output norm - NOTE: FLA's FusedRMSNormGated uses eps=1e-5 by default
         self.o_norm = (
             OlmoHybridRMSNormGated(self.head_v_dim, eps=1e-5)
             if FusedRMSNormGated is None
@@ -544,15 +418,11 @@ class OlmoHybridGatedDeltaNet(nn.Module):
         attention_mask: torch.Tensor | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> torch.Tensor:
-        # Requires LEFT padding to work correctly
         hidden_states = apply_mask_to_padding_states(hidden_states, attention_mask)
 
         batch_size, seq_len, _ = hidden_states.shape
 
         use_cache = cache_params is not None
-        # Reads "we have cached conv/recurrent state to continue from". Single-token vs multi-token
-        # branching lives inside `ShortConvolution` and in the recurrent-vs-chunk kernel dispatch
-        # below, each of which gates on `seq_len == 1` locally.
         use_precomputed = use_cache and cache_params.has_previous_state()
 
         conv_state_q = cache_params.conv_states_q[self.layer_idx] if cache_params else None
@@ -663,7 +533,6 @@ class OlmoHybridLinearAttentionDecoderLayer(LlamaDecoderLayer):
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        # Main difference to llama - signature (`cache_params`) and linear attention
         hidden_states = self.linear_attn(
             hidden_states=hidden_states,
             cache_params=past_key_values,
@@ -681,7 +550,6 @@ class OlmoHybridLinearAttentionDecoderLayer(LlamaDecoderLayer):
 
 class OlmoHybridPreTrainedModel(Qwen3NextPreTrainedModel):
     _is_stateful = True
-    # Uses a custom ``OlmoHybridDynamicCache``; StaticCache compatibility hasn't been wired up here.
     _can_compile_fullgraph = False
     _no_split_modules = ["OlmoHybridAttentionDecoderLayer", "OlmoHybridLinearAttentionDecoderLayer"]
     _can_record_outputs = {
@@ -718,7 +586,6 @@ class OlmoHybridModel(Qwen3NextModel):
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        # Released ckpt don't use any ROPE and have  it set to `None`
         self.rotary_emb = (
             OlmoHybridRotaryEmbedding(config=config)
             if getattr(config, "rope_parameters", None) is not None
@@ -754,7 +621,6 @@ class OlmoHybridModel(Qwen3NextModel):
             position_ids = position_ids.unsqueeze(0)
 
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -762,14 +628,12 @@ class OlmoHybridModel(Qwen3NextModel):
                 "past_key_values": past_key_values,
                 "position_ids": position_ids,
             }
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
                 "linear_attention": create_recurrent_attention_mask(**mask_kwargs),
             }
 
         hidden_states = inputs_embeds
-        # RoPE or NoPE
         position_embeddings = self.rotary_emb(hidden_states, position_ids) if self.rotary_emb is not None else None
 
         for i, decoder_layer in enumerate(self.layers):

@@ -1,17 +1,3 @@
-# Copyright Meta Platforms and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Data2VecVision model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,41 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="facebook/data2vec-vision-base")
 @strict
 class Data2VecVisionConfig(PreTrainedConfig):
-    r"""
-    use_mask_token (`bool`, *optional*, defaults to `False`):
-        Whether to use a mask token for masked image modeling.
-    use_shared_relative_position_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use the same relative position embeddings across all self-attention layers of the Transformer.
-    use_mean_pooling (`bool`, *optional*, defaults to `True`):
-        Whether to mean pool the final hidden states of the patches instead of using the final hidden state of the
-        CLS token, before applying the classification head.
-    pool_scales (`tuple[int]`, *optional*, defaults to `[1, 2, 3, 6]`):
-        Pooling scales used in Pooling Pyramid Module applied on the last feature map.
-    use_auxiliary_head (`bool`, *optional*, defaults to `True`):
-        Whether to use an auxiliary head during training.
-    auxiliary_loss_weight (`float`, *optional*, defaults to 0.4):
-        Weight of the cross-entropy loss of the auxiliary head.
-    auxiliary_channels (`int`, *optional*, defaults to 256):
-        Number of channels to use in the auxiliary head.
-    auxiliary_num_convs (`int`, *optional*, defaults to 1):
-        Number of convolutional layers to use in the auxiliary head.
-    auxiliary_concat_input (`bool`, *optional*, defaults to `False`):
-        Whether to concatenate the output of the auxiliary head with the input before the classification layer.
-
-    Example:
-
-    ```python
-    >>> from transformers import Data2VecVisionConfig, Data2VecVisionModel
-
-    >>> # Initializing a Data2VecVision data2vec_vision-base-patch16-224-in22k style configuration
-    >>> configuration = Data2VecVisionConfig()
-
-    >>> # Initializing a model (with random weights) from the data2vec_vision-base-patch16-224-in22k style configuration
-    >>> model = Data2VecVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "data2vec-vision"
 

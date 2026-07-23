@@ -1,17 +1,3 @@
-# Copyright 2023 Mesh TensorFlow authors, T5 Authors and HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch UMT5 model."""
 
 import copy
 import math
@@ -50,7 +36,6 @@ from .configuration_umt5 import UMT5Config
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerNorm with T5->UMT5
 class UMT5LayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-6):
         """
@@ -61,22 +46,16 @@ class UMT5LayerNorm(nn.Module):
         self.variance_epsilon = eps
 
     def forward(self, hidden_states):
-        # UMT5 uses a layer_norm which only scales and doesn't shift, which is also known as Root Mean
-        # Square Layer Normalization https://huggingface.co/papers/1910.07467 thus variance is calculated
-        # w/o mean and there is no bias. Additionally we want to make sure that the accumulation for
-        # half-precision inputs is done in fp32
 
         variance = hidden_states.to(torch.float32).pow(2).mean(-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
 
-        # convert into half-precision if necessary
         if self.weight.dtype in [torch.float16, torch.bfloat16]:
             hidden_states = hidden_states.to(self.weight.dtype)
 
         return self.weight * hidden_states
 
 
-# Copied from transformers.models.t5.modeling_t5.T5DenseActDense with T5->UMT5
 class UMT5DenseActDense(nn.Module):
     def __init__(self, config: UMT5Config):
         super().__init__()
@@ -99,7 +78,6 @@ class UMT5DenseActDense(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.t5.modeling_t5.T5DenseGatedActDense with T5->UMT5
 class UMT5DenseGatedActDense(nn.Module):
     def __init__(self, config: UMT5Config):
         super().__init__()
@@ -115,9 +93,6 @@ class UMT5DenseGatedActDense(nn.Module):
         hidden_states = hidden_gelu * hidden_linear
         hidden_states = self.dropout(hidden_states)
 
-        # To make 8bit quantization work for google/flan-t5-xxl, self.wo is kept in float32.
-        # See https://github.com/huggingface/transformers/issues/20287
-        # we also make sure the weights are not in `int8` in case users will force `_keep_in_fp32_modules` to be `None``
         if (
             isinstance(self.wo.weight, torch.Tensor)
             and hidden_states.dtype != self.wo.weight.dtype
@@ -129,7 +104,6 @@ class UMT5DenseGatedActDense(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerFF with T5->UMT5
 class UMT5LayerFF(nn.Module):
     def __init__(self, config: UMT5Config):
         super().__init__()
@@ -149,9 +123,6 @@ class UMT5LayerFF(nn.Module):
 
 
 class UMT5Attention(nn.Module):
-    """
-    T5's attention using relative_attention_bias.
-    """
 
     def __init__(self, config, has_relative_attention_bias=False, layer_idx: int | None = None):
         super().__init__()
@@ -182,7 +153,6 @@ class UMT5Attention(nn.Module):
 
     def _shape(self, projection: torch.Tensor) -> torch.Tensor:
         new_projection_shape = projection.size()[:-1] + (self.n_heads, self.key_value_proj_dim)
-        # move heads to 2nd position (B, T, H * D) -> (B, T, H, D) -> (B, H, T, D)
         new_projection = projection.view(new_projection_shape).permute(0, 2, 1, 3)
         return new_projection
 
@@ -216,13 +186,10 @@ class UMT5Attention(nn.Module):
             relative_position = torch.abs(relative_position)
         else:
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
-        # now relative_position is in the range [0, inf)
 
-        # half of the buckets are for exact increments in positions
         max_exact = num_buckets // 2
         is_small = relative_position < max_exact
 
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
         log_ratio = torch.log(relative_position.float() / max_exact) / math.log(max_distance / max_exact)
         log_ratio = log_ratio * (num_buckets - max_exact)
         relative_position_if_large = max_exact + log_ratio.to(torch.long)
@@ -255,21 +222,17 @@ class UMT5Attention(nn.Module):
     ):
         batch_size, seq_length = hidden_states.shape[:2]
         past_seen_tokens = past_key_values.get_seq_length(self.layer_idx) if past_key_values is not None else 0
-        # We clone here for StaticCache, as we get the value before updating it, but use it after and it's the same ref
         past_seen_tokens = past_seen_tokens.clone() if isinstance(past_seen_tokens, torch.Tensor) else past_seen_tokens
 
-        # if encoder_hidden_states are provided this layer is used as a cross-attention layer for the decoder
         is_cross_attention = encoder_hidden_states is not None
 
         query_states = self.q(hidden_states)
         query_states = query_states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim).transpose(1, 2)
 
-        # Check is encoder-decoder model is being used. Otherwise we'll get `DynamicCache`
         is_updated = False
         if past_key_values is not None and isinstance(past_key_values, EncoderDecoderCache):
             is_updated = past_key_values.is_updated.get(self.layer_idx)
             if is_cross_attention:
-                # after the first generated id, we can subsequently re-use all key/value_states from cache
                 curr_past_key_values = past_key_values.cross_attention_cache
             else:
                 curr_past_key_values = past_key_values.self_attention_cache
@@ -278,7 +241,6 @@ class UMT5Attention(nn.Module):
 
         current_states = encoder_hidden_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -288,13 +250,10 @@ class UMT5Attention(nn.Module):
             value_states = value_states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all key/value_states to cache to be re-used for fast auto-regressive generation
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
-        # compute scores, equivalent of torch.einsum("bnqd,bnkd->bnqk", query_states, key_states), compatible with onnx op>9
         scores = torch.matmul(query_states, key_states.transpose(3, 2))
 
         key_length = key_states.shape[-2]
@@ -313,7 +272,6 @@ class UMT5Attention(nn.Module):
         position_bias_masked = position_bias
         scores += position_bias_masked
 
-        # (batch_size, n_heads, seq_length, key_length)
         attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(scores)
         attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
 
@@ -406,13 +364,11 @@ class UMT5Block(GradientCheckpointingLayer):
             past_key_values=past_key_values,
         )
 
-        # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16:
             max_dtype = torch.finfo(hidden_states.dtype).max
             clamp_value = torch.where(torch.isinf(hidden_states).any(), max_dtype - 1000, max_dtype)
             hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
 
-        # Cross-Attention Block
         cross_attn_weights = None
         do_cross_attention = self.is_decoder and encoder_hidden_states is not None
         if do_cross_attention:
@@ -422,16 +378,13 @@ class UMT5Block(GradientCheckpointingLayer):
                 attention_mask=encoder_attention_mask,
                 past_key_values=past_key_values,
             )
-            # clamp inf values to enable fp16 training
             if hidden_states.dtype == torch.float16:
                 max_dtype = torch.finfo(hidden_states.dtype).max
                 clamp_value = torch.where(torch.isinf(hidden_states).any(), max_dtype - 1000, max_dtype)
                 hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
 
-        # Apply Feed Forward layer
         hidden_states = self.layer[-1](hidden_states)
 
-        # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16:
             max_dtype = torch.finfo(hidden_states.dtype).max
             clamp_value = torch.where(torch.isinf(hidden_states).any(), max_dtype - 1000, max_dtype)
@@ -445,9 +398,7 @@ class UMT5Block(GradientCheckpointingLayer):
         return outputs
 
 
-# Copied from transformers.models.t5.modeling_t5.T5ClassificationHead with T5->UMT5
 class UMT5ClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config: UMT5Config):
         super().__init__()
@@ -476,14 +427,7 @@ class UMT5PreTrainedModel(PreTrainedModel):
 
     @property
     def dummy_inputs(self):
-        input_ids = torch.tensor(DUMMY_INPUTS)
-        input_mask = torch.tensor(DUMMY_MASK)
-        dummy_inputs = {
-            "decoder_input_ids": input_ids,
-            "input_ids": input_ids,
-            "decoder_attention_mask": input_mask,
-        }
-        return dummy_inputs
+        pass
 
     @torch.no_grad()
     def _init_weights(self, module):
@@ -501,8 +445,6 @@ class UMT5PreTrainedModel(PreTrainedModel):
                 UMT5ForQuestionAnswering,
             ),
         ):
-            # Mesh TensorFlow embeddings initialization
-            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L1624
             init.normal_(module.shared.weight, mean=0.0, std=factor * 1.0)
             if hasattr(module, "lm_head") and not self.config.tie_word_embeddings:
                 init.normal_(module.lm_head.weight, mean=0.0, std=factor * 1.0)
@@ -521,9 +463,6 @@ class UMT5PreTrainedModel(PreTrainedModel):
             if hasattr(module.out_proj, "bias") and module.out_proj.bias is not None:
                 init.zeros_(module.out_proj.bias)
         elif isinstance(module, UMT5DenseActDense):
-            # Mesh TensorFlow FF initialization
-            # See https://github.com/tensorflow/mesh/blob/master/mesh_tensorflow/transformer/transformer_layers.py#L56
-            # and https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L89
             init.normal_(module.wi.weight, mean=0.0, std=factor * ((self.config.d_model) ** -0.5))
             if hasattr(module.wi, "bias") and module.wi.bias is not None:
                 init.zeros_(module.wi.bias)
@@ -541,8 +480,6 @@ class UMT5PreTrainedModel(PreTrainedModel):
             if hasattr(module.wo, "bias") and module.wo.bias is not None:
                 init.zeros_(module.wo.bias)
         elif isinstance(module, UMT5Attention):
-            # Mesh TensorFlow attention initialization to avoid scaling before softmax
-            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/attention.py#L136
             d_model = self.config.d_model
             key_value_proj_dim = self.config.d_kv
             n_heads = self.config.num_heads
@@ -569,7 +506,6 @@ class UMT5PreTrainedModel(PreTrainedModel):
 
         if pad_token_id is None:
             raise ValueError("self.model.config.pad_token_id has to be defined.")
-        # replace possible -100 values in labels by `pad_token_id`
         shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
         return shifted_input_ids
@@ -584,7 +520,6 @@ class UMT5Stack(UMT5PreTrainedModel):
         self.final_layer_norm = UMT5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
 
-        # Initialize weights and apply final processing
         self.gradient_checkpointing = False
         self.post_init()
 
@@ -644,7 +579,6 @@ class UMT5Stack(UMT5PreTrainedModel):
             if not self.is_decoder:
                 raise ValueError(f"`use_cache` can only be set to `True` if {self} is used as a decoder")
 
-        # initialize past_key_values
         if self.is_decoder:
             if use_cache and past_key_values is None:
                 if self.config.is_encoder_decoder:
@@ -654,13 +588,10 @@ class UMT5Stack(UMT5PreTrainedModel):
                 else:
                     past_key_values = DynamicCache(config=self.config)
         elif not self.is_decoder:
-            # do not pass cache object down the line for encoder stack
-            # it messes indexing later in decoder-stack because cache object is modified in-place
             past_key_values = None
 
         past_key_values_length = past_key_values.get_seq_length() if past_key_values is not None else 0
         if attention_mask is None and not is_torchdynamo_compiling():
-            # required mask seq length can be calculated via length of past cache
             mask_seq_length = past_key_values_length + seq_length
             attention_mask = torch.ones(batch_size, mask_seq_length, device=inputs_embeds.device)
 
@@ -718,7 +649,6 @@ class UMT5Stack(UMT5PreTrainedModel):
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.dropout(hidden_states)
 
-        # Add last layer
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -745,22 +675,6 @@ class UMT5Stack(UMT5PreTrainedModel):
 
 @auto_docstring
 class UMT5Model(UMT5PreTrainedModel):
-    r"""
-    Examples:
-
-    ```python
-    >>> from transformers import UMT5Model, AutoTokenizer
-
-    >>> model = UMT5Model.from_pretrained("google/umt5-small")
-    >>> tokenizer = AutoTokenizer.from_pretrained("google/umt5-small")
-    >>> noisy_text = "UN Offizier sagt, dass weiter <extra_id_0> werden muss in Syrien."
-    >>> label = "<extra_id_0> verhandelt"
-    >>> inputs = tokenizer(inputs, return_tensors="pt")
-    >>> labels = tokenizer(label=label, return_tensors="pt")
-
-    >>> outputs = model(input_ids=inputs["input_ids"], decoder_input_ids=labels["input_ids"])
-    >>> hidden_states = outputs.last_hidden_state
-    ```"""
 
     model_type = "umt5"
     config: UMT5Config
@@ -783,14 +697,11 @@ class UMT5Model(UMT5PreTrainedModel):
         decoder_config.num_layers = config.num_decoder_layers
         self.decoder = UMT5Stack(decoder_config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.t5.modeling_t5.T5Model.get_input_embeddings
     def get_input_embeddings(self):
         return self.shared
 
-    # Copied from transformers.models.t5.modeling_t5.T5Model.set_input_embeddings
     def set_input_embeddings(self, new_embeddings):
         self.shared = new_embeddings
         self.encoder.set_input_embeddings(new_embeddings)
@@ -865,7 +776,6 @@ class UMT5Model(UMT5PreTrainedModel):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # Encode if needed (training, first prediction pass)
         if encoder_outputs is None:
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
@@ -884,7 +794,6 @@ class UMT5Model(UMT5PreTrainedModel):
 
         hidden_states = encoder_outputs[0]
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -919,21 +828,6 @@ class UMT5Model(UMT5PreTrainedModel):
     """
 )
 class UMT5ForConditionalGeneration(UMT5PreTrainedModel, GenerationMixin):
-    r"""
-    Examples:
-
-    ```python
-    >>> from transformers import UMT5ForConditionalGeneration, AutoTokenizer
-
-    >>> model = UMT5ForConditionalGeneration.from_pretrained("google/umt5-small")
-    >>> tokenizer = AutoTokenizer.from_pretrained("google/umt5-small")
-    >>> article = "UN Offizier sagt, dass weiter verhandelt werden muss in Syrien."
-    >>> summary = "Weiter Verhandlung in Syrien."
-    >>> inputs = tokenizer(article, text_target=summary, return_tensors="pt")
-
-    >>> outputs = model(**inputs)
-    >>> loss = outputs.loss
-    ```"""
 
     model_type = "umt5"
     _tied_weights_keys = {
@@ -960,14 +854,11 @@ class UMT5ForConditionalGeneration(UMT5PreTrainedModel, GenerationMixin):
 
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForConditionalGeneration.get_input_embeddings
     def get_input_embeddings(self):
         return self.shared
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForConditionalGeneration.set_input_embeddings
     def set_input_embeddings(self, new_embeddings):
         self.shared = new_embeddings
         self.encoder.set_input_embeddings(new_embeddings)
@@ -1046,9 +937,7 @@ class UMT5ForConditionalGeneration(UMT5PreTrainedModel, GenerationMixin):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # Encode if needed (training, first prediction pass)
         if encoder_outputs is None:
-            # Convert encoder inputs in embeddings if needed
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -1067,10 +956,8 @@ class UMT5ForConditionalGeneration(UMT5PreTrainedModel, GenerationMixin):
         hidden_states = encoder_outputs[0]
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
-            # get decoder inputs from shifting lm labels to the right
             decoder_input_ids = self._shift_right(labels)
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -1087,8 +974,6 @@ class UMT5ForConditionalGeneration(UMT5PreTrainedModel, GenerationMixin):
         sequence_output = decoder_outputs[0]
 
         if self.config.tie_word_embeddings:
-            # Rescale output before projecting on vocab
-            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
             sequence_output = sequence_output * (self.model_dim**-0.5)
 
         lm_logits = self.lm_head(sequence_output)
@@ -1096,7 +981,6 @@ class UMT5ForConditionalGeneration(UMT5PreTrainedModel, GenerationMixin):
         loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-100)
-            # move labels to correct device to enable PP
             labels = labels.to(lm_logits.device)
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
 
@@ -1116,29 +1000,14 @@ class UMT5ForConditionalGeneration(UMT5PreTrainedModel, GenerationMixin):
             encoder_attentions=encoder_outputs.attentions,
         )
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForConditionalGeneration.prepare_decoder_input_ids_from_labels
     def prepare_decoder_input_ids_from_labels(self, labels: torch.Tensor):
         return self._shift_right(labels)
 
 
 @auto_docstring
 class UMT5EncoderModel(UMT5PreTrainedModel):
-    r"""
-    Examples:
-
-    ```python
-    >>> from transformers import UMT5EncoderModel, AutoTokenizer
-
-    >>> model = UMT5EncoderModel.from_pretrained("google/umt5-small")
-    >>> tokenizer = AutoTokenizer.from_pretrained("google/umt5-small")
-    >>> article = "UN Offizier sagt, dass weiter verhandelt werden muss in Syrien."
-    >>> input_ids = tokenizer(article, return_tensors="pt").input_ids
-    >>> outputs = model(input_ids)
-    >>> hidden_state = outputs.last_hidden_state
-    ```"""
 
     model_type = "umt5"
-    # config_class = UMT5Config
     _tied_weights_keys = {
         "encoder.embed_tokens.weight": "shared.weight",
     }
@@ -1152,20 +1021,16 @@ class UMT5EncoderModel(UMT5PreTrainedModel):
         encoder_config.is_encoder_decoder = False
         self.encoder = UMT5Stack(encoder_config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.t5.modeling_t5.T5EncoderModel.get_input_embeddings
     def get_input_embeddings(self):
         return self.shared
 
-    # Copied from transformers.models.t5.modeling_t5.T5EncoderModel.set_input_embeddings
     def set_input_embeddings(self, new_embeddings):
         self.shared = new_embeddings
         self.encoder.set_input_embeddings(new_embeddings)
 
     @auto_docstring
-    # Copied from transformers.models.t5.modeling_t5.T5EncoderModel.forward with T5->UMT5, google-t5/t5-small->google/umt5-small, t5#training->umt5#training
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -1222,13 +1087,11 @@ class UMT5EncoderModel(UMT5PreTrainedModel):
 class UMT5ForSequenceClassification(UMT5PreTrainedModel):
     _keys_to_ignore_on_load_unexpected = ["decoder.block.0.layer.1.EncDecAttention.relative_attention_bias.weight"]
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForSequenceClassification.__init__ with T5->UMT5
     def __init__(self, config: UMT5Config):
         super().__init__(config)
         self.transformer = UMT5Model(config)
         self.classification_head = UMT5ClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1288,8 +1151,6 @@ class UMT5ForSequenceClassification(UMT5PreTrainedModel):
                 f"Passing input embeddings is currently not supported for {self.__class__.__name__}"
             )
 
-        # Copied from models.bart.modeling_bart.BartModel.forward different to other models, T5 automatically creates
-        # decoder_input_ids from input_ids if no decoder_input_ids are provided
         if decoder_input_ids is None and decoder_inputs_embeds is None:
             if input_ids is None:
                 raise ValueError(
@@ -1373,7 +1234,6 @@ class UMT5ForSequenceClassification(UMT5PreTrainedModel):
 class UMT5ForTokenClassification(UMT5PreTrainedModel):
     _keys_to_ignore_on_load_unexpected = ["decoder.block.0.layer.1.EncDecAttention.relative_attention_bias.weight"]
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForTokenClassification.__init__ with T5->UMT5
     def __init__(self, config: UMT5Config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -1382,11 +1242,9 @@ class UMT5ForTokenClassification(UMT5PreTrainedModel):
         self.dropout = nn.Dropout(config.classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
-    # Copied from transformers.models.t5.modeling_t5.T5ForTokenClassification.forward with T5->UMT5, t5->umt5
     def forward(
         self,
         input_ids: torch.Tensor | None = None,
@@ -1470,14 +1328,11 @@ class UMT5ForQuestionAnswering(UMT5PreTrainedModel):
         self.num_labels = config.num_labels
         self.qa_outputs = nn.Linear(config.d_model, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForQuestionAnswering.get_input_embeddings
     def get_input_embeddings(self):
         return self.shared
 
-    # Copied from transformers.models.t5.modeling_t5.T5ForQuestionAnswering.set_input_embeddings
     def set_input_embeddings(self, new_embeddings):
         self.shared = new_embeddings
         self.encoder.set_input_embeddings(new_embeddings)
@@ -1534,9 +1389,6 @@ class UMT5ForQuestionAnswering(UMT5PreTrainedModel):
         if start_positions is not None and end_positions is not None:
             use_cache = False
 
-        # Copied from models.bart.modeling_bart.BartModel.forward
-        #   different to other models, T5 automatically creates decoder_input_ids from
-        #   input_ids if no decoder_input_ids are provided
         if decoder_input_ids is None and decoder_inputs_embeds is None:
             if input_ids is None:
                 raise ValueError(
@@ -1549,7 +1401,6 @@ class UMT5ForQuestionAnswering(UMT5PreTrainedModel):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # Encode if needed (training, first prediction pass)
         if encoder_outputs is None:
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
@@ -1568,7 +1419,6 @@ class UMT5ForQuestionAnswering(UMT5PreTrainedModel):
 
         hidden_states = encoder_outputs[0]
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -1591,12 +1441,10 @@ class UMT5ForQuestionAnswering(UMT5PreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1).to(start_logits.device)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1).to(end_logits.device)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

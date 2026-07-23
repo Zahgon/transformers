@@ -1,16 +1,3 @@
-# Copyright 2023 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from typing import Any, Union, overload
 
 import numpy as np
@@ -39,19 +26,16 @@ if is_torch_available():
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.pipelines.text_classification.sigmoid
 def sigmoid(_outputs):
     return 1.0 / (1.0 + np.exp(-_outputs))
 
 
-# Copied from transformers.pipelines.text_classification.softmax
 def softmax(_outputs):
     maxes = np.max(_outputs, axis=-1, keepdims=True)
     shifted_exp = np.exp(_outputs - maxes)
     return shifted_exp / shifted_exp.sum(axis=-1, keepdims=True)
 
 
-# Copied from transformers.pipelines.text_classification.ClassificationFunction
 class ClassificationFunction(ExplicitEnum):
     SIGMOID = "sigmoid"
     SOFTMAX = "softmax"
@@ -71,28 +55,6 @@ class ClassificationFunction(ExplicitEnum):
             - `"none"`: Does not apply any function on the output.""",
 )
 class ImageClassificationPipeline(Pipeline):
-    """
-    Image classification pipeline using any `AutoModelForImageClassification`. This pipeline predicts the class of an
-    image.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> classifier = pipeline(model="microsoft/beit-base-patch16-224-pt22k-ft22k")
-    >>> classifier("https://huggingface.co/datasets/Narsil/image_dummy/raw/main/parrots.png")
-    [{'score': 0.442, 'label': 'macaw'}, {'score': 0.088, 'label': 'popinjay'}, {'score': 0.075, 'label': 'parrot'}, {'score': 0.073, 'label': 'parodist, lampooner'}, {'score': 0.046, 'label': 'poll, poll_parrot'}]
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This image classification pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"image-classification"`.
-
-    See the list of available models on
-    [huggingface.co/models](https://huggingface.co/models?filter=image-classification).
-    """
 
     function_to_apply: ClassificationFunction = ClassificationFunction.NONE
     _load_processor = False
@@ -173,7 +135,6 @@ class ImageClassificationPipeline(Pipeline):
             - **label** (`str`) -- The label identified by the model.
             - **score** (`int`) -- The score attributed by the model for that label.
         """
-        # After deprecation of this is completed, remove the default `None` value for `images`
         if "images" in kwargs:
             inputs = kwargs.pop("images")
         if inputs is None:

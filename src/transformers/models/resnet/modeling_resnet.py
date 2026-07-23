@@ -1,17 +1,3 @@
-# Copyright 2022 Microsoft Research, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ResNet model."""
 
 import math
 
@@ -70,9 +56,6 @@ class ResNetConvLayer(nn.Module):
 
 
 class ResNetEmbeddings(nn.Module):
-    """
-    ResNet Embeddings (stem) composed of a single aggressive convolution.
-    """
 
     def __init__(self, config: ResNetConfig):
         super().__init__()
@@ -94,10 +77,6 @@ class ResNetEmbeddings(nn.Module):
 
 
 class ResNetShortCut(nn.Module):
-    """
-    ResNet shortcut, used to project the residual features to the correct size. If needed, it is also used to
-    downsample the input using `stride=2`.
-    """
 
     def __init__(self, in_channels: int, out_channels: int, stride: int = 2):
         super().__init__()
@@ -111,9 +90,6 @@ class ResNetShortCut(nn.Module):
 
 
 class ResNetBasicLayer(nn.Module):
-    """
-    A classic ResNet's residual layer composed by two `3x3` convolutions.
-    """
 
     def __init__(self, in_channels: int, out_channels: int, stride: int = 1, activation: str = "relu"):
         super().__init__()
@@ -137,13 +113,6 @@ class ResNetBasicLayer(nn.Module):
 
 
 class ResNetBottleNeckLayer(nn.Module):
-    """
-    A classic ResNet's bottleneck layer composed by three `3x3` convolutions.
-
-    The first `1x1` convolution reduces the input by a factor of `reduction` in order to make the second `3x3`
-    convolution faster. The last `1x1` convolution remaps the reduced features to `out_channels`. If
-    `downsample_in_bottleneck` is true, downsample will be in the first layer instead of the second layer.
-    """
 
     def __init__(
         self,
@@ -179,9 +148,6 @@ class ResNetBottleNeckLayer(nn.Module):
 
 
 class ResNetStage(nn.Module):
-    """
-    A ResNet stage composed by stacked layers.
-    """
 
     def __init__(
         self,
@@ -220,7 +186,6 @@ class ResNetEncoder(nn.Module):
     def __init__(self, config: ResNetConfig):
         super().__init__()
         self.stages = nn.ModuleList([])
-        # based on `downsample_in_first_stage` the first layer of the first stage may or may not downsample the input
         self.stages.append(
             ResNetStage(
                 config,
@@ -270,14 +235,12 @@ class ResNetPreTrainedModel(PreTrainedModel):
         super()._init_weights(module)
         if isinstance(module, nn.Conv2d):
             init.kaiming_normal_(module.weight, mode="fan_out", nonlinearity="relu")
-        # copied from the `reset_parameters` method of `class Linear(Module)` in `torch`.
         elif isinstance(module, nn.Linear):
             init.kaiming_uniform_(module.weight, a=math.sqrt(5))
             if module.bias is not None:
                 fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(module.weight)
                 bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
                 init.uniform_(module.bias, -bound, bound)
-        # We need to check it like that as some Detr models replace the BatchNorm2d by their own
         elif "BatchNorm" in module.__class__.__name__:
             init.ones_(module.weight)
             init.zeros_(module.bias)
@@ -295,7 +258,6 @@ class ResNetModel(ResNetPreTrainedModel):
         self.embedder = ResNetEmbeddings(config)
         self.encoder = ResNetEncoder(config)
         self.pooler = nn.AdaptiveAvgPool2d((1, 1))
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -342,12 +304,10 @@ class ResNetForImageClassification(ResNetPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.resnet = ResNetModel(config)
-        # classification head
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.Linear(config.hidden_sizes[-1], config.num_labels) if config.num_labels > 0 else nn.Identity(),
         )
-        # initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -399,7 +359,6 @@ class ResNetBackbone(BackboneMixin, ResNetPreTrainedModel):
         self.embedder = ResNetEmbeddings(config)
         self.encoder = ResNetEncoder(config)
 
-        # initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

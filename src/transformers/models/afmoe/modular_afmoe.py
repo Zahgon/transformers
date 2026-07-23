@@ -1,17 +1,3 @@
-# Copyright 2025 Arcee AI and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch AFMoE model."""
 
 from collections.abc import Callable
 
@@ -57,11 +43,6 @@ class AfmoeMLP(Qwen2MoeMLP):
 
 
 class AfmoeTokenChoiceRouter(nn.Module):
-    """
-    Token-choice top-K router for MoE routing.
-
-    This router assigns each token to the top-K experts based on sigmoid scores, matching the released checkpoints.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -91,12 +72,6 @@ class AfmoeExperts(Qwen2MoeExperts):
 
 
 class AfmoeSparseMoeBlock(nn.Module):
-    """
-    Mixture of Experts (MoE) module for AFMoE.
-
-    This module implements a sparse MoE layer with both shared experts (always active) and
-    routed experts (activated based on token-choice routing).
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -110,10 +85,8 @@ class AfmoeSparseMoeBlock(nn.Module):
         batch_size, seq_len, hidden_dim = hidden_states.shape
         hidden_states_flat = hidden_states.view(-1, hidden_dim)
 
-        # Get routing decisions (returns flattened top-k)
         _, top_scores, selected_experts = self.router(hidden_states, self.expert_bias)
 
-        # Process through shared experts
         shared_output = self.shared_experts(hidden_states_flat).view(batch_size, seq_len, hidden_dim)
         routed_output = self.experts(hidden_states_flat, selected_experts, top_scores).view(
             batch_size, seq_len, hidden_dim
@@ -122,18 +95,9 @@ class AfmoeSparseMoeBlock(nn.Module):
 
 
 class AfmoeAttention(LlamaAttention):
-    """
-    Multi-headed attention module with optional sliding window and gating.
-
-    This attention mechanism supports both full attention and sliding window attention,
-    and includes Q/K normalization and gating of the output. It inherits from [`LlamaAttention`] to minimize the amount
-    of custom logic we need to maintain.
-    """
 
     def __init__(self, config: AfmoeConfig, layer_idx: int):
         super().__init__(config, layer_idx)
-        # Parent LlamaAttention already sets: layer_idx, num_heads, num_key_value_heads, num_key_value_groups, head_dim
-        # We only add AFMoE-specific attributes
         self.is_local_attention = config.layer_types[layer_idx] == "sliding_attention"
         self.sliding_window = config.sliding_window if self.is_local_attention else None
 
@@ -191,12 +155,6 @@ class AfmoeAttention(LlamaAttention):
 
 
 class AfmoeDecoderLayer(GradientCheckpointingLayer):
-    """
-    AFMoE decoder layer with dual normalization.
-
-    This layer applies self-attention followed by either a dense MLP or MoE block,
-    with dual normalization (pre and post) around each component.
-    """
 
     def __init__(self, config: AfmoeConfig, layer_idx: int):
         super().__init__()
@@ -205,15 +163,12 @@ class AfmoeDecoderLayer(GradientCheckpointingLayer):
 
         self.self_attn = AfmoeAttention(config=config, layer_idx=layer_idx)
 
-        # Dual normalization for attention
         self.input_layernorm = AfmoeRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = AfmoeRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-        # Dual normalization for FFN
         self.pre_mlp_layernorm = AfmoeRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_mlp_layernorm = AfmoeRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-        # MoE or dense FFN
         self.moe_enabled = layer_idx >= config.num_dense_layers
         if self.moe_enabled:
             self.mlp = AfmoeSparseMoeBlock(config)
@@ -232,7 +187,6 @@ class AfmoeDecoderLayer(GradientCheckpointingLayer):
     ) -> torch.FloatTensor:
         residual = hidden_states
 
-        # Self Attention with dual normalization
         hidden_states = self.input_layernorm(hidden_states)
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
@@ -246,7 +200,6 @@ class AfmoeDecoderLayer(GradientCheckpointingLayer):
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = residual + hidden_states
 
-        # FFN with dual normalization
         residual = hidden_states
         hidden_states = self.pre_mlp_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -257,10 +210,6 @@ class AfmoeDecoderLayer(GradientCheckpointingLayer):
 
 
 class AfmoePreTrainedModel(PreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
 
     config: AfmoeConfig
     base_model_prefix = "model"
@@ -303,12 +252,6 @@ class AfmoePreTrainedModel(PreTrainedModel):
 
 @auto_docstring
 class AfmoeModel(AfmoePreTrainedModel):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`AfmoeDecoderLayer`]
-
-    Args:
-        config: AfmoeConfig
-    """
 
     def __init__(self, config: AfmoeConfig):
         super().__init__(config)
@@ -352,7 +295,6 @@ class AfmoeModel(AfmoePreTrainedModel):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
             mask_kwargs = {
                 "config": self.config,
@@ -367,7 +309,6 @@ class AfmoeModel(AfmoePreTrainedModel):
 
         hidden_states = inputs_embeds
 
-        # Apply muP input scaling if enabled
         if self.config.mup_enabled:
             hidden_states = hidden_states * (self.config.hidden_size**0.5)
 

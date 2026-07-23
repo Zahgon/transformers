@@ -1,18 +1,3 @@
-# Copyright 2025 The Qwen team, Alibaba Group and the HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Qwen3Omni model (Audio, Image, Video)."""
 
 import math
 import re
@@ -217,10 +202,6 @@ def get_audio_cu_seqlens(
 @auto_docstring
 @dataclass
 class BaseModelOutputWithDeepstackFeatures(BaseModelOutputWithPooling):
-    r"""
-    deepstack_features (`List[torch.FloatTensor]`, *optional*):
-        List of hidden-states (feature maps) from deepstack layers.
-    """
 
     deepstack_features: list[torch.FloatTensor] | None = None
 
@@ -228,20 +209,6 @@ class BaseModelOutputWithDeepstackFeatures(BaseModelOutputWithPooling):
 @auto_docstring(checkpoint="Qwen/Qwen3-Omni-30B-A3B-Instruct")
 @strict
 class Qwen3OmniMoeAudioEncoderConfig(Qwen2_5OmniAudioEncoderConfig):
-    r"""
-    max_source_positions (`int`, *optional*, defaults to 1500):
-        Maximum sequence length for the inputs
-    n_window (`int`, *optional*, defaults to 50):
-        Number of windows
-    output_dim (`int`, *optional*, defaults to 3584):
-        Dimensionality of the output
-    n_window_infer (`int`, *optional*, defaults to `800`):
-        Number of windows during inference
-    conv_chunksize (`int`, *optional*, defaults to `500`):
-        Chunk size of each input to convolutional layer
-    downsample_hidden_size (`int`, *optional*, defaults to `480`):
-        Hidden size in downsampling layer
-    """
 
     n_window: int = 50
     n_window_infer: int = 800
@@ -258,32 +225,11 @@ class Qwen3OmniMoeVisionEncoderConfig(Qwen3VLMoeVisionConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3-Omni-30B-A3B-Instruct")
 @strict
 class Qwen3OmniMoeTextConfig(PreTrainedConfig):
-    r"""
-    decoder_sparse_step (`int`, *optional*, defaults to 1):
-        The frequency of the MoE layer.
-    mlp_only_layers (`list[int]`, *optional*, defaults to `[]`):
-        Indicate which layers use Qwen3OmniMoeTextMLP rather than Qwen3OmniMoeTextSparseMoeBlock
-        The list contains layer index, from 0 to num_layers-1 if we have num_layers layers
-        If `mlp_only_layers` is empty, `decoder_sparse_step` is used to determine the sparsity.
-
-    ```python
-    >>> from transformers import Qwen3OmniMoeTextModel, Qwen3OmniMoeTextConfig
-
-    >>> # Initializing a Qwen3OmniMoeText style configuration
-    >>> configuration = Qwen3OmniMoeTextConfig()
-
-    >>> # Initializing a model from the Qwen3-15B-A2B" style configuration
-    >>> model = Qwen3OmniMoeTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qwen3_omni_moe_text"
     keys_to_ignore_at_inference = ["past_key_values"]
     default_theta = 1000000.0
 
-    # Default tensor parallel plan for base model `Qwen3OmniMoeText`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",
@@ -338,31 +284,8 @@ class Qwen3OmniMoeTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3-Omni-30B-A3B-Instruct")
 @strict
 class Qwen3OmniMoeThinkerConfig(Qwen2_5OmniThinkerConfig):
-    r"""
-    position_id_per_seconds (`int`, *optional*, defaults to 25):
-        The increment of position id per second.
-    audio_start_token_id (`int`, *optional*, defaults to 151647):
-        The audio start token id to encode the audio prompt.
-    user_token_id (`int`, *optional*, defaults to 872):
-        The user token id to encode the user token.
-
-    Example:
-
-    ```python
-    >>> from transformers import Qwen3OmniMoeThinkerModel, Qwen3OmniMoeThinkerConfig
-
-    >>> # Initializing a default Qwen3OmniMoeThinkerConfig
-    >>> configuration = Qwen3OmniMoeThinkerConfig()
-
-    >>> # Initializing a model (with random weights) from the default configuration
-    >>> model = Qwen3OmniMoeThinkerModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qwen3_omni_moe_thinker"
-    # Override parent's attribute_map as we use audio_token_id directly, not audio_token_index
     attribute_map = {}
 
     audio_token_id: int = 151646
@@ -379,10 +302,6 @@ class Qwen3OmniMoeThinkerConfig(Qwen2_5OmniThinkerConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3-Omni-30B-A3B-Instruct")
 @strict
 class Qwen3OmniMoeTalkerCodePredictorConfig(Qwen3Config):
-    r"""
-    num_code_groups (`int`, *optional*, defaults to 32):
-        Number of codebook groups used in the predicted acoustic token sequence, corresponding to multi-codebook VQ representation.
-    """
 
     vocab_size: int = 2048
     hidden_size: int = 1024
@@ -427,54 +346,6 @@ class Qwen3OmniMoeTalkerTextConfig(Qwen3MoeConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3-Omni-30B-A3B-Instruct")
 @strict
 class Qwen3OmniMoeTalkerConfig(PreTrainedConfig):
-    r"""
-    code_predictor_config (`dict`, *optional*):
-        A dictionary of configuration parameters used to initialize a [`Qwen3OmniMoeTalkerCodePredictorConfig`].
-        If not provided, defaults will be used.
-    num_code_groups (`int`, *optional*, defaults to 32):
-        Number of codebook groups used in the predicted acoustic token sequence, corresponding to multi-codebook VQ representation.
-    thinker_hidden_size (`int`, *optional*, defaults to 2048):
-        Hidden dimension size of the thinker module used for intermediate reasoning or latent planning before audio generation.
-    codec_eos_token_id (`int`, *optional*, defaults to 4198):
-        Token ID representing the end-of-speech token in the codec-generated sequence.
-    accept_hidden_layer (`int`, *optional*, defaults to 18):
-        Index of the hidden layer whose output is used for accepting or refining generated tokens during think-and-speak process.
-    codec_nothink_id (`int`, *optional*, defaults to 4203):
-        Token ID indicating no thinking step is required during generation.
-    codec_think_bos_id (`int`, *optional*, defaults to 4204):
-        Token ID marking the beginning of a thinking sequence.
-    codec_think_eos_id (`int`, *optional*, defaults to 4205):
-        Token ID marking the end of a thinking sequence.
-    codec_pad_id (`int`, *optional*, defaults to 4196):
-        Padding token ID used in codec input sequences.
-    codec_bos_id (`int`, *optional*, defaults to 4197):
-        Beginning-of-speech token ID in codec sequences.
-    position_id_per_seconds (`int`, *optional*, defaults to 25):
-        Number of position IDs allocated per second of audio content, used for temporal alignment in generation.
-    audio_start_token_id (`int`, *optional*, defaults to 151669):
-        Token ID that indicates the start of an audio generation segment in the output.
-    speaker_id (`dict`, *optional*):
-        Speaker name to speaker id dict.
-
-    Example:
-
-    ```python
-    >>> from transformers import Qwen3OmniMoeTalkerConfig, Qwen3OmniMoeTalker
-
-    >>> # Initialize a Qwen3OmniMoeTalkerConfig with default sub-configurations
-    >>> config = Qwen3OmniMoeTalkerConfig(
-    ...     num_code_groups=32,
-    ...     thinker_hidden_size=2048,
-    ... )
-
-    >>> # Initialize the full Qwen3-Omni Talker model
-    >>> model = Qwen3OmniMoeTalker(config)
-
-    >>> # Access the model configuration
-    >>> config = model.config
-    >>> print(config.text_config)  # Access text decoder configuration
-    >>> print(config.code_predictor_config)  # Access code predictor configuration
-    ```"""
 
     sub_configs = {
         "code_predictor_config": Qwen3OmniMoeTalkerCodePredictorConfig,
@@ -522,30 +393,6 @@ class Qwen3OmniMoeTalkerConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3-Omni-30B-A3B-Instruct")
 @strict
 class Qwen3OmniMoeCode2WavConfig(PreTrainedConfig):
-    r"""
-    num_quantizers (`int`, *optional*, defaults to 16):
-        Number of residual vector quantizers used in the vocoder for fine-grained audio reconstruction.
-    upsample_rates (`Tuple[int]`, *optional*, defaults to `(8, 5, 4, 3)`):
-        Rate at which features are upsampled in the final waveform synthesis stage.
-    upsampling_ratios (`Tuple[int]`, *optional*, defaults to `(2, 2)`):
-        Ratios used in transposed convolutional layers to progressively upsample feature maps to waveform.
-    decoder_dim (`int`, *optional*, defaults to 1536):
-        Final dimensionality of the decoder's output before waveform generation.
-
-    Example:
-
-    ```python
-    >>> from transformers import Qwen3OmniMoeCode2WavConfig, Qwen3OmniMoeCode2WavModel
-
-    >>> # Initializing a default Qwen3OmniMoeCode2WavConfig
-    >>> config = Qwen3OmniMoeCode2WavConfig()
-
-    >>> # Initializing the Code2Wav model with the configuration
-    >>> model = Qwen3OmniMoeCode2WavModel(config)
-
-    >>> # Accessing configuration
-    >>> config = model.config
-    ```"""
 
     codebook_size: int = 2048
     hidden_size: int = 1024
@@ -569,61 +416,12 @@ class Qwen3OmniMoeCode2WavConfig(PreTrainedConfig):
 
     @property
     def layer_types(self):
-        """
-        All layer in code2wav should be sliding attention
-        """
-        return ["sliding_attention"] * self.num_hidden_layers
+        pass
 
 
 @auto_docstring(checkpoint="Qwen/Qwen3-Omni-30B-A3B-Instruct")
 @strict
 class Qwen3OmniMoeConfig(PreTrainedConfig):
-    r"""
-    thinker_config (`dict`, *optional*):
-        Configuration of the underlying thinker sub-model.
-    talker_config (`dict`, *optional*):
-        Configuration of the underlying talker sub-model.
-    code2wav_config (`dict`, *optional*):
-        Configuration of the underlying code2wav sub-model.
-    enable_audio_output (`bool`, *optional*, defaults to `True`):
-        Whether enable audio output and load talker and code2wav module.
-    im_start_token_id (`int`, *optional*, defaults to 151644):
-        Token id for the start of image
-    im_end_token_id (`int`, *optional*, defaults to 151645):
-        Token id for the end of image
-    tts_pad_token_id (`int`, *optional*, defaults to 151671):
-        Token id for the padding in TTS
-    tts_bos_token_id (`int`, *optional*, defaults to 151672):
-        Token id for the start of sequence in TTS
-    tts_eos_token_id (`int`, *optional*, defaults to 151673):
-        Token id for the end of sequence in TTS of image
-    system_token_id (`int`, *optional*, defaults to 8948):
-        Token id for the system prompt
-    user_token_id (`int`, *optional*, defaults to 872):
-        Token id for the user prompt
-    assistant_token_id (`int`, *optional*, defaults to 77091):
-        Token id for the assistant prompt
-
-    Example:
-
-    ```python
-    >>> from transformers import (
-    ...     Qwen3OmniMoeThinkerConfig,
-    ...     Qwen3OmniMoeTalkerConfig,
-    ...     Qwen3OmniMoeCode2WavConfig,
-    ...     Qwen3OmniMoeForConditionalGeneration,
-    ...     Qwen3OmniMoeConfig,
-    ... )
-
-    >>> # Initializing a Qwen3OmniMoe style configuration
-    >>> configuration = Qwen3OmniMoeConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = Qwen3OmniMoeForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qwen3_omni_moe"
     sub_configs = {
@@ -679,9 +477,6 @@ class Qwen3OmniMoeConfig(PreTrainedConfig):
             decoder (`Optional[bool]`, *optional*, defaults to `False`):
                 If set to `True`, then only search for decoder config names.
         """
-        # Overridden for deeply nested config like Qwen2-Omni. We don't have any omni model
-        # except for Qwen yet. This has to be generalized if more deeply nested configs are
-        # added. NOTE: currently method used only by vLLM
         return self.thinker_config.get_text_config()
 
 
@@ -862,14 +657,12 @@ class Qwen3OmniMoePreTrainedModelForConditionalGeneration(Qwen2_5OmniPreTrainedM
                     if text_len != 0:
                         llm_pos_ids_list.append(torch.arange(text_len).view(1, -1).expand(3, -1) + st_idx)
                         st_idx += text_len
-                    # Audio in Video
                     if min_ed == ed_vision_start and ed_vision_start + 1 == ed_audio_start:
                         bos_len, eos_len = 2, 2
                     else:
                         bos_len, eos_len = 1, 1
                     llm_pos_ids_list.append(torch.arange(bos_len).view(1, -1).expand(3, -1) + st_idx)
                     st_idx += bos_len
-                    # Audio Only
                     if min_ed == ed_audio_start:
                         audio_len = _get_feat_extract_output_lengths(
                             audio_seqlens[audio_idx], self.config.audio_config.n_window
@@ -881,7 +674,6 @@ class Qwen3OmniMoePreTrainedModelForConditionalGeneration(Qwen2_5OmniPreTrainedM
                         audio_idx += 1
                         remain_audios -= 1
 
-                    # Image Only
                     elif min_ed == ed_vision_start and input_ids[ed_vision_start + 1] == image_token_id:
                         grid_t = image_grid_thw[image_idx][0]
                         grid_hs = image_grid_thw[:, 1]
@@ -897,7 +689,6 @@ class Qwen3OmniMoePreTrainedModelForConditionalGeneration(Qwen2_5OmniPreTrainedM
                         image_idx += 1
                         remain_images -= 1
 
-                    # Video Only
                     elif min_ed == ed_vision_start and input_ids[ed_vision_start + 1] == video_token_id:
                         grid_t = video_grid_thw[video_idx][0]
                         grid_hs = video_grid_thw[:, 1]
@@ -915,7 +706,6 @@ class Qwen3OmniMoePreTrainedModelForConditionalGeneration(Qwen2_5OmniPreTrainedM
                         video_idx += 1
                         remain_videos -= 1
 
-                    # Audio in Video
                     elif min_ed == ed_vision_start and ed_vision_start + 1 == ed_audio_start:
                         audio_len = _get_feat_extract_output_lengths(
                             audio_seqlens[audio_idx], self.config.audio_config.n_window
@@ -1037,9 +827,7 @@ class Qwen3OmniMoeAudioEncoder(Qwen2_5OmniAudioEncoder):
         )
         max_seqlen = get_max_seqlen(cu_seqlens, self.config, kwargs=kwargs)
 
-        # Add channel dim for Conv2d: (num_chunks, mel_bins, time) -> (num_chunks, 1, mel_bins, time)
         padded_feature = padded_feature.unsqueeze(1).to(dtype=self.conv2d1.weight.dtype)
-        # Split to chunk to avoid OOM during convolution
         padded_embeds = []
         for chunk in padded_feature.split(self.conv_chunksize, dim=0):
             padded_embed = F.gelu(self.conv2d1(chunk))
@@ -1124,7 +912,7 @@ class Qwen3OmniMoeVisionEncoder(Qwen3VLMoeVisionModel):
 
     @property
     def deepstack_merger_list(self):
-        return self.merger_list
+        pass
 
 
 class Qwen3OmniMoeThinkerTextRotaryEmbedding(Qwen3VLMoeTextRotaryEmbedding):
@@ -1132,9 +920,6 @@ class Qwen3OmniMoeThinkerTextRotaryEmbedding(Qwen3VLMoeTextRotaryEmbedding):
 
 
 class Qwen3OmniMoeThinkerTextExperts(Qwen3MoeExperts):
-    """
-    ModuleList of experts.
-    """
 
     def __init__(self, config: Qwen3OmniMoeThinkerConfig):
         super().__init__(config)
@@ -1185,11 +970,6 @@ class Qwen3OmniMoeThinkerTextModel(Qwen3VLMoeTextModel):
 @auto_docstring
 @dataclass
 class Qwen3OmniMoeThinkerCausalLMOutputWithPast(MoeCausalLMOutputWithPast):
-    r"""
-    rope_deltas (`torch.LongTensor` of shape `(batch_size, )`, *optional*):
-        The rope index difference between sequence length and multimodal rope.
-        The attribute is deprecated and will be removed in v5.20, use `model.base_model.rope_deltas` instead.
-    """
 
     rope_deltas: torch.LongTensor | None = None
 
@@ -1307,13 +1087,11 @@ class Qwen3OmniMoeThinkerForConditionalGeneration(Qwen2_5OmniThinkerForCondition
         )
 
         if inputs_embeds is None:
-            # 1. Extract the input embeddings
             inputs_embeds = self.get_input_embeddings()(input_ids)
 
         visual_embeds_multiscale = None
         visual_pos_masks = None
         image_mask, video_mask = None, None
-        # 2. Merge text , audios , image and video
         if input_features is not None:
             audio_features = self.get_audio_features(
                 input_features, feature_attention_mask, audio_feature_lengths, return_dict=True, **kwargs
@@ -1452,10 +1230,6 @@ class Qwen3OmniMoeTalkerResizeMLP(nn.Module):
 
 @dataclass
 class Qwen3OmniMoeTalkerCodePredictorOutputWithPast(CausalLMOutputWithPast):
-    r"""
-    generation_steps (`int`, *optional*)
-        Current generation step of code predictor model.
-    """
 
     generation_steps: int | None = None
 
@@ -1522,9 +1296,7 @@ class Qwen3OmniMoeTalkerCodePredictorModel(Qwen3Model):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -1532,7 +1304,6 @@ class Qwen3OmniMoeTalkerCodePredictorModel(Qwen3Model):
                 "past_key_values": past_key_values,
                 "position_ids": position_ids,
             }
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
             }
@@ -1595,14 +1366,11 @@ class Qwen3OmniMoeTalkerCodePredictorModelForConditionalGeneration(Qwen3ForCausa
             generation step of code predictor, 0..num_code_groups-1
         """
 
-        # Prefill stage
         if inputs_embeds is not None and inputs_embeds.shape[1] > 1:
             generation_steps = inputs_embeds.shape[1] - 2  # hidden & layer 0
-        # Generation stage
         else:
             inputs_embeds = self.model.get_input_embeddings()[generation_steps - 1](input_ids)
 
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs: BaseModelOutputWithPast = self.model(
             input_ids=None,
             attention_mask=attention_mask,
@@ -1639,10 +1407,6 @@ class Qwen3OmniMoeTalkerCodePredictorModelForConditionalGeneration(Qwen3ForCausa
 
 @dataclass
 class Qwen3OmniMoeTalkerOutputWithPast(MoeCausalLMOutputWithPast):
-    r"""
-    generation_step (`int`, *optional*):
-        Current generation step, used to track which `trailing_text_hidden` should be used.
-    """
 
     generation_step: int | None = None
 
@@ -1721,7 +1485,6 @@ class Qwen3OmniMoeTalkerForConditionalGeneration(Qwen3MoeForCausalLM):
         self.num_experts = config.text_config.num_experts
         self.num_experts_per_tok = config.text_config.num_experts_per_tok
 
-    # Should inherit from PretrainedModel, but cannot inherit multiple classes in modular
     def get_rope_index(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -1803,7 +1566,6 @@ class Qwen3OmniMoeTalkerForConditionalGeneration(Qwen3MoeForCausalLM):
         talker_input_ids (`torch.Tensor`):
             Input ids from thinker, used to compute 3d RoPE.
         """
-        # Prefill
         if inputs_embeds is not None and inputs_embeds.shape[1] > 1:
             generation_step = -1
             residual_codes = None
@@ -1898,10 +1660,8 @@ class Qwen3OmniMoeTalkerForConditionalGeneration(Qwen3MoeForCausalLM):
             **kwargs,
         )
 
-        # Qwen3-Omni will prepare position ids in forward with deltas
         inputs["position_ids"] = None
 
-        # TODO(raushan, gante): Refactor this part to a utility function
         if not is_first_iteration and kwargs.get("use_cache", True):
             input_ids = input_ids[:, -1:]
             generation_step = kwargs.get("generation_step")
@@ -2090,7 +1850,6 @@ class Qwen3OmniMoeCode2WavTransformerLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -2101,7 +1860,6 @@ class Qwen3OmniMoeCode2WavTransformerLayer(GradientCheckpointingLayer):
         )
         hidden_states = residual + self.self_attn_layer_scale(hidden_states)
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -2153,9 +1911,7 @@ class Qwen3OmniMoeSnakeBeta(Qwen2_5OmniSnakeBeta):
     pass
 
 
-# Alias for BC
 class SnakeBeta(Qwen3OmniMoeSnakeBeta):
-    """Deprecated alias for `Qwen3OmniMoeSnakeBeta`; will be removed in a future release."""
 
     def __init__(self, *args, **kwargs):
         logger.warning_once("`SnakeBeta` is deprecated; please use `Qwen3OmniMoeSnakeBeta` instead.")
@@ -2287,11 +2043,7 @@ class Qwen3OmniMoeForConditionalGeneration(Qwen3OmniMoePreTrainedModel, Generati
         self.code2wav = Qwen3OmniMoeCode2Wav._from_config(self.config.code2wav_config)
 
     def disable_talker(self):
-        if hasattr(self, "talker"):
-            del self.talker
-        if hasattr(self, "code2wav"):
-            del self.code2wav
-        self.has_talker = False
+        pass
 
     def _get_talker_user_parts(
         self, im_start_index, segment_end_index, multimodal_mask, thinker_hidden, thinker_embed
@@ -2304,7 +2056,6 @@ class Qwen3OmniMoeForConditionalGeneration(Qwen3OmniMoePreTrainedModel, Generati
 
         user_mm_mask = multimodal_mask[:, im_start_index:segment_end_index]
 
-        # Multimodal data exists
         if user_mm_mask.any():
             user_thinker_hidden_mm = thinker_hidden[:, im_start_index:segment_end_index][user_mm_mask]
             mm_hidden = self.talker.hidden_projection(user_thinker_hidden_mm).to(thinker_hidden.device)
@@ -2438,17 +2189,14 @@ class Qwen3OmniMoeForConditionalGeneration(Qwen3OmniMoePreTrainedModel, Generati
                 talker_kwargs[key[len("talker_") :]] = value
             elif key.startswith("token2wav_"):
                 token2wav_kwargs[key[len("token2wav_") :]] = value
-            # Process special input values
             elif key == "feature_attention_mask":
                 thinker_kwargs[key] = value
                 talker_kwargs["audio_feature_lengths"] = torch.sum(value, dim=1)
             elif key in ("input_features", "attention_mask"):
                 thinker_kwargs[key] = value
-            # Put other key to shared kwargs
             else:
                 shared_kwargs[key] = value
 
-        # Merge kwargs
         for key, value in shared_kwargs.items():
             if key not in thinker_kwargs:
                 thinker_kwargs[key] = value
@@ -2457,7 +2205,6 @@ class Qwen3OmniMoeForConditionalGeneration(Qwen3OmniMoePreTrainedModel, Generati
             if key not in token2wav_kwargs:
                 token2wav_kwargs[key] = value
 
-        # 1. Generate from thinker module
         generate_audio = return_audio and self.has_talker
         if generate_audio:
             thinker_kwargs["output_hidden_states"] = True
@@ -2468,7 +2215,6 @@ class Qwen3OmniMoeForConditionalGeneration(Qwen3OmniMoePreTrainedModel, Generati
         if not generate_audio:
             return thinker_result
 
-        # 2. Prepare talker input
         thinker_embed = torch.cat([hidden_states[0] for hidden_states in thinker_result.hidden_states], dim=1).to(
             input_ids.device
         )  # [1 t d]
@@ -2505,22 +2251,18 @@ class Qwen3OmniMoeForConditionalGeneration(Qwen3OmniMoePreTrainedModel, Generati
 
         talker_input_embeds = []  # [1 t d]
         talker_input_ids = []
-        # For every chatml parts
         for i in range(len(im_start_indexes) - 1):
             im_start_index = im_start_indexes[i]
             segment_end_index = im_start_indexes[i + 1]
             role_token = input_ids[0][im_start_index + 1]
-            # Talker should ignore thinker system prompt
             if role_token == self.config.system_token_id:
                 continue
-            # Talker takes word embeddings for tokens and hidden state from `accept_hidden_layer` for multimodal inputs
             elif role_token == self.config.user_token_id:
                 talker_user_part = self._get_talker_user_parts(
                     im_start_index, segment_end_index, multimodal_mask, thinker_hidden, thinker_embed
                 )
                 talker_input_embeds.append(talker_user_part)
                 talker_input_ids.append(thinker_result.sequences[:, im_start_index:segment_end_index])
-            # Take assistant output (for now)
             elif role_token == self.config.assistant_token_id and i == len(im_start_indexes) - 2:
                 talker_assistant_embeds, talker_assistant_ids, trailing_text_hidden = self._get_talker_assistant_parts(
                     im_start_index,
@@ -2533,7 +2275,6 @@ class Qwen3OmniMoeForConditionalGeneration(Qwen3OmniMoePreTrainedModel, Generati
                 )
                 talker_input_embeds.append(talker_assistant_embeds)
                 talker_input_ids.append(talker_assistant_ids)
-            # History assistant output (ignore for now)
             elif role_token == self.config.assistant_token_id and i != len(im_start_indexes) - 2:
                 continue
             else:
@@ -2594,72 +2335,7 @@ class Qwen3OmniMoeProcessor(Qwen2_5OmniProcessor, ProcessorMixin):
         position_id_per_seconds,
         seconds_per_chunk,
     ):
-        # Extend mm token length
-        merge_length_image = self.image_processor.merge_size**2
-        merge_length_video = self.video_processor.merge_size**2
-
-        processed_text = []
-        for sample in text:
-            positions = []
-            special_tokens = [re.escape(tok) for tok in [self.audio_token, self.image_token, self.video_token]]
-            pattern = "|".join(special_tokens)
-            positions = sorted([(match.start(), match.group()) for match in re.finditer(pattern, sample)])
-            positions.sort(key=lambda x: x[0])
-
-            for _, special_token in positions:
-                if special_token == self.audio_token:
-                    sample = sample.replace(self.audio_token, "<|audio_placeholder|>" * next(audio_lengths), 1)
-                elif special_token == self.image_token:
-                    image_seq_length = next(image_grid_thw).prod() // merge_length_image
-                    sample = sample.replace(self.image_token, "<|image_placeholder|>" * image_seq_length, 1)
-                elif special_token == self.video_token:
-                    if not use_audio_in_video:
-                        video_seq_length = next(video_grid_thw).prod() // merge_length_video
-                        sample = sample.replace(self.video_token, "<|video_placeholder|>" * video_seq_length, 1)
-                    else:
-                        audio_token_indices = np.arange(next(audio_lengths))
-                        curr_video_grid_thw = next(video_grid_thw)
-                        height = curr_video_grid_thw[1] // self.video_processor.merge_size
-                        width = curr_video_grid_thw[2] // self.video_processor.merge_size
-                        video_token_indices = np.arange(curr_video_grid_thw[0]).reshape(-1, 1, 1)
-                        video_token_indices = np.broadcast_to(
-                            video_token_indices, (video_token_indices.shape[0], height, width)
-                        ).reshape(-1)
-                        video_token_indices = (
-                            video_token_indices * next(video_second_per_grid) * position_id_per_seconds
-                        )
-
-                        video_data_index, audio_data_index = 0, 0
-                        placeholder_string = self.vision_bos_token + self.audio_bos_token
-                        while video_data_index < len(video_token_indices) and audio_data_index < len(
-                            audio_token_indices
-                        ):
-                            if video_token_indices[video_data_index] <= audio_token_indices[audio_data_index]:
-                                placeholder_string += "<|video_placeholder|>"
-                                video_data_index += 1
-                            else:
-                                placeholder_string += "<|audio_placeholder|>"
-                                audio_data_index += 1
-                        if video_data_index < len(video_token_indices):
-                            placeholder_string += "<|video_placeholder|>" * (
-                                len(video_token_indices) - video_data_index
-                            )
-                        if audio_data_index < len(audio_token_indices):
-                            placeholder_string += "<|audio_placeholder|>" * (
-                                len(audio_token_indices) - audio_data_index
-                            )
-                        placeholder_string += self.audio_eos_token + self.vision_eos_token
-                        sample = sample.replace(
-                            self.vision_bos_token + self.video_token + self.vision_eos_token,
-                            placeholder_string,
-                            1,
-                        )
-
-            sample = sample.replace("<|audio_placeholder|>", self.audio_token)
-            sample = sample.replace("<|image_placeholder|>", self.image_token)
-            sample = sample.replace("<|video_placeholder|>", self.video_token)
-            processed_text.append(sample)
-        return processed_text
+        pass
 
     def __call__(
         self,

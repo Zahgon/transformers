@@ -1,18 +1,4 @@
-# Copyright 2025 NXAI GmbH. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""xLSTM configuration."""
 
 from huggingface_hub.dataclasses import strict
 
@@ -56,64 +42,6 @@ else:
 @auto_docstring(checkpoint="NX-AI/xLSTM-7b")
 @strict
 class xLSTMConfig(PreTrainedConfig):
-    r"""
-    num_blocks (int, optional, *optional*, defaults to 32):
-        Number of blocks of the xLSTM model, use num_hidden_layers if None.
-    num_heads (int, optional, *optional*, defaults to 8):
-        Number of heads for the xLSTM Layer/Cell.
-    use_bias (bool, optional, *optional*, defaults to `False`):
-        Whether to use biases in the xLSTM model.
-    norm_reduction_force_float32 (bool, optional, *optional*, defaults to `True`):
-        Whether to force the float32 norm reduction op to be done in fp32 precision.
-    add_out_norm (bool, optional, *optional*, defaults to `True`):
-        Whether to add an output norm after the blocks before the LMHead.
-    qk_dim_factor (float, optional, *optional*, defaults to 0.5):
-        Scale factor for the query and key dimension.
-    v_dim_factor (float, optional, *optional*, defaults to 1.0):
-        Scale factor for the value dimension.
-    chunkwise_kernel (ChunkwiseKernelType, optional, *optional*, defaults to `"chunkwise--native_autograd"`):
-        Kernel type for chunkwise processing mode.
-    sequence_kernel (SequenceKernelType, optional, *optional*, defaults to `"native_sequence__native"`):
-        Kernel type for sequence processing mode.
-    step_kernel (StepKernelType, optional, *optional*, defaults to `"native"`):
-        Kernel type for step processing mode.
-    mode (BackendModeType, optional, *optional*, defaults to `"inference"`):
-        Operation mode (inference is needed for generation).
-    chunk_size (int, optional, *optional*, defaults to 64):
-        Internal chunk size.
-    return_last_states (bool, optional, *optional*, defaults to `True`):
-        If to return the last states / cache internally. Needed as True for generation.
-    autocast_kernel_dtype (DtypeType, optional, *optional*, defaults to `"bfloat16"`):
-        Kernel dtype for the states.
-    inference_state_dtype (DtypeType, optional, *optional*, defaults to `"float32"`):
-        Kernel dtype for states in inference.
-    ffn_proj_factor (float, optional, *optional*, defaults to 2.667):
-        Size factor of the post-up projection gated Feed Forward network.
-    ffn_round_up_to_multiple_of (int, optional, *optional*, defaults to 64):
-        Size factor round value of the post-up projection gated Feed Forward network.
-    gate_soft_cap (float, optional, *optional*, defaults to 15.0):
-        Gate soft cap scale.
-    output_logit_soft_cap (float, optional, *optional*, defaults to 30.0):
-        Output logit soft cap scale.
-    weight_mode (`Literal`, *optional*, defaults to `"single"`):
-        Whether parallel linear layers are separated or fused (single).
-    max_inference_chunksize (int, optional, *optional*, defaults to 16384):
-        Limit the chunk size for inference to save memory.
-
-    Example:
-
-    ```python
-    >>> from transformers import xLSTMConfig, xLSTMModel
-
-    >>> # Initializing a xLSTM configuration
-    >>> configuration = xLSTMConfig()
-
-    >>> # Initializing a model (with random weights) from the configuration
-    >>> model = xLSTMModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "xlstm"
 
@@ -159,60 +87,22 @@ class xLSTMConfig(PreTrainedConfig):
 
     @property
     def qk_dim(self):
-        return round_up_to_next_multiple_of(
-            self.hidden_size * self.qk_dim_factor,
-            multiple_of=64,
-        )
+        pass
 
     @property
     def v_dim(self):
-        return round_up_to_next_multiple_of(
-            self.hidden_size * self.v_dim_factor,
-            multiple_of=64,
-        )
+        pass
 
     @property
     def qk_head_dim(self):
-        return self.qk_dim // self.num_heads
+        pass
 
     @property
     def v_head_dim(self):
-        return self.v_dim // self.num_heads
+        pass
 
     def to_xlstm_block_config(self):
-        if external_xlstm:
-            return xLSTMLargeConfig(
-                vocab_size=self.vocab_size,
-                embedding_dim=self.hidden_size,
-                num_blocks=self.num_hidden_layers,
-                num_heads=self.num_heads,
-                use_bias=self.use_bias,
-                add_out_norm=self.add_out_norm,
-                norm_eps=self.norm_eps,
-                norm_reduction_force_float32=self.norm_reduction_force_float32,
-                # mlstm_layer
-                qk_dim_factor=self.qk_dim_factor,
-                v_dim_factor=self.v_dim_factor,
-                # mlstm backend
-                chunkwise_kernel=self.chunkwise_kernel,
-                sequence_kernel=self.sequence_kernel,
-                step_kernel=self.step_kernel,
-                mode=self.mode,
-                chunk_size=self.chunk_size,
-                return_last_states=self.return_last_states,
-                autocast_kernel_dtype=self.autocast_kernel_dtype,
-                eps=self.eps,
-                inference_state_dtype=self.inference_state_dtype,
-                # feedforward
-                ffn_proj_factor=self.ffn_proj_factor,
-                ffn_round_up_to_multiple_of=self.ffn_round_up_to_multiple_of,
-                # capping
-                gate_soft_cap=self.gate_soft_cap,
-                output_logit_soft_cap=self.output_logit_soft_cap,
-                weight_mode=self.weight_mode,
-            )
-        else:
-            return self
+        pass
 
 
 __all__ = ["xLSTMConfig"]

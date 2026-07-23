@@ -1,16 +1,3 @@
-# Copyright 2026 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from dataclasses import dataclass
@@ -52,31 +39,6 @@ from ..internvl.processing_internvl import InternVLProcessor
 @auto_docstring(checkpoint="baidu/Qianfan-OCR")
 @strict
 class QianfanOCRVisionConfig(InternVLVisionConfig):
-    r"""
-    projection_dropout (`float`, *optional*, defaults to 0.0):
-        Dropout probability for the projection layer.
-    norm_type (`str`, *optional*, defaults to `"layer_norm"`):
-        The type of normalization to use in the encoder. Can be `"layer_norm"` or `"rms_norm"`.
-    use_mask_token (`bool`, *optional*, defaults to `False`):
-        Whether to use a mask token for masked image modeling.
-    use_mean_pooling (`bool`, *optional*, defaults to `True`):
-        Whether to mean pool the final hidden states of the patches instead of using the final hidden state of the
-        CLS token, before applying the classification head.
-    drop_path_rate (`float`, *optional*, defaults to 0.1):
-        Dropout rate for stochastic depth.
-
-    Example:
-
-    ```python
-    >>> # Initializing a QianfanOCR vision style configuration
-    >>> configuration = QianfanOCRVisionConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = QianfanOCRVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qianfan_ocr_vision"
     base_config_key = "vision_config"
@@ -88,22 +50,6 @@ class QianfanOCRVisionConfig(InternVLVisionConfig):
 @auto_docstring(checkpoint="baidu/Qianfan-OCR")
 @strict
 class QianfanOCRConfig(InternVLConfig):
-    r"""
-    downsample_ratio (`float`, *optional*, defaults to 0.5):
-        Factor by which to downsample the image.
-
-    Example:
-
-    ```python
-    >>> # Initializing a QianfanOCR style configuration
-    >>> configuration = QianfanOCRConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = QianfanOCRForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qianfan_ocr"
     sub_configs = {"text_config": AutoConfig, "vision_config": QianfanOCRVisionConfig}
@@ -138,7 +84,6 @@ class QianfanOCRVisionMLP(InternVLVisionMLP):
 
 
 class QianfanOCRVisionLayer(InternVLVisionLayer):
-    """Vision transformer layer with stochastic depth (DropPath) support."""
 
     def __init__(self, config: QianfanOCRVisionConfig, drop_path_rate: float = 0.0) -> None:
         super().__init__(config)
@@ -154,7 +99,6 @@ class QianfanOCRVisionLayer(InternVLVisionLayer):
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.layernorm_before(hidden_states)
-        # Self Attention
         hidden_states, _ = self.attention(hidden_states, **kwargs)
         hidden_states = self.lambda_1 * hidden_states
         hidden_states = self.drop_path1(hidden_states)
@@ -162,7 +106,6 @@ class QianfanOCRVisionLayer(InternVLVisionLayer):
 
         residual = hidden_states
         hidden_states = self.layernorm_after(hidden_states)
-        # Fully Connected
         hidden_states = self.mlp(hidden_states)
         hidden_states = self.dropout(hidden_states)
         hidden_states = self.lambda_2 * hidden_states
@@ -176,12 +119,6 @@ class QianfanOCRVisionEmbeddings(InternVLVisionEmbeddings):
 
 
 class QianfanOCRVisionModelOutputWithPooling(BaseModelOutputWithPooling):
-    r"""
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, hidden_size)`):
-        Average of the last layer hidden states of the patch tokens (excluding the *[CLS]* token) if
-        *config.use_mean_pooling* is set to True. If set to False, then the final hidden state of the *[CLS]* token
-        will be returned.
-    """
 
     pass
 
@@ -246,11 +183,7 @@ class QianfanOCRPreTrainedModel(InternVLPreTrainedModel):
 )
 @dataclass
 class QianfanOCRModelOutputWithPast(InternVLModelOutputWithPast):
-    r"""
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size `(batch_size, num_images, sequence_length, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
+    pass
 
 
 class QianfanOCRModel(InternVLModel):
@@ -331,29 +264,7 @@ class QianfanOCRProcessor(InternVLProcessor):
         video_num_patches_indices: np.ndarray,
         video_patch_indices: np.ndarray,
     ):
-        """
-        Processes interleaved text with <image> placeholders, replacing them with appropriate image tokens.
-        """
-        image_index = 0
-        processed_text = []
-        image_patches = []
-        replace_strings = []
-        for prompt in text:
-            new_prompt = prompt
-            while self.image_placeholder_token in new_prompt:
-                start_index = image_num_patches_indices[image_index - 1] if image_index > 0 else 0
-                end_index = image_num_patches_indices[image_index]
-                image_patches.append(image_pixel_values[start_index:end_index])
-                new_prompt = new_prompt.replace(self.image_placeholder_token, "<placeholder>", 1)
-                replace_strings.append(
-                    f"{self.start_image_token}{self.image_token * self.image_seq_length * image_num_patches[image_index]}{self.end_image_token}"
-                )
-                image_index += 1
-            while "<placeholder>" in new_prompt:
-                replace_str = replace_strings.pop(0)
-                new_prompt = new_prompt.replace("<placeholder>", replace_str, 1)
-            processed_text.append(new_prompt)
-        return processed_text, image_patches, image_index, 0
+        pass
 
     def __call__(
         self,

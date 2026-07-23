@@ -1,17 +1,3 @@
-# Copyright 2026 Meta Platforms, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""CHMv2 model — Canopy Height Model v2, adapted from DPT."""
 
 from typing import Literal
 
@@ -37,40 +23,6 @@ from ..dpt.modeling_dpt import DPTReassembleLayer, _get_backbone_hidden_size
 @auto_docstring(checkpoint="facebook/dinov3-vitl16-chmv2-dpt-head")
 @strict
 class CHMv2Config(PreTrainedConfig):
-    r"""
-    backbone_config (`Union[dict, "PreTrainedConfig"]`, *optional*):
-        The configuration of the backbone model. Only DINOv3ViTConfig is currently supported.
-    patch_size (`int`, *optional*, defaults to 16):
-        The patch size used by the backbone vision transformer.
-    reassemble_factors (`list[float]`, *optional*, defaults to `[4, 2, 1, 0.5]`):
-        The up/downsampling factors of the reassemble layers.
-    post_process_channels (`list[int]`, *optional*, defaults to `[128, 256, 512, 1024]`):
-        The output channel sizes of the reassemble stage for each backbone feature level.
-    fusion_hidden_size (`int`, *optional*, defaults to 256):
-        The number of channels before fusion.
-    head_hidden_size (`int`, *optional*, defaults to 128):
-        The number of channels in the hidden layer of the depth estimation head.
-    number_output_channels (`int`, *optional*, defaults to 256):
-        Number of output channels for the CHMv2 head (number of depth bins).
-    readout_type (`str`, *optional*, defaults to `"project"`):
-        Type of readout operation for the CLS token. One of `["ignore", "add", "project"]`.
-    min_depth (`float`, *optional*, defaults to 0.001):
-        The minimum depth value for depth bin calculation.
-    max_depth (`float`, *optional*, defaults to 96.0):
-        The maximum depth value for depth bin calculation.
-    bins_strategy (`str`, *optional*, defaults to `"chmv2_mixlog"`):
-        The strategy for depth bins distribution. One of `["linear", "log", "chmv2_mixlog"]`.
-    norm_strategy (`str`, *optional*, defaults to `"chmv2_mixlog"`):
-        The normalization strategy for depth prediction. One of `["linear", "softmax", "sigmoid", "chmv2_mixlog"]`.
-
-    ```python
-    >>> from transformers import CHMv2Config, CHMv2ForDepthEstimation
-
-    >>> configuration = CHMv2Config()
-    >>> model = CHMv2ForDepthEstimation(configuration)
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "chmv2"
     sub_configs = {"backbone_config": AutoConfig}
@@ -121,18 +73,6 @@ class CHMv2Config(PreTrainedConfig):
 
 
 class CHMv2ImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    ensure_multiple_of (`int`, *optional*, defaults to 1):
-        If `do_resize` is `True`, the image is resized to a size that is a multiple of this value. Can be overridden
-        by `ensure_multiple_of` in `preprocess`.
-    keep_aspect_ratio (`bool`, *optional*, defaults to `False`):
-        If `True`, the image is resized to the largest possible size such that the aspect ratio is preserved. Can
-        be overridden by `keep_aspect_ratio` in `preprocess`.
-    do_reduce_labels (`bool`, *optional*, defaults to `self.do_reduce_labels`):
-        Whether or not to reduce all label values of segmentation maps by 1. Usually used for datasets where 0
-        is used for background, and background itself is not included in all classes of a dataset (e.g.
-        ADE20k). The background label will be replaced by 255.
-    """
 
     ensure_multiple_of: int
     size_divisor: int
@@ -197,10 +137,6 @@ class CHMv2ReassembleLayer(DPTReassembleLayer):
 
 
 class CHMv2ReassembleStage(nn.Module):
-    """
-    Reassemble stage that processes hidden states from the backbone into image-like feature
-    representations at various resolutions.
-    """
 
     def __init__(self, config: CHMv2Config):
         super().__init__()
@@ -294,11 +230,6 @@ class CHMv2FeatureFusionLayer(nn.Module):
 
 
 class CHMv2UpsampleConvHead(nn.Module):
-    """
-    Convolutional head with intermediate upsampling.
-
-    Architecture: Conv3x3 -> 2x bilinear upsample -> Conv3x3 -> ReLU -> Conv1x1.
-    """
 
     def __init__(self, features, number_output_channels, n_hidden_channels=128):
         super().__init__()
@@ -319,11 +250,6 @@ class CHMv2UpsampleConvHead(nn.Module):
 
 
 class CHMv2Head(nn.Module):
-    """
-    CHMv2 dense-prediction head adapted from DPT.
-
-    Integrates reassemble, projection convs, feature fusion, and UpConv depth head.
-    """
 
     def __init__(self, config: CHMv2Config):
         super().__init__()
@@ -364,7 +290,6 @@ class CHMv2Head(nn.Module):
 
 
 class CHMv2FeaturesToDepth(nn.Module):
-    """Converts raw logits from the CHMv2 head into a depth map using depth bins."""
 
     def __init__(self, config: CHMv2Config):
         super().__init__()

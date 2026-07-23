@@ -1,17 +1,3 @@
-# Copyright 2022 Salesforce authors, The EleutherAI, and HuggingFace Teams. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""CodeGen model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,29 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="Salesforce/codegen-2B-mono")
 @strict
 class CodeGenConfig(PreTrainedConfig):
-    r"""
-    n_ctx (`int`, *optional*, defaults to 2048):
-        This attribute is used in `CodeGenModel.__init__` without any real effect.
-        The dropout probability for all fully connected layers in the embeddings, encoder, and pooler.
-    rotary_dim (`int`, *optional*, defaults to 64):
-        Number of dimensions in the embedding that Rotary Position Embedding is applied to.
-    n_inner (`int`, *optional*):
-        Dimensionality of the inner feed-forward layers. `None` will set it to 4 times n_embd
-
-    Example:
-
-    ```python
-    >>> from transformers import CodeGenConfig, CodeGenModel
-
-    >>> # Initializing a CodeGen 6B configuration
-    >>> configuration = CodeGenConfig()
-
-    >>> # Initializing a model (with random weights) from the configuration
-    >>> model = CodeGenModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "codegen"
     attribute_map = {

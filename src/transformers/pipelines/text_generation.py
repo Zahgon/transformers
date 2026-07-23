@@ -21,57 +21,7 @@ class ReturnType(enum.Enum):
 
 @add_end_docstrings(build_pipeline_init_args(has_tokenizer=True))
 class TextGenerationPipeline(Pipeline):
-    """
-    Language generation pipeline using any `ModelWithLMHead` or `ModelForCausalLM`. This pipeline predicts the words
-    that will follow a specified text prompt. When the underlying model is a conversational model, it can also accept
-    one or more chats, in which case the pipeline will operate in chat mode and will continue the chat(s) by adding
-    its response(s). Each chat takes the form of a list of dicts, where each dict contains "role" and "content" keys.
 
-    Unless the model you're using explicitly sets these generation parameters in its configuration files
-    (`generation_config.json`), the following default values will be used:
-    - max_new_tokens: 256
-    - do_sample: True
-    - temperature: 0.7
-
-    Examples:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> generator = pipeline(model="openai-community/gpt2")
-    >>> generator("I can't believe you did such a ", do_sample=False)
-    [{'generated_text': "I can't believe you did such a icky thing to me. I'm so sorry. I'm so sorry. I'm so sorry. I'm so sorry. I'm so sorry. I'm so sorry. I'm so sorry. I"}]
-
-    >>> # These parameters will return suggestions, and only the newly created text making it easier for prompting suggestions.
-    >>> outputs = generator("My tart needs some", num_return_sequences=4, return_full_text=False)
-    ```
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> generator = pipeline(model="HuggingFaceH4/zephyr-7b-beta")
-    >>> # Zephyr-beta is a conversational model, so let's pass it a chat instead of a single string
-    >>> generator([{"role": "user", "content": "What is the capital of France? Answer in one word."}], do_sample=False, max_new_tokens=2)
-    [{'generated_text': [{'role': 'user', 'content': 'What is the capital of France? Answer in one word.'}, {'role': 'assistant', 'content': 'Paris'}]}]
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial). You can pass text
-    generation parameters to this pipeline to control stopping criteria, decoding strategy, and more. Learn more about
-    text generation parameters in [Text generation strategies](../generation_strategies) and [Text
-    generation](text_generation).
-
-    This language generation pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"text-generation"`.
-
-    The models that this pipeline can use are models that have been trained with an autoregressive language modeling
-    objective. See the list of available [text completion models](https://huggingface.co/models?filter=text-generation)
-    and the list of [conversational models](https://huggingface.co/models?other=conversational)
-    on [huggingface.co/models].
-    """
-
-    # Prefix text to help Transformer-XL and XLNet with short prompts as proposed by Aman Rusia
-    # in https://github.com/rusiaaman/XLNet-gen#methodology
-    # and https://medium.com/@amanrusia/xlnet-speaks-comparison-to-gpt-2-ea1a4e9ba39e
 
     XL_PREFIX = """
     In 1991, the remains of Russian Tsar Nicholas II and his family (except for Alexei and Maria) are discovered. The
@@ -89,7 +39,6 @@ class TextGenerationPipeline(Pipeline):
     _load_feature_extractor = False
     _load_tokenizer = True
 
-    # Make sure the docstring is updated when the default generation config is changed
     _default_generation_config = GenerationConfig(
         max_new_tokens=256,
         do_sample=True,  # free-form text generation often uses sampling
@@ -99,17 +48,10 @@ class TextGenerationPipeline(Pipeline):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.check_model_type(MODEL_FOR_CAUSAL_LM_MAPPING_NAMES)
-        # Decoder-only models require left-padding for correct batched generation.
-        # Only override when there is no feature_extractor, to avoid padding_side conflicts
-        # (e.g., WhisperForCausalLM has a feature_extractor that pads on the right).
         if self.tokenizer is not None and self.tokenizer.padding_side == "right":
             self.tokenizer.padding_side = "left"
 
         if "prefix" not in self._preprocess_params:
-            # This is very specific. The logic is quite complex and needs to be done
-            # as a "default".
-            # It also defines both some preprocess_kwargs and generate_kwargs
-            # which is why we cannot put them in their respective methods.
             prefix = None
             if self.prefix is not None:
                 prefix = self.prefix
@@ -117,10 +59,8 @@ class TextGenerationPipeline(Pipeline):
                 "XLNetLMHeadModel",
                 "TransfoXLLMHeadModel",
             ]:
-                # For XLNet and TransformerXL we add an article to the prompt to give more state to the model.
                 prefix = self.XL_PREFIX
             if prefix is not None:
-                # Recalculate some generate_kwargs linked to prefix.
                 preprocess_params, forward_params, _ = self._sanitize_parameters(prefix=prefix, **self._forward_params)
                 self._preprocess_params = {**self._preprocess_params, **preprocess_params}
                 self._forward_params = {**self._forward_params, **forward_params}
@@ -144,7 +84,6 @@ class TextGenerationPipeline(Pipeline):
         documents=None,
         **generate_kwargs,
     ):
-        # preprocess kwargs
         preprocess_params = {}
         add_special_tokens = False
         if "add_special_tokens" in generate_kwargs:
@@ -189,7 +128,6 @@ class TextGenerationPipeline(Pipeline):
 
         preprocess_params.update(generate_kwargs)
 
-        # forward kwargs
         if stop_sequence is not None:
             stop_sequence_ids = self.tokenizer.encode(stop_sequence, add_special_tokens=False)
             generate_kwargs["eos_token_id"] = stop_sequence_ids
@@ -200,7 +138,6 @@ class TextGenerationPipeline(Pipeline):
             forward_params["tokenizer"] = self.tokenizer
             forward_params["assistant_tokenizer"] = self.assistant_tokenizer
 
-        # postprocess kwargs
         postprocess_params = {}
         if return_full_text is not None and return_type is None:
             if return_text is not None:
@@ -223,12 +160,10 @@ class TextGenerationPipeline(Pipeline):
 
         return preprocess_params, forward_params, postprocess_params
 
-    # overriding _parse_and_tokenize to allow for unusual language-modeling tokenizer arguments
     def _parse_and_tokenize(self, *args, **kwargs):
         """
         Parse arguments and tokenize
         """
-        # Parse arguments
         if self.model.__class__.__name__ == "TransfoXLLMHeadModel":
             kwargs.update({"add_space_before_punct_symbol": True})
 
@@ -313,7 +248,6 @@ class TextGenerationPipeline(Pipeline):
         documents=None,
         **generate_kwargs,
     ):
-        # Only set non-None tokenizer kwargs, so as to rely on the tokenizer's defaults
         tokenizer_kwargs = {
             "add_special_tokens": add_special_tokens,
             "truncation": truncation,
@@ -325,8 +259,6 @@ class TextGenerationPipeline(Pipeline):
 
         if isinstance(prompt_text, Chat):
             tokenizer_kwargs.pop("add_special_tokens", None)  # ignore add_special_tokens on chats
-            # If the user passes a chat that ends in an assistant message, we treat it as a prefill by default
-            # because very few models support multiple separate, consecutive assistant messages
             if continue_final_message is None:
                 continue_final_message = prompt_text.messages[-1]["role"] == "assistant"
             inputs = self.tokenizer.apply_chat_template(
@@ -369,7 +301,6 @@ class TextGenerationPipeline(Pipeline):
     def _forward(self, model_inputs, **generate_kwargs):
         input_ids = model_inputs["input_ids"]
         attention_mask = model_inputs.get("attention_mask", None)
-        # Allow empty prompts
         if input_ids.shape[1] == 0:
             input_ids = None
             attention_mask = None
@@ -378,8 +309,6 @@ class TextGenerationPipeline(Pipeline):
             in_b = input_ids.shape[0]
         prompt_text = model_inputs.pop("prompt_text")
 
-        # If there is a prefix, we may need to adjust the generation length. Do so without permanently modifying
-        # generate_kwargs, as some of the parameterization may come from the initialization of the pipeline.
         prefix_length = generate_kwargs.pop("prefix_length", 0)
         if prefix_length > 0:
             has_max_new_tokens = "max_new_tokens" in generate_kwargs or (
@@ -396,7 +325,6 @@ class TextGenerationPipeline(Pipeline):
             if not has_min_new_tokens and "min_length" in generate_kwargs:
                 generate_kwargs["min_length"] += prefix_length
 
-        # User-defined `generation_config` passed to the pipeline call take precedence
         if "generation_config" not in generate_kwargs:
             generate_kwargs["generation_config"] = self.generation_config
 
@@ -472,11 +400,8 @@ class TextGenerationPipeline(Pipeline):
                         all_text = prompt_text + all_text
                     elif isinstance(prompt_text, Chat):
                         if continue_final_message is None:
-                            # If the user passes a chat ending in an assistant message, we treat it as a prefill by
-                            # default because very few models support multiple separate, consecutive assistant messages
                             continue_final_message = prompt_text.messages[-1]["role"] == "assistant"
                         if continue_final_message:
-                            # With assistant prefill, concat onto the end of the last message
                             all_text = list(prompt_text.messages)[:-1] + [
                                 {
                                     "role": prompt_text.messages[-1]["role"],
@@ -484,11 +409,7 @@ class TextGenerationPipeline(Pipeline):
                                 }
                             ]
                         else:
-                            # When we're not starting from a prefill, the output is a new assistant message
                             if getattr(self.tokenizer, "response_template", None) is not None:
-                                # New-style templates need to see the prompt as `prefix`, because chat
-                                # templates often pre-write part of the assistant message (e.g. an
-                                # opening <think> tag), which affects parsing.
                                 prompt_prefix = self.tokenizer.decode(
                                     sequence[:prompt_token_length],
                                     skip_special_tokens=skip_special_tokens,
@@ -496,10 +417,8 @@ class TextGenerationPipeline(Pipeline):
                                 )
                                 assistant_message = self.tokenizer.parse_response(all_text, prefix=prompt_prefix)
                             elif getattr(self.tokenizer, "response_schema", None) is not None:
-                                # Legacy schemas parse the generated text alone and don't support `prefix`
                                 assistant_message = self.tokenizer.parse_response(all_text)
                             else:
-                                # If there's no schema, then we have to assume it's all content
                                 assistant_message = {"role": "assistant", "content": all_text}
                             all_text = list(prompt_text.messages) + [assistant_message]
                 record = {"generated_text": all_text}

@@ -1,16 +1,3 @@
-# Copyright 2020 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import argparse
 import datetime
@@ -40,18 +27,6 @@ TATOEBA_MODELS_URL = "https://object.pouta.csc.fi/Tatoeba-MT-models"
 
 
 class TatoebaConverter:
-    """
-    Convert Tatoeba-Challenge models to huggingface format.
-
-    Steps:
-
-        1. Convert numpy state dict to hf format (same code as OPUS-MT-Train conversion).
-        2. Rename opus model to huggingface format. This means replace each alpha3 code with an alpha2 code if a unique
-           one exists. e.g. aav-eng -> aav-en, heb-eng -> he-en
-        3. Select the best model for a particular pair, parse the yml for it and write a model card. By default the
-           best model is the one listed first in released-model-results, but it's also possible to specify the most
-           recent one.
-    """
 
     def __init__(self, save_dir="marian_converted"):
         assert Path(DEFAULT_REPO).exists(), "need git clone git@github.com:Helsinki-NLP/Tatoeba-Challenge.git"
@@ -72,207 +47,26 @@ class TatoebaConverter:
             self.tag2name[key] = value[0]
 
     def convert_models(self, tatoeba_ids, dry_run=False):
-        models_to_convert = [self.parse_metadata(x) for x in tatoeba_ids]
-        save_dir = Path("marian_ckpt")
-        dest_dir = Path(self.model_card_dir)
-        dest_dir.mkdir(exist_ok=True)
-        for model in tqdm(models_to_convert):  # k, prepro, download, test_set_url in tqdm(model_list):
-            if "SentencePiece" not in model["pre-processing"]:
-                print(f"Skipping {model['release']} because it doesn't appear to use SentencePiece")
-                continue
-            if not os.path.exists(save_dir / model["_name"]):
-                download_and_unzip(f"{TATOEBA_MODELS_URL}/{model['release']}", save_dir / model["_name"])
-            # from convert_marian_to_pytorch
-            opus_language_groups_to_hf = convert_opus_name_to_hf_name
-            pair_name = opus_language_groups_to_hf(model["_name"])
-            convert(save_dir / model["_name"], dest_dir / f"opus-mt-{pair_name}")
-            self.write_model_card(model, dry_run=dry_run)
+        pass
 
     def expand_group_to_two_letter_codes(self, grp_name):
-        return [self.alpha3_to_alpha2.get(x, x) for x in GROUP_MEMBERS[grp_name][1]]
+        pass
 
     def is_group(self, code, name):
-        return "languages" in name or len(GROUP_MEMBERS.get(code, [])) > 1
+        pass
 
     def get_tags(self, code, name):
-        if len(code) == 2:
-            assert "languages" not in name, f"{code}: {name}"
-            return [code]
-        elif self.is_group(code, name):
-            group = self.expand_group_to_two_letter_codes(code)
-            group.append(code)
-            return group
-        else:  # zho-> zh
-            print(f"Three letter monolingual code: {code}")
-            return [code]
+        pass
 
     def resolve_lang_code(self, src, tgt) -> tuple[str, str]:
-        src_tags = self.get_tags(src, self.tag2name[src])
-        tgt_tags = self.get_tags(tgt, self.tag2name[tgt])
-        return src_tags, tgt_tags
+        pass
 
     @staticmethod
     def model_type_info_from_model_name(name):
-        info = {"_has_backtranslated_data": False}
-        if "1m" in name:
-            info["_data_per_pair"] = str(1e6)
-        if "2m" in name:
-            info["_data_per_pair"] = str(2e6)
-        if "4m" in name:
-            info["_data_per_pair"] = str(4e6)
-        if "+bt" in name:
-            info["_has_backtranslated_data"] = True
-        if "tuned4" in name:
-            info["_tuned"] = re.search(r"tuned4[^-]+", name).group()
-        return info
+        pass
 
     def write_model_card(self, model_dict, dry_run=False) -> str:
-        """
-        Construct card from data parsed from YAML and the model's name. upload command: aws s3 sync model_card_dir
-        s3://models.huggingface.co/bert/Helsinki-NLP/ --dryrun
-        """
-        model_dir_url = f"{TATOEBA_MODELS_URL}/{model_dict['release']}"
-        long_pair = model_dict["_name"].split("-")
-        assert len(long_pair) == 2, f"got a translation pair {model_dict['_name']} that doesn't appear to be a pair"
-        short_src = self.alpha3_to_alpha2.get(long_pair[0], long_pair[0])
-        short_tgt = self.alpha3_to_alpha2.get(long_pair[1], long_pair[1])
-        model_dict["_hf_model_id"] = f"opus-mt-{short_src}-{short_tgt}"
-
-        a3_src, a3_tgt = model_dict["_name"].split("-")
-        # opus_src_tags, opus_tgt_tags = a3_src.split("+"), a3_tgt.split("+")
-
-        # This messy part tries to deal with language tags in multilingual models, possibly
-        # not all having three-letter codes
-        resolved_src_tags, resolved_tgt_tags = self.resolve_lang_code(a3_src, a3_tgt)
-        a2_src_tags, a2_tgt_tags = [], []
-        for tag in resolved_src_tags:
-            if tag not in self.alpha3_to_alpha2:
-                a2_src_tags.append(tag)
-        for tag in resolved_tgt_tags:
-            if tag not in self.alpha3_to_alpha2:
-                a2_tgt_tags.append(tag)
-
-        lang_tags = dedup(a2_src_tags + a2_tgt_tags)
-        src_multilingual, tgt_multilingual = (len(a2_src_tags) > 1), (len(a2_tgt_tags) > 1)
-        s, t = ",".join(a2_src_tags), ",".join(a2_tgt_tags)
-
-        metadata = {
-            "hf_name": model_dict["_name"],
-            "source_languages": s,
-            "target_languages": t,
-            "opus_readme_url": f"{model_dir_url}/README.md",
-            "original_repo": "Tatoeba-Challenge",
-            "tags": ["translation"],
-            "languages": lang_tags,
-        }
-        lang_tags = l2front_matter(lang_tags)
-
-        metadata["src_constituents"] = list(GROUP_MEMBERS[a3_src][1])
-        metadata["tgt_constituents"] = list(GROUP_MEMBERS[a3_tgt][1])
-        metadata["src_multilingual"] = src_multilingual
-        metadata["tgt_multilingual"] = tgt_multilingual
-
-        backtranslated_data = ""
-        if model_dict["_has_backtranslated_data"]:
-            backtranslated_data = " with backtranslations"
-
-        multilingual_data = ""
-        if "_data_per_pair" in model_dict:
-            multilingual_data = f"* data per pair in multilingual model: {model_dict['_data_per_pair']}\n"
-
-        tuned = ""
-        if "_tuned" in model_dict:
-            tuned = f"* multilingual model tuned for: {model_dict['_tuned']}\n"
-
-        model_base_filename = model_dict["release"].split("/")[-1]
-        download = f"* download original weights: [{model_base_filename}]({model_dir_url}/{model_dict['release']})\n"
-
-        langtoken = ""
-        if tgt_multilingual:
-            langtoken = (
-                "* a sentence-initial language token is required in the form of >>id<<"
-                "(id = valid, usually three-letter target language ID)\n"
-            )
-
-        metadata.update(get_system_metadata(DEFAULT_REPO))
-
-        scorestable = ""
-        for k, v in model_dict.items():
-            if "scores" in k:
-                this_score_table = f"* {k}\n|Test set|score|\n|---|---|\n"
-                pairs = sorted(v.items(), key=lambda x: x[1], reverse=True)
-                for pair in pairs:
-                    this_score_table += f"|{pair[0]}|{pair[1]}|\n"
-                scorestable += this_score_table
-
-        datainfo = ""
-        if "training-data" in model_dict:
-            datainfo += "* Training data: \n"
-            for k, v in model_dict["training-data"].items():
-                datainfo += f"  * {str(k)}: {str(v)}\n"
-        if "validation-data" in model_dict:
-            datainfo += "* Validation data: \n"
-            for k, v in model_dict["validation-data"].items():
-                datainfo += f"  * {str(k)}: {str(v)}\n"
-        if "test-data" in model_dict:
-            datainfo += "* Test data: \n"
-            for k, v in model_dict["test-data"].items():
-                datainfo += f"  * {str(k)}: {str(v)}\n"
-
-        testsetfilename = model_dict["release"].replace(".zip", ".test.txt")
-        testscoresfilename = model_dict["release"].replace(".zip", ".eval.txt")
-        testset = f"* test set translations file: [test.txt]({model_dir_url}/{testsetfilename})\n"
-        testscores = f"* test set scores file: [eval.txt]({model_dir_url}/{testscoresfilename})\n"
-
-        # combine with Tatoeba markdown
-        readme_url = f"{TATOEBA_MODELS_URL}/{model_dict['_name']}/README.md"
-        extra_markdown = f"""
-### {model_dict["_name"]}
-
-* source language name: {self.tag2name[a3_src]}
-* target language name: {self.tag2name[a3_tgt]}
-* OPUS readme: [README.md]({readme_url})
-"""
-
-        content = (
-            f"""
-* model: {model_dict["modeltype"]}
-* source language code{src_multilingual * "s"}: {", ".join(a2_src_tags)}
-* target language code{tgt_multilingual * "s"}: {", ".join(a2_tgt_tags)}
-* dataset: opus {backtranslated_data}
-* release date: {model_dict["release-date"]}
-* pre-processing: {model_dict["pre-processing"]}
-"""
-            + multilingual_data
-            + tuned
-            + download
-            + langtoken
-            + datainfo
-            + testset
-            + testscores
-            + scorestable
-        )
-
-        content = FRONT_MATTER_TEMPLATE.format(lang_tags) + extra_markdown + content
-
-        items = "\n".join([f"* {k}: {v}" for k, v in metadata.items()])
-        sec3 = "\n### System Info: \n" + items
-        content += sec3
-        if dry_run:
-            print("CONTENT:")
-            print(content)
-            print("METADATA:")
-            print(metadata)
-            return
-        sub_dir = self.model_card_dir / model_dict["_hf_model_id"]
-        sub_dir.mkdir(exist_ok=True)
-        dest = sub_dir / "README.md"
-        dest.open("w").write(content)
-        for k, v in metadata.items():
-            if isinstance(v, datetime.date):
-                metadata[k] = datetime.datetime.strftime(v, "%Y-%m-%d")
-        with open(sub_dir / "metadata.json", "w", encoding="utf-8") as writeobj:
-            json.dump(metadata, writeobj)
+        pass
 
     def download_lang_info(self):
         global LANG_CODE_PATH
@@ -288,40 +82,10 @@ class TatoebaConverter:
             )
 
     def parse_metadata(self, model_name, repo_path=DEFAULT_MODEL_DIR, method="best"):
-        p = Path(repo_path) / model_name
-
-        def url_to_name(url):
-            return url.split("/")[-1].split(".")[0]
-
-        if model_name not in self.model_results:
-            # This is not a language pair, so model results are ambiguous, go by newest
-            method = "newest"
-
-        if method == "best":
-            # Sort by how early they appear in released-models-results
-            results = [url_to_name(model["download"]) for model in self.model_results[model_name]]
-            ymls = [f for f in os.listdir(p) if f.endswith(".yml") and f[:-4] in results]
-            ymls.sort(key=lambda x: results.index(x[:-4]))
-            metadata = yaml.safe_load(open(p / ymls[0]))
-            metadata.update(self.model_type_info_from_model_name(ymls[0][:-4]))
-        elif method == "newest":
-            ymls = [f for f in os.listdir(p) if f.endswith(".yml")]
-            # Sort by date
-            ymls.sort(
-                key=lambda x: datetime.datetime.strptime(re.search(r"\d\d\d\d-\d\d?-\d\d?", x).group(), "%Y-%m-%d")
-            )
-            metadata = yaml.safe_load(open(p / ymls[-1]))
-            metadata.update(self.model_type_info_from_model_name(ymls[-1][:-4]))
-        else:
-            raise NotImplementedError(f"Don't know argument method='{method}' to parse_metadata()")
-        metadata["_name"] = model_name
-        return metadata
+        pass
 
 
 GROUP_MEMBERS = {
-    # three letter code -> (group/language name, {constituents...}
-    # if this language is on the target side the constituents can be used as target language codes.
-    # if the language is on the source side they are supported natively without special codes.
     "aav": ("Austro-Asiatic languages", {"hoc", "hoc_Latn", "kha", "khm", "khm_Latn", "mnw", "vie", "vie_Hani"}),
     "afa": (
         "Afro-Asiatic languages",
@@ -1301,18 +1065,11 @@ GROUP_MEMBERS = {
 
 
 def l2front_matter(langs):
-    return "".join(f"- {l}\n" for l in langs)
+    pass
 
 
 def dedup(lst):
-    """Preservers order"""
-    new_lst = []
-    for item in lst:
-        if not item or item in new_lst:
-            continue
-        else:
-            new_lst.append(item)
-    return new_lst
+    pass
 
 
 if __name__ == "__main__":

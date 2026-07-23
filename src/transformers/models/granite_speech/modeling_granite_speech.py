@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from dataclasses import dataclass
@@ -49,10 +36,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class GraniteSpeechModelOutputWithPast(BaseModelOutputWithPast):
-    r"""
-    audio_hidden_states (`torch.FloatTensor`, *optional*):
-        Projected audio hidden states.
-    """
 
     audio_hidden_states: torch.FloatTensor | None = None
 
@@ -64,19 +47,6 @@ class GraniteSpeechModelOutputWithPast(BaseModelOutputWithPast):
 )
 @dataclass
 class GraniteSpeechCausalLMOutputWithPast(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    audio_hidden_states (`torch.FloatTensor`, *optional*):
-        Projected audio hidden states.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -86,7 +56,6 @@ class GraniteSpeechCausalLMOutputWithPast(ModelOutput):
     audio_hidden_states: torch.FloatTensor | None = None
 
 
-### Projector
 class GraniteSpeechEncoderProjector(nn.Module):
     def __init__(self, config: GraniteSpeechConfig):
         super().__init__()
@@ -98,7 +67,6 @@ class GraniteSpeechEncoderProjector(nn.Module):
         self.query = nn.Parameter(torch.zeros(1, self.num_queries, config.projector_config.hidden_size))
         self.query.data.normal_(mean=0.0, std=1.0)
 
-        # By default, this will be a blip_2_qformer config
         self.qformer = AutoModel.from_config(config.projector_config)
         self.linear = nn.Linear(config.projector_config.hidden_size, config.text_config.hidden_size)
 
@@ -121,9 +89,7 @@ class GraniteSpeechEncoderProjector(nn.Module):
         return query_proj
 
 
-### Encoder - conformer is adapted from: https://github.com/lucidrains/conformer.git
 class GraniteSpeechConformerFeedForward(nn.Module):
-    """Feedforward module for conformer encoder blocks."""
 
     def __init__(self, config: GraniteSpeechEncoderConfig):
         super().__init__()
@@ -143,9 +109,6 @@ class GraniteSpeechConformerFeedForward(nn.Module):
 
 
 class GraniteSpeechConformerAttention(nn.Module):
-    """Attention for conformer blocks using Shaw's relative positional embeddings.
-    See the following [paper](https://huggingface.co/papers/1803.02155) for more details.
-    """
 
     def __init__(self, config: GraniteSpeechEncoderConfig):
         super().__init__()
@@ -173,7 +136,6 @@ class GraniteSpeechConformerAttention(nn.Module):
         num_blocks = math.ceil(num_features / self.context_size)
         remainder = num_features % self.context_size
         if remainder > 0:
-            # right padding to reach block size
             hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, self.context_size - remainder))
 
         query_states = self.to_q(hidden_states)
@@ -184,17 +146,10 @@ class GraniteSpeechConformerAttention(nn.Module):
         key_states = key_states.reshape(flat_bsz, self.context_size, self.num_heads, -1).transpose(1, 2)
         value_states = value_states.reshape(flat_bsz, self.context_size, self.num_heads, -1).transpose(1, 2)
 
-        # shaw's relative positional embedding
         rel_pos_emb = self.rel_pos_emb(attention_dists)
-        # alternative computation of `pos_attn` - for readability
-        # rel_pos_emb_expanded = rel_pos_emb.view([1, 1] + list(rel_pos_emb.shape))
-        # pos_attn = torch.sum(query_states.unsqueeze(-2) * rel_pos_emb_expanded, dim=-1) * self.scale
-        # einsum implementation of pos_attn - gives x30 speedup over the alternative
-        # TODO (@avihu111) find a fast alternative to einsum
         pos_attn = torch.einsum("b h c d, c r d -> b h c r", query_states, rel_pos_emb) * self.scale
 
         if remainder > 0:
-            # masked attention in the extended block
             mask = torch.ones(self.context_size, self.context_size, dtype=bool, device=hidden_states.device)
             mask[:remainder, :remainder] = 0
             mask_value = -torch.finfo(pos_attn.dtype).max
@@ -210,11 +165,9 @@ class GraniteSpeechConformerAttention(nn.Module):
 
 
 class GraniteSpeechConformerDepthWiseConv1d(nn.Module):
-    """Wrapper for padded 1D pointwise convolution."""
 
     def __init__(self, chan_in: int, chan_out: int, kernel_size: int):
         super().__init__()
-        # Padding for the 1D conv is symmetric or close (i.e., offset by one).
         pad = kernel_size // 2
         pad_offset = (kernel_size + 1) % 2
         self.padding = (pad, pad - pad_offset)
@@ -227,7 +180,6 @@ class GraniteSpeechConformerDepthWiseConv1d(nn.Module):
 
 
 class GraniteSpeechConformerConvModule(nn.Module):
-    """Conformer conv module consisting of several 1D/depthwise 1D convolutional layers."""
 
     def __init__(self, config: GraniteSpeechEncoderConfig):
         super().__init__()
@@ -258,7 +210,6 @@ class GraniteSpeechConformerConvModule(nn.Module):
 
 
 class GraniteSpeechConformerBlock(nn.Module):
-    """Conformer block, consisting largely of linear layers, attention, and convolutional layers."""
 
     def __init__(self, config: GraniteSpeechEncoderConfig):
         super().__init__()
@@ -312,7 +263,6 @@ class GraniteSpeechCTCEncoder(GraniteSpeechPreTrainedModel):
     def __init__(self, config: GraniteSpeechEncoderConfig):
         super().__init__(config)
 
-        # Precompute clamped relative positional encoding distances
         seq = torch.arange(config.context_size)
         relpos_dist = seq.view(-1, 1) - seq.view(1, -1)
         attention_dists = torch.clamp(relpos_dist, -config.context_size, config.context_size) + config.max_pos_emb
@@ -448,9 +398,6 @@ class GraniteSpeechModel(GraniteSpeechPreTrainedModel):
             )
 
         if inputs_embeds is None:
-            # Get the base embeddings; set all audio tokens to 0 index
-            # to avoid out of vocabulary issues with the LLM embedding.
-            # Audio features will be masked into is_audio_idx indices later.
             is_audio_idx = input_ids == self.config.audio_token_id
             llm_input_ids = input_ids.clone()
             llm_input_ids[is_audio_idx] = 0
@@ -460,10 +407,8 @@ class GraniteSpeechModel(GraniteSpeechPreTrainedModel):
         if input_features is not None:
             if input_features.dtype != self.dtype:
                 input_features = input_features.to(self.dtype)
-            # Get the audio features from the encoder / projector
             audio_embeds = self.get_audio_features(input_features, return_dict=True).pooler_output
 
-            # Merge the audio features into the LLM embeddings
             inputs_embeds = self.get_merged_audio_embeddings(
                 input_ids=input_ids,
                 audio_features=audio_embeds,
@@ -538,7 +483,6 @@ class GraniteSpeechForConditionalGeneration(GraniteSpeechPreTrainedModel, Genera
             config.vocab_size]` or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
             (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
         """
-        # TODO (@alex-jw-brooks) add an example to this docstring once models are released
         outputs = self.model(
             input_ids=input_ids,
             input_features=input_features,
@@ -557,17 +501,13 @@ class GraniteSpeechForConditionalGeneration(GraniteSpeechPreTrainedModel, Genera
 
         loss = None
         if labels is not None:
-            # Shift so that tokens < n predict n
             if attention_mask is not None:
-                # we use the input attention mask to shift the logits and labels, because it is 2D.
-                # we also crop attn mask in case it is longer, which happens in PrefixTuning with peft
                 shift_attention_mask = attention_mask[:, -(logits.shape[1] - 1) :].to(logits.device)
                 shift_logits = logits[..., :-1, :][shift_attention_mask.to(logits.device) != 0].contiguous()
                 shift_labels = labels[..., 1:][shift_attention_mask.to(labels.device) != 0].contiguous()
             else:
                 shift_logits = logits[..., :-1, :].contiguous()
                 shift_labels = labels[..., 1:].contiguous()
-            # Flatten the tokens
             loss_fct = nn.CrossEntropyLoss()
             loss = loss_fct(
                 shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1).to(shift_logits.device)
@@ -593,7 +533,6 @@ class GraniteSpeechForConditionalGeneration(GraniteSpeechPreTrainedModel, Genera
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward audio inputs to the model
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -606,17 +545,11 @@ class GraniteSpeechForConditionalGeneration(GraniteSpeechPreTrainedModel, Genera
         )
 
         # If we're in cached decoding stage, input_features should be None because
-        # input ids do not contain special audio token anymore Otherwise we need
-        # input feature values to be passed to the model
         if is_first_iteration or not kwargs.get("use_cache", True):
             model_inputs["input_features"] = input_features
         return model_inputs
 
     def generate(self, *args, **kwargs) -> torch.LongTensor:
-        # This model is expected to have a lora adapter, which is only
-        # enabled when considering audio inputs. As such, we override generate
-        # to conditionally enable / disable the lora adapter based on whether
-        # or not any input features were provided.
 
         input_features = kwargs.pop("input_features", None)
         if is_peft_available and self._hf_peft_config_loaded:
@@ -627,12 +560,10 @@ class GraniteSpeechForConditionalGeneration(GraniteSpeechPreTrainedModel, Genera
         return super().generate(*args, input_features=input_features, **kwargs)
 
     def save_pretrained(self, save_directory, *args, **kwargs):
-        # overwrite save_pretrained to first save the adapter if we have one
         if is_peft_available and self._hf_peft_config_loaded:
             adapter_name = self._get_adapter_name()
             self.peft_config[adapter_name].base_model_name_or_path = save_directory
             super().save_pretrained(save_directory, *args, **kwargs)
-        # Then save the base model afterwards
         prev_val = self._hf_peft_config_loaded
         self._hf_peft_config_loaded = False
         super().save_pretrained(save_directory, *args, **kwargs)

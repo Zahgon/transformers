@@ -1,12 +1,3 @@
-r"""Utility to convert Gemma models from Orbax to HF Transformers checkpoint.
-
-python -m transformers.models.shieldgemma2.convert_shieldgemma2_weights_orbax_to_hf \
-    --tokenizer_path="$HOME/gemma3/tokenizer/gemma3_cleaned_262144_v2.spiece.model" \
-    --checkpoint_path_gemma="$HOME/gemma3/gemma3_4b_pt_orbax/" \
-    --checkpoint_path_shieldgemma="$HOME/shieldgemma2/shieldgemma-2_4b_orbax/" \
-    --output_path="$HOME/shieldgemma2/shieldgemma2_4b_pt_safetensors/" \
-    --precision='bfloat16'
-"""
 
 import dataclasses
 from collections.abc import Iterator, Mapping, Sequence
@@ -26,7 +17,6 @@ from ..siglip import SiglipVisionConfig
 from . import ShieldGemma2Config, ShieldGemma2ForImageClassification, ShieldGemma2Processor
 
 
-# ==== Internal Constants and Classes ====
 
 _CHAT_TEMPLATE = """{{ bos_token }}
 {%- for message in messages -%}
@@ -93,7 +83,6 @@ _TRANSFORMER_FINAL_NORM = "transformer/final_norm"
 _TRANSFORMER_POST_TRAINING_PREFIX = "rlx_networks/policy_network/"
 _TRANSFORMER_POST_TRAINING_PREFIX_LEN = len(_TRANSFORMER_POST_TRAINING_PREFIX)
 
-# ==== Flags ====
 
 _GEMMA_CHECKPOINT_PATH = flags.DEFINE_string(
     name="checkpoint_path_gemma",
@@ -239,9 +228,7 @@ def convert_transformer_weights(
 
     if path == _TRANSFORMER_EMBEDDER:
         if prop == "input_embedding":
-            # Tied to language_model.lm_head.weight, assigned at the end.
             converted_paths = ["language_model.model.embed_tokens.weight"]
-            # Gemma3 model doesn't have image soft token in input and output embeddings, resize to avoid bugs we had with Mllama
             pre_expansion_embeddings = weights
             mu = np.mean(pre_expansion_embeddings, axis=0)
             sigma = np.cov(pre_expansion_embeddings, rowvar=False, bias=True)
@@ -329,8 +316,7 @@ def convert_transformer_weights(
 
 
 def transpose_reshape(x: torch.Tensor) -> torch.Tensor:
-    x = x.transpose(1, 2)
-    return x.reshape(x.shape[0] * x.shape[1], x.shape[2]).contiguous()
+    pass
 
 
 @dataclasses.dataclass(frozen=True)

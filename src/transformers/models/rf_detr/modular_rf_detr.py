@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import pathlib
 from dataclasses import dataclass
 from typing import Any
@@ -132,7 +119,6 @@ class RfDetrImageProcessor(DetrImageProcessor):
         processed_annotations = []
         pixel_masks = []  # Initialize pixel_masks here
         for image, annotation in zip(images, annotations if annotations is not None else [None] * len(images)):
-            # prepare (COCO annotations as a list of Dict -> DETR target as a single Dict per image)
             if annotations is not None:
                 annotation = self.prepare_annotation(
                     image,
@@ -142,7 +128,6 @@ class RfDetrImageProcessor(DetrImageProcessor):
                     masks_path=masks_path,
                     input_data_format=ChannelDimension.FIRST,
                 )
-            # Rescale then resize like in the original RF-DETR implementation
             if do_rescale:
                 image = self.rescale(image, rescale_factor)
             if do_resize:
@@ -165,7 +150,6 @@ class RfDetrImageProcessor(DetrImageProcessor):
         annotations = processed_annotations if annotations is not None else None
 
         if do_pad:
-            # depends on all resized image shapes so we need another loop
             if pad_size is not None:
                 padded_size = (pad_size.height, pad_size.width)
             else:
@@ -174,7 +158,6 @@ class RfDetrImageProcessor(DetrImageProcessor):
             padded_images = []
             padded_annotations = []
             for image, annotation in zip(images, annotations if annotations is not None else [None] * len(images)):
-                # Pads images and returns their mask: {'pixel_values': ..., 'pixel_mask': ...}
                 if padded_size == image.size()[-2:]:
                     padded_images.append(image)
                     pixel_masks.append(torch.ones(padded_size, dtype=torch.int64, device=image.device))
@@ -270,113 +253,7 @@ class RfDetrImageProcessor(DetrImageProcessor):
         top_k: int | None = None,
         **kwargs,
     ) -> list[dict[str, Any]]:
-        """
-        Converts the output of [`RfDetrForInstanceSegmentation`] into instance segmentation predictions.
-
-        Args:
-            outputs ([`RfDetrInstanceSegmentationOutput`]):
-                Raw outputs of the model.
-            threshold (`float`, *optional*, defaults to 0.5):
-                Score threshold to keep predicted instance masks.
-            mask_threshold (`float`, *optional*, defaults to 0.0):
-                Threshold to binarize predicted masks.
-            target_sizes (`list[tuple[int, int]]`, *optional*):
-                Target ``(height, width)`` for each image. If unset, masks are not resized.
-            return_coco_annotation (`bool`, *optional*, defaults to `False`):
-                If `True`, return segmentation maps as COCO run-length encoding instead of tensors.
-                Mutually exclusive with `return_binary_maps`.
-            return_binary_maps (`bool`, *optional*, defaults to `False`):
-                If `True`, return segmentation maps as a stacked tensor of binary instance masks
-                (one per detected instance), without overlap resolution. This matches the output
-                format of the original ``rfdetr`` package. Mutually exclusive with
-                `return_coco_annotation`.
-            top_k (`int`, *optional*):
-                Maximum number of candidate queries evaluated before score thresholding.
-                Defaults to the total number of queries.
-
-        Returns:
-            `list[dict]`: One dict per image with keys:
-            - **segmentation** -- `Tensor[H, W]` of ``int32`` segment ids (``-1`` = background),
-              `Tensor[num_instances, H, W]` of bool binary masks when `return_binary_maps=True`,
-              or a list of RLE encodings when `return_coco_annotation=True`.
-            - **segments_info** -- List of dicts with keys ``id``, ``label_id``, and ``score``.
-        """
-        if return_coco_annotation and return_binary_maps:
-            raise ValueError("`return_coco_annotation` and `return_binary_maps` cannot both be `True`.")
-        out_logits, out_masks = outputs.logits, outputs.pred_masks
-        top_k = top_k if top_k is not None else out_logits.shape[1]
-
-        prob = out_logits.sigmoid()
-        batch_size, num_queries, num_classes = prob.shape
-        top_k = min(top_k, num_queries * num_classes)
-
-        scores, topk_indexes = torch.topk(prob.view(batch_size, -1), top_k, dim=1)
-        topk_queries = topk_indexes // num_classes
-        labels = topk_indexes % num_classes
-        masks = torch.gather(
-            out_masks,
-            1,
-            topk_queries.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, out_masks.shape[-2], out_masks.shape[-1]),
-        )
-
-        results: list[dict[str, Any]] = []
-        for batch_idx, (batch_scores, batch_labels, batch_masks) in enumerate(zip(scores, labels, masks)):
-            keep = batch_scores > threshold
-            pred_scores = batch_scores[keep]
-            pred_labels = batch_labels[keep]
-            mask_logits = batch_masks[keep]
-
-            if target_sizes is not None:
-                height, width = int(target_sizes[batch_idx][0]), int(target_sizes[batch_idx][1])
-            else:
-                height, width = mask_logits.shape[-2], mask_logits.shape[-1]
-
-            if pred_scores.shape[0] == 0:
-                segmentation = torch.full((height, width), -1, dtype=torch.int32, device=out_logits.device)
-                results.append({"segmentation": segmentation, "segments_info": []})
-                continue
-
-            mask_logits_resized = F.interpolate(
-                mask_logits.unsqueeze(1).float(),
-                size=(height, width),
-                mode="bilinear",
-                align_corners=False,
-            ).squeeze(1)
-
-            segmentation = torch.full((height, width), -1, dtype=torch.int32, device=out_logits.device)
-            segments: list[dict] = []
-            instance_maps: list = []
-            current_id = 0
-
-            for i in range(pred_scores.shape[0]):
-                binary_mask = mask_logits_resized[i] > mask_threshold
-                if not binary_mask.any():
-                    continue
-                if return_binary_maps:
-                    instance_maps.append(binary_mask)
-                else:
-                    pixels_to_paint = binary_mask & (segmentation == -1)
-                    if not pixels_to_paint.any():
-                        continue
-                current_id += 1
-                if not return_binary_maps:
-                    segmentation[pixels_to_paint] = current_id
-                segments.append(
-                    {"id": current_id, "label_id": int(pred_labels[i]), "score": round(pred_scores[i].item(), 6)}
-                )
-
-            if return_coco_annotation:
-                segmentation = convert_segmentation_to_rle(segmentation)
-            elif return_binary_maps:
-                segmentation = (
-                    torch.stack(instance_maps, dim=0)
-                    if instance_maps
-                    else torch.zeros(0, height, width, dtype=torch.bool, device=out_logits.device)
-                )
-
-            results.append({"segmentation": segmentation, "segments_info": segments})
-
-        return results
+        pass
 
     def post_process_panoptic_segmentation(self):
         raise NotImplementedError("Panoptic segmentation is not supported for RF-DETR.")
@@ -388,38 +265,6 @@ class RfDetrImageProcessor(DetrImageProcessor):
 @auto_docstring(checkpoint="Roboflow/rf-detr-base")
 @strict
 class RfDetrDinov2Config(Dinov2Config):
-    r"""
-    layerscale_value (`float`, *optional*, defaults to 1.0):
-        Initial value to use for layer scale.
-    drop_path_rate (`float`, *optional*, defaults to 0.0):
-        Stochastic depth rate per sample (when applied in the main path of residual layers).
-    use_swiglu_ffn (`bool`, *optional*, defaults to `False`):
-        Whether to use the SwiGLU feedforward neural network.
-    apply_layernorm (`bool`, *optional*, defaults to `True`):
-        Whether to apply layer normalization to the feature maps in case the model is used as backbone.
-    reshape_hidden_states (`bool`, *optional*, defaults to `True`):
-        Whether to reshape the feature maps to 4D tensors of shape `(batch_size, d_model, height, width)` in
-        case the model is used as backbone. If `False`, the feature maps will be 3D tensors of shape `(batch_size,
-        seq_len, d_model)`.
-    use_mask_token (`bool`, *optional*, defaults to `True`):
-        Whether to use mask_token in embeddings.
-    num_windows (`int`, *optional*, defaults to 4):
-        Number of windows to use for windowed attention. If 1, no windowed attention is used.
-
-    Example:
-
-    ```python
-    >>> from transformers import RfDetrDinov2Config, RfDetrDinov2Backbone
-
-    >>> # Initializing a RfDetrDinov2 base style configuration
-    >>> configuration = RfDetrDinov2Config()
-
-    >>> # Initializing a model (with random weights) from the base style configuration
-    >>> model = RfDetrDinov2Backbone(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "rf_detr_dinov2"
 
@@ -439,68 +284,6 @@ class RfDetrDinov2Config(Dinov2Config):
 @auto_docstring(checkpoint="Roboflow/rf-detr-base")
 @strict
 class RfDetrConfig(LwDetrConfig):
-    r"""
-    hidden_expansion (`float`, *optional*, defaults to 0.5):
-        Expansion factor for hidden dimensions in the projector layers.
-    c2f_num_blocks (`int`, *optional*, defaults to 3):
-        Number of blocks in the C2F layer.
-    activation_function (`str`, *optional*, defaults to `"silu"`):
-        The non-linear activation function in the projector. Supported values are `"silu"`, `"relu"`, `"gelu"`.
-    decoder_n_points (`int`, *optional*, defaults to 4):
-        The number of sampled keys in each feature level for each attention head in the decoder.
-    decoder_layers (`int`, *optional*, defaults to 3):
-        Number of decoder layers in the transformer.
-    decoder_self_attention_heads (`int`, *optional*, defaults to 8):
-        Number of attention heads for each attention layer in the decoder self-attention.
-    decoder_cross_attention_heads (`int`, *optional*, defaults to 16):
-        Number of attention heads for each attention layer in the decoder cross-attention.
-    decoder_activation_function (`str`, *optional*, defaults to `"relu"`):
-        The non-linear activation function in the decoder. Supported values are `"relu"`, `"silu"`, `"gelu"`.
-    num_queries (`int`, *optional*, defaults to 300):
-        Number of object queries, i.e. detection slots. This is the maximal number of objects
-        [`RfDetrModel`] can detect in a single image.
-    group_detr (`int`, *optional*, defaults to 13):
-        Number of groups for Group DETR attention mechanism, which helps reduce computational complexity.
-    disable_custom_kernels (`bool`, *optional*, defaults to `True`):
-        Disable the use of custom CUDA and CPU kernels. This option is necessary for the ONNX export, as custom
-        kernels are not supported by PyTorch ONNX export.
-    class_loss_coefficient (`float`, *optional*, defaults to 1):
-        Relative weight of the classification loss in the Hungarian matching cost.
-    dice_loss_coefficient (`float`, *optional*, defaults to 1):
-        Relative weight of the DICE/F-1 loss in the object detection loss.
-    bbox_loss_coefficient (`float`, *optional*, defaults to 5):
-        Relative weight of the L1 bounding box loss in the object detection loss.
-    giou_loss_coefficient (`float`, *optional*, defaults to 2):
-        Relative weight of the generalized IoU loss in the object detection loss.
-    num_feature_levels (`int`, *optional*, defaults to 1):
-        Number of feature levels used in the multiscale deformable attention.
-    mask_loss_coefficient (`float`, *optional*, defaults to 1):
-        Relative weight of the Focal loss in the instance segmentation mask loss.
-    mask_point_sample_ratio (`int`, *optional*, defaults to 16):
-        The ratio of points to sample for the mask loss calculation.
-    mask_downsample_ratio (`int`, *optional*, defaults to 4):
-        The downsample ratio for the segmentation masks compared to the input image resolution.
-    mask_class_loss_coefficient (`float`, *optional*, defaults to 5.0):
-        Relative weight of the Focal loss in the instance segmentation loss.
-    mask_dice_loss_coefficient (`float`, *optional*, defaults to 5.0):
-        Relative weight of the DICE/F-1 loss in the instance segmentation loss.
-    segmentation_head_activation_function (`str`, *optional*, defaults to `"gelu"`):
-        The non-linear activation function in the segmentation head. Supported values are `"relu"`, `"silu"`, `"gelu"`.
-
-    Examples:
-
-    ```python
-    >>> from transformers import RfDetrConfig, RfDetrModel
-
-    >>> # Initializing a RF-DETR roboflow/rf-detr-base style configuration
-    >>> configuration = RfDetrConfig()
-
-    >>> # Initializing a model (with random weights) from the Roboflow/rf-detr-base style configuration
-    >>> model = RfDetrModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "rf_detr"
 
@@ -553,7 +336,6 @@ class RfDetrDinov2Embeddings(Dinov2Embeddings):
         num_patches = embeddings.shape[1] - 1
         num_positions = self.position_embeddings.shape[1] - 1
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
@@ -573,7 +355,6 @@ class RfDetrDinov2Embeddings(Dinov2Embeddings):
             patch_pos_embed.to(torch.float32),
             size=(new_height, new_width),
             mode="bicubic",
-            # Difference from Dinov2, we use align_corners=False and antialias=True
             align_corners=False,
             antialias=True,
         ).to(dtype=target_dtype)
@@ -595,14 +376,12 @@ class RfDetrDinov2Embeddings(Dinov2Embeddings):
         num_width_patches_per_window = num_width_patches // num_windows
         num_height_patches_per_window = num_height_patches // num_windows
 
-        # Split the embeddings into the [CLS] token and the pixel tokens
         cls_token_with_pos_embed = embeddings[:, :1]
         pixel_tokens_with_pos_embed = embeddings[:, 1:]
         pixel_tokens_with_pos_embed = pixel_tokens_with_pos_embed.view(
             batch_size, num_height_patches, num_width_patches, -1
         )
 
-        # Reshape the pixel tokens into windowed pixel tokens
         windowed_pixel_tokens = pixel_tokens_with_pos_embed.view(
             batch_size, num_windows, num_width_patches_per_window, num_windows, num_height_patches_per_window, -1
         )
@@ -611,10 +390,8 @@ class RfDetrDinov2Embeddings(Dinov2Embeddings):
             batch_size * num_windows**2, num_height_patches_per_window * num_width_patches_per_window, -1
         )
 
-        # Repeat the [CLS] token per window
         windowed_cls_token_with_pos_embed = cls_token_with_pos_embed.repeat(num_windows**2, 1, 1)
 
-        # Concatenate the [CLS] token with the windowed pixel tokens to get the final embeddings
         embeddings = torch.cat((windowed_cls_token_with_pos_embed, windowed_pixel_tokens), dim=1)
         return embeddings
 
@@ -628,14 +405,12 @@ class RfDetrDinov2Embeddings(Dinov2Embeddings):
                 bool_masked_pos.unsqueeze(-1), self.mask_token.to(embeddings.dtype).unsqueeze(0), embeddings
             )
 
-        # add the [CLS] token to the embedded patch tokens
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         embeddings = torch.cat((cls_tokens, embeddings), dim=1)
 
         # add positional encoding to each token
         embeddings = embeddings + self.interpolate_pos_encoding(embeddings, height, width)
 
-        # Difference from Dinov2, we use window partitioning
         if self.config.num_windows > 1:
             embeddings = self.window_partition(embeddings, height, width)
         embeddings = self.dropout(embeddings)
@@ -680,29 +455,24 @@ class RfDetrDinov2Layer(Dinov2Layer):
     ) -> torch.Tensor:
         residual = hidden_states
 
-        # Difference from Dinov2, when the layer is not a window block, we need to unpartition the hidden states before the attention
         if self.global_attention:
             hidden_states = self.window_unpartition_before_attention(hidden_states)
 
         hidden_states_norm = self.norm1(hidden_states)
         self_attention_output = self.attention(hidden_states_norm)
 
-        # And reverse the operation after the attention
         if self.global_attention:
             self_attention_output = self.window_partition_after_attention(hidden_states.shape, self_attention_output)
 
         self_attention_output = self.layer_scale1(self_attention_output)
 
-        # first residual connection
         hidden_states = self.drop_path(self_attention_output) + residual
         residual = hidden_states
 
-        # in Dinov2, layernorm is also applied after self-attention
         hidden_states = self.norm2(hidden_states)
         hidden_states = self.mlp(hidden_states)
         hidden_states = self.layer_scale2(hidden_states)
 
-        # second residual connection
         hidden_states = self.drop_path(hidden_states) + residual
 
         return hidden_states
@@ -733,7 +503,6 @@ class RfDetrDinov2Backbone(Dinov2Backbone):
         num_h_patches_per_window = num_h_patches // num_windows
         num_w_patches_per_window = num_w_patches // num_windows
 
-        # Reshape the hidden states into the original sequence length
         hidden_state = hidden_state.reshape(
             hidden_batch_size // num_windows_squared, num_windows_squared * seq_len, channels
         )
@@ -777,7 +546,6 @@ class RfDetrDinov2Backbone(Dinov2Backbone):
         >>> list(feature_maps[-1].shape)
         [1, 768, 16, 16]
         ```"""
-        # Like Dinov2, we need to output the hidden states to extract the layers for the stages
         kwargs["output_hidden_states"] = True
 
         embedding_output = self.embeddings(pixel_values)
@@ -791,13 +559,10 @@ class RfDetrDinov2Backbone(Dinov2Backbone):
                     hidden_state = self.layernorm(hidden_state)
                 if self.config.reshape_hidden_states:
                     hidden_state = hidden_state[:, 1:]
-                    # this was actually a bug in the original implementation that we copied here,
-                    # cause normally the order is height, width
                     batch_size, _, height, width = pixel_values.shape
                     num_h_patches = height // self.config.patch_size
                     num_w_patches = width // self.config.patch_size
 
-                    # Difference from Dinov2, when the layer is not a window block, we need to unpartition the hidden states before reshaping
                     if self.config.num_windows > 1:
                         hidden_state = self.window_unpartition(hidden_state, height, width)
 
@@ -863,7 +628,6 @@ class RfDetrConvEncoder(LwDetrConvEncoder):
         self.projector = RfDetrScaleProjector(config)
 
     def forward(self, pixel_values: torch.Tensor, pixel_mask: torch.Tensor):
-        # send pixel_values through the model to get list of feature maps
         features = self.backbone(pixel_values).feature_maps
         features = self.projector(features)
         mask = nn.functional.interpolate(pixel_mask[None].float(), size=features.shape[-2:]).to(torch.bool)[0]
@@ -871,7 +635,6 @@ class RfDetrConvEncoder(LwDetrConvEncoder):
 
 
 class RfDetrPreTrainedModel(LwDetrPreTrainedModel):
-    # Roboflow checkpoints use bare keys with no top-level prefix
     _checkpoint_conversion_prefix_free = True
 
     @torch.no_grad()
@@ -888,22 +651,6 @@ class RfDetrPreTrainedModel(LwDetrPreTrainedModel):
 )
 @dataclass
 class RfDetrModelOutput(ModelOutput):
-    r"""
-    init_reference_points (`torch.FloatTensor` of shape  `(batch_size, num_queries, 4)`):
-        Initial reference points sent through the Transformer decoder.
-    intermediate_hidden_states (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, d_model)`):
-        Stacked intermediate hidden states (output of each layer of the decoder).
-    intermediate_reference_points (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked intermediate reference points (reference points of each layer of the decoder).
-    enc_outputs_class (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.num_labels)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Predicted bounding boxes scores where the top `config.two_stage_num_proposals` scoring bounding boxes are
-        picked as region proposals in the first stage. Output of bounding box binary classification (i.e.
-        foreground and background).
-    enc_outputs_coord_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, 4)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Logits of predicted bounding boxes coordinates in the first stage.
-    backbone_features (list of `torch.FloatTensor` of shape `(batch_size, config.num_channels, config.image_size, config.image_size)`):
-        Features from the backbone.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     init_reference_points: torch.FloatTensor | None = None
@@ -937,21 +684,17 @@ class RfDetrModel(LwDetrModel):
            top-k candidates (detached to prevent gradient flow back to the proposal generation stage).
         5. Gather the associated query features to be used as starting points for the decoder stage.
         """
-        # Step 1.
         object_query = self.enc_output[group_id](object_query_embedding)
         object_query = self.enc_output_norm[group_id](object_query)
 
-        # Step 2.
         enc_outputs_class_proposals = self.enc_out_class_embed[group_id](object_query)
         delta_bbox = self.enc_out_bbox_embed[group_id](object_query)
         enc_outputs_class_proposals = enc_outputs_class_proposals.masked_fill(
             invalid_mask.to(enc_outputs_class_proposals.device), float("-inf")
         )
 
-        # Step 3.
         enc_outputs_coord = refine_bboxes(output_proposals, delta_bbox)
 
-        # Step 4.
         topk_proposals = torch.topk(enc_outputs_class_proposals.max(-1)[0], topk, dim=1)[1]
         topk_coords_logits_undetach = torch.gather(
             enc_outputs_coord,
@@ -960,7 +703,6 @@ class RfDetrModel(LwDetrModel):
         )
         topk_coords_logits = topk_coords_logits_undetach.detach()
 
-        # Step 5.
         object_query_undetach = torch.gather(
             object_query, 1, topk_proposals.unsqueeze(-1).expand(-1, -1, self.config.d_model)
         )
@@ -1028,12 +770,10 @@ class RfDetrModel(LwDetrModel):
         level_start_index = torch.cat((spatial_shapes.new_zeros((1,)), spatial_shapes.prod(1).cumsum(0)[:-1]))
         valid_ratios = self.get_valid_ratio(mask, dtype=source_flatten.dtype).unsqueeze(1)
 
-        # Step 1.
         object_query_embedding, output_proposals, invalid_mask = self.gen_encoder_output_proposals(
             source_flatten, ~mask_flatten, spatial_shapes_list
         )
 
-        # Step 2.
         group_detr = self.group_detr if self.training else 1
         topk = self.num_queries
         topk_coords_logits = torch.empty(
@@ -1053,7 +793,6 @@ class RfDetrModel(LwDetrModel):
             enc_outputs_coord_logits[:, group_id * topk : (group_id + 1) * topk] = topk_coords_logits_undetach
             enc_outputs_class[:, group_id * topk : (group_id + 1) * topk] = object_query_undetach
 
-        # Step 3.
         if self.training:
             reference_points = self.reference_point_embed.weight
             query_feat = self.query_feat.weight
@@ -1061,7 +800,6 @@ class RfDetrModel(LwDetrModel):
             reference_points = self.reference_point_embed.weight[: self.num_queries]
             query_feat = self.query_feat.weight[: self.num_queries]
 
-        # Step 4.
         reference_points = reference_points.unsqueeze(0).expand(batch_size, -1, -1)
         two_stage_len = enc_outputs_coord_logits.shape[-2]
         reference_points_two_stage_subset = reference_points[..., :two_stage_len, :]
@@ -1071,7 +809,6 @@ class RfDetrModel(LwDetrModel):
         init_reference_points = reference_points
         target = query_feat.unsqueeze(0).expand(batch_size, -1, -1)
 
-        # Step 5.
         decoder_outputs = self.decoder(
             inputs_embeds=target,
             reference_points=reference_points,
@@ -1099,39 +836,6 @@ class RfDetrModel(LwDetrModel):
 
 
 class RfDetrObjectDetectionOutput(LwDetrObjectDetectionOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` are provided)):
-        Total loss as a linear combination of a negative log-likelihood (cross-entropy) for class prediction and a
-        bounding box loss. The latter is defined as a linear combination of the L1 loss and the generalized
-        scale-invariant IoU loss.
-    loss_dict (`Dict`, *optional*):
-        A dictionary containing the individual losses. Useful for logging.
-    logits (`torch.FloatTensor` of shape `(batch_size, num_queries, num_classes + 1)`):
-        Classification logits (including no-object) for all queries.
-    pred_boxes (`torch.FloatTensor` of shape `(batch_size, num_queries, 4)`):
-        Normalized boxes coordinates for all queries, represented as (center_x, center_y, width, height). These
-        values are normalized in [0, 1], relative to the size of each individual image in the batch (disregarding
-        possible padding). You can use [`~DeformableDetrProcessor.post_process_object_detection`] to retrieve the
-        unnormalized bounding boxes.
-    auxiliary_outputs (`list[Dict]`, *optional*):
-        Optional, only returned when auxiliary losses are activated (i.e. `config.auxiliary_loss` is set to `True`)
-        and labels are provided. It is a list of dictionaries containing the two above keys (`logits` and
-        `pred_boxes`) for each decoder layer.
-    init_reference_points (`torch.FloatTensor` of shape  `(batch_size, num_queries, 4)`):
-        Initial reference points sent through the Transformer decoder.
-    intermediate_hidden_states (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, d_model)`):
-        Stacked intermediate hidden states (output of each layer of the decoder).
-    intermediate_reference_points (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked intermediate reference points (reference points of each layer of the decoder).
-    enc_outputs_class (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.num_labels)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Predicted bounding boxes scores where the top `config.two_stage_num_proposals` scoring bounding boxes are
-        picked as region proposals in the first stage. Output of bounding box binary classification (i.e.
-        foreground and background).
-    enc_outputs_coord_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, 4)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Logits of predicted bounding boxes coordinates in the first stage.
-    backbone_features (list of `torch.FloatTensor` of shape `(batch_size, config.num_channels, config.image_size, config.image_size)`):
-        Features from the backbone.
-    """
 
     backbone_features: list[torch.Tensor] = None
 
@@ -1218,16 +922,13 @@ class RfDetrForObjectDetection(LwDetrForObjectDetection):
         Detected cat with confidence 0.789 at location [342.19, 24.3, 640.02, 372.25]
         Detected remote with confidence 0.633 at location [40.79, 72.78, 176.76, 117.25]
         ```"""
-        # Step 1.
         outputs = self.model(pixel_values, pixel_mask=pixel_mask, **kwargs)
 
         last_hidden_states = outputs.last_hidden_state
         intermediate_reference_points = outputs.intermediate_reference_points
 
-        # Step 2.
         enc_outputs_class_logits = self.predict_encoder_class_logits(outputs.enc_outputs_class)
 
-        # Step 3.
         logits, pred_boxes = self.predict_class_and_boxes(last_hidden_states, intermediate_reference_points[-1])
 
         loss, loss_dict, auxiliary_outputs = None, None, None
@@ -1276,38 +977,6 @@ class RfDetrForObjectDetection(LwDetrForObjectDetection):
 )
 @dataclass
 class RfDetrInstanceSegmentationOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` are provided)):
-        Total loss as a linear combination of a negative log-likelihood (cross-entropy) for class prediction and a
-        bounding box loss. The latter is defined as a linear combination of the L1 loss and the generalized
-        scale-invariant IoU loss.
-    loss_dict (`Dict`, *optional*):
-        A dictionary containing the individual losses. Useful for logging.
-    logits (`torch.FloatTensor` of shape `(batch_size, num_queries, num_classes + 1)`):
-        Classification logits (including no-object) for all queries.
-    pred_boxes (`torch.FloatTensor` of shape `(batch_size, num_queries, 4)`):
-        Normalized boxes coordinates for all queries, represented as (center_x, center_y, width, height). These
-        values are normalized in [0, 1], relative to the size of each individual image in the batch (disregarding
-        possible padding). You can use [`~DeformableDetrProcessor.post_process_object_detection`] to retrieve the
-        unnormalized bounding boxes.
-    pred_masks (`torch.FloatTensor` of shape `(batch_size, num_queries, height/4, width/4)`):
-        Segmentation masks logits for all queries. See also
-        [`~RfDetrImageProcessor.post_process_instance_segmentation`] to obtain instance segmentation maps.
-    auxiliary_outputs (`list[Dict]`, *optional*):
-        Optional, only returned when auxiliary losses are activated (i.e. `config.auxiliary_loss` is set to `True`)
-        and labels are provided. It is a list of dictionaries containing the two above keys (`logits` and
-        `pred_boxes`) for each decoder layer.
-    init_reference_points (`torch.FloatTensor` of shape  `(batch_size, num_queries, 4)`):
-        Initial reference points sent through the Transformer decoder.
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_queries, d_model)`, *optional*):
-        Sequence of hidden-states at the output of the last layer of the decoder of the model.
-    intermediate_hidden_states (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, d_model)`):
-        Stacked intermediate hidden states (output of each layer of the decoder).
-    intermediate_reference_points (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked intermediate reference points (reference points of each layer of the decoder).
-    enc_outputs_mask_logits (`torch.FloatTensor` of shape `(batch_size, num_queries, width, height)`, *optional*):
-        Mask logits from the encoder for all queries.
-    """
 
     loss: torch.FloatTensor | None = None
     loss_dict: dict | None = None
@@ -1375,8 +1044,6 @@ class RfDetrSegmentationMLPBlock(nn.Module):
 
 
 class RfDetrForInstanceSegmentation(RfDetrPreTrainedModel):
-    # When using clones, all layers > 0 will be clones, but layer 0 *is* required
-    # We can't initialize the model on meta device as some weights are modified during the initialization
     _no_split_modules = None
 
     def __init__(self, config: RfDetrConfig):
@@ -1487,7 +1154,6 @@ class RfDetrForInstanceSegmentation(RfDetrPreTrainedModel):
         """
         image_size = pixel_values.shape[-2:]
 
-        # Step 1.
         outputs = self.model.model(pixel_values, pixel_mask=pixel_mask, **kwargs)
 
         spatial_features = outputs.backbone_features
@@ -1495,14 +1161,11 @@ class RfDetrForInstanceSegmentation(RfDetrPreTrainedModel):
         intermediate_reference_points = outputs.intermediate_reference_points
         enc_outputs_class = outputs.enc_outputs_class
 
-        # Step 2.
         enc_outputs_class_logits = self.model.predict_encoder_class_logits(enc_outputs_class)
         enc_outputs_masks = self.segmentation_head(spatial_features, enc_outputs_class, image_size, skip_blocks=True)
 
-        # Step 3.
         logits, pred_boxes = self.model.predict_class_and_boxes(last_hidden_states, intermediate_reference_points[-1])
 
-        # Step 4.
         outputs_masks = self.segmentation_head(spatial_features, outputs.intermediate_hidden_states, image_size)
         pred_masks = outputs_masks[-1]
 

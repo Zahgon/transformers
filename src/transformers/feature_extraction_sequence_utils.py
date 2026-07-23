@@ -1,19 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Sequence feature extraction class for common feature extractors to preprocess sequences.
-"""
 
 import numpy as np
 
@@ -26,17 +10,6 @@ logger = logging.get_logger(__name__)
 
 
 class SequenceFeatureExtractor(FeatureExtractionMixin):
-    """
-    This is a general feature extraction class for speech recognition.
-
-    Args:
-        feature_size (`int`):
-            The feature dimension of the extracted features.
-        sampling_rate (`int`):
-            The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
-        padding_value (`float`):
-            The value that is used to fill the padding values / vectors.
-    """
 
     def __init__(self, feature_size: int, sampling_rate: int, padding_value: float, **kwargs):
         self.feature_size = feature_size
@@ -116,15 +89,11 @@ class SequenceFeatureExtractor(FeatureExtractionMixin):
                 - `'pt'`: Return PyTorch `torch.Tensor` objects.
                 - `'np'`: Return Numpy `np.ndarray` objects.
         """
-        # If we have a list of dicts, let's convert it in a dict of lists
-        # We do this to allow using this method as a collate_fn function in PyTorch Dataloader
         if isinstance(processed_features, (list, tuple)) and isinstance(processed_features[0], (dict, BatchFeature)):
-            # Call .keys() explicitly for compatibility with TensorDict and other Mapping subclasses
             processed_features = {
                 key: [example[key] for example in processed_features] for key in processed_features[0].keys()
             }
 
-        # The model's main input name, usually `input_values`, has be passed for padding
         if self.model_input_names[0] not in processed_features:
             raise ValueError(
                 "You should supply an instance of `transformers.BatchFeature` or list of `transformers.BatchFeature`"
@@ -142,13 +111,9 @@ class SequenceFeatureExtractor(FeatureExtractionMixin):
                 processed_features["attention_mask"] = []
             return processed_features
 
-        # If we have PyTorch tensors or lists as inputs, we cast them as Numpy arrays
-        # and rebuild them afterwards if no return_tensors is specified
-        # Note that we lose the specific device the tensor may be on for PyTorch
 
         first_element = required_input[0]
         if isinstance(first_element, (list, tuple)):
-            # first_element might be an empty list/tuple in some edge cases so we grab the first non empty element.
             index = 0
             while len(required_input[index]) == 0:
                 index += 1
@@ -170,12 +135,8 @@ class SequenceFeatureExtractor(FeatureExtractionMixin):
             if isinstance(value[0], (int, float)):
                 processed_features[key] = to_numpy(value)
             elif not isinstance(value, np.ndarray):
-                # An already-batched numpy array can be used as-is; splitting it
-                # into a list of per-example arrays is pure overhead and is very
-                # slow for large inputs (e.g. long audio).
                 processed_features[key] = [to_numpy(v) for v in value]
 
-        # Convert padding_strategy in PaddingStrategy
         padding_strategy = self._get_padding_strategies(padding=padding, max_length=max_length)
 
         required_input = processed_features[self.model_input_names[0]]
@@ -187,7 +148,6 @@ class SequenceFeatureExtractor(FeatureExtractionMixin):
         truncated_inputs = []
         for i in range(batch_size):
             inputs = {k: v[i] for k, v in processed_features.items()}
-            # truncation
             inputs_slice = self._truncate(
                 inputs,
                 max_length=max_length,
@@ -197,13 +157,11 @@ class SequenceFeatureExtractor(FeatureExtractionMixin):
             truncated_inputs.append(inputs_slice)
 
         if padding_strategy == PaddingStrategy.LONGEST:
-            # make sure that `max_length` cannot be longer than the longest truncated length
             max_length = max(len(input_slice[self.model_input_names[0]]) for input_slice in truncated_inputs)
             padding_strategy = PaddingStrategy.MAX_LENGTH
 
         batch_outputs = {}
         for i in range(batch_size):
-            # padding
             outputs = self._pad(
                 truncated_inputs[i],
                 max_length=max_length,
@@ -323,7 +281,6 @@ class SequenceFeatureExtractor(FeatureExtractionMixin):
 
         required_input = processed_features[self.model_input_names[0]]
 
-        # find `max_length` that fits `pad_to_multiple_of`
         if max_length is not None and pad_to_multiple_of is not None and (max_length % pad_to_multiple_of != 0):
             max_length = ((max_length // pad_to_multiple_of) + 1) * pad_to_multiple_of
 
@@ -341,7 +298,6 @@ class SequenceFeatureExtractor(FeatureExtractionMixin):
         Find the correct padding strategy
         """
 
-        # Get padding strategy
         if padding is not False:
             if padding is True:
                 padding_strategy = PaddingStrategy.LONGEST  # Default to pad to the longest sequence in the batch
@@ -352,14 +308,12 @@ class SequenceFeatureExtractor(FeatureExtractionMixin):
         else:
             padding_strategy = PaddingStrategy.DO_NOT_PAD
 
-        # Set max length if needed
         if max_length is None:
             if padding_strategy == PaddingStrategy.MAX_LENGTH:
                 raise ValueError(
                     f"When setting ``padding={PaddingStrategy.MAX_LENGTH}``, make sure that max_length is defined"
                 )
 
-        # Test if we have a padding value
         if padding_strategy != PaddingStrategy.DO_NOT_PAD and (self.padding_value is None):
             raise ValueError(
                 "Asking to pad but the feature_extractor does not have a padding value. Please select a value to use"
@@ -375,7 +329,6 @@ class SequenceFeatureExtractor(FeatureExtractionMixin):
         If a single url is passed, the return value will be a single object. If a list is passed a list of objects is
         returned.
         """
-        # Accepted input types for `raw_audio`: "np.ndarray | list[float] | list[np.ndarray] | list[list[float]]"
         sampling_rate = sampling_rate if sampling_rate else self.sampling_rate
         if isinstance(audio_url_or_urls, list) and not isinstance(audio_url_or_urls[0], float):
             return [self.fetch_audio(x, sampling_rate=sampling_rate) for x in audio_url_or_urls]

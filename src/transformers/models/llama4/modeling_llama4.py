@@ -1,17 +1,3 @@
-# Copyright 2025 The LLAMA4 and HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -84,7 +70,6 @@ class Llama4TextExperts(nn.Module):
         return next_states
 
 
-# Phi3MLP
 class Llama4TextMLP(nn.Module):
     def __init__(self, config, intermediate_size=None):
         super().__init__()
@@ -115,7 +100,7 @@ class Llama4TextL2Norm(torch.nn.Module):
         return self._norm(x.float()).type_as(x)
 
     def extra_repr(self):
-        return f"eps={self.eps}"
+        pass
 
 
 class Llama4TextRMSNorm(nn.Module):
@@ -135,7 +120,7 @@ class Llama4TextRMSNorm(nn.Module):
         return output * self.weight
 
     def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.eps}"
+        pass
 
 
 class Llama4Router(nn.Linear):
@@ -152,7 +137,6 @@ class Llama4Router(nn.Linear):
         return router_scores, router_logits
 
 
-# @use_kernel_forward_from_hub("Llama4TextMoe")
 class Llama4TextMoe(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -174,11 +158,9 @@ class Llama4TextMoe(nn.Module):
         return out, router_logits
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->Llama4Text
 class Llama4TextRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
-    # Ignore copy
     def __init__(self, config: Llama4TextConfig, device=None):
         super().__init__()
         self.max_seq_len_cached = config.max_position_embeddings
@@ -219,13 +201,11 @@ class Llama4TextRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
         return inv_freq, attention_factor
 
-    # Ignore copy
     @torch.no_grad()
     @dynamic_rope_update  # power user: used with advanced RoPE types (e.g. dynamic rope)
     def forward(self, x, position_ids):
@@ -265,7 +245,6 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
-# Adapted from transformers.models.llama.modeling_llama.eager_attention_forward -> llama4 doesn't cast attn weights to fp32
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -291,7 +270,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Adapted from transformers.models.llama.modeling_llama.eager_attention_forward -> llama4 doesn't cast attn weights to fp32
 def vision_eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -302,23 +280,10 @@ def vision_eager_attention_forward(
     dropout: float = 0.0,
     **kwargs,
 ):
-    key_states = repeat_kv(key, module.num_key_value_groups)
-    value_states = repeat_kv(value, module.num_key_value_groups)
-
-    attn_weights = torch.matmul(query, key_states.transpose(2, 3)) * module.head_dim**-0.5
-    if attention_mask is not None:
-        attn_weights = attn_weights + attention_mask
-
-    attn_weights = nn.functional.softmax(attn_weights, dim=-1)
-    attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
-    attn_output = torch.matmul(attn_weights, value_states)
-    attn_output = attn_output.transpose(1, 2).contiguous()
-
-    return attn_output, attn_weights
+    pass
 
 
 class Llama4TextAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: Llama4TextConfig, layer_idx):
         super().__init__()
@@ -374,7 +339,6 @@ class Llama4TextAttention(nn.Module):
             query_states = self.qk_norm(query_states)
             key_states = self.qk_norm(key_states)
 
-        # Use temperature tuning from https://huggingface.co/papers/2501.19399) to NoROPE layers
         if self.attn_temperature_tuning and not self.use_rope:
             past_seen_tokens = past_key_values.get_seq_length(self.layer_idx) if past_key_values is not None else 0
             positions = torch.arange(hidden_states.shape[1], device=hidden_states.device) + past_seen_tokens
@@ -438,7 +402,6 @@ class Llama4TextDecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         attention_states, _ = self.self_attn(
             hidden_states=hidden_states,
             position_embeddings=position_embeddings,
@@ -449,7 +412,6 @@ class Llama4TextDecoderLayer(GradientCheckpointingLayer):
         )
         hidden_states = residual + attention_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.feed_forward(hidden_states)
@@ -515,7 +477,6 @@ class Llama4TextModel(Llama4PreTrainedModel):
         self.rotary_emb = Llama4TextRotaryEmbedding(config=config)
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -546,9 +507,7 @@ class Llama4TextModel(Llama4PreTrainedModel):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -556,7 +515,6 @@ class Llama4TextModel(Llama4PreTrainedModel):
                 "past_key_values": past_key_values,
                 "position_ids": position_ids,
             }
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
                 "chunked_attention": create_chunked_causal_mask(**mask_kwargs),
@@ -564,7 +522,6 @@ class Llama4TextModel(Llama4PreTrainedModel):
 
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
         freq_cis = self.rotary_emb(hidden_states, position_ids)
 
         for i, decoder_layer in enumerate(self.layers[: self.config.num_hidden_layers]):
@@ -598,7 +555,6 @@ class Llama4ForCausalLM(Llama4PreTrainedModel, GenerationMixin):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -648,7 +604,6 @@ class Llama4ForCausalLM(Llama4PreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
         loss = None
@@ -671,20 +626,6 @@ class Llama4ForCausalLM(Llama4PreTrainedModel, GenerationMixin):
 )
 @dataclass
 class Llama4CausalLMOutputWithPast(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size (batch_size, num_images, sequence_length, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -726,7 +667,6 @@ class Llama4MultiModalProjector(nn.Module):
 
 
 def pixel_shuffle(input_tensor, shuffle_ratio):
-    # input_tensor: [batch_size, num_patches, channels]
     batch_size, num_patches, channels = input_tensor.shape
     patch_size = int(math.sqrt(num_patches))
 
@@ -758,7 +698,6 @@ class Llama4VisionPixelShuffleMLP(nn.Module):
         return self.mlp(encoded_patches)
 
 
-# TODO there is a different RoPE for vision encoder, defined as below
 def reshape_for_broadcast(freqs_ci: torch.Tensor, query: torch.Tensor):
     ndim = query.ndim
     shape = [d if i == 1 or i == ndim - 1 else 1 for i, d in enumerate(query.shape)]
@@ -870,7 +809,6 @@ class Llama4VisionEncoderLayer(GradientCheckpointingLayer):
         attention_mask: torch.Tensor | None = None,
         output_attentions: bool | None = None,
     ):
-        # Self Attention
         residual = hidden_state
 
         hidden_state = self.input_layernorm(hidden_state)
@@ -882,7 +820,6 @@ class Llama4VisionEncoderLayer(GradientCheckpointingLayer):
         )
         hidden_state = residual + hidden_state
 
-        # Feed forward
         residual = hidden_state
         hidden_state = self.post_attention_layernorm(hidden_state)
         hidden_state = self.mlp(hidden_state)
@@ -897,13 +834,6 @@ class Llama4VisionEncoderLayer(GradientCheckpointingLayer):
 
 
 class Llama4VisionEncoder(nn.Module):
-    """
-    Transformer encoder consisting of `config.num_hidden_layers` self attention layers. Each layer is a
-    [`Llama4VisionEncoderLayer`].
-
-    Args:
-        config: Llama4VisionConfig
-    """
 
     def __init__(self, config: Llama4VisionConfig):
         super().__init__()
@@ -1050,11 +980,9 @@ class Llama4VisionModel(Llama4PreTrainedModel):
         self.positional_embedding_vlm = nn.Parameter(self.scale * torch.randn(self.num_patches, self.hidden_size))
         self.rotary_embedding = Llama4VisionRotaryEmbedding(config)
 
-        # layer norms
         self.layernorm_pre = nn.LayerNorm(self.hidden_size)
         self.layernorm_post = nn.LayerNorm(self.hidden_size)
 
-        # encoders
         self.model = Llama4VisionEncoder(config)
         self.vision_adapter = Llama4VisionPixelShuffleMLP(config)
         self.post_init()
@@ -1105,14 +1033,12 @@ class Llama4VisionModel(Llama4PreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # num_concurrent_media and num_chunks are both currently 1
         batch_size_times_num_tiles, num_channels, height, width = pixel_values.shape
         num_concurrent_media = 1
         num_chunks = 1
         hidden_state = self.patch_embedding(pixel_values)
         _, num_patches, hidden_dim = hidden_state.shape
 
-        # Add cls token
         hidden_state = hidden_state.reshape(
             batch_size_times_num_tiles * num_concurrent_media * num_chunks, num_patches, hidden_dim
         )
@@ -1120,7 +1046,6 @@ class Llama4VisionModel(Llama4PreTrainedModel):
         hidden_state = torch.cat([hidden_state, class_embedding], dim=1)
         num_patches += 1
 
-        # Position embeddings
         hidden_state = hidden_state.reshape(
             batch_size_times_num_tiles * num_concurrent_media, num_chunks, num_patches, hidden_dim
         )
@@ -1146,7 +1071,6 @@ class Llama4VisionModel(Llama4PreTrainedModel):
 
         hidden_state = hidden_state[:, :-1, :]
 
-        # now, we use Llama4VisionPixelShuffle + mlp to project embeddings
         hidden_state = self.vision_adapter(hidden_state)
 
         hidden_states = output.hidden_states if output_hidden_states else None
@@ -1193,7 +1117,7 @@ class Llama4ForConditionalGeneration(Llama4PreTrainedModel, GenerationMixin):
         self.language_model.set_output_embeddings(new_embeddings)
 
     def set_decoder(self, decoder):
-        self.language_model.set_decoder(decoder)
+        pass
 
     def get_decoder(self):
         return self.language_model.get_decoder()
@@ -1340,17 +1264,13 @@ class Llama4ForConditionalGeneration(Llama4PreTrainedModel, GenerationMixin):
 
         loss = None
         if labels is not None:
-            # Shift so that tokens < n predict n
             if attention_mask is not None:
-                # we use the input attention mask to shift the logits and labels, because it is 2D.
-                # we also crop attn mask in case it is longer, which happens in PrefixTuning with peft
                 shift_attention_mask = attention_mask[:, -(logits.shape[1] - 1) :].to(logits.device)
                 shift_logits = logits[..., :-1, :][shift_attention_mask.to(logits.device) != 0].contiguous()
                 shift_labels = labels[..., 1:][shift_attention_mask.to(labels.device) != 0].contiguous()
             else:
                 shift_logits = logits[..., :-1, :].contiguous()
                 shift_labels = labels[..., 1:].contiguous()
-            # Flatten the tokens
             loss_fct = nn.CrossEntropyLoss()
             loss = loss_fct(
                 shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1).to(shift_logits.device)
@@ -1380,7 +1300,6 @@ class Llama4ForConditionalGeneration(Llama4PreTrainedModel, GenerationMixin):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
 
         model_inputs = self.language_model.prepare_inputs_for_generation(
             input_ids,
@@ -1393,10 +1312,6 @@ class Llama4ForConditionalGeneration(Llama4PreTrainedModel, GenerationMixin):
         )
 
         if is_first_iteration or not kwargs.get("use_cache", True):
-            # Pixel values are used only in the first iteration if available
-            # In subsequent iterations, they are already merged with text and cached
-            # NOTE: first iteration doesn't have to be prefill, it can be the first
-            # iteration with a question and cached system prompt (continue generate from cache)
             model_inputs["pixel_values"] = pixel_values
 
         return model_inputs

@@ -1,17 +1,3 @@
-# Copyright 2024 the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Idefics2 model."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -46,16 +32,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class Idefics2BaseModelOutputWithPast(ModelOutput):
-    r"""
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the model.
-        If `past_key_values` is used only the last hidden-state of the sequences of shape `(batch_size, 1,
-        hidden_size)` is output.
-    image_hidden_states (`tuple(torch.FloatTensor)`, *optional*):
-        Tuple of `torch.FloatTensor` (one for the output of the image embeddings, `(batch_size, num_images,
-        sequence_length, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder, and optionally by the perceiver
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     past_key_values: Cache | None = None
@@ -70,24 +46,7 @@ class Idefics2BaseModelOutputWithPast(ModelOutput):
     """
 )
 @dataclass
-# Copied from transformers.models.idefics.modeling_idefics.IdeficsCausalLMOutputWithPast with Idefics->Idefics2
 class Idefics2CausalLMOutputWithPast(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    image_hidden_states (`tuple(torch.FloatTensor)`, *optional*):
-        Tuple of `torch.FloatTensor` (one for the output of the image embeddings, `(batch_size, num_images,
-        sequence_length, hidden_size)`.
-
-        image_hidden_states of the model produced by the vision encoder, and optionally by the perceiver
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -98,15 +57,6 @@ class Idefics2CausalLMOutputWithPast(ModelOutput):
 
 
 class Idefics2VisionEmbeddings(nn.Module):
-    """
-    This is a modified version of `siglip.modelign_siglip.SiglipVisionEmbeddings` to enable images of variable
-    resolution.
-
-    The modifications are adapted from [Patch n' Pack: NaViT, a Vision Transformer for any Aspect Ratio and Resolution](https://huggingface.co/papers/2307.06304)
-    which allows treating images in their native aspect ratio and without the need to resize them to the same
-    fixed size. In particular, we start from the original pre-trained SigLIP model
-    (which uses images of fixed-size square images) and adapt it by training on images of variable resolutions.
-    """
 
     def __init__(self, config: Idefics2VisionConfig):
         super().__init__()
@@ -199,11 +149,8 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.siglip.modeling_siglip.SiglipAttention with Siglip->Idefics2Vision
 class Idefics2VisionAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    # Copied from transformers.models.clip.modeling_clip.CLIPAttention.__init__
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -223,7 +170,6 @@ class Idefics2VisionAttention(nn.Module):
         self.q_proj = nn.Linear(self.embed_dim, self.embed_dim)
         self.out_proj = nn.Linear(self.embed_dim, self.embed_dim)
 
-        # Ignore copy
         self.is_causal = False
 
     def forward(
@@ -262,7 +208,6 @@ class Idefics2VisionAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.siglip.modeling_siglip.SiglipMLP with Siglip->Idefics2Vision
 class Idefics2VisionMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -296,9 +241,7 @@ class Idefics2MLP(nn.Module):
         return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 
 
-# Copied from transformers.models.siglip.modeling_siglip.SiglipMultiheadAttentionPoolingHead with Siglip->Idefics2
 class Idefics2MultiheadAttentionPoolingHead(nn.Module):
-    """Multihead Attention Pooling."""
 
     def __init__(self, config: Idefics2VisionConfig):
         super().__init__()
@@ -306,7 +249,6 @@ class Idefics2MultiheadAttentionPoolingHead(nn.Module):
         self.probe = nn.Parameter(torch.randn(1, 1, config.hidden_size))
         self.attention = torch.nn.MultiheadAttention(config.hidden_size, config.num_attention_heads, batch_first=True)
         self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        # Ignore copy
         self.mlp = Idefics2MLP(
             hidden_size=config.hidden_size,
             intermediate_size=config.intermediate_size,
@@ -337,7 +279,6 @@ class Idefics2EncoderLayer(GradientCheckpointingLayer):
         self.layer_norm2 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
 
     @auto_docstring
-    # Copied from transformers.models.siglip.modeling_siglip.SiglipEncoderLayer.forward
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -362,15 +303,7 @@ class Idefics2EncoderLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-# Copied from transformers.models.siglip.modeling_siglip.SiglipEncoder with Siglip->Idefics2
 class Idefics2Encoder(nn.Module):
-    """
-    Transformer encoder consisting of `config.num_hidden_layers` self attention layers. Each layer is a
-    [`Idefics2EncoderLayer`].
-
-    Args:
-        config: Idefics2Config
-    """
 
     def __init__(self, config: Idefics2Config):
         super().__init__()
@@ -378,7 +311,6 @@ class Idefics2Encoder(nn.Module):
         self.layers = nn.ModuleList([Idefics2EncoderLayer(config) for _ in range(config.num_hidden_layers)])
         self.gradient_checkpointing = False
 
-    # Ignore copy
     @auto_docstring
     def forward(
         self,
@@ -496,7 +428,6 @@ class Idefics2VisionTransformer(Idefics2PreTrainedModel):
         return BaseModelOutput(last_hidden_state=last_hidden_state)
 
 
-# Copied from transformers.models.llama.modeling_llama.repeat_kv
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -509,7 +440,6 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRMSNorm with Llama->Idefics2
 class Idefics2RMSNorm(nn.Module):
     def __init__(self, hidden_size, eps: float = 1e-6) -> None:
         """
@@ -527,7 +457,7 @@ class Idefics2RMSNorm(nn.Module):
         return self.weight * hidden_states.to(input_dtype)
 
     def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
+        pass
 
 
 class Idefics2PerceiverAttention(nn.Module):
@@ -695,10 +625,8 @@ class Idefics2PerceiverResampler(Idefics2PreTrainedModel):
         self.depth = config.resampler_depth
         self.rms_norm_eps = config.rms_norm_eps
 
-        # Create Latents for Perceiver
         self.latents = nn.Parameter(torch.ones(self.n_latents, self.hidden_size))
 
-        # Create Transformer Blocks
         self.layers = nn.ModuleList([Idefics2PerceiverLayer(config, idx) for idx in range(self.depth)])
         self.norm = Idefics2RMSNorm(self.hidden_size, eps=self.rms_norm_eps)
 
@@ -715,7 +643,6 @@ class Idefics2PerceiverResampler(Idefics2PreTrainedModel):
         context (`torch.FloatTensor` of shape `(batch, seq_len, embed_dim)`):
             Input to the layer.
         """
-        # seq embed -> bsz seq embed
         latents = self.latents.unsqueeze(0).expand((context.shape[0], *self.latents.size()))
 
         latent_attention_mask = torch.ones(
@@ -832,12 +759,10 @@ class Idefics2Model(Idefics2PreTrainedModel):
         pixel_values = pixel_values.to(dtype=self.dtype)  # fp16 compatibility
         pixel_values = pixel_values.view(batch_size * num_images, *pixel_values.shape[2:])
 
-        # Remove padding images - padding images are full 0.
         nb_values_per_image = pixel_values.shape[1:].numel()
         real_images_inds = (pixel_values == 0.0).sum(dim=(-1, -2, -3)) != nb_values_per_image
         pixel_values = pixel_values[real_images_inds].contiguous()
 
-        # Handle the vision attention mask
         if pixel_attention_mask is None:
             pixel_attention_mask = torch.ones(
                 size=(pixel_values.size(0), pixel_values.size(2), pixel_values.size(3)),
@@ -845,7 +770,6 @@ class Idefics2Model(Idefics2PreTrainedModel):
                 device=pixel_values.device,
             )
         else:
-            # Remove padding images from the mask/pP p
             pixel_attention_mask = pixel_attention_mask.view(batch_size * num_images, *pixel_attention_mask.shape[2:])
             pixel_attention_mask = pixel_attention_mask[real_images_inds].contiguous()
 
@@ -853,13 +777,11 @@ class Idefics2Model(Idefics2PreTrainedModel):
         patches_subgrid = pixel_attention_mask.unfold(dimension=1, size=patch_size, step=patch_size)
         patches_subgrid = patches_subgrid.unfold(dimension=2, size=patch_size, step=patch_size)
         patch_attention_mask = (patches_subgrid.sum(dim=(-1, -2)) == patch_size * patch_size).bool()
-        # Get sequence from the vision encoder
         image_outputs = self.vision_model(
             pixel_values=pixel_values, patch_attention_mask=patch_attention_mask, **kwargs
         )
         image_hidden_states = image_outputs.last_hidden_state
 
-        # Modality projection & resampling
         image_features = self.connector(
             image_hidden_states, attention_mask=patch_attention_mask.view(pixel_values.size(0), -1)
         )
@@ -907,7 +829,6 @@ class Idefics2Model(Idefics2PreTrainedModel):
             )
             use_cache = False
 
-        # retrieve input_ids and inputs_embeds
         if input_ids is not None:
             batch_size, seq_length = input_ids.shape
         elif inputs_embeds is not None:
@@ -921,7 +842,6 @@ class Idefics2Model(Idefics2PreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.text_model.get_input_embeddings()(input_ids)
 
-        # START VISUAL INPUTS INTEGRATION
         if pixel_values is not None and image_hidden_states is not None:
             raise ValueError("You cannot specify both pixel_values and image_hidden_states at the same time")
         elif pixel_values is not None:
@@ -930,8 +850,6 @@ class Idefics2Model(Idefics2PreTrainedModel):
             image_hidden_states = image_hidden_states.to(dtype=self.dtype, device=input_ids.device)
 
         if image_hidden_states is not None:
-            # When we generate, we don't want to replace the potential image_token_id that we generated by images
-            # that simply don't exist
             inputs_embeds = self.inputs_merger(
                 input_ids=input_ids,
                 inputs_embeds=inputs_embeds,
@@ -973,7 +891,6 @@ class Idefics2ForConditionalGeneration(Idefics2PreTrainedModel, GenerationMixin)
         self.lm_head = nn.Linear(config.text_config.hidden_size, config.text_config.vocab_size, bias=False)
         self.vocab_size = config.text_config.vocab_size
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1064,7 +981,6 @@ class Idefics2ForConditionalGeneration(Idefics2PreTrainedModel, GenerationMixin)
         ['In this image, we can see the city of New York, and more specifically the Statue of Liberty. In this image, we can see the city of New York, and more specifically the Statue of Liberty.\n\n', 'In which city is that bridge located?\n\nThe bridge is located in the city of Pittsburgh, Pennsylvania.\n\n\nThe bridge is']
         ```"""
 
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -1079,7 +995,6 @@ class Idefics2ForConditionalGeneration(Idefics2PreTrainedModel, GenerationMixin)
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -1112,8 +1027,6 @@ class Idefics2ForConditionalGeneration(Idefics2PreTrainedModel, GenerationMixin)
         use_cache=False,
         **kwargs,
     ):
-        # Overwritten -- there are mutually exclusive inputs (if the logic to make `image_hidden_states` take
-        # precedence is moved to the model, we can remove this fn)
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,

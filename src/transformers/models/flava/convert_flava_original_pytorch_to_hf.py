@@ -1,16 +1,3 @@
-# Copyright 2022 Meta Platforms authors and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import argparse
 import os
@@ -22,7 +9,6 @@ from transformers.models.flava.convert_dalle_to_flava_codebook import convert_da
 
 
 def count_parameters(state_dict):
-    # encoder.embeddings are double copied in original FLAVA
     return sum(param.float().sum() if "encoder.embeddings" not in key else 0 for key, param in state_dict.items())
 
 
@@ -59,32 +45,7 @@ def upgrade_state_dict(state_dict, codebook_state_dict):
 
 @torch.no_grad()
 def convert_flava_checkpoint(checkpoint_path, codebook_path, pytorch_dump_folder_path, config_path=None):
-    """
-    Copy/paste/tweak model's weights to transformers design.
-    """
-    if config_path is not None:
-        config = FlavaConfig.from_pretrained(config_path)
-    else:
-        config = FlavaConfig()
-
-    hf_model = FlavaForPreTraining(config).eval()
-
-    codebook_state_dict = convert_dalle_checkpoint(codebook_path, None, save_checkpoint=False)
-
-    if os.path.exists(checkpoint_path):
-        state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-    else:
-        state_dict = torch.hub.load_state_dict_from_url(checkpoint_path, map_location="cpu")
-
-    hf_state_dict = upgrade_state_dict(state_dict, codebook_state_dict)
-    hf_model.load_state_dict(hf_state_dict)
-    hf_state_dict = hf_model.state_dict()
-    hf_count = count_parameters(hf_state_dict)
-    state_dict_count = count_parameters(state_dict) + count_parameters(codebook_state_dict)
-
-    assert torch.allclose(hf_count, state_dict_count, atol=1e-3)
-
-    hf_model.save_pretrained(pytorch_dump_folder_path)
+    pass
 
 
 if __name__ == "__main__":

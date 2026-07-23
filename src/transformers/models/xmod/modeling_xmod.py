@@ -1,17 +1,3 @@
-# Copyright 2023 Meta AI Team and the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch X-MOD model."""
 
 from collections.abc import Callable
 
@@ -47,9 +33,7 @@ from .configuration_xmod import XmodConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaEmbeddings with Roberta->Xmod
 class XmodEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -58,7 +42,6 @@ class XmodEmbeddings(nn.Module):
 
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -81,7 +64,6 @@ class XmodEmbeddings(nn.Module):
     ) -> torch.Tensor:
         if position_ids is None:
             if input_ids is not None:
-                # Create the position ids from the input token ids. Any padded tokens remain padded.
                 position_ids = self.create_position_ids_from_input_ids(
                     input_ids, self.padding_idx, past_key_values_length
                 )
@@ -95,12 +77,8 @@ class XmodEmbeddings(nn.Module):
 
         batch_size, seq_length = input_shape
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
-                # NOTE: We assume either pos ids to have bsz == 1 (broadcastable) or bsz == effective bsz (input_shape[0])
                 buffered_token_type_ids = self.token_type_ids.to(position_ids.device).expand(position_ids.shape[0], -1)
                 buffered_token_type_ids = torch.gather(buffered_token_type_ids, dim=1, index=position_ids)
                 token_type_ids = buffered_token_type_ids.expand(batch_size, seq_length)
@@ -148,13 +126,11 @@ class XmodEmbeddings(nn.Module):
 
         Returns: torch.Tensor
         """
-        # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
         mask = input_ids.ne(padding_idx).int()
         incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
         return incremental_indices.long() + padding_idx
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -168,7 +144,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -183,7 +158,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaSelfAttention with Roberta->Xmod
 class XmodSelfAttention(nn.Module):
     def __init__(self, config, is_causal=False, layer_idx=None):
         super().__init__()
@@ -219,18 +193,15 @@ class XmodSelfAttention(nn.Module):
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.attention_head_size)
 
-        # get all proj
         query_layer = self.query(hidden_states).view(*hidden_shape).transpose(1, 2)
         key_layer = self.key(hidden_states).view(*hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(*hidden_shape).transpose(1, 2)
 
         if past_key_values is not None:
-            # decoder-only roberta can have a simple dynamic cache for example
             current_past_key_values = past_key_values
             if isinstance(past_key_values, EncoderDecoderCache):
                 current_past_key_values = past_key_values.self_attention_cache
 
-            # save all key/value_layer to cache to be re-used for fast auto-regressive generation
             key_layer, value_layer = current_past_key_values.update(key_layer, value_layer, self.layer_idx)
 
         attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
@@ -251,7 +222,6 @@ class XmodSelfAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertCrossAttention with Bert->Xmod
 class XmodCrossAttention(nn.Module):
     def __init__(self, config, is_causal=False, layer_idx=None):
         super().__init__()
@@ -284,17 +254,14 @@ class XmodCrossAttention(nn.Module):
         past_key_values: EncoderDecoderCache | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple[torch.Tensor]:
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.attention_head_size)
 
-        # get query proj
         query_layer = self.query(hidden_states).view(hidden_shape).transpose(1, 2)
 
         is_updated = past_key_values.is_updated.get(self.layer_idx) if past_key_values is not None else False
         if past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_layer = past_key_values.cross_attention_cache.layers[self.layer_idx].keys
             value_layer = past_key_values.cross_attention_cache.layers[self.layer_idx].values
         else:
@@ -303,11 +270,9 @@ class XmodCrossAttention(nn.Module):
             value_layer = self.value(encoder_hidden_states).view(kv_shape).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all states to the cache
                 key_layer, value_layer = past_key_values.cross_attention_cache.update(
                     key_layer, value_layer, self.layer_idx
                 )
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 past_key_values.is_updated[self.layer_idx] = True
 
         attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
@@ -329,7 +294,6 @@ class XmodCrossAttention(nn.Module):
 
 
 class XmodSelfOutput(nn.Module):
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaSelfOutput.__init__
     def __init__(self, config):
         super().__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
@@ -382,7 +346,6 @@ class XmodAttention(nn.Module):
         return attention_output, attn_weights
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaIntermediate
 class XmodIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -578,7 +541,6 @@ class XmodEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaPooler
 class XmodPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -586,8 +548,6 @@ class XmodPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -621,33 +581,10 @@ class XmodPreTrainedModel(PreTrainedModel):
             init.zeros_(module.token_type_ids)
 
     def set_default_language(self, language: str):
-        """
-        Set the default language code for the model. This is used when the language is not specified in the input.
-
-        Args:
-            language (`str`): The language code, such as `"en_XX"` or `"de_DE"`.
-        """
-        if language not in self.config.languages:
-            raise ValueError(
-                f"{self} does not have an adapter for {language}. Supported languages: {list(self.config.languages)}"
-            )
-        self.config.default_language = language
+        pass
 
     def freeze_embeddings_and_language_adapters(self):
-        """
-        Freeze the embeddings and language adapters of the model. Usually, this is applied before the model is
-        fine-tuned on a downstream task.
-        """
-        logger.info("Freezing embeddings")
-        for parameter in self.roberta.embeddings.parameters():
-            parameter.requires_grad = False
-        logger.info("Freezing adapters")
-        for layer in self.roberta.encoder.layer:
-            if layer.output.adapter_layer_norm is not None:
-                for parameter in layer.output.adapter_layer_norm.parameters():
-                    parameter.requires_grad = False
-            for parameter in layer.output.adapter_modules.parameters():
-                parameter.requires_grad = False
+        pass
 
 
 @auto_docstring(
@@ -679,14 +616,11 @@ class XmodModel(XmodPreTrainedModel):
 
         self.pooler = XmodPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaModel.get_input_embeddings
     def get_input_embeddings(self):
         return self.embeddings.word_embeddings
 
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaModel.set_input_embeddings
     def set_input_embeddings(self, value):
         self.embeddings.word_embeddings = value
 
@@ -774,7 +708,6 @@ class XmodModel(XmodPreTrainedModel):
             past_key_values=encoder_outputs.past_key_values,
         )
 
-    # Copied from transformers.models.bert.modeling_bert.BertModel._create_attention_masks
     def _create_attention_masks(
         self,
         attention_mask,
@@ -819,7 +752,6 @@ class XmodForCausalLM(XmodPreTrainedModel, GenerationMixin):
         "lm_head.decoder.bias": "lm_head.bias",
     }
 
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForCausalLM.__init__ with Roberta->Xmod
     def __init__(self, config):
         super().__init__(config)
 
@@ -829,14 +761,11 @@ class XmodForCausalLM(XmodPreTrainedModel, GenerationMixin):
         self.roberta = XmodModel(config, add_pooling_layer=False)
         self.lm_head = XmodLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForCausalLM.get_output_embeddings
     def get_output_embeddings(self):
         return self.lm_head.decoder
 
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForCausalLM.set_output_embeddings
     def set_output_embeddings(self, new_embeddings):
         self.lm_head.decoder = new_embeddings
 
@@ -903,7 +832,6 @@ class XmodForCausalLM(XmodPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -928,7 +856,6 @@ class XmodForMaskedLM(XmodPreTrainedModel):
         "lm_head.decoder.bias": "lm_head.bias",
     }
 
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForMaskedLM.__init__ with Roberta->Xmod
     def __init__(self, config):
         super().__init__(config)
 
@@ -941,14 +868,11 @@ class XmodForMaskedLM(XmodPreTrainedModel):
         self.roberta = XmodModel(config, add_pooling_layer=False)
         self.lm_head = XmodLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForMaskedLM.get_output_embeddings
     def get_output_embeddings(self):
         return self.lm_head.decoder
 
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForMaskedLM.set_output_embeddings
     def set_output_embeddings(self, new_embeddings):
         self.lm_head.decoder = new_embeddings
 
@@ -1004,9 +928,7 @@ class XmodForMaskedLM(XmodPreTrainedModel):
         )
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaLMHead
 class XmodLMHead(nn.Module):
-    """Roberta Head for masked language modeling."""
 
     def __init__(self, config):
         super().__init__()
@@ -1021,7 +943,6 @@ class XmodLMHead(nn.Module):
         x = gelu(x)
         x = self.layer_norm(x)
 
-        # project back to size of vocabulary with bias
         x = self.decoder(x)
 
         return x
@@ -1034,7 +955,6 @@ class XmodLMHead(nn.Module):
     """
 )
 class XmodForSequenceClassification(XmodPreTrainedModel):
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForSequenceClassification.__init__ with Roberta->Xmod
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -1043,7 +963,6 @@ class XmodForSequenceClassification(XmodPreTrainedModel):
         self.roberta = XmodModel(config, add_pooling_layer=False)
         self.classifier = XmodClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1114,7 +1033,6 @@ class XmodForSequenceClassification(XmodPreTrainedModel):
 
 @auto_docstring
 class XmodForMultipleChoice(XmodPreTrainedModel):
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForMultipleChoice.__init__ with Roberta->Xmod
     def __init__(self, config):
         super().__init__(config)
 
@@ -1122,7 +1040,6 @@ class XmodForMultipleChoice(XmodPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1215,7 +1132,6 @@ class XmodForMultipleChoice(XmodPreTrainedModel):
 
 @auto_docstring
 class XmodForTokenClassification(XmodPreTrainedModel):
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForTokenClassification.__init__ with Roberta->Xmod
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -1227,7 +1143,6 @@ class XmodForTokenClassification(XmodPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1279,9 +1194,7 @@ class XmodForTokenClassification(XmodPreTrainedModel):
         )
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaClassificationHead
 class XmodClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config):
         super().__init__()
@@ -1304,7 +1217,6 @@ class XmodClassificationHead(nn.Module):
 
 @auto_docstring
 class XmodForQuestionAnswering(XmodPreTrainedModel):
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForQuestionAnswering.__init__ with Roberta->Xmod
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -1312,7 +1224,6 @@ class XmodForQuestionAnswering(XmodPreTrainedModel):
         self.roberta = XmodModel(config, add_pooling_layer=False)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1354,12 +1265,10 @@ class XmodForQuestionAnswering(XmodPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

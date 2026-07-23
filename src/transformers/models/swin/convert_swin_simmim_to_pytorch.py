@@ -1,19 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert Swin SimMIM checkpoints from the original repository.
-
-URL: https://github.com/microsoft/Swin-Transformer/blob/main/MODELHUB.md#simmim-pretrained-swin-v1-models"""
 
 import argparse
 from io import BytesIO
@@ -26,27 +10,7 @@ from transformers import SwinConfig, SwinForMaskedImageModeling, ViTImageProcess
 
 
 def get_swin_config(model_name):
-    config = SwinConfig(image_size=192)
-
-    if "base" in model_name:
-        window_size = 6
-        embed_dim = 128
-        depths = (2, 2, 18, 2)
-        num_heads = (4, 8, 16, 32)
-    elif "large" in model_name:
-        window_size = 12
-        embed_dim = 192
-        depths = (2, 2, 18, 2)
-        num_heads = (6, 12, 24, 48)
-    else:
-        raise ValueError("Model not supported, only supports base and large variants")
-
-    config.window_size = window_size
-    config.embed_dim = embed_dim
-    config.depths = depths
-    config.num_heads = num_heads
-
-    return config
+    pass
 
 
 def rename_key(name):
@@ -121,45 +85,11 @@ def convert_state_dict(orig_state_dict, model):
 
 
 def convert_swin_checkpoint(model_name, checkpoint_path, pytorch_dump_folder_path, push_to_hub):
-    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)["model"]
-
-    config = get_swin_config(model_name)
-    model = SwinForMaskedImageModeling(config)
-    model.eval()
-
-    new_state_dict = convert_state_dict(state_dict, model)
-    model.load_state_dict(new_state_dict)
-
-    url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-
-    image_processor = ViTImageProcessor(size={"height": 192, "width": 192})
-    with httpx.stream("GET", url) as response:
-        image = Image.open(BytesIO(response.read()))
-
-    inputs = image_processor(images=image, return_tensors="pt")
-
-    with torch.no_grad():
-        outputs = model(**inputs).logits
-
-    print(outputs.keys())
-    print("Looks ok!")
-
-    if pytorch_dump_folder_path is not None:
-        print(f"Saving model {model_name} to {pytorch_dump_folder_path}")
-        model.save_pretrained(pytorch_dump_folder_path)
-
-        print(f"Saving image processor to {pytorch_dump_folder_path}")
-        image_processor.save_pretrained(pytorch_dump_folder_path)
-
-    if push_to_hub:
-        print(f"Pushing model and image processor for {model_name} to hub")
-        model.push_to_hub(f"microsoft/{model_name}")
-        image_processor.push_to_hub(f"microsoft/{model_name}")
+    pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--model_name",
         default="swin-base-simmim-window6-192",

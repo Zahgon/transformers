@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import math
@@ -27,20 +14,11 @@ from ...utils.constants import OPENAI_CLIP_MEAN, OPENAI_CLIP_STD
 
 
 class InklingImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    rescale_image_frac (`float`, *optional*):
-        Factor applied to the image's long edge before patch division, preserving aspect ratio. `None` disables
-        the pre-scaling.
-    rescale_image_max_upscaled_long_edge (`int`, *optional*):
-        Cap, in pixels, on the upscaled long edge. Only limits growth: an image already above the cap is kept
-        as is.
-    """
 
     rescale_image_frac: float | None
     rescale_image_max_upscaled_long_edge: int | None
 
 
-# Slightly different from `image_transforms.divide_to_patches`
 def divide_to_patches(image: "torch.Tensor", patch_size: int) -> list["torch.Tensor"]:
     height, width = image.shape[-2], image.shape[-1]
     num_rows = (height + patch_size - 1) // patch_size
@@ -142,7 +120,6 @@ class InklingImageProcessor(TorchvisionBackend):
                     target_long_edge = min(target_long_edge, max(rescale_image_max_upscaled_long_edge, long_edge))
                 ratio = target_long_edge / long_edge
                 if ratio != 1.0:
-                    # half-up rounding to match reference
                     new_size = SizeDict(height=math.floor(height * ratio + 0.5), width=math.floor(width * ratio + 0.5))
                     image = self.resize(image, new_size, resample=resample)
             image_patches = divide_to_patches(image, size.height)

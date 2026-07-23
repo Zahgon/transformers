@@ -1,17 +1,3 @@
-# Copyright 2019 The Google AI Language Team Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ELECTRA model."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -54,7 +40,6 @@ logger = logging.get_logger(__name__)
 
 
 class ElectraEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -65,7 +50,6 @@ class ElectraEmbeddings(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.embedding_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -73,7 +57,6 @@ class ElectraEmbeddings(nn.Module):
             "token_type_ids", torch.zeros(self.position_ids.size(), dtype=torch.long), persistent=False
         )
 
-    # Copied from transformers.models.bert.modeling_bert.BertEmbeddings.forward
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -92,12 +75,8 @@ class ElectraEmbeddings(nn.Module):
         if position_ids is None:
             position_ids = self.position_ids[:, past_key_values_length : seq_length + past_key_values_length]
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
-                # NOTE: We assume either pos ids to have bsz == 1 (broadcastable) or bsz == effective bsz (input_shape[0])
                 buffered_token_type_ids = self.token_type_ids.expand(position_ids.shape[0], -1)
                 buffered_token_type_ids = torch.gather(buffered_token_type_ids, dim=1, index=position_ids)
                 token_type_ids = buffered_token_type_ids.expand(batch_size, seq_length)
@@ -117,7 +96,6 @@ class ElectraEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -131,7 +109,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -146,7 +123,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfAttention with Bert->Electra
 class ElectraSelfAttention(nn.Module):
     def __init__(self, config, is_causal=False, layer_idx=None):
         super().__init__()
@@ -182,18 +158,15 @@ class ElectraSelfAttention(nn.Module):
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.attention_head_size)
 
-        # get all proj
         query_layer = self.query(hidden_states).view(*hidden_shape).transpose(1, 2)
         key_layer = self.key(hidden_states).view(*hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(*hidden_shape).transpose(1, 2)
 
         if past_key_values is not None:
-            # decoder-only bert can have a simple dynamic cache for example
             current_past_key_values = past_key_values
             if isinstance(past_key_values, EncoderDecoderCache):
                 current_past_key_values = past_key_values.self_attention_cache
 
-            # save all key/value_layer to cache to be re-used for fast auto-regressive generation
             key_layer, value_layer = current_past_key_values.update(key_layer, value_layer, self.layer_idx)
 
         attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
@@ -214,7 +187,6 @@ class ElectraSelfAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertCrossAttention with Bert->Electra
 class ElectraCrossAttention(nn.Module):
     def __init__(self, config, is_causal=False, layer_idx=None):
         super().__init__()
@@ -247,17 +219,14 @@ class ElectraCrossAttention(nn.Module):
         past_key_values: EncoderDecoderCache | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple[torch.Tensor]:
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.attention_head_size)
 
-        # get query proj
         query_layer = self.query(hidden_states).view(hidden_shape).transpose(1, 2)
 
         is_updated = past_key_values.is_updated.get(self.layer_idx) if past_key_values is not None else False
         if past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_layer = past_key_values.cross_attention_cache.layers[self.layer_idx].keys
             value_layer = past_key_values.cross_attention_cache.layers[self.layer_idx].values
         else:
@@ -266,11 +235,9 @@ class ElectraCrossAttention(nn.Module):
             value_layer = self.value(encoder_hidden_states).view(kv_shape).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all states to the cache
                 key_layer, value_layer = past_key_values.cross_attention_cache.update(
                     key_layer, value_layer, self.layer_idx
                 )
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 past_key_values.is_updated[self.layer_idx] = True
 
         attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
@@ -291,7 +258,6 @@ class ElectraCrossAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput
 class ElectraSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -306,7 +272,6 @@ class ElectraSelfOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertAttention with Bert->Electra,BERT->ELECTRA
 class ElectraAttention(nn.Module):
     def __init__(self, config, is_causal=False, layer_idx=None, is_cross_attention=False):
         super().__init__()
@@ -336,7 +301,6 @@ class ElectraAttention(nn.Module):
         return attention_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate
 class ElectraIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -352,7 +316,6 @@ class ElectraIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput
 class ElectraOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -367,7 +330,6 @@ class ElectraOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertLayer with Bert->Electra
 class ElectraLayer(GradientCheckpointingLayer):
     def __init__(self, config, layer_idx=None):
         super().__init__()
@@ -433,7 +395,6 @@ class ElectraLayer(GradientCheckpointingLayer):
         return layer_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertEncoder with Bert->Electra
 class ElectraEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -467,7 +428,6 @@ class ElectraEncoder(nn.Module):
 
 
 class ElectraDiscriminatorPredictions(nn.Module):
-    """Prediction module for the discriminator, made up of two dense layers."""
 
     def __init__(self, config):
         super().__init__()
@@ -486,7 +446,6 @@ class ElectraDiscriminatorPredictions(nn.Module):
 
 
 class ElectraGeneratorPredictions(nn.Module):
-    """Prediction module for the generator, made up of two dense layers."""
 
     def __init__(self, config):
         super().__init__()
@@ -532,12 +491,6 @@ class ElectraPreTrainedModel(PreTrainedModel):
 )
 @dataclass
 class ElectraForPreTrainingOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when `labels` is provided, `torch.FloatTensor` of shape `(1,)`):
-        Total loss of the ELECTRA objective.
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length)`):
-        Prediction scores of the head (scores for each token before SoftMax).
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -557,7 +510,6 @@ class ElectraModel(ElectraPreTrainedModel):
         self.encoder = ElectraEncoder(config)
         self.config = config
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -633,7 +585,6 @@ class ElectraModel(ElectraPreTrainedModel):
             past_key_values=encoder_outputs.past_key_values,
         )
 
-    # Copied from transformers.models.bert.modeling_bert.BertModel._create_attention_masks
     def _create_attention_masks(
         self,
         attention_mask,
@@ -668,7 +619,6 @@ class ElectraModel(ElectraPreTrainedModel):
 
 
 class ElectraClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config):
         super().__init__()
@@ -690,41 +640,13 @@ class ElectraClassificationHead(nn.Module):
         return x
 
 
-# Copied from transformers.models.xlm.modeling_xlm.XLMSequenceSummary with XLM->Electra
 class ElectraSequenceSummary(nn.Module):
-    r"""
-    Compute a single vector summary of a sequence hidden states.
-
-    Args:
-        config ([`ElectraConfig`]):
-            The config used by the model. Relevant arguments in the config class of the model are (refer to the actual
-            config class of your model for the default values it uses):
-
-            - **summary_type** (`str`) -- The method to use to make this summary. Accepted values are:
-
-                - `"last"` -- Take the last token hidden state (like XLNet)
-                - `"first"` -- Take the first token hidden state (like Bert)
-                - `"mean"` -- Take the mean of all tokens hidden states
-                - `"cls_index"` -- Supply a Tensor of classification token position (GPT/GPT-2)
-                - `"attn"` -- Not implemented now, use multi-head attention
-
-            - **summary_use_proj** (`bool`) -- Add a projection after the vector extraction.
-            - **summary_proj_to_labels** (`bool`) -- If `True`, the projection outputs to `config.num_labels` classes
-              (otherwise to `config.hidden_size`).
-            - **summary_activation** (`Optional[str]`) -- Set to `"tanh"` to add a tanh activation to the output,
-              another string or `None` will add no activation.
-            - **summary_first_dropout** (`float`) -- Optional dropout probability before the projection and activation.
-            - **summary_last_dropout** (`float`)-- Optional dropout probability after the projection and activation.
-    """
 
     def __init__(self, config: ElectraConfig):
         super().__init__()
 
         self.summary_type = getattr(config, "summary_type", "last")
         if self.summary_type == "attn":
-            # We should use a standard multi-head attention module with absolute positional embedding for that.
-            # Cf. https://github.com/zihangdai/xlnet/blob/master/modeling.py#L253-L276
-            # We can probably just use the multi-head attention module of PyTorch >=1.1.0
             raise NotImplementedError
 
         self.summary = nn.Identity()
@@ -777,7 +699,6 @@ class ElectraSequenceSummary(nn.Module):
             else:
                 cls_index = cls_index.unsqueeze(-1).unsqueeze(-1)
                 cls_index = cls_index.expand((-1,) * (cls_index.dim() - 1) + (hidden_states.size(-1),))
-            # shape of cls_index: (bsz, XX, 1, hidden_size) where XX are optional leading dim of hidden_states
             output = hidden_states.gather(-2, cls_index).squeeze(-2)  # shape (bsz, XX, hidden_size)
         elif self.summary_type == "attn":
             raise NotImplementedError
@@ -804,7 +725,6 @@ class ElectraForSequenceClassification(ElectraPreTrainedModel):
         self.electra = ElectraModel(config)
         self.classifier = ElectraClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -882,7 +802,6 @@ class ElectraForPreTraining(ElectraPreTrainedModel):
 
         self.electra = ElectraModel(config)
         self.discriminator_predictions = ElectraDiscriminatorPredictions(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -978,7 +897,6 @@ class ElectraForMaskedLM(ElectraPreTrainedModel):
         self.generator_predictions = ElectraGeneratorPredictions(config)
 
         self.generator_lm_head = nn.Linear(config.embedding_size, config.vocab_size)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -1020,7 +938,6 @@ class ElectraForMaskedLM(ElectraPreTrainedModel):
         prediction_scores = self.generator_lm_head(prediction_scores)
 
         loss = None
-        # Masked language modeling softmax layer
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss()  # -100 index = padding token
             loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
@@ -1051,7 +968,6 @@ class ElectraForTokenClassification(ElectraPreTrainedModel):
         )
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1109,7 +1025,6 @@ class ElectraForQuestionAnswering(ElectraPreTrainedModel):
         self.electra = ElectraModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1144,12 +1059,10 @@ class ElectraForQuestionAnswering(ElectraPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)
@@ -1177,7 +1090,6 @@ class ElectraForMultipleChoice(ElectraPreTrainedModel):
         self.sequence_summary = ElectraSequenceSummary(config)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1346,7 +1258,6 @@ class ElectraForCausalLM(ElectraPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.generator_lm_head(self.generator_predictions(hidden_states[:, slice_indices, :]))
 

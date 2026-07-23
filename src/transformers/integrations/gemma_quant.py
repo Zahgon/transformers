@@ -1,19 +1,4 @@
-# Copyright 2026 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Quantized layers for Gemma: INT2/4/8 packed-weight Linear and Embedding,
-plus SRQ (Static Range Quantization) activation rounding."""
 
 import torch
 import torch.nn as nn
@@ -65,7 +50,6 @@ def _unpack_int2(packed: torch.Tensor, original_width: int) -> torch.Tensor:
 
 
 class QuantizedLinear(nn.Linear):
-    """Linear layer with INT2/4/8 packed weights and SRQ activation rounding."""
 
     def __init__(
         self,
@@ -77,8 +61,6 @@ class QuantizedLinear(nn.Linear):
         super().__init__(in_features, out_features, bias=bias)
         self.num_bits = num_bits
 
-        # int2/int4 packed in uint8 (4 / 2 values per byte); int8 stored directly.
-        # Replace the inherited fp32 weight with packed-int storage.
         if num_bits == 2:
             packed_in = (in_features + 3) // 4
             weight_storage = torch.empty(out_features, packed_in, dtype=torch.uint8)
@@ -89,8 +71,6 @@ class QuantizedLinear(nn.Linear):
             weight_storage = torch.empty(out_features, in_features, dtype=torch.int8)
         self.weight = nn.Parameter(weight_storage, requires_grad=False)
         self.weight_scale = nn.Parameter(torch.ones(out_features, 1, dtype=torch.float32))
-        # SRQ activation scales — optional, loaded from checkpoint. 0 means uncalibrated, in which
-        # case `apply_srq` is a no-op, so `forward` can apply it unconditionally.
         self.input_activation_scale = nn.Parameter(torch.tensor(0.0, dtype=torch.float32))
         self.output_activation_scale = nn.Parameter(torch.tensor(0.0, dtype=torch.float32))
 
@@ -113,21 +93,10 @@ class QuantizedLinear(nn.Linear):
         return apply_srq(out, self.output_activation_scale)
 
     def extra_repr(self) -> str:
-        return (
-            f"in_features={self.in_features}, out_features={self.out_features}, "
-            f"bias={self.bias is not None}, num_bits={self.num_bits}"
-        )
+        pass
 
 
 class QuantizedEmbedding(nn.Module):
-    """Embedding with INT2/4/8 packed table, per-row dequant scale, and architectural embed_scale.
-
-    Does NOT subclass `nn.Embedding` because the packed-int storage isn't a usable
-    embedding table on its own: indexing `.embedding_quantized[idx]` returns packed
-    bytes, not a row of size `embedding_dim`. Callers expect `embed_tokens.weight[idx, :]`
-    to return the *dequantized* row, so we expose `weight` as a property (below)
-    that returns the dequantized table on demand.
-    """
 
     def __init__(
         self,
@@ -144,7 +113,6 @@ class QuantizedEmbedding(nn.Module):
         self.num_bits = num_bits
         self.output_dtype = output_dtype
 
-        # int2/int4 packed in uint8 (4 / 2 values per byte); int8 stored directly.
         if num_bits == 2:
             packed_dim = (embedding_dim + 3) // 4
             embed_storage = torch.empty(num_embeddings, packed_dim, dtype=torch.uint8)
@@ -158,12 +126,7 @@ class QuantizedEmbedding(nn.Module):
 
     @property
     def weight(self) -> torch.Tensor:
-        """Dequantized embedding table (no architectural `embed_scale` applied).
-
-        Mirrors `nn.Embedding.weight` so callers can do `weight[idx, :]` and get
-        the same unscaled row they'd get from a non-quantized embedding.
-        """
-        return self._dequantize_weights(self.embedding_quantized, self.embedding_scale)
+        pass
 
     def _dequantize_weights(self, quant_rows: torch.Tensor, scale_rows: torch.Tensor) -> torch.Tensor:
         """Unpack int2/int4/int8 + apply per-row block-wise dequantization scale."""
@@ -183,10 +146,7 @@ class QuantizedEmbedding(nn.Module):
         return (result * self.scalar_embed_scale).to(self.output_dtype)
 
     def extra_repr(self) -> str:
-        return (
-            f"num_embeddings={self.num_embeddings}, embedding_dim={self.embedding_dim}, "
-            f"num_bits={self.num_bits}, embed_scale={self.scalar_embed_scale}"
-        )
+        pass
 
 
 def replace_with_quant_layers(
@@ -208,9 +168,6 @@ def replace_with_quant_layers(
     num_bits = quantization_config.num_bits
     module_quant_configs = quantization_config.module_quant_configs or {}
 
-    # Join all the per-module patterns into one regex, compiled once, so each module name needs a
-    # single search instead of a loop over patterns. Each pattern is a named group `g0`, `g1`, ...;
-    # whichever group matches identifies its override.
     overrides_by_group = {f"g{i}": override for i, override in enumerate(module_quant_configs.values())}
     matcher = (
         re.compile("|".join(f"(?P<g{i}>{pattern})" for i, pattern in enumerate(module_quant_configs)))

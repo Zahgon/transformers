@@ -25,40 +25,6 @@ logger = logging.get_logger(__name__)
 
 @add_end_docstrings(build_pipeline_init_args(has_image_processor=True))
 class ImageSegmentationPipeline(Pipeline):
-    """
-    Image segmentation pipeline using any `AutoModelForXXXSegmentation`. This pipeline predicts masks of objects and
-    their classes.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> segmenter = pipeline(model="facebook/detr-resnet-50-panoptic")
-    >>> segments = segmenter("https://huggingface.co/datasets/Narsil/image_dummy/raw/main/parrots.png")
-    >>> len(segments)
-    2
-
-    >>> segments[0]["label"]
-    'bird'
-
-    >>> segments[1]["label"]
-    'bird'
-
-    >>> type(segments[0]["mask"])  # This is a black and white mask showing where is the bird on the original image.
-    <class 'PIL.Image.Image'>
-
-    >>> segments[0]["mask"].size
-    (768, 512)
-    ```
-
-
-    This image segmentation pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"image-segmentation"`.
-
-    See the list of available models on
-    [huggingface.co/models](https://huggingface.co/models?filter=image-segmentation).
-    """
 
     _load_processor = False
     _load_image_processor = True
@@ -141,7 +107,6 @@ class ImageSegmentationPipeline(Pipeline):
             - **score** (*optional* `float`) -- Optionally, when the model is capable of estimating a confidence of the
               "object" described by the label and the mask.
         """
-        # After deprecation of this is completed, remove the default `None` value for `images`
         if "images" in kwargs:
             inputs = kwargs.pop("images")
         if inputs is None:

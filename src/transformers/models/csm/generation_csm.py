@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
@@ -39,32 +26,6 @@ logger = logging.get_logger(__name__)
 
 @dataclass
 class CsmGenerateOutput(GenerateDecoderOnlyOutput):
-    """
-    Outputs of CsmForConditionalGeneration.generate.
-
-    Args:
-        sequences (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
-            The generated sequences. The second dimension (sequence_length) is either equal to `max_length` or shorter
-            if all batches finished early due to the `eos_token_id`.
-        scores (`tuple(torch.FloatTensor)` *optional*, returned when `output_scores=True`):
-            Processed prediction scores of the language modeling head (scores for each vocabulary token before SoftMax)
-            at each generation step. Tuple of `torch.FloatTensor` with up to `max_new_tokens` elements (one element for
-            each generated token), with each tensor of shape `(batch_size, config.vocab_size)`.
-        logits (`tuple(torch.FloatTensor)` *optional*, returned when `output_logits=True`):
-            Unprocessed prediction scores of the language modeling head (scores for each vocabulary token before SoftMax)
-            at each generation step. Tuple of `torch.FloatTensor` with up to `max_new_tokens` elements (one element for
-            each generated token), with each tensor of shape `(batch_size, config.vocab_size)`.
-        attentions (`tuple(tuple(torch.FloatTensor))`, *optional*, returned when `output_attentions=True`):
-            Tuple (one element for each generated token) of tuples (one element for each layer of the decoder) of
-            `torch.FloatTensor` of shape `(batch_size, num_heads, generated_length, sequence_length)`.
-        hidden_states (`tuple(tuple(torch.FloatTensor))`, *optional*, returned when `output_hidden_states=True`):
-            Tuple (one element for each generated token) of tuples (one element for each layer of the decoder) of
-            `torch.FloatTensor` of shape `(batch_size, generated_length, hidden_size)`.
-        past_key_values (`Cache`, *optional*, returned when `use_cache=True`):
-            Returns the model cache, used to speed up decoding. Different models have a different cache format, check
-        audio (`list(torch.FloatTensor)` of length `batch_size`):
-            The generated audio.
-    """
 
     audio: list[torch.Tensor] | None = None
 
@@ -94,19 +55,15 @@ class CsmGenerationMixin(GenerationMixin):
         This method overrides [~generation.utils.GenerationMixin._prepare_generation_config].
         It ensures that the depth decoder generation config is initialized and that passed args as depth_decoder_* are properly handled.
         """
-        # extract depth decoder kwargs and remove them from the main kwargs
         depth_decoder_kwargs = {
             k[len("depth_decoder_") :]: v for k, v in kwargs.items() if k.startswith("depth_decoder_")
         }
 
-        # remove the depth decoder keys from the original kwargs
         kwargs = {k: v for k, v in kwargs.items() if not k.startswith("depth_decoder_")}
 
-        # initialize the generation config
         generation_config, model_kwargs = super()._prepare_generation_config(generation_config, **kwargs)
         self.depth_decoder.generation_config.update(**depth_decoder_kwargs)
 
-        # ensure the depth decoder generation config is valid
         depth_decoder_min_new_tokens = getattr(self.depth_decoder.generation_config, "min_new_tokens") or (
             self.config.num_codebooks - 1
         )
@@ -127,17 +84,10 @@ class CsmGenerationMixin(GenerationMixin):
         self.depth_decoder.generation_config.min_new_tokens = depth_decoder_min_new_tokens
         self.depth_decoder.generation_config.max_new_tokens = depth_decoder_max_new_tokens
 
-        # Monkey patch the get_generation_mode method to support CSM model
         original_get_generation_mode = generation_config.get_generation_mode
 
         def patched_get_generation_mode(assistant_model=None):
-            generation_mode = original_get_generation_mode(assistant_model)
-            if generation_mode not in [GenerationMode.GREEDY_SEARCH, GenerationMode.SAMPLE]:
-                raise ValueError(
-                    f"Generation mode {generation_mode} is not supported for CSM model. Please set generation parameters to use greedy or sampling generation."
-                )
-
-            return generation_mode
+            pass
 
         generation_config.get_generation_mode = patched_get_generation_mode
 
@@ -167,11 +117,8 @@ class CsmGenerationMixin(GenerationMixin):
         - stop when the generated sequence is at max_length
         - stop when all the generated codebook tokens are the codebook_eos_token_id
         """
-        # init values
-        # *************** Csm specific ***************
         pad_token_id = self.config.codebook_pad_token_id
         has_eos_stopping_criteria = generation_config._eos_token_tensor is not None
-        # ============================================
         output_attentions = generation_config.output_attentions
         output_hidden_states = generation_config.output_hidden_states
         output_scores = generation_config.output_scores
@@ -179,25 +126,19 @@ class CsmGenerationMixin(GenerationMixin):
         return_dict_in_generate = generation_config.return_dict_in_generate
         do_sample = generation_config.do_sample
 
-        # init attention / hidden states / scores tuples
         scores = () if (return_dict_in_generate and output_scores) else None
         raw_logits = () if (return_dict_in_generate and output_logits) else None
         decoder_attentions = () if (return_dict_in_generate and output_attentions) else None
         decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
 
-        # keep track of which sequences are already finished
         batch_size, cur_len = input_ids.shape[:2]
         this_peer_finished = False
         unfinished_sequences = torch.ones(batch_size, dtype=torch.long, device=input_ids.device)
 
-        # *************** Csm specific ***************
         if input_ids.ndim == 2 and model_kwargs.get("inputs_embeds") is None:
-            # in the case where the passed input_ids correspond to text tokens, i.e. don't have a third dimension for codebook ids,
-            # we need to remove the input length to the MaxLengthCriteria stopping criteria has such input are not returned
             for criterion in stopping_criteria:
                 if isinstance(criterion, MaxLengthCriteria):
                     criterion.max_length -= cur_len
-        # ============================================
 
         model_forward = (
             self.get_compiled_call(generation_config.compile_config)
@@ -205,7 +146,6 @@ class CsmGenerationMixin(GenerationMixin):
             else self.__call__
         )
 
-        # *************** Csm specific ***************
         model_kwargs.update({"output_hidden_states": True})
 
         prefill_consumed = False
@@ -222,12 +162,10 @@ class CsmGenerationMixin(GenerationMixin):
                 model_inputs = self.prepare_inputs_for_generation(
                     input_ids, next_sequence_length=next_sequence_length, **model_kwargs
                 )
-                # prepare variable output controls (note: some models won't accept all output controls)
                 model_inputs.update({"output_attentions": output_attentions} if output_attentions else {})
                 outputs = model_forward(**model_inputs, return_dict=True)
             prefill_consumed = True
 
-            # synced_gpus: don't waste resources running the code we don't need; kwargs must be updated before skipping
             model_kwargs = self._update_model_kwargs_for_generation(
                 outputs,
                 model_kwargs,
@@ -235,15 +173,11 @@ class CsmGenerationMixin(GenerationMixin):
             if synced_gpus and this_peer_finished:
                 continue
 
-            # Clone is needed to avoid keeping a hanging ref to outputs.logits which may be very large for first iteration
-            # (the clone itself is always small)
             next_token_logits = outputs.logits[:, -1, :].clone().float()
             next_token_logits = next_token_logits.to(input_ids.device)
 
-            # pre-process distribution
             next_token_scores = logits_processor(input_ids, next_token_logits)
 
-            # Store scores, attentions and hidden_states when required
             if return_dict_in_generate:
                 if output_scores:
                     scores += (next_token_scores,)
@@ -255,18 +189,13 @@ class CsmGenerationMixin(GenerationMixin):
                 if output_hidden_states:
                     decoder_hidden_states += (outputs.hidden_states,)
 
-            # token selection
             if do_sample:
                 probs = nn.functional.softmax(next_token_scores, dim=-1)
-                # TODO (joao): this OP throws "skipping cudagraphs due to ['incompatible ops']", find solution
                 next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
             else:
                 next_tokens = torch.argmax(next_token_scores, dim=-1)
 
-            # *************** Csm specific ***************
-            # infer the depth decoder
             first_codebook_ids = next_tokens[:, None]
-            # adds place holder in position 0 that will be replaced by the backbone_last_hidden_state
             depth_decoder_input_ids = nn.functional.pad(first_codebook_ids, (1, 0), value=0)
             backbone_last_hidden_state = outputs.hidden_states[-1][:, -1, :]
 
@@ -278,43 +207,32 @@ class CsmGenerationMixin(GenerationMixin):
                 if isinstance(depth_decoder_outputs, torch.Tensor)
                 else depth_decoder_outputs.sequences
             )
-            # remove the place holder in position 0
             codebook_ids = codebook_ids[:, 1:]
             next_tokens = codebook_ids
 
-            # finished sentences should have their next token be a padding token
             if has_eos_stopping_criteria:
                 next_tokens = next_tokens * unfinished_sequences.unsqueeze(-1) + pad_token_id * (
                     1 - unfinished_sequences.unsqueeze(-1)
                 )
 
-            # update generated ids, model inputs, and length for next step
             if input_ids.ndim == 2:
                 input_ids = next_tokens[:, None, :]
             else:
                 input_ids = torch.cat([input_ids, next_tokens[:, None, :]], dim=1)
-            # ============================================
 
             if streamer is not None:
                 streamer.put(next_tokens.cpu())
 
-            # *************** Csm specific ***************
-            # for the eos stopping criteria, is it expected that the eos token is the same for each codebook !!!!
             unfinished_sequences = unfinished_sequences & ~(
                 input_ids[:, -1, :-1] == self.config.codebook_eos_token_id
             ).all(-1)
-            # ============================================
             unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, scores)
             this_peer_finished = unfinished_sequences.max() == 0
             cur_len += 1
 
-            # This is needed to properly delete outputs.logits which may be very large for first iteration
-            # Otherwise a reference to outputs is kept which keeps the logits alive in the next iteration
             del outputs
 
-            # *************** Csm specific ***************
             del depth_decoder_outputs
-            # ============================================
 
         if streamer is not None:
             streamer.end()
@@ -461,12 +379,8 @@ class CsmGenerationMixin(GenerationMixin):
         if output_audio:
             generated_audio_codes = generate_output.sequences if generate_returned_dict else generate_output
 
-            # infer the codec model
             audio = []
             with torch.no_grad():
-                # =======================================
-                # TODO: @eustlb, this should be batched !!!
-                # but requires making sure batched inference of the codec model works as intended
                 for audio_codes_batch in generated_audio_codes:
                     eos_idxs = (audio_codes_batch == self.config.codebook_eos_token_id).all(dim=-1).nonzero()
                     if eos_idxs.numel() != 0:
@@ -477,7 +391,6 @@ class CsmGenerationMixin(GenerationMixin):
                     audio_codes_batch = audio_codes_batch[:cutoff_idx]
                     codec_decode_output = self.codec_model.decode(audio_codes_batch.transpose(0, 1).unsqueeze(0))
                     audio.append(codec_decode_output.audio_values[0, 0])
-                # =======================================
 
         if generate_returned_dict:
             return CsmGenerateOutput(audio=audio, **generate_output)

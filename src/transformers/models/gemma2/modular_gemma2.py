@@ -1,17 +1,3 @@
-# Copyright 2024 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections.abc import Callable
 
 import torch
@@ -55,25 +41,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="google/gemma2-7b")
 @strict
 class Gemma2Config(PreTrainedConfig):
-    r"""
-    query_pre_attn_scalar (`float`, *optional*, defaults to 256):
-        scaling factor used on the attention scores
-    final_logit_softcapping (`float`, *optional*, defaults to 30.0):
-        scaling factor when applying tanh softcapping on the logits.
-    attn_logit_softcapping (`float`, *optional*, defaults to 50.0):
-        scaling factor when applying tanh softcapping on the attention scores.
-    use_bidirectional_attention (`bool`, *optional*):
-        If True, the model will attend to all text tokens instead of using a causal mask.
-
-    ```python
-    >>> from transformers import Gemma2Model, Gemma2Config
-    >>> # Initializing a Gemma2 gemma2-7b style configuration
-    >>> configuration = Gemma2Config()
-    >>> # Initializing a model from the gemma2-7b style configuration
-    >>> model = Gemma2Model(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "gemma2"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -127,12 +94,7 @@ class Gemma2Config(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.hidden_size % self.num_attention_heads != 0:
-            raise ValueError(
-                f"The hidden size ({self.hidden_size}) is not a multiple of the number of attention "
-                f"heads ({self.num_attention_heads})."
-            )
+        pass
 
 
 class Gemma2RMSNorm(GemmaRMSNorm):
@@ -204,7 +166,6 @@ def eager_attention_forward(
     if attention_mask is not None:
         attn_weights = attn_weights + attention_mask
 
-    # upcast attention to fp32
     attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
     attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
     attn_output = torch.matmul(attn_weights, value_states)
@@ -292,7 +253,6 @@ class Gemma2DecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             position_embeddings=position_embeddings,
@@ -349,9 +309,7 @@ class Gemma2Model(GemmaModel):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -359,13 +317,11 @@ class Gemma2Model(GemmaModel):
                 "past_key_values": past_key_values,
                 "position_ids": position_ids,
             }
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
                 "sliding_attention": create_sliding_window_causal_mask(**mask_kwargs),
             }
 
-        # embed positions
         hidden_states = inputs_embeds
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
@@ -422,7 +378,6 @@ class Gemma2ForCausalLM(GemmaForCausalLM):
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "What is your favorite condiment?"
         ```"""
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs: BaseModelOutputWithPast = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -434,7 +389,6 @@ class Gemma2ForCausalLM(GemmaForCausalLM):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
         if self.config.final_logit_softcapping is not None:

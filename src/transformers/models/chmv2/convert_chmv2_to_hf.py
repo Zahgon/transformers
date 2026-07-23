@@ -1,31 +1,3 @@
-# Copyright 2026 Meta Platforms, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert CHMv2 checkpoints from the original repository.
-
-Usage:
-    python -m transformers.models.chmv2.convert_chmv2_to_hf \
-        --head_checkpoint_path /path/to/checkpoint.pth \
-        --pytorch_dump_folder_path /path/to/output \
-        --model_name chmv2
-
-Or with a DINOv3 backbone from HuggingFace:
-    python -m transformers.models.chmv2.convert_chmv2_to_hf \
-        --head_checkpoint_path /path/to/head_checkpoint.pth \
-        --backbone_repo_id facebook/dinov3-vitl16-pretrain-lvd1689m \
-        --pytorch_dump_folder_path /path/to/output \
-        --model_name chmv2
-"""
 
 import argparse
 import os
@@ -51,7 +23,6 @@ logging.set_verbosity_info()
 logger = logging.get_logger(__name__)
 
 
-# Model configurations for CHMv2 head
 MODEL_CONFIGS = {
     "chmv2": {
         "backbone_model": "vitl16_sat493m",
@@ -61,8 +32,6 @@ MODEL_CONFIGS = {
     },
 }
 
-# Head key mapping: (head\.)? prefix for full-model checkpoints, no prefix for head-only
-# fmt: off
 HEAD_ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"^(head\.)?reassemble_blocks\.projects\.(\d+)\.conv\.(weight|bias)$":                    r"head.reassemble_stage.layers.\2.projection.\3",
     r"^(head\.)?reassemble_blocks\.resize_layers\.(\d+)\.(weight|bias)$":                    r"head.reassemble_stage.layers.\2.resize.\3",
@@ -76,7 +45,6 @@ HEAD_ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"^(head\.)?fusion_blocks\.(\d+)\.project\.conv\.(weight|bias)$":                       r"head.fusion_layers.\2.projection.\3",
     r"^(head\.)?conv_depth\.head\.(0|2|4)\.(weight|bias)$":                                 r"head.conv_depth.head.\2.\3",
 }
-# fmt: on
 
 
 def convert_head_keys_to_new_keys(state_dict_keys: list[str]) -> dict[str, str]:
@@ -192,7 +160,6 @@ def convert_chmv2_checkpoint(
 
     config = get_chmv2_config(model_name=model_name, backbone_repo_id=backbone_repo_id)
 
-    # Load checkpoint(s)
     logger.info(f"Loading checkpoint from {head_checkpoint_path}")
     head_ckpt = load_original_state_dict(head_checkpoint_path)
 
@@ -213,7 +180,6 @@ def convert_chmv2_checkpoint(
     logger.info(f"Converting head weights (head_only={head_only})")
     state_dict.update(convert_head_keys(head_ckpt))
 
-    # Load into model
     model = CHMv2ForDepthEstimation(config)
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
 
@@ -225,7 +191,6 @@ def convert_chmv2_checkpoint(
 
     model.eval()
 
-    # Optional verification
     if verify_image_path is not None:
         logger.info(f"Verifying with image: {verify_image_path}")
         image = Image.open(verify_image_path)
@@ -239,7 +204,6 @@ def convert_chmv2_checkpoint(
             f"Predicted depth — shape: {depth.shape}  mean: {depth.mean():.4f}  range: [{depth.min():.4f}, {depth.max():.4f}]"
         )
 
-    # Save
     logger.info(f"Saving to {pytorch_dump_folder_path}")
     model.save_pretrained(pytorch_dump_folder_path)
     processor = CHMv2ImageProcessor()

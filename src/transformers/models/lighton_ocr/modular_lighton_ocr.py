@@ -1,16 +1,3 @@
-# Copyright 2026 The LightOn Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import numpy as np
 import torch
@@ -44,22 +31,6 @@ from ..pixtral.image_processing_pixtral import get_resize_output_image_size
 @auto_docstring(checkpoint="lightonai/LightOnOCR-1B-1025")
 @strict
 class LightOnOcrConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import LightOnOcrConfig, LightOnOcrForConditionalGeneration
-
-    >>> # Initializing a LightOnOcr configuration
-    >>> configuration = LightOnOcrConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = LightOnOcrForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "lighton_ocr"
     sub_configs = {"text_config": AutoConfig, "vision_config": AutoConfig}
@@ -142,10 +113,8 @@ class LightOnOcrProcessor(ProcessorMixin):
 
         self.patch_size = patch_size
         self.spatial_merge_size = spatial_merge_size
-        # Calculate effective patch size for image processing
         self.effective_patch_size = patch_size * spatial_merge_size
 
-        # Get special tokens and IDs directly from tokenizer attributes
         self.image_token = tokenizer.image_token
         self.image_break_token = tokenizer.image_break_token
         self.image_end_token = tokenizer.image_end_token
@@ -155,7 +124,7 @@ class LightOnOcrProcessor(ProcessorMixin):
 
     @property
     def image_token_ids(self) -> list[int]:
-        return [self.image_token_id, self.image_break_token_id, self.image_end_token_id]
+        pass
 
     def __call__(
         self,
@@ -217,42 +186,7 @@ class LightOnOcrProcessor(ProcessorMixin):
         return BatchFeature(data={**text_inputs, **image_inputs}, tensor_type=return_tensors)
 
     def _get_num_multimodal_tokens(self, image_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-
-        Args:
-            image_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (height, width) per each image.
-
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-        vision_data = {}
-        if image_sizes is not None:
-            images_kwargs = LightOnOcrProcessorKwargs._defaults.get("images_kwargs", {})
-            images_kwargs.update(kwargs)
-
-            size = images_kwargs.get("size", None) or self.image_processor.size
-            patch_size = images_kwargs.get("patch_size", None) or self.image_processor.patch_size
-            if isinstance(patch_size, dict) and "height" in patch_size and "width" in patch_size:
-                patch_size = (patch_size["height"], patch_size["width"])
-
-            num_image_tokens = []
-            for height, width in image_sizes:
-                resized_height, resized_width = get_resize_output_image_size(
-                    np.zeros((height, width, 3)),
-                    size=(size["longest_edge"], size["longest_edge"]),
-                    patch_size=patch_size,
-                )
-                num_height_tokens = resized_height // self.effective_patch_size
-                num_width_tokens = resized_width // self.effective_patch_size
-                num_image_tokens.append(num_width_tokens * num_height_tokens)
-
-            num_image_patches = [1] * len(image_sizes)
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-
-        return MultiModalData(**vision_data)
+        pass
 
 
 class LightOnOcrMultiModalProjector(Mistral3MultiModalProjector):
@@ -288,7 +222,6 @@ class LightOnOcrModel(Mistral3Model):
         image_features = image_outputs.last_hidden_state
         image_features = self.vision_projection(image_features.squeeze(0), image_sizes)
 
-        # Split features per image based on the effective patch size
         downsample_ratio = self.config.vision_config.patch_size * self.config.spatial_merge_size
         split_sizes = [(height // downsample_ratio) * (width // downsample_ratio) for height, width in image_sizes]
         image_features = torch.split(image_features, split_sizes)

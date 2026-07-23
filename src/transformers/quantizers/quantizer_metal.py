@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from typing import TYPE_CHECKING, Any
 
 from ..utils import is_kernels_available, is_torch_available, logging
@@ -29,13 +16,6 @@ logger = logging.get_logger(__name__)
 
 
 class MetalHfQuantizer(HfQuantizer):
-    """
-    Quantizer for Metal affine quantization on Apple Silicon (MPS) devices.
-
-    Uses the ``quantization-mlx`` Metal kernels from the Hub to pack weights into
-    low-bit (2/4/8) uint32 tensors with per-group scales and biases, and performs
-    fused dequant + matmul in the forward pass.
-    """
 
     requires_calibration = False
     quantization_config: "MetalConfig"
@@ -108,7 +88,7 @@ class MetalHfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self) -> bool:
-        return False
+        pass
 
     def get_quantize_ops(self):
         from ..integrations.metal_quantization import MetalQuantize

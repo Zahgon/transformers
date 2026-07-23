@@ -1,17 +1,3 @@
-# Copyright 2025 HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from collections.abc import Iterable
@@ -59,17 +45,13 @@ def get_resize_output_image_size(
     input_height, input_width = input_image.shape[-2:]
     output_height, output_width = output_size
 
-    # determine new height and width
     scale_height = output_height / input_height
     scale_width = output_width / input_width
 
     if keep_aspect_ratio:
-        # scale as little as possible
         if abs(1 - scale_width) < abs(1 - scale_height):
-            # fit width
             scale_height = scale_width
         else:
-            # fit height
             scale_width = scale_height
 
     new_height = constrain_to_multiple_of(scale_height * input_height, multiple=multiple)
@@ -79,18 +61,6 @@ def get_resize_output_image_size(
 
 
 class DPTImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    ensure_multiple_of (`int`, *optional*, defaults to 1):
-        If `do_resize` is `True`, the image is resized to a size that is a multiple of this value. Can be overridden
-        by `ensure_multiple_of` in `preprocess`.
-    keep_aspect_ratio (`bool`, *optional*, defaults to `False`):
-        If `True`, the image is resized to the largest possible size such that the aspect ratio is preserved. Can
-        be overridden by `keep_aspect_ratio` in `preprocess`.
-    do_reduce_labels (`bool`, *optional*, defaults to `self.do_reduce_labels`):
-        Whether or not to reduce all label values of segmentation maps by 1. Usually used for datasets where 0
-        is used for background, and background itself is not included in all classes of a dataset (e.g.
-        ADE20k). The background label will be replaced by 255.
-    """
 
     ensure_multiple_of: int
     size_divisor: int
@@ -112,7 +82,6 @@ class DPTImageProcessor(BeitImageProcessor):
     ensure_multiple_of = 1
     keep_aspect_ratio = False
 
-    # necessary for modular conversion
     crop_size = None
     do_center_crop = None
     do_reduce_labels = None
@@ -211,7 +180,6 @@ class DPTImageProcessor(BeitImageProcessor):
         if do_reduce_labels:
             images = self.reduce_label(images)
 
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -226,14 +194,11 @@ class DPTImageProcessor(BeitImageProcessor):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_center_crop:
                 stacked_images = self.center_crop(stacked_images, crop_size)
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )

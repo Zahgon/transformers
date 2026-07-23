@@ -1,17 +1,3 @@
-# Copyright 2025 the Cohere Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch AyaVision model."""
 
 import torch
 from torch import nn
@@ -55,7 +41,6 @@ class AyaVisionMultiModalProjector(nn.Module):
         )
 
         self.act = ACT2FN["silu"]  # SwiGLU uses SiLU activation
-        # For SwiGLU, project down to half size since we split intermediate dim
         self.linear_2 = nn.Linear(self.alignment_intermediate_size // 2, config.text_config.hidden_size, bias=True)
 
     def forward(self, image_features):
@@ -63,7 +48,6 @@ class AyaVisionMultiModalProjector(nn.Module):
         image_features = self.layernorm(image_features)
         hidden_states = self.linear_1(image_features)
 
-        # Split along last dimension and apply SwiGLU
         x, gate = hidden_states.chunk(2, dim=-1)
         hidden_states = self.act(gate) * x
 
@@ -99,7 +83,6 @@ class AyaVisionModelOutputWithPast(LlavaModelOutputWithPast):
 
 
 class AyaVisionModel(LlavaModel):
-    # Unlike LLaVA, the model doesn't have to deal with Pixtral-style image states
     @merge_with_config_defaults
     @can_return_tuple
     @auto_docstring(
@@ -114,7 +97,6 @@ class AyaVisionModel(LlavaModel):
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple | BaseModelOutputWithPooling:
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
-        # this is not memory efficient at all (output_hidden_states=True) will save all the hidden states.
         image_outputs = self.vision_tower(
             pixel_values,
             output_hidden_states=True,  # Ignore arg on purpose
@@ -122,15 +104,12 @@ class AyaVisionModel(LlavaModel):
             **kwargs,
         )
 
-        # If we have one vision feature layer, return the corresponding hidden states,
-        # otherwise, select the hidden states of each feature layer and concatenate them
         if isinstance(vision_feature_layer, int):
             selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
             if vision_feature_select_strategy == "default":
                 selected_image_feature = selected_image_feature[:, 1:]
         else:
             hs_pool = [image_outputs.hidden_states[layer_idx] for layer_idx in vision_feature_layer]
-            # For default; crop CLS from each hidden state in the hidden state pool
             if vision_feature_select_strategy == "default":
                 hs_pool = [hs[:, 1:] for hs in hs_pool]
             selected_image_feature = torch.cat(hs_pool, dim=-1)

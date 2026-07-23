@@ -1,22 +1,3 @@
-# Copyright 2024 EleutherAI and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""GraniteMoeShared model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -28,31 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="ibm-granite/granite-speech-3.2-8b")
 @strict
 class GraniteMoeSharedConfig(PreTrainedConfig):
-    r"""
-    embedding_multiplier (`float`, *optional*, defaults to 1.0):
-        embedding multiplier
-    logits_scaling (`float`, *optional*, defaults to 1.0):
-        divisor for output logits
-    residual_multiplier (`float`, *optional*, defaults to 1.0):
-        residual multiplier
-    attention_multiplier (`float`, *optional*, defaults to 1.0):
-        attention multiplier
-    shared_intermediate_size (`int`, *optional*, defaults to 1024):
-        intermediate size for shared experts.
-
-    ```python
-    >>> from transformers import GraniteMoeSharedModel, GraniteMoeSharedConfig
-
-    >>> # Initializing a GraniteMoeShared granitemoe-3b style configuration
-    >>> configuration = GraniteMoeSharedConfig()
-
-    >>> # Initializing a model from the granitemoe-7b style configuration
-    >>> model = GraniteMoeSharedModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "granitemoeshared"
     keys_to_ignore_at_inference = ["past_key_values"]

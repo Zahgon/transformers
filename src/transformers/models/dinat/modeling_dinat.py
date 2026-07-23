@@ -1,17 +1,3 @@
-# Copyright 2022 SHI Labs and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Dilated Neighborhood Attention Transformer model."""
 
 import math
 from dataclasses import dataclass
@@ -52,14 +38,6 @@ else:
 )
 @dataclass
 class DinatEncoderOutput(ModelOutput):
-    r"""
-    reshaped_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, hidden_size, height, width)`.
-
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs reshaped to
-        include the spatial dimensions.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     hidden_states: tuple[torch.FloatTensor, ...] | None = None
@@ -74,16 +52,6 @@ class DinatEncoderOutput(ModelOutput):
 )
 @dataclass
 class DinatModelOutput(ModelOutput):
-    r"""
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, hidden_size)`, *optional*, returned when `add_pooling_layer=True` is passed):
-        Average pooling of the last layer hidden-state.
-    reshaped_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, hidden_size, height, width)`.
-
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs reshaped to
-        include the spatial dimensions.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     pooler_output: torch.FloatTensor | None = None
@@ -99,18 +67,6 @@ class DinatModelOutput(ModelOutput):
 )
 @dataclass
 class DinatImageClassifierOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Classification (or regression if config.num_labels==1) loss.
-    logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Classification (or regression if config.num_labels==1) scores (before SoftMax).
-    reshaped_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, hidden_size, height, width)`.
-
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs reshaped to
-        include the spatial dimensions.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -120,9 +76,6 @@ class DinatImageClassifierOutput(ModelOutput):
 
 
 class DinatEmbeddings(nn.Module):
-    """
-    Construct the patch and position embeddings.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -142,11 +95,6 @@ class DinatEmbeddings(nn.Module):
 
 
 class DinatPatchEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
-    `hidden_states` (patch embeddings) of shape `(batch_size, height, width, hidden_size)` to be consumed by a
-    Transformer.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -157,7 +105,6 @@ class DinatPatchEmbeddings(nn.Module):
         if patch_size == 4:
             pass
         else:
-            # TODO: Support arbitrary patch sizes.
             raise ValueError("Dinat only supports patch size of 4 at the moment.")
 
         self.projection = nn.Sequential(
@@ -178,15 +125,6 @@ class DinatPatchEmbeddings(nn.Module):
 
 
 class DinatDownsampler(nn.Module):
-    """
-    Convolutional Downsampling Layer.
-
-    Args:
-        dim (`int`):
-            Number of input channels.
-        norm_layer (`nn.Module`, *optional*, defaults to `nn.LayerNorm`):
-            Normalization layer class.
-    """
 
     def __init__(self, dim: int, norm_layer: nn.Module = nn.LayerNorm) -> None:
         super().__init__()
@@ -214,7 +152,6 @@ class NeighborhoodAttention(nn.Module):
         self.kernel_size = kernel_size
         self.dilation = dilation
 
-        # rpb is learnable relative positional biases; same concept is used Swin.
         self.rpb = nn.Parameter(torch.zeros(num_heads, (2 * self.kernel_size - 1), (2 * self.kernel_size - 1)))
 
         self.query = nn.Linear(self.all_head_size, self.all_head_size, bias=config.qkv_bias)
@@ -234,19 +171,12 @@ class NeighborhoodAttention(nn.Module):
         key_layer = self.key(hidden_states).view(hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Apply the scale factor before computing attention weights. It's usually more efficient because
-        # attention weights are typically a bigger tensor compared to query.
-        # It gives identical results because scalars are commutable in matrix multiplication.
         query_layer = query_layer / math.sqrt(self.attention_head_size)
 
-        # Compute NA between "query" and "key" to get the raw attention scores, and add relative positional biases.
         attention_scores = natten2dqkrpb(query_layer, key_layer, self.rpb, self.kernel_size, self.dilation)
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = natten2dav(attention_probs, value_layer, self.kernel_size, self.dilation)
@@ -316,13 +246,7 @@ class DinatOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->DinatDropPath
 class DinatDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -338,7 +262,7 @@ class DinatDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class DinatLayer(nn.Module):
@@ -382,7 +306,6 @@ class DinatLayer(nn.Module):
         shortcut = hidden_states
 
         hidden_states = self.layernorm_before(hidden_states)
-        # pad hidden_states if they are smaller than kernel size x dilation
         hidden_states, pad_values = self.maybe_pad(hidden_states, height, width)
 
         _, height_pad, width_pad, _ = hidden_states.shape
@@ -430,7 +353,6 @@ class DinatStage(nn.Module):
             ]
         )
 
-        # patch merging layer
         if downsample is not None:
             self.downsample = downsample(dim=dim, norm_layer=nn.LayerNorm)
         else:
@@ -493,7 +415,6 @@ class DinatEncoder(nn.Module):
         all_self_attentions = () if output_attentions else None
 
         if output_hidden_states:
-            # rearrange b h w c -> b c h w
             reshaped_hidden_state = hidden_states.permute(0, 3, 1, 2)
             all_hidden_states += (hidden_states,)
             all_reshaped_hidden_states += (reshaped_hidden_state,)
@@ -505,12 +426,10 @@ class DinatEncoder(nn.Module):
             hidden_states_before_downsampling = layer_outputs[1]
 
             if output_hidden_states and output_hidden_states_before_downsampling:
-                # rearrange b h w c -> b c h w
                 reshaped_hidden_state = hidden_states_before_downsampling.permute(0, 3, 1, 2)
                 all_hidden_states += (hidden_states_before_downsampling,)
                 all_reshaped_hidden_states += (reshaped_hidden_state,)
             elif output_hidden_states and not output_hidden_states_before_downsampling:
-                # rearrange b h w c -> b c h w
                 reshaped_hidden_state = hidden_states.permute(0, 3, 1, 2)
                 all_hidden_states += (hidden_states,)
                 all_reshaped_hidden_states += (reshaped_hidden_state,)
@@ -558,7 +477,6 @@ class DinatModel(DinatPreTrainedModel):
         self.layernorm = nn.LayerNorm(self.num_features, eps=config.layer_norm_eps)
         self.pooler = nn.AdaptiveAvgPool1d(1) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -628,12 +546,10 @@ class DinatForImageClassification(DinatPreTrainedModel):
         self.num_labels = config.num_labels
         self.dinat = DinatModel(config)
 
-        # Classifier head
         self.classifier = (
             nn.Linear(self.dinat.num_features, config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -697,13 +613,11 @@ class DinatBackbone(BackboneMixin, DinatPreTrainedModel):
         self.encoder = DinatEncoder(config)
         self.num_features = [config.embed_dim] + [int(config.embed_dim * 2**i) for i in range(len(config.depths))]
 
-        # Add layer norms to hidden states of out_features
         hidden_states_norms = {}
         for stage, num_channels in zip(self.out_features, self.channels):
             hidden_states_norms[stage] = nn.LayerNorm(num_channels)
         self.hidden_states_norms = nn.ModuleDict(hidden_states_norms)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):

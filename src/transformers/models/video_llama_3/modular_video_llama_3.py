@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -121,9 +108,6 @@ class VideoLlama3Config(PreTrainedConfig):
         elif self.text_config is None:
             self.text_config = CONFIG_MAPPING["qwen2"]()
 
-        # The default value is `False` but this config is used with many model types
-        # Attr `tie_word_embeddings` was saved in text config for those models, so we
-        # need an ugly workaround and forward-pass the attr from text config
         if not self.tie_word_embeddings and self.text_config.tie_word_embeddings:
             self.tie_word_embeddings = self.text_config.tie_word_embeddings
 
@@ -203,7 +187,6 @@ class VideoLlama3VisionAttention(SiglipAttention):
         )
 
         if is_flash_attention_requested(self.config):
-            # Flash Attention 2: Use cu_seqlens for variable length attention
             max_seqlen = get_max_seqlen(cu_seqlens, self.config, kwargs={"max_seqlen": max_seqlen})
             attn_output, attn_weights = attention_interface(
                 self,
@@ -221,7 +204,6 @@ class VideoLlama3VisionAttention(SiglipAttention):
                 **kwargs,
             )
         else:
-            # Other implementations: Process each chunk separately
             lengths = cu_seqlens[1:] - cu_seqlens[:-1]
             splits = [
                 torch.split(tensor, lengths.tolist(), dim=2) for tensor in (query_states, key_states, value_states)
@@ -439,20 +421,6 @@ class VideoLlama3Projector(nn.Module):
 )
 @dataclass
 class VideoLlama3ModelOutputWithPast(ModelOutput):
-    r"""
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        Tuple of `tuple(torch.FloatTensor)` of length `config.n_layers`, with each tuple having 2 tensors of shape
-        `(batch_size, num_heads, sequence_length, embed_size_per_head)`)
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size `(num_images_features, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    video_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size `(num_video_features, hidden_size)`.
-        video_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
 
     last_hidden_state: torch.FloatTensor = None
     past_key_values: list[torch.FloatTensor] | None = None
@@ -626,24 +594,6 @@ class VideoLlama3Model(Qwen2VLModel):
 )
 @dataclass
 class VideoLlama3CausalLMOutputWithPast(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        Tuple of `tuple(torch.FloatTensor)` of length `config.n_layers`, with each tuple having 2 tensors of shape
-        `(batch_size, num_heads, sequence_length, embed_size_per_head)`)
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size `(num_images_features, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    video_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size `(num_video_features, hidden_size)`.
-        video_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -752,7 +702,6 @@ class VideoLlama3ForConditionalGeneration(Qwen2VLForConditionalGeneration):
         is_first_iteration: bool | None = False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -871,10 +820,6 @@ class VideoLlama3ForConditionalGeneration(Qwen2VLForConditionalGeneration):
         input_ids: torch.LongTensor | None = None,
         **model_kwargs,
     ) -> tuple[torch.LongTensor, dict[str, Any]]:
-        # Overwritten -- Support for expanding tensors without a batch size dimension
-        # e.g., pixel_values, image_grid_thw, pixel_values_videos, video_grid_thw, second_per_grid_t
-        # pixel_values.shape[0] is sum(seqlen_images for samples)
-        # image_grid_thw.shape[0] is sum(num_images for samples)
 
         if expand_size == 1:
             return input_ids, model_kwargs
@@ -912,15 +857,12 @@ class VideoLlama3ForConditionalGeneration(Qwen2VLForConditionalGeneration):
             )
             for key in dict_to_expand:
                 if key == "pixel_values":
-                    # split images into samples
                     samples = torch.split(image_grid_thw, list(image_nums))
-                    # compute the sequence length of images for each sample
                     lengths = [torch.prod(sample, dim=1).sum() for sample in samples]
                     dict_to_expand[key] = _repeat_interleave_samples(
                         dict_to_expand[key], lengths=lengths, repeat_times=expand_size
                     )
                 elif key == "image_grid_thw":
-                    # get the num of images for each sample
                     lengths = list(image_nums)
                     dict_to_expand[key] = _repeat_interleave_samples(
                         dict_to_expand[key], lengths=lengths, repeat_times=expand_size
@@ -1011,30 +953,7 @@ class VideoLlama3Processor(Qwen3VLProcessor):
         ProcessorMixin.__init__(image_processor, tokenizer, video_processor, chat_template=chat_template)
 
     def replace_video_token(self, video_inputs: dict, video_idx: int) -> str:
-        num_video_tokens = [
-            grid_thw.prod() // merge_size**2
-            for grid_thw, merge_size in zip(video_inputs["video_grid_thw"], video_inputs["video_merge_sizes"])
-        ]
-        video_compression_masks = video_inputs["video_compression_mask"].split(num_video_tokens)
-        metadata = video_inputs["video_metadata"][video_idx]
-
-        if metadata.fps is None:
-            logger.warning_once(
-                "VideoLLaMA3 requires frame timestamps to construct prompts, but the `fps` of the input video could not be inferred. "
-                "Probably `video_metadata` was missing from inputs and you passed pre-sampled frames. "
-                "Defaulting to `fps=1`. Please provide `video_metadata` for more accurate results."
-            )
-        metadata.fps = 1 if metadata.fps is None else metadata.fps
-
-        frame_compression_masks = video_compression_masks[video_idx].split(
-            len(video_compression_masks[video_idx]) // len(metadata.timestamps)
-        )
-        num_frame_tokens = [x.sum() for x in frame_compression_masks]
-        video_placeholder = [
-            f"Time {t:.1f}s:" + self.video_token * n for n, t in zip(num_frame_tokens, metadata.timestamps)
-        ]
-
-        return ",".join(video_placeholder)
+        pass
 
     def model_input_names(self):
         raise AttributeError("VideoLlama doesn't need to override it")
@@ -1219,8 +1138,6 @@ class VideoLlama3ImageProcessor(Qwen2VLImageProcessor):
                 merge_size,
                 patch_size,
             )
-            # Reorder dimensions to group grid and patch information for subsequent flattening.
-            # [batch, grid_h/merge, grid_w/merge, merge, merge, channel, patch, patch]
             patches = patches.permute(0, 2, 5, 3, 6, 1, 4, 7)
 
             flatten_patches = (
@@ -1301,7 +1218,6 @@ class VideoLlama3VideoProcessor(Qwen2VLVideoProcessor):
                 num_tokens = images.size(0) // (merge_size**2)
                 compression_masks.append(torch.ones((num_tokens,), dtype=torch.bool, device=images.device))
             else:
-                # NOTE: video token compressor
                 images = images.view(t, (h // merge_size) * (w // merge_size), -1)
 
                 pixel_diff = images[1:] - images[:-1]
@@ -1334,7 +1250,6 @@ class VideoLlama3VideoProcessor(Qwen2VLVideoProcessor):
         device: Optional["torch.Tensor"] = None,
         **kwargs,
     ):
-        # Group videos by size for batched resizing
         grouped_videos, grouped_videos_index = group_videos_by_shape(videos)
         resized_videos_grouped = {}
         for shape, stacked_videos in grouped_videos.items():
@@ -1358,21 +1273,17 @@ class VideoLlama3VideoProcessor(Qwen2VLVideoProcessor):
             resized_videos_grouped[shape] = stacked_videos
         resized_videos = reorder_videos(resized_videos_grouped, grouped_videos_index)
 
-        # Group videos by size for further processing
-        # Needed in case do_resize is False, or resize returns videos with different sizes
         grouped_videos, grouped_videos_index = group_videos_by_shape(resized_videos)
         processed_videos_grouped = {}
         processed_grids = {}
         for shape, stacked_videos in grouped_videos.items():
             resized_height, resized_width = get_image_size(stacked_videos[0], channel_dim=ChannelDimension.FIRST)
 
-            # Fused rescale and normalize
             stacked_videos = self.rescale_and_normalize(
                 stacked_videos, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
             patches = stacked_videos
 
-            # Check that videos have `num_frames` divisible by `temporal_patch_size`
             T = patches.shape[1]
             if pad := -T % temporal_patch_size:
                 repeats = patches[:, -1:].expand(-1, pad, -1, -1, -1)

@@ -1,17 +1,3 @@
-# Copyright 2021 Studio Ousia and the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License
-"""Tokenization classes for mLUKE."""
 
 import itertools
 import json
@@ -127,89 +113,6 @@ ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING = r"""
 
 
 class MLukeTokenizer(TokenizersBackend):
-    """
-    Adapted from [`XLMRobertaTokenizer`] and [`LukeTokenizer`]. Based on
-    [SentencePiece](https://github.com/google/sentencepiece).
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            Path to the vocabulary file.
-        entity_vocab_file (`str`):
-            Path to the entity vocabulary file.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the beginning of
-            sequence. The token used is the `cls_token`.
-
-            </Tip>
-
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the end of sequence.
-            The token used is the `sep_token`.
-
-            </Tip>
-
-        sep_token (`str`, *optional*, defaults to `"</s>"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        cls_token (`str`, *optional*, defaults to `"<s>"`):
-            The classifier token which is used when doing sequence classification (classification of the whole sequence
-            instead of per-token classification). It is the first token of the sequence when built with special tokens.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        mask_token (`str`, *optional*, defaults to `"<mask>"`):
-            The token used for masking values. This is the token used when training this model with masked language
-            modeling. This is the token which the model will try to predict.
-        task (`str`, *optional*):
-            Task for which you want to prepare sequences. One of `"entity_classification"`,
-            `"entity_pair_classification"`, or `"entity_span_classification"`. If you specify this argument, the entity
-            sequence is automatically created based on the given entity span(s).
-        max_entity_length (`int`, *optional*, defaults to 32):
-            The maximum length of `entity_ids`.
-        max_mention_length (`int`, *optional*, defaults to 30):
-            The maximum number of tokens inside an entity span.
-        entity_token_1 (`str`, *optional*, defaults to `<ent>`):
-            The special token used to represent an entity span in a word token sequence. This token is only used when
-            `task` is set to `"entity_classification"` or `"entity_pair_classification"`.
-        entity_token_2 (`str`, *optional*, defaults to `<ent2>`):
-            The special token used to represent an entity span in a word token sequence. This token is only used when
-            `task` is set to `"entity_pair_classification"`.
-        additional_special_tokens (`list[str]`, *optional*, defaults to `["<s>NOTUSED", "</s>NOTUSED"]`):
-            Additional special tokens used by the tokenizer.
-        sp_model_kwargs (`dict`, *optional*):
-            Will be passed to the `SentencePieceProcessor.__init__()` method. The [Python wrapper for
-            SentencePiece](https://github.com/google/sentencepiece/tree/master/python) can be used, among other things,
-            to set:
-
-            - `enable_sampling`: Enable subword regularization.
-            - `nbest_size`: Sampling parameters for unigram. Invalid for BPE-Dropout.
-
-              - `nbest_size = {0,1}`: No sampling is performed.
-              - `nbest_size > 1`: samples from the nbest_size results.
-              - `nbest_size < 0`: assuming that nbest_size is infinite and samples from the all hypothesis (lattice)
-                using forward-filtering-and-backward-sampling algorithm.
-
-            - `alpha`: Smoothing parameter for unigram sampling, and dropout probability of merge operations for
-              BPE-dropout.
-
-    Attributes:
-        sp_model (`SentencePieceProcessor`):
-            The *SentencePiece* processor that is used for every conversion (string, tokens and IDs).
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -236,10 +139,8 @@ class MLukeTokenizer(TokenizersBackend):
         entity_vocab: str | dict | list | None = None,
         **kwargs,
     ) -> None:
-        # Mask token behave like a normal word, i.e. include the space before it
         mask_token = AddedToken(mask_token, lstrip=True, rstrip=False) if isinstance(mask_token, str) else mask_token
 
-        # we add 2 special tokens for downstream tasks
         entity_token_1 = (
             AddedToken(entity_token_1, lstrip=False, rstrip=False)
             if isinstance(entity_token_1, str)
@@ -251,32 +152,25 @@ class MLukeTokenizer(TokenizersBackend):
             else entity_token_2
         )
 
-        # Handle entity vocab file for backward compatibility
         entity_vocab_file = kwargs.pop("entity_vocab_file", None)
 
-        # Check if vocab/entity_vocab are in kwargs
         if vocab is None and "vocab" in kwargs:
             vocab = kwargs.pop("vocab")
         if entity_vocab is None and "entity_vocab" in kwargs:
             entity_vocab = kwargs.pop("entity_vocab")
 
-        # Build vocab from data (list of (token, score) tuples)
         if isinstance(vocab, list):
-            # vocab is list of (token, score) tuples from SentencePieceExtractor
             self._vocab = [(token, float(score)) for token, score in vocab]
             self._vocab_size = len(self._vocab)
         elif vocab is not None:
             self._vocab = vocab
             self._vocab_size = 0
         else:
-            # Create minimal vocab with <unk> to satisfy Unigram requirements
             self._vocab = [("<unk>", 0.0)]
             self._vocab_size = 0  # Will be updated when real vocab is loaded
 
-        # Build Unigram tokenizer
         self._tokenizer = Tokenizer(Unigram(self._vocab, unk_id=0))
 
-        # Add SentencePiece-style normalization and pre-tokenization
         self._tokenizer.normalizer = normalizers.Sequence(
             [
                 normalizers.Replace("``", '"'),
@@ -286,29 +180,20 @@ class MLukeTokenizer(TokenizersBackend):
         self._tokenizer.pre_tokenizer = pre_tokenizers.Metaspace(replacement="▁", prepend_scheme="always")
         self._tokenizer.decoder = decoders.Metaspace(replacement="▁", prepend_scheme="always")
 
-        # Original fairseq vocab and spm vocab must be "aligned":
-        # Vocab    |    0    |    1    |   2    |    3    |  4  |  5  |  6  |   7   |   8   |  9
-        # -------- | ------- | ------- | ------ | ------- | --- | --- | --- | ----- | ----- | ----
-        # fairseq  | '<s>'   | '<pad>' | '</s>' | '<unk>' | ',' | '.' | '▁' | 's'   | '▁de' | '-'
-        # spm      | '<unk>' | '<s>'   | '</s>' | ','     | '.' | '▁' | 's' | '▁de' | '-'   | '▁a'
 
-        # Mimic fairseq token-to-id alignment for the first 4 tokens
         self.fairseq_tokens_to_ids = {"<s>": 0, "<pad>": 1, "</s>": 2, "<unk>": 3}
 
-        # The first "real" token "," has position 4 in the original fairseq vocab and position 3 in the spm vocab
         self.fairseq_offset = 1
 
         self.fairseq_tokens_to_ids["<mask>"] = self._vocab_size + self.fairseq_offset
         self.fairseq_ids_to_tokens = {v: k for k, v in self.fairseq_tokens_to_ids.items()}
 
-        # Load entity vocab
         if entity_vocab is not None:
             self.entity_vocab = entity_vocab
         elif entity_vocab_file is not None:
             with open(entity_vocab_file, encoding="utf-8") as entity_vocab_handle:
                 self.entity_vocab = json.load(entity_vocab_handle)
         else:
-            # Create minimal entity vocab with required special tokens
             self.entity_vocab = {
                 entity_unk_token: 0,
                 entity_pad_token: 1,
@@ -341,8 +226,6 @@ class MLukeTokenizer(TokenizersBackend):
 
         self.max_mention_length = max_mention_length
 
-        # Handle extra/legacy special tokens (v4 compat). The fallback load path can pass
-        # `additional_special_tokens` and/or `extra_special_tokens`, with entries serialized as dicts.
         extra_tokens: list[AddedToken | str] = []
         for key in ("extra_special_tokens", "additional_special_tokens"):
             tokens = kwargs.pop(key, None)
@@ -350,7 +233,6 @@ class MLukeTokenizer(TokenizersBackend):
                 for token in tokens:
                     extra_tokens.append(AddedToken(**token) if isinstance(token, dict) else token)
 
-        # Ensure MLuke entity tokens are present exactly once.
         seen = {str(token) for token in extra_tokens}
         for token in (entity_token_1, entity_token_2):
             token_str = str(token)
@@ -358,7 +240,6 @@ class MLukeTokenizer(TokenizersBackend):
                 extra_tokens.append(token)
                 seen.add(token_str)
 
-        # Also register entity masking/padding tokens so they survive save/load cycles.
         for token in (entity_unk_token, entity_pad_token, entity_mask_token, entity_mask2_token):
             if token not in seen:
                 extra_tokens.append(AddedToken(token, lstrip=False, rstrip=False, normalized=False, special=True))
@@ -387,7 +268,6 @@ class MLukeTokenizer(TokenizersBackend):
             **kwargs,
         )
 
-        # Call _post_init for tokenizers created directly (not from_pretrained)
         self._post_init()
 
     def _post_init(self):
@@ -395,14 +275,10 @@ class MLukeTokenizer(TokenizersBackend):
         Post-initialization to configure the post-processor for MLuke's special token format.
         """
         super()._post_init()
-        # Ensure the Python-side vocab metadata matches the fast tokenizer backend after loading
         self._vocab_size = self._tokenizer.get_vocab_size(with_added_tokens=False)
         self.fairseq_tokens_to_ids["<mask>"] = self._vocab_size + self.fairseq_offset
         self.fairseq_ids_to_tokens = {v: k for k, v in self.fairseq_tokens_to_ids.items()}
 
-        # Configure post processor for XLM-R/MLuke format:
-        # single: <s> X </s>
-        # pair: <s> A </s></s> B </s>
         from tokenizers import processors
 
         self._tokenizer.post_processor = processors.TemplateProcessing(
@@ -416,7 +292,7 @@ class MLukeTokenizer(TokenizersBackend):
 
     @property
     def vocab_size(self):
-        return self._vocab_size + self.fairseq_offset + 1  # Add the <mask> token
+        pass
 
     def get_vocab(self):
         vocab = {self.convert_ids_to_tokens(i): i for i in range(self.vocab_size)}
@@ -428,10 +304,8 @@ class MLukeTokenizer(TokenizersBackend):
         if token in self.fairseq_tokens_to_ids:
             return self.fairseq_tokens_to_ids[token]
 
-        # Look up token in vocab
         token_id = self._tokenizer.token_to_id(token)
 
-        # Need to return unknown token if not found (token_to_id returns None)
         return token_id + self.fairseq_offset if token_id is not None else self.unk_token_id
 
     def _convert_id_to_token(self, index):
@@ -488,14 +362,12 @@ class MLukeTokenizer(TokenizersBackend):
         verbose: bool = True,
         **kwargs,
     ) -> BatchEncoding:
-        # Check for seq2seq parameters that are not supported with entity-aware encoding
         if kwargs.get("text_target") is not None or kwargs.get("text_pair_target") is not None:
             if entity_spans is not None or entities is not None or self.task is not None:
                 raise NotImplementedError(
                     "text_target and text_pair_target are not supported when using entity-aware encoding. "
                     "Please use the tokenizer without entities for seq2seq tasks."
                 )
-            # Delegate to parent for seq2seq encoding
             return super().__call__(
                 text=text,
                 text_pair=text_pair,
@@ -557,7 +429,6 @@ class MLukeTokenizer(TokenizersBackend):
             max_entity_length (`int`, *optional*):
                 The maximum length of `entity_ids`.
         """
-        # Input type checking for clearer error
         is_valid_single_text = isinstance(text, str)
         is_valid_batch_text = isinstance(text, (list, tuple)) and (
             len(text) == 0 or isinstance(text[0], (str, list, tuple))
@@ -574,7 +445,6 @@ class MLukeTokenizer(TokenizersBackend):
 
         is_batched = bool(isinstance(text, (list, tuple)))
 
-        # Get proper padding and truncation strategies
         padding_strategy, truncation_strategy, max_length, kwargs = self._get_padding_truncation_strategies(
             padding=padding,
             truncation=truncation,
@@ -736,7 +606,6 @@ class MLukeTokenizer(TokenizersBackend):
             **kwargs,
         )
 
-        # prepare_for_model will create the attention_mask and token_type_ids
         return self.prepare_for_model(
             first_ids,
             pair_ids=second_ids,
@@ -833,7 +702,6 @@ class MLukeTokenizer(TokenizersBackend):
         if is_split_into_words:
             raise NotImplementedError("is_split_into_words is not supported in this tokenizer.")
 
-        # input_ids is a list of tuples (one for each example in the batch)
         input_ids = []
         entity_ids = []
         entity_token_spans = []
@@ -934,8 +802,6 @@ class MLukeTokenizer(TokenizersBackend):
         **kwargs,
     ) -> tuple[list, list, list, list, list, list]:
         def get_input_ids(text):
-            # Use the underlying tokenizer directly to avoid infinite recursion
-            # Then convert to fairseq-aligned IDs
             tokens = self._tokenizer.encode(text, add_special_tokens=False).tokens
             return self.convert_tokens_to_ids(tokens)
 
@@ -1010,7 +876,6 @@ class MLukeTokenizer(TokenizersBackend):
             first_entity_ids = [self.entity_mask_token_id]
             first_ids, first_entity_token_spans = get_input_ids_and_entity_token_spans(text, entity_spans)
 
-            # add special tokens to input ids
             entity_token_start, entity_token_end = first_entity_token_spans[0]
             first_ids = (
                 first_ids[:entity_token_end] + [self.extra_special_tokens_ids[0]] + first_ids[entity_token_end:]
@@ -1213,7 +1078,6 @@ class MLukeTokenizer(TokenizersBackend):
                 The maximum length of the entity sequence.
         """
 
-        # Backward compatibility for 'truncation_strategy', 'pad_to_max_length'
         padding_strategy, truncation_strategy, max_length, kwargs = self._get_padding_truncation_strategies(
             padding=padding,
             truncation=truncation,
@@ -1223,7 +1087,6 @@ class MLukeTokenizer(TokenizersBackend):
             **kwargs,
         )
 
-        # Compute lengths
         pair = bool(pair_ids is not None)
         len_ids = len(ids)
         len_pair_ids = len(pair_ids) if pair else 0
@@ -1245,7 +1108,6 @@ class MLukeTokenizer(TokenizersBackend):
                 "for instance `only_second` or `only_first`."
             )
 
-        # Load from model defaults
         if return_token_type_ids is None:
             return_token_type_ids = "token_type_ids" in self.model_input_names
         if return_attention_mask is None:
@@ -1253,13 +1115,10 @@ class MLukeTokenizer(TokenizersBackend):
 
         encoded_inputs = {}
 
-        # Compute the total size of the returned word encodings
         total_len = len_ids + len_pair_ids + (self.num_special_tokens_to_add(pair=pair) if add_special_tokens else 0)
 
-        # Truncation: Handle max sequence length and max_entity_length
         overflowing_tokens = []
         if truncation_strategy != TruncationStrategy.DO_NOT_TRUNCATE and max_length and total_len > max_length:
-            # truncate words up to max_length
             ids, pair_ids, overflowing_tokens = self.truncate_sequences(
                 ids,
                 pair_ids=pair_ids,
@@ -1272,7 +1131,6 @@ class MLukeTokenizer(TokenizersBackend):
             encoded_inputs["overflowing_tokens"] = overflowing_tokens
             encoded_inputs["num_truncated_tokens"] = total_len - max_length
 
-        # Add special tokens
         if add_special_tokens:
             sequence = self.build_inputs_with_special_tokens(ids, pair_ids)
             token_type_ids = self.create_token_type_ids_from_sequences(ids, pair_ids)
@@ -1284,7 +1142,6 @@ class MLukeTokenizer(TokenizersBackend):
             entity_token_offset = 0
             pair_entity_token_offset = len(ids)
 
-        # Build output dictionary
         encoded_inputs["input_ids"] = sequence
         if return_token_type_ids:
             encoded_inputs["token_type_ids"] = token_type_ids
@@ -1294,7 +1151,6 @@ class MLukeTokenizer(TokenizersBackend):
             else:
                 encoded_inputs["special_tokens_mask"] = [0] * len(sequence)
 
-        # Set max entity length
         if not max_entity_length:
             max_entity_length = self.max_entity_length
 
@@ -1325,7 +1181,6 @@ class MLukeTokenizer(TokenizersBackend):
                 )
 
             if truncation_strategy != TruncationStrategy.DO_NOT_TRUNCATE and total_entity_len > max_entity_length:
-                # truncate entities up to max_entity_length
                 valid_entity_ids, valid_pair_entity_ids, overflowing_entities = self.truncate_sequences(
                     valid_entity_ids,
                     pair_ids=valid_pair_entity_ids,
@@ -1368,10 +1223,8 @@ class MLukeTokenizer(TokenizersBackend):
             if return_token_type_ids:
                 encoded_inputs["entity_token_type_ids"] = [0] * len(encoded_inputs["entity_ids"])
 
-        # Check lengths
         self._eventual_warn_about_too_long_sequence(encoded_inputs["input_ids"], max_length, verbose)
 
-        # Padding
         if padding_strategy != PaddingStrategy.DO_NOT_PAD or return_attention_mask:
             encoded_inputs = self.pad(
                 encoded_inputs,
@@ -1455,13 +1308,9 @@ class MLukeTokenizer(TokenizersBackend):
             verbose (`bool`, *optional*, defaults to `True`):
                 Whether or not to print more information and warnings.
         """
-        # If we have a list of dicts, let's convert it in a dict of lists
-        # We do this to allow using this method as a collate_fn function in PyTorch Dataloader
         if isinstance(encoded_inputs, (list, tuple)) and isinstance(encoded_inputs[0], Mapping):
-            # Call .keys() explicitly for compatibility with TensorDict and other Mapping subclasses
             encoded_inputs = {key: [example[key] for example in encoded_inputs] for key in encoded_inputs[0].keys()}
 
-        # The model's main input name, usually `input_ids`, has be passed for padding
         if self.model_input_names[0] not in encoded_inputs:
             raise ValueError(
                 "You should supply an encoding or a list of encodings to this method "
@@ -1475,19 +1324,14 @@ class MLukeTokenizer(TokenizersBackend):
                 encoded_inputs["attention_mask"] = []
             return encoded_inputs
 
-        # If we have PyTorch/NumPy tensors/arrays as inputs, we cast them as python objects
-        # and rebuild them afterwards if no return_tensors is specified
-        # Note that we lose the specific device the tensor may be on for PyTorch
 
         first_element = required_input[0]
         if isinstance(first_element, (list, tuple)):
-            # first_element might be an empty list/tuple in some edge cases so we grab the first non empty element.
             index = 0
             while len(required_input[index]) == 0:
                 index += 1
             if index < len(required_input):
                 first_element = required_input[index][0]
-        # At this state, if `first_element` is still a list/tuple, it's an empty one so there is nothing to do.
         if not isinstance(first_element, (int, list, tuple)):
             if is_torch_tensor(first_element):
                 return_tensors = "pt" if return_tensors is None else return_tensors
@@ -1502,7 +1346,6 @@ class MLukeTokenizer(TokenizersBackend):
             for key, value in encoded_inputs.items():
                 encoded_inputs[key] = to_py_obj(value)
 
-        # Convert padding_strategy in PaddingStrategy
         padding_strategy, _, max_length, _ = self._get_padding_truncation_strategies(
             padding=padding, max_length=max_length, verbose=verbose
         )
@@ -1596,7 +1439,6 @@ class MLukeTokenizer(TokenizersBackend):
         """
         entities_provided = bool("entity_ids" in encoded_inputs)
 
-        # Load from model defaults
         if return_attention_mask is None:
             return_attention_mask = "attention_mask" in self.model_input_names
 
@@ -1621,7 +1463,6 @@ class MLukeTokenizer(TokenizersBackend):
             or (entities_provided and len(encoded_inputs["entity_ids"]) != max_entity_length)
         )
 
-        # Initialize attention mask if not present.
         if return_attention_mask and "attention_mask" not in encoded_inputs:
             encoded_inputs["attention_mask"] = [1] * len(encoded_inputs["input_ids"])
         if entities_provided and return_attention_mask and "entity_attention_mask" not in encoded_inputs:

@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""OWL-ViT model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -25,21 +11,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="google/owlvit-base-patch16")
 @strict
 class OwlViTTextConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import OwlViTTextConfig, OwlViTTextModel
-
-    >>> # Initializing a OwlViTTextModel with google/owlvit-base-patch32 style configuration
-    >>> configuration = OwlViTTextConfig()
-
-    >>> # Initializing a OwlViTTextConfig from the google/owlvit-base-patch32 style configuration
-    >>> model = OwlViTTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "owlvit_text_model"
     base_config_key = "text_config"
@@ -63,21 +34,6 @@ class OwlViTTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="google/owlvit-base-patch16")
 @strict
 class OwlViTVisionConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import OwlViTVisionConfig, OwlViTVisionModel
-
-    >>> # Initializing a OwlViTVisionModel with google/owlvit-base-patch32 style configuration
-    >>> configuration = OwlViTVisionConfig()
-
-    >>> # Initializing a OwlViTVisionModel model from the google/owlvit-base-patch32 style configuration
-    >>> model = OwlViTVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "owlvit_vision_model"
     base_config_key = "vision_config"

@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from ..utils import is_torch_available, logging
 
@@ -77,7 +64,6 @@ class Mxfp4Quantize(ConversionOps):
                 proj = "gate_up_proj" if "gate_up_proj" in full_layer_name else "down_proj"
 
                 if proj in module._parameters:
-                    # Remove the nn.Parameter registration so we can attach the Triton tensor
                     del module._parameters[proj]
 
                 setattr(module, proj, triton_weight_tensor)
@@ -118,13 +104,12 @@ class Mxfp4Dequantize(ConversionOps):
             else:
                 param_data[f"{proj}_scales"] = input_dict[f"{proj}_scales"]
 
-        # Here we are dequantizing the weights
         dequantized = dequantize_convertops(param_data[f"{proj}_blocks"], param_data[f"{proj}_scales"])
         return {full_layer_name: dequantized}
 
     @property
     def reverse_op(self) -> "ConversionOps":
-        return _IdentityOp()
+        pass
 
 
 class Mxfp4Deserialize(ConversionOps):
@@ -153,7 +138,6 @@ class Mxfp4Deserialize(ConversionOps):
             else:
                 param_data[f"{proj}_scales"] = input_dict[f"{proj}_scales"]
 
-        # Eagerly set tensors on the module and perform swizzle
         module, _ = get_module_from_name(model, full_layer_name)
         swizzle_mxfp4_convertops(
             param_data[f"{proj}_blocks"],
@@ -165,14 +149,11 @@ class Mxfp4Deserialize(ConversionOps):
         )
         missing_keys.discard(f"{full_layer_name}")
         module._is_hf_initialized = True
-        # We return an empty mapping since the module was updated in-place. This prevents
-        # the loader from trying to materialize the original meta-parameter names again.
-        # We don't use set_param_for_module since it expects mainly a torch.nn.Parameter or a safetensors pointer
         return {}
 
     @property
     def reverse_op(self) -> ConversionOps:
-        return Mxfp4ReverseDeserialize(self.hf_quantizer)
+        pass
 
 
 class Mxfp4ReverseDeserialize(ConversionOps):
@@ -226,7 +207,6 @@ class Mxfp4ReverseDeserialize(ConversionOps):
         return state_dict
 
 
-# Copied from GPT_OSS repo and vllm
 def quantize_to_mxfp4(w, triton_kernels_hub):
     downcast_to_mxfp_torch = triton_kernels_hub.numerics_details.mxfp.downcast_to_mxfp_torch
     w, w_scale = downcast_to_mxfp_torch(w.to(torch.bfloat16), torch.uint8, axis=1)
@@ -251,8 +231,6 @@ def swizzle_mxfp4(w, w_scale, triton_kernels_hub):
     return w, w_scale
 
 
-# Mostly copied from GPT_OSS repo
-# TODO: Add absolute link when the repo is public
 def _convert_moe_packed_tensors(
     blocks,
     scales,
@@ -288,22 +266,15 @@ def _convert_moe_packed_tensors(
         exp = scales[r0:r1]
         sub = out[r0:r1]
 
-        # With device_map="auto", tensors sitting on a non-current accelerator device are not
-        # ordered after their async H2D copy, so the compute below may read garbage and emit
-        # out-of-bounds `lut` indices (illegal memory access on CUDA, indexing abort on XPU).
-        # Aligning the active device with the tensor's device orders it correctly (no-op on CPU).
         with on_device(blk.device):
-            # This vector is only used to index into `lut`, but is hugeee in GPU memory so we delete it immediately
             idx_lo = (blk & 0x0F).to(torch.int)
             sub[:, 0::2] = lut[idx_lo]
             del idx_lo
 
-            # This vector is only used to index into `lut`, but is hugeee in GPU memory so we delete it immediately
             idx_hi = (blk >> 4).to(torch.int)
             sub[:, 1::2] = lut[idx_hi]
             del idx_hi
 
-            # Perform op
             torch.ldexp(sub, exp, out=sub)
         del blk, exp, sub
 
@@ -323,14 +294,8 @@ def convert_moe_packed_tensors(
     Convert the mxfp4 weights again, dequantizing and makes them compatible with the forward
     pass of GPT_OSS.
     """
-    # Since the intermediate ops requite A LOT of memory, in very constrained device_map="auto" settings
-    # it may OOM, hence this wrapper and move back to cpu if needed
-    # torch statistics are not accurate enough to estimate if we will have enough memory due to fragmentation and
-    # in-place operation on non-contiguous tensors (may sometimes require more temporary copies)
     try:
         return _convert_moe_packed_tensors(blocks, scales, dtype=dtype, rows_per_chunk=rows_per_chunk)
-    # In the case of OOM due to very tight device_map, we convert and return on cpu - it will then be put back on correct
-    # device with the accelerate dispatch (doing it right away may still lead to OOM, but more memory is available later)
     except torch.OutOfMemoryError:
         blocks = blocks.to("cpu")
         scales = scales.to("cpu")
@@ -402,94 +367,15 @@ class Mxfp4GptOssExperts(nn.Module):
         return intermediate_cache3
 
 
-# Adapted from GPT_OSS repo
-# TODO: Add absolute link when the repo is public
 def routing_torch_dist(
     logits,
     n_expts_act,
 ):
-    import os
-
-    GatherIndx, RoutingData, ScatterIndx, compute_expt_data_torch = (
-        triton_kernels_hub.routing.GatherIndx,
-        triton_kernels_hub.routing.RoutingData,
-        triton_kernels_hub.routing.ScatterIndx,
-        triton_kernels_hub.routing.compute_expt_data_torch,
-    )
-
-    with on_device(logits.device):
-        world_size = torch.distributed.get_world_size()
-        rank = int(os.environ.get("LOCAL_RANK", "0"))
-        replace_value = -1
-
-        n_tokens = logits.shape[0]
-        n_expts_tot = logits.shape[1]
-
-        n_local_experts = n_expts_tot // world_size
-        local_expert_start = rank * n_local_experts
-        local_expert_end = (rank + 1) * n_local_experts
-
-        n_gates_pad = n_tokens * n_expts_act
-
-        def topk(vals, k):
-            tk_indx = torch.argsort(-vals, dim=1, stable=True)[:, :k]
-            tk_indx = tk_indx.long()
-            tk_val = torch.take_along_dim(vals, tk_indx, dim=1)
-            return tk_val, tk_indx.int()
-
-        expt_scal, expt_indx = topk(logits, n_expts_act)
-        expt_scal = torch.softmax(expt_scal, dim=-1)
-        expt_indx, sort_indices = torch.sort(expt_indx, dim=1)
-        expt_scal = torch.gather(expt_scal, 1, sort_indices)
-
-        # Flatten and mask for local experts
-        expt_scal = expt_scal.reshape(-1)
-
-        hist = torch.histc(expt_indx, bins=n_expts_tot, max=n_expts_tot - 1)[local_expert_start:local_expert_end]
-
-        expt_indx = expt_indx.view(-1).to(torch.int32)
-
-        # we use a large value to replace the indices that are not in the local expert range
-        var = 1000
-        expt_indx = torch.where(expt_indx < local_expert_start, var, expt_indx)
-        topk_indx = torch.argsort(expt_indx, stable=True).to(torch.int32)
-        gate_indx = torch.argsort(topk_indx).to(torch.int32)
-        expt_indx = torch.where(expt_indx < local_expert_end, expt_indx, replace_value)
-        expt_indx = torch.where(local_expert_start <= expt_indx, expt_indx, replace_value)
-
-        gate_indx = torch.where(expt_indx == replace_value, replace_value, gate_indx)
-        gate_scal = expt_scal[topk_indx]
-
-        topk_indx = torch.where(gate_indx[topk_indx] == replace_value, replace_value, topk_indx)
-
-        # # Routing metadata for local expert computation
-        gather_indx = GatherIndx(src_indx=topk_indx.int(), dst_indx=gate_indx.int())
-        scatter_indx = ScatterIndx(src_indx=gate_indx.int(), dst_indx=topk_indx.int())
-
-        expt_data = compute_expt_data_torch(hist, n_local_experts, n_gates_pad)
-
-        hit_experts = n_expts_act
-    return RoutingData(gate_scal, hist, n_local_experts, hit_experts, expt_data), gather_indx, scatter_indx
+    pass
 
 
 def mlp_forward(self, hidden_states):
-    import torch.distributed as dist
-
-    if dist.is_available() and dist.is_initialized() and hasattr(self, "_is_hooked"):
-        routing = routing_torch_dist
-    else:
-        routing = triton_kernels_hub.routing.routing
-
-    batch_size = hidden_states.shape[0]
-    hidden_states = hidden_states.reshape(-1, self.router.hidden_dim)
-    router_logits = nn.functional.linear(hidden_states, self.router.weight, self.router.bias)
-
-    with on_device(router_logits.device):
-        routing_data, gather_idx, scatter_idx = routing(router_logits, self.router.top_k)
-
-    routed_out = self.experts(hidden_states, routing_data, gather_idx, scatter_idx=scatter_idx)
-    routed_out = routed_out.reshape(batch_size, -1, self.router.hidden_dim)
-    return routed_out, router_logits
+    pass
 
 
 def dequantize(module, param_name, param_value, target_device, dq_param_name, **kwargs):
@@ -531,74 +417,7 @@ def dequantize_convertops(blocks, scales):
 
 
 def load_and_swizzle_mxfp4(module, param_name, param_value, target_device, triton_kernels_hub, **kwargs):
-    """
-    This transforms the weights obtained using `convert_gpt_oss.py` to load them into `Mxfp4GptOssExperts`.
-    """
-    PrecisionConfig, FlexCtx, InFlexData = (
-        triton_kernels_hub.matmul_ogs.PrecisionConfig,
-        triton_kernels_hub.matmul_ogs.FlexCtx,
-        triton_kernels_hub.matmul_ogs.InFlexData,
-    )
-    from ..integrations.tensor_parallel import shard_and_distribute_module
-
-    model = kwargs.get("model")
-    empty_param = kwargs.get("empty_param")
-    casting_dtype = kwargs.get("casting_dtype")
-    to_contiguous = kwargs.get("to_contiguous")
-    rank = kwargs.get("rank")
-    device_mesh = kwargs.get("device_mesh")
-    if "blocks" in param_name:
-        proj = param_name.split(".")[-1].split("_blocks")[0]
-    if "scales" in param_name:
-        proj = param_name.split(".")[-1].split("_scales")[0]
-    if device_mesh is not None:
-        shard_and_distribute_module(
-            model, param_value, empty_param, param_name, casting_dtype, to_contiguous, rank, device_mesh
-        )
-    else:
-        setattr(module, param_name.rsplit(".", 1)[1], torch.nn.Parameter(param_value, requires_grad=False))
-    blocks_attr = f"{proj}_blocks"
-    scales_attr = f"{proj}_scales"
-    blocks = getattr(module, blocks_attr)  # at this point values were loaded from ckpt
-    scales = getattr(module, scales_attr)
-    # Check if both blocks and scales both not on meta device
-    if blocks.device.type != "meta" and scales.device.type != "meta":
-        local_experts = blocks.size(0)
-        if proj == "gate_up_proj":
-            blocks = blocks.reshape(local_experts, module.intermediate_size * 2, -1)
-        else:
-            blocks = blocks.reshape(local_experts, -1, module.intermediate_size // 2)
-        if (
-            getattr(target_device, "type", target_device) == "cpu"
-            and hasattr(torch, "accelerator")
-            and torch.accelerator.current_accelerator() is not None
-        ):
-            target_device = torch.accelerator.current_accelerator().type
-        blocks = blocks.to(target_device).contiguous()
-        scales = scales.to(target_device).contiguous()
-        with on_device(target_device):
-            triton_weight_tensor, weight_scale = swizzle_mxfp4(
-                blocks.transpose(-2, -1), scales.transpose(-2, -1), triton_kernels_hub
-            )
-
-        # need to overwrite the shapes for the kernels
-        if proj == "gate_up_proj":
-            triton_weight_tensor.shape = torch.Size([local_experts, module.hidden_size, module.intermediate_size * 2])
-        else:
-            triton_weight_tensor.shape = torch.Size([local_experts, module.intermediate_size, module.hidden_size])
-
-        # triton_weight_tensor is what needs to be passed in oai kernels. It stores the data, the shapes and any more objects. It is like a subtensor
-        setattr(module, proj, triton_weight_tensor)
-        setattr(
-            module,
-            f"{proj}_precision_config",
-            PrecisionConfig(weight_scale=weight_scale, flex_ctx=FlexCtx(rhs_data=InFlexData())),
-        )
-
-        # delete blocks and scales
-        delattr(module, scales_attr)
-        delattr(module, blocks_attr)
-        del blocks
+    pass
 
 
 def swizzle_mxfp4_convertops(blocks, scales, module, proj, target_device, triton_kernels_hub):
@@ -631,16 +450,12 @@ def swizzle_mxfp4_convertops(blocks, scales, module, proj, target_device, triton
         triton_weight_tensor, weight_scale = swizzle_mxfp4(
             blocks.transpose(-2, -1), scales.transpose(-2, -1), triton_kernels_hub
         )
-    # need to overwrite the shapes for the kernels
     if proj == "gate_up_proj":
         triton_weight_tensor.shape = torch.Size([local_experts, module.hidden_size, module.intermediate_size * 2])
     else:
         triton_weight_tensor.shape = torch.Size([local_experts, module.intermediate_size, module.hidden_size])
 
-    # triton_weight_tensor is what needs to be passed in oai kernels. It stores the data, the shapes and any more objects. It's like a subtensor
-    # Since the Experts module registers gate_up_proj and down_proj as nn.Parameters, we need to remove them so we can attach the Triton tensor
     if proj in module._parameters:
-        # Remove the nn.Parameter registration so we can attach the Triton tensor
         del module._parameters[proj]
     setattr(module, proj, triton_weight_tensor)
     setattr(

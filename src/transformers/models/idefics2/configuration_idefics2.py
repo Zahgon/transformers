@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Idefics2 model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -25,22 +12,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="HuggingFaceM4/idefics2-8b")
 @strict
 class Idefics2VisionConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers.models.idefics2.modeling_idefics2 import Idefics2VisionTransformer
-    >>> from transformers.models.idefics2.configuration_idefics2 import Idefics2VisionConfig
-
-    >>> # Initializing a Idefics2VisionConfig with google/siglip-base-patch16-224 style configuration
-    >>> configuration = Idefics2VisionConfig()
-
-    >>> # Initializing a Idefics2VisionTransformer (with random weights) from the google/siglip-base-patch16-224 style configuration
-    >>> model = Idefics2VisionTransformer(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "idefics2_vision"
     base_config_key = "vision_config"
@@ -61,16 +32,6 @@ class Idefics2VisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="HuggingFaceM4/idefics2-8b")
 @strict
 class Idefics2PerceiverConfig(PreTrainedConfig):
-    r"""
-    resampler_n_latents (`int`, *optional*, defaults to 64):
-        Number of latent embeddings to resample ("compress") the input sequence to (usually < 128).
-    resampler_depth (`int`, *optional*, defaults to 3):
-        Depth of the Perceiver Resampler (Transformer w/ cross attention). Should be shallow (<= 3).
-    resampler_n_heads (`int`, *optional*, defaults to 16):
-        Number of heads in each Transformer block (for multi-headed self-attention).
-    resampler_head_dim (`int`, *optional*, defaults to 96):
-        Dimensionality of each head projection in the Transformer block.
-    """
 
     model_type = "idefics2_perceiver"
 
@@ -86,31 +47,12 @@ class Idefics2PerceiverConfig(PreTrainedConfig):
     initializer_range: float = 0.02
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.num_key_value_heads > self.resampler_n_heads:
-            raise ValueError(
-                f"num_key_value_heads={self.num_key_value_heads} must be less than or equal to"
-                f" resampler_n_heads={self.resampler_n_heads}"
-            )
+        pass
 
 
 @auto_docstring(checkpoint="HuggingFaceM4/idefics2-8b")
 @strict
 class Idefics2Config(PreTrainedConfig):
-    r"""
-    perceiver_config (`IdeficsPerceiverConfig` or `dict`, *optional*):
-        Custom perceiver config or dict
-
-    Example:
-    ```python
-    >>> from transformers import Idefics2Model, Idefics2Config
-    >>> # Initializing configuration
-    >>> configuration = Idefics2Config()
-    >>> # Initializing a model from the configuration
-    >>> model = Idefics2Model(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "idefics2"
     sub_configs = {
@@ -147,7 +89,6 @@ class Idefics2Config(PreTrainedConfig):
             self.text_config = CONFIG_MAPPING["mistral"](
                 max_position_embeddings=4096 * 8,
                 rms_norm_eps=1e-5,
-                # None in the original configuration_mistral, we set it to the unk_token_id
                 pad_token_id=0,
             )
 

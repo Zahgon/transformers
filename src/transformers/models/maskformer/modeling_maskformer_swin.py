@@ -1,19 +1,4 @@
-# Copyright 2022 Meta Platforms, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""MaskFormer Swin Transformer. The reason Swin Transformer is implemented here is because MaskFormer uses the hidden
-states before downsampling, which is different from the default Swin Transformer."""
 
 import collections.abc
 import math
@@ -41,14 +26,6 @@ from .configuration_maskformer_swin import MaskFormerSwinConfig
 )
 @dataclass
 class MaskFormerSwinModelOutputWithPooling(ModelOutput):
-    r"""
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, hidden_size)`):
-        Last layer hidden-state after a mean pooling operation.
-    hidden_states_spatial_dimensions (`tuple(tuple(int, int))`, *optional*):
-        A tuple containing the spatial dimension of each `hidden_state` needed to reshape the `hidden_states` to
-        `batch, channels, height, width`. Due to padding, their spatial size cannot be inferred before the
-        `forward` method.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     pooler_output: torch.FloatTensor | None = None
@@ -64,12 +41,6 @@ class MaskFormerSwinModelOutputWithPooling(ModelOutput):
 )
 @dataclass
 class MaskFormerSwinBaseModelOutput(ModelOutput):
-    r"""
-    hidden_states_spatial_dimensions (`tuple(tuple(int, int))`, *optional*):
-        A tuple containing the spatial dimension of each `hidden_state` needed to reshape the `hidden_states` to
-        `batch, channels, height, width`. Due to padding, their spatial size cannot inferred before the `forward`
-        method.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     hidden_states: tuple[torch.FloatTensor] | None = None
@@ -77,7 +48,6 @@ class MaskFormerSwinBaseModelOutput(ModelOutput):
     attentions: tuple[torch.FloatTensor] | None = None
 
 
-# Copied from transformers.models.swin.modeling_swin.window_partition
 def window_partition(input_feature, window_size):
     """
     Partitions the given input into windows.
@@ -90,7 +60,6 @@ def window_partition(input_feature, window_size):
     return windows
 
 
-# Copied from transformers.models.swin.modeling_swin.window_reverse
 def window_reverse(windows, window_size, height, width):
     """
     Merges windows to produce higher resolution features.
@@ -102,9 +71,6 @@ def window_reverse(windows, window_size, height, width):
 
 
 class MaskFormerSwinEmbeddings(nn.Module):
-    """
-    Construct the patch and position embeddings.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -122,7 +88,6 @@ class MaskFormerSwinEmbeddings(nn.Module):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.patch_size = config.patch_size
 
-    # Copied from transformers.models.vit.modeling_vit.ViTEmbeddings.interpolate_pos_encoding
     def interpolate_pos_encoding(self, embeddings: torch.Tensor, height: int, width: int) -> torch.Tensor:
         """
         This method allows to interpolate the pre-trained position encodings, to be able to use the model on higher resolution
@@ -136,7 +101,6 @@ class MaskFormerSwinEmbeddings(nn.Module):
         num_patches = embeddings.shape[1] - 1
         num_positions = self.position_embeddings.shape[1] - 1
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
@@ -179,13 +143,7 @@ class MaskFormerSwinEmbeddings(nn.Module):
         return embeddings, output_dimensions
 
 
-# Copied from transformers.models.swin.modeling_swin.SwinPatchEmbeddings with Swin->MaskFormerSwin
 class MaskFormerSwinPatchEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
-    `hidden_states` (patch embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
-    Transformer.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -212,7 +170,6 @@ class MaskFormerSwinPatchEmbeddings(nn.Module):
 
     def forward(self, pixel_values: torch.FloatTensor | None) -> tuple[torch.Tensor, tuple[int]]:
         _, num_channels, height, width = pixel_values.shape
-        # pad the input to be divisible by self.patch_size, if needed
         pixel_values = self.maybe_pad(pixel_values, height, width)
         embeddings = self.projection(pixel_values)
         _, _, height, width = embeddings.shape
@@ -222,15 +179,7 @@ class MaskFormerSwinPatchEmbeddings(nn.Module):
         return embeddings, output_dimensions
 
 
-# Copied from transformers.models.swin.modeling_swin.SwinPatchMerging with Swin->MaskFormerSwin
 class MaskFormerSwinPatchMerging(nn.Module):
-    """
-    Patch Merging Layer.
-
-    Args:
-        dim (`int`):
-            Number of input channels.
-    """
 
     def __init__(self, dim: int) -> None:
         super().__init__()
@@ -245,13 +194,10 @@ class MaskFormerSwinPatchMerging(nn.Module):
 
     def forward(self, input_feature: torch.Tensor, input_dimensions: tuple[int, int]) -> torch.Tensor:
         height, width = input_dimensions
-        # `dim` is height * width
         batch_size, dim, num_channels = input_feature.shape
 
         input_feature = input_feature.view(batch_size, height, width, num_channels)
-        # pad input to be divisible by width and height, if needed
         input_feature = self.maybe_pad(input_feature, height, width)
-        # Interleave rows and columns to produce [batch_size, height/2*width/2, 4*num_channels]
         input_feature = torch.cat(
             [input_feature[:, row::2, col::2, :] for col in range(2) for row in range(2)], dim=-1
         )
@@ -263,7 +209,6 @@ class MaskFormerSwinPatchMerging(nn.Module):
         return input_feature
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinSelfAttention with Swin->MaskFormerSwin
 class MaskFormerSwinSelfAttention(nn.Module):
     def __init__(self, config, dim, num_heads, window_size):
         super().__init__()
@@ -304,7 +249,6 @@ class MaskFormerSwinSelfAttention(nn.Module):
         key_layer = self.key(hidden_states).view(hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
@@ -318,7 +262,6 @@ class MaskFormerSwinSelfAttention(nn.Module):
         attention_scores = attention_scores + relative_position_bias.unsqueeze(0)
 
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in MaskFormerSwinModel forward() function)
             mask_shape = attention_mask.shape[0]
             attention_scores = attention_scores.view(
                 batch_size // mask_shape, mask_shape, self.num_attention_heads, dim, dim
@@ -326,11 +269,8 @@ class MaskFormerSwinSelfAttention(nn.Module):
             attention_scores = attention_scores + attention_mask.unsqueeze(1).unsqueeze(0)
             attention_scores = attention_scores.view(-1, self.num_attention_heads, dim, dim)
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -343,7 +283,6 @@ class MaskFormerSwinSelfAttention(nn.Module):
         return outputs
 
     def create_relative_position_index(self):
-        # get pair-wise relative position index for each token inside the window
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
         coords = torch.stack(torch.meshgrid([coords_h, coords_w], indexing="ij"))
@@ -357,7 +296,6 @@ class MaskFormerSwinSelfAttention(nn.Module):
         return relative_position_index
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinSelfOutput with Swin->MaskFormerSwin
 class MaskFormerSwinSelfOutput(nn.Module):
     def __init__(self, config, dim):
         super().__init__()
@@ -371,7 +309,6 @@ class MaskFormerSwinSelfOutput(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinAttention with Swin->MaskFormerSwin
 class MaskFormerSwinAttention(nn.Module):
     def __init__(self, config, dim, num_heads, window_size):
         super().__init__()
@@ -390,7 +327,6 @@ class MaskFormerSwinAttention(nn.Module):
         return outputs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinIntermediate with Swin->MaskFormerSwin
 class MaskFormerSwinIntermediate(nn.Module):
     def __init__(self, config, dim):
         super().__init__()
@@ -406,7 +342,6 @@ class MaskFormerSwinIntermediate(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinOutput with Swin->MaskFormerSwin
 class MaskFormerSwinOutput(nn.Module):
     def __init__(self, config, dim):
         super().__init__()
@@ -419,13 +354,7 @@ class MaskFormerSwinOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->MaskFormerDropPath
 class MaskFormerDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -441,7 +370,7 @@ class MaskFormerDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class MaskFormerSwinLayer(nn.Module):
@@ -498,17 +427,14 @@ class MaskFormerSwinLayer(nn.Module):
 
         hidden_states = self.layernorm_before(hidden_states)
         hidden_states = hidden_states.view(batch_size, height, width, channels)
-        # pad hidden_states to multiples of window size
         hidden_states, pad_values = self.maybe_pad(hidden_states, height, width)
 
         _, height_pad, width_pad, _ = hidden_states.shape
-        # cyclic shift
         if self.shift_size > 0:
             shifted_hidden_states = torch.roll(hidden_states, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
         else:
             shifted_hidden_states = hidden_states
 
-        # partition windows
         hidden_states_windows = window_partition(shifted_hidden_states, self.window_size)
         hidden_states_windows = hidden_states_windows.view(-1, self.window_size * self.window_size, channels)
         attn_mask = self.get_attn_mask((height_pad, width_pad))
@@ -526,7 +452,6 @@ class MaskFormerSwinLayer(nn.Module):
             attention_windows, self.window_size, height_pad, width_pad
         )  # B height' width' C
 
-        # reverse cyclic shift
         if self.shift_size > 0:
             attention_windows = torch.roll(shifted_windows, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
         else:
@@ -550,7 +475,6 @@ class MaskFormerSwinLayer(nn.Module):
 
 
 class MaskFormerSwinStage(GradientCheckpointingLayer):
-    # Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinStage.__init__ with Swin->MaskFormerSwin
     def __init__(self, config, dim, input_resolution, depth, num_heads, drop_path, downsample):
         super().__init__()
         self.config = config
@@ -569,7 +493,6 @@ class MaskFormerSwinStage(GradientCheckpointingLayer):
             ]
         )
 
-        # patch merging layer
         if downsample is not None:
             self.downsample = downsample(dim=dim)
         else:
@@ -603,7 +526,6 @@ class MaskFormerSwinStage(GradientCheckpointingLayer):
 
 
 class MaskFormerSwinEncoder(nn.Module):
-    # Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinEncoder.__init__ with Swin->MaskFormerSwin
     def __init__(self, config, grid_size):
         super().__init__()
         self.num_layers = len(config.depths)
@@ -762,16 +684,6 @@ class MaskFormerSwinModel(MaskFormerSwinPreTrainedModel):
 
 
 class MaskFormerSwinBackbone(BackboneMixin, MaskFormerSwinPreTrainedModel):
-    """
-    MaskFormerSwin backbone, designed especially for the MaskFormer framework.
-
-    This classes reshapes `hidden_states` from (`batch_size, sequence_length, hidden_size)` to (`batch_size,
-    num_channels, height, width)`). It also adds additional layernorms after each stage.
-
-    Args:
-        config (`MaskFormerSwinConfig`):
-            The configuration used by [`MaskFormerSwinModel`].
-    """
 
     def __init__(self, config: MaskFormerSwinConfig):
         super().__init__(config)
@@ -784,7 +696,6 @@ class MaskFormerSwinBackbone(BackboneMixin, MaskFormerSwinPreTrainedModel):
             [nn.LayerNorm(num_channels) for num_channels in self.num_features[1:]]
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -807,23 +718,17 @@ class MaskFormerSwinBackbone(BackboneMixin, MaskFormerSwinPreTrainedModel):
             pixel_values, output_hidden_states=True, output_attentions=output_attentions, return_dict=True
         )
 
-        # we skip the stem
         hidden_states = outputs.hidden_states[1:]
 
-        # we need to reshape the hidden states to their original spatial dimensions
-        # spatial dimensions contains all the heights and widths of each stage, including after the embeddings
         spatial_dimensions: tuple[tuple[int, int]] = outputs.hidden_states_spatial_dimensions
         feature_maps = ()
         for i, (hidden_state, stage, (height, width)) in enumerate(
             zip(hidden_states, self.stage_names[1:], spatial_dimensions)
         ):
             norm = self.hidden_states_norms[i]
-            # the last element correspond to the layer's last block output but before patch merging
             hidden_state_unpolled = hidden_state[-1]
             hidden_state_norm = norm(hidden_state_unpolled)
-            # the pixel decoder (FPN) expects 3D tensors (features)
             batch_size, _, hidden_size = hidden_state_norm.shape
-            # reshape "b (h w) d -> b d h w"
             hidden_state_permuted = (
                 hidden_state_norm.permute(0, 2, 1).view((batch_size, hidden_size, height, width)).contiguous()
             )

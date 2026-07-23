@@ -1,22 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert VitPose checkpoints from the original repository.
-
-URL: https://github.com/vitae-transformer/vitpose
-
-Notebook to get the original logits: https://colab.research.google.com/drive/1QDX_2POTpl6JaZAV2WIFjuiqDsDwiqMZ?usp=sharing.
-"""
 
 import argparse
 import os
@@ -45,13 +26,9 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
 }
 
 MODEL_TO_FILE_NAME_MAPPING = {
-    # VitPose models, simple decoder
     "vitpose-base-simple": "vitpose-b-simple.pth",
-    # VitPose models, classic decoder
     "vitpose-base": "vitpose-b.pth",
-    # VitPose models, COCO-AIC-MPII
     "vitpose-base-coco-aic-mpii": "vitpose_base_coco_aic_mpii.pth",
-    # VitPose+ models
     "vitpose-plus-small": "vitpose+_small.pth",
     "vitpose-plus-base": "vitpose+_base.pth",
     "vitpose-plus-large": "vitpose+_large.pth",
@@ -80,7 +57,6 @@ def get_config(model_name):
         num_experts = 1
         part_features = 0
 
-    # size of the architecture
     if "small" in model_name:
         hidden_size = 384
         num_hidden_layers = 12
@@ -178,7 +154,6 @@ def convert_old_keys_to_new_keys(state_dict_keys: dict | None = None):
     return output_dict
 
 
-# We will verify our results on a COCO image
 def prepare_img():
     url = "http://images.cocodataset.org/val2017/000000000139.jpg"
     with httpx.stream("GET", url) as response:
@@ -188,18 +163,10 @@ def prepare_img():
 
 @torch.no_grad()
 def write_model(model_name, model_path, push_to_hub, check_logits=True):
-    # ------------------------------------------------------------
-    # Vision model params and config
-    # ------------------------------------------------------------
 
-    # params from config
     config = get_config(model_name)
 
-    # ------------------------------------------------------------
-    # Convert weights
-    # ------------------------------------------------------------
 
-    # load original state_dict
     filename = MODEL_TO_FILE_NAME_MAPPING[model_name]
     print(f"Fetching all parameters from the checkpoint at {filename}...")
 
@@ -220,18 +187,14 @@ def write_model(model_name, model_path, push_to_hub, check_logits=True):
         value = original_state_dict[key]
 
         if re.search("associate_heads", new_key) or re.search("backbone.cls_token", new_key):
-            # This associated_heads is concept of auxiliary head so does not require in inference stage.
-            # backbone.cls_token is optional forward function for dynamically change of size, see detail in https://github.com/ViTAE-Transformer/ViTPose/issues/34
             pass
         elif re.search("qkv", new_key):
             state_dict[new_key.replace("self.qkv", "attention.query")] = value[:dim]
             state_dict[new_key.replace("self.qkv", "attention.key")] = value[dim : dim * 2]
             state_dict[new_key.replace("self.qkv", "attention.value")] = value[-dim:]
         elif re.search("head", new_key) and not config.use_simple_decoder:
-            # Pattern for deconvolution layers
             deconv_pattern = r"deconv_layers\.(0|3)\.weight"
             new_key = re.sub(deconv_pattern, lambda m: f"deconv{int(m.group(1)) // 3 + 1}.weight", new_key)
-            # Pattern for batch normalization layers
             bn_patterns = [
                 (r"deconv_layers\.(\d+)\.weight", r"batchnorm\1.weight"),
                 (r"deconv_layers\.(\d+)\.bias", r"batchnorm\1.bias"),
@@ -242,7 +205,6 @@ def write_model(model_name, model_path, push_to_hub, check_logits=True):
 
             for pattern, replacement in bn_patterns:
                 if re.search(pattern, new_key):
-                    # Convert the layer number to the correct batch norm index
                     layer_num = int(re.search(pattern, key).group(1))
                     bn_num = layer_num // 3 + 1
                     new_key = re.sub(pattern, replacement.replace(r"\1", str(bn_num)), new_key)
@@ -256,17 +218,14 @@ def write_model(model_name, model_path, push_to_hub, check_logits=True):
     model.load_state_dict(state_dict)
     print("Checkpoint loaded successfully.")
 
-    # create image processor
     image_processor = VitPoseImageProcessor()
 
-    # verify image processor
     image = prepare_img()
     boxes = [[[412.8, 157.61, 53.05, 138.01], [384.43, 172.21, 15.12, 35.74]]]
     pixel_values = image_processor(images=image, boxes=boxes, return_tensors="pt").pixel_values
 
     filepath = hf_hub_download(repo_id="nielsr/test-image", filename="vitpose_batch_data.pt", repo_type="dataset")
     original_pixel_values = torch.load(filepath, map_location="cpu", weights_only=True)["img"]
-    # we allow for a small difference in the pixel values due to the original repository using cv2
     assert torch.allclose(pixel_values, original_pixel_values, atol=1e-1)
 
     dataset_index = torch.tensor([0])
@@ -275,15 +234,12 @@ def write_model(model_name, model_path, push_to_hub, check_logits=True):
         print("Shape of original_pixel_values: ", original_pixel_values.shape)
         print("First values of original_pixel_values: ", original_pixel_values[0, 0, :3, :3])
 
-        # first forward pass
         outputs = model(original_pixel_values, dataset_index=dataset_index)
         output_heatmap = outputs.heatmaps
 
         print("Shape of output_heatmap: ", output_heatmap.shape)
         print("First values: ", output_heatmap[0, 0, :3, :3])
 
-        # second forward pass (flipped)
-        # this is done since the model uses `flip_test=True` in its test config
         original_pixel_values_flipped = torch.flip(original_pixel_values, [3])
         outputs_flipped = model(
             original_pixel_values_flipped,
@@ -294,11 +250,9 @@ def write_model(model_name, model_path, push_to_hub, check_logits=True):
 
     outputs.heatmaps = (output_heatmap + output_flipped_heatmap) * 0.5
 
-    # Verify pose_results
     pose_results = image_processor.post_process_pose_estimation(outputs, boxes=boxes)[0]
 
     if check_logits:
-        # Simple decoder checkpoints
         if model_name == "vitpose-base-simple":
             assert torch.allclose(
                 pose_results[1]["keypoints"][0],
@@ -310,7 +264,6 @@ def write_model(model_name, model_path, push_to_hub, check_logits=True):
                 torch.tensor([8.66642594e-01]),
                 atol=5e-2,
             )
-        # Classic decoder checkpoints
         elif model_name == "vitpose-base":
             assert torch.allclose(
                 pose_results[1]["keypoints"][0],
@@ -322,7 +275,6 @@ def write_model(model_name, model_path, push_to_hub, check_logits=True):
                 torch.tensor([8.8235235e-01]),
                 atol=5e-2,
             )
-        # COCO-AIC-MPII checkpoints
         elif model_name == "vitpose-base-coco-aic-mpii":
             assert torch.allclose(
                 pose_results[1]["keypoints"][0],
@@ -334,7 +286,6 @@ def write_model(model_name, model_path, push_to_hub, check_logits=True):
                 torch.tensor([8.69966745e-01]),
                 atol=5e-2,
             )
-        # VitPose+ models
         elif model_name == "vitpose-plus-small":
             assert torch.allclose(
                 pose_results[1]["keypoints"][0],
@@ -390,15 +341,12 @@ def write_model(model_name, model_path, push_to_hub, check_logits=True):
 
     if push_to_hub:
         print(f"Pushing model and image processor for {model_name} to hub")
-        # we created a community organization on the hub for this model
-        # maintained by the Transformers team
         model.push_to_hub(f"usyd-community/{model_name}")
         image_processor.push_to_hub(f"usyd-community/{model_name}")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--model_name",
         default="vitpose-base-simple",

@@ -1,17 +1,3 @@
-# Copyright 2022 Salesforce authors, The EleutherAI, and HuggingFace Teams. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch CodeGen model."""
 
 import math
 
@@ -36,14 +22,12 @@ from .configuration_codegen import CodeGenConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.gptj.modeling_gptj.create_sinusoidal_positions
 def create_sinusoidal_positions(num_pos: int, dim: int) -> torch.Tensor:
     inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2, dtype=torch.int64) / dim))
     sinusoid_inp = torch.einsum("i , j -> i j", torch.arange(num_pos, dtype=torch.int64).float(), inv_freq).float()
     return torch.cat((torch.sin(sinusoid_inp), torch.cos(sinusoid_inp)), dim=1)
 
 
-# Copied from transformers.models.gptj.modeling_gptj.rotate_every_two
 def rotate_every_two(x: torch.Tensor) -> torch.Tensor:
     x1 = x[:, :, :, ::2]
     x2 = x[:, :, :, 1::2]
@@ -51,7 +35,6 @@ def rotate_every_two(x: torch.Tensor) -> torch.Tensor:
     return x.flatten(-2)  # in einsum notation: rearrange(x, '... d j -> ... (d j)')
 
 
-# Copied from transformers.models.gptj.modeling_gptj.apply_rotary_pos_emb
 def apply_rotary_pos_emb(tensor: torch.Tensor, sin: torch.Tensor, cos: torch.Tensor) -> torch.Tensor:
     sin = torch.repeat_interleave(sin[:, :, None, :], 2, 3)
     cos = torch.repeat_interleave(cos[:, :, None, :], 2, 3)
@@ -116,7 +99,6 @@ class CodeGenAttention(nn.Module):
         value,
         attention_mask=None,
     ):
-        # Keep the attention weights computation in fp32 to avoid overflow issues
         query = query.to(torch.float32)
         key = key.to(torch.float32)
 
@@ -148,7 +130,6 @@ class CodeGenAttention(nn.Module):
         | None
     ):
         qkv = self.qkv_proj(hidden_states)
-        # TODO(enijkamp): factor out number of logical TPU-v4 cores or make forward pass agnostic
         mp_num = 4
         qkv_split = qkv.reshape(qkv.shape[:-1] + (mp_num, -1))
 
@@ -187,12 +168,9 @@ class CodeGenAttention(nn.Module):
         key = key.permute(0, 2, 1, 3)
         query = query.permute(0, 2, 1, 3)
 
-        # Note that this cast is quite ugly, but is not implemented before ROPE as k_rot in the original codebase is always in fp32.
-        # Reference: https://github.com/salesforce/CodeGen/blob/f210c3bb1216c975ad858cd4132c0fdeabf4bfc2/codegen1/jaxformer/hf/codegen/modeling_codegen.py#L38
         if layer_past is not None:
             key, value = layer_past.update(key.to(hidden_states.dtype), value, self.layer_idx)
 
-        # compute self-attention: V x Softmax(QK^T)
         attn_output, attn_weights = self._attn(query, key, value, attention_mask)
 
         attn_output = self._merge_heads(attn_output, self.num_attention_heads, self.head_dim)
@@ -201,7 +179,6 @@ class CodeGenAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.gptj.modeling_gptj.GPTJMLP with GPTJ->CodeGen
 class CodeGenMLP(nn.Module):
     def __init__(self, intermediate_size, config):  # in MLP: intermediate_size= 4 * embed_dim
         super().__init__()
@@ -221,9 +198,7 @@ class CodeGenMLP(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.gptj.modeling_gptj.GPTJBlock with GPTJ->CodeGen
 class CodeGenBlock(GradientCheckpointingLayer):
-    # Ignore copy
     def __init__(self, config, layer_idx=None):
         super().__init__()
         inner_dim = config.n_inner if config.n_inner is not None else 4 * config.n_embd
@@ -287,7 +262,6 @@ class CodeGenModel(CodeGenPreTrainedModel):
 
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -386,7 +360,6 @@ class CodeGenModel(CodeGenPreTrainedModel):
         hidden_states = self.ln_f(hidden_states)
 
         hidden_states = hidden_states.view(output_shape)
-        # Add last hidden state
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -416,7 +389,6 @@ class CodeGenForCausalLM(CodeGenPreTrainedModel, GenerationMixin):
         self.transformer = CodeGenModel(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -462,7 +434,6 @@ class CodeGenForCausalLM(CodeGenPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = transformer_outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

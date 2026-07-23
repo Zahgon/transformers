@@ -1,17 +1,3 @@
-# Copyright 2023 The Suno AI Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""BARK model generation configuration"""
 
 import copy
 
@@ -238,7 +224,6 @@ class BarkFineGenerationConfig(GenerationConfig):
 class BarkGenerationConfig(GenerationConfig):
     model_type = "bark"
 
-    # TODO (joao): nested from_dict
 
     def __init__(
         self,
@@ -297,18 +282,7 @@ class BarkGenerationConfig(GenerationConfig):
         fine_acoustics_config: BarkFineGenerationConfig,
         **kwargs,
     ):
-        r"""
-        Instantiate a [`BarkGenerationConfig`] (or a derived class) from bark sub-models generation configuration.
-
-        Returns:
-            [`BarkGenerationConfig`]: An instance of a configuration object
-        """
-        return cls(
-            semantic_config=semantic_config.to_dict(),
-            coarse_acoustics_config=coarse_acoustics_config.to_dict(),
-            fine_acoustics_config=fine_acoustics_config.to_dict(),
-            **kwargs,
-        )
+        pass
 
     def to_dict(self):
         """

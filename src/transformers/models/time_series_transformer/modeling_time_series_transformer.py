@@ -1,18 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Time Series Transformer model."""
 
 from collections.abc import Callable
 
@@ -46,15 +31,6 @@ logger = logging.get_logger(__name__)
 
 
 class TimeSeriesFeatureEmbedder(nn.Module):
-    """
-    Embed a sequence of categorical features.
-
-    Args:
-        cardinalities (`list[int]`):
-            List of cardinalities of the categorical features.
-        embedding_dims (`list[int]`):
-            List of embedding dimensions of the categorical features.
-    """
 
     def __init__(self, cardinalities: list[int], embedding_dims: list[int]) -> None:
         super().__init__()
@@ -64,8 +40,6 @@ class TimeSeriesFeatureEmbedder(nn.Module):
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         if self.num_features > 1:
-            # we slice the last dimension, giving an array of length
-            # self.num_features with shape (N,T) or (N)
             cat_feature_slices = torch.chunk(features, self.num_features, dim=-1)
         else:
             cat_feature_slices = [features]
@@ -80,10 +54,6 @@ class TimeSeriesFeatureEmbedder(nn.Module):
 
 
 class TimeSeriesStdScaler(nn.Module):
-    """
-    Standardize features by calculating the mean and scaling along the first dimension, and then normalizes it by
-    subtracting from the mean and dividing by the standard deviation.
-    """
 
     def __init__(self, config: TimeSeriesTransformerConfig):
         super().__init__()
@@ -115,10 +85,6 @@ class TimeSeriesStdScaler(nn.Module):
 
 
 class TimeSeriesMeanScaler(nn.Module):
-    """
-    Computes a scaling factor as the weighted average absolute value along the first dimension, and scales the data
-    accordingly.
-    """
 
     def __init__(self, config: TimeSeriesTransformerConfig):
         super().__init__()
@@ -146,8 +112,6 @@ class TimeSeriesMeanScaler(nn.Module):
 
         scale = ts_sum / torch.clamp(num_observed, min=1)
 
-        # If `default_scale` is provided, we use it, otherwise we use the scale
-        # of the batch.
         if self.default_scale is None:
             batch_sum = ts_sum.sum(dim=0)
             batch_observations = torch.clamp(num_observed.sum(0), min=1)
@@ -155,10 +119,8 @@ class TimeSeriesMeanScaler(nn.Module):
         else:
             default_scale = self.default_scale * torch.ones_like(scale)
 
-        # apply default scale where there are no observations
         scale = torch.where(num_observed > 0, scale, default_scale)
 
-        # ensure the scale is at least `self.minimum_scale`
         scale = torch.clamp(scale, min=self.minimum_scale)
         scaled_data = data / scale
 
@@ -169,9 +131,6 @@ class TimeSeriesMeanScaler(nn.Module):
 
 
 class TimeSeriesNOPScaler(nn.Module):
-    """
-    Assigns a scaling factor equal to 1 along the first dimension, and therefore applies no scaling to the input data.
-    """
 
     def __init__(self, config: TimeSeriesTransformerConfig):
         super().__init__()
@@ -226,9 +185,7 @@ def weighted_average(input_tensor: torch.Tensor, weights: torch.Tensor | None = 
         return input_tensor.mean(dim=dim)
 
 
-# Copied from transformers.models.marian.modeling_marian.MarianSinusoidalPositionalEmbedding with Marian->TimeSeries
 class TimeSeriesSinusoidalPositionalEmbedding(nn.Embedding):
-    """This module produces sinusoidal positional embeddings of any length."""
 
     def __init__(self, num_positions: int, embedding_dim: int, padding_idx: int | None = None) -> None:
         super().__init__(num_positions, embedding_dim, _freeze=True)
@@ -270,7 +227,6 @@ class TimeSeriesValueEmbedding(nn.Module):
         return self.value_projection(x)
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -284,7 +240,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -299,9 +254,7 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.bart.modeling_bart.BartAttention with Bart->TimeSeriesTransformer
 class TimeSeriesTransformerAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -348,22 +301,16 @@ class TimeSeriesTransformerAttention(nn.Module):
         key_value_states: torch.Tensor | None = None,
         past_key_values: Cache | None = None,
         attention_mask: torch.Tensor | None = None,
-        # TODO: we need a refactor so that the different attention modules can get their specific kwargs
-        # ATM, we have mixed things encoder, decoder, and encoder-decoder attn
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        # get query proj
         query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         is_updated = False
@@ -371,7 +318,6 @@ class TimeSeriesTransformerAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -380,7 +326,6 @@ class TimeSeriesTransformerAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -392,7 +337,6 @@ class TimeSeriesTransformerAttention(nn.Module):
 
             if past_key_values is not None:
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -417,7 +361,6 @@ class TimeSeriesTransformerAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bart.modeling_bart.BartEncoderLayer with Bart->TimeSeriesTransformer, BART->TIME_SERIES_TRANSFORMER
 class TimeSeriesTransformerEncoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: TimeSeriesTransformerConfig, layer_idx: int | None = None):
         super().__init__()
@@ -469,7 +412,6 @@ class TimeSeriesTransformerEncoderLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-# Copied from transformers.models.bart.modeling_bart.BartDecoderLayer with Bart->TimeSeriesTransformer, with BART->TIME_SERIES_TRANSFORMER
 class TimeSeriesTransformerDecoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: TimeSeriesTransformerConfig, layer_idx: int | None = None):
         super().__init__()
@@ -514,7 +456,6 @@ class TimeSeriesTransformerDecoderLayer(GradientCheckpointingLayer):
     ) -> torch.Tensor:
         residual = hidden_states
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states,
             past_key_values=past_key_values,
@@ -525,7 +466,6 @@ class TimeSeriesTransformerDecoderLayer(GradientCheckpointingLayer):
         hidden_states = residual + hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Cross-Attention Block
         if encoder_hidden_states is not None:
             residual = hidden_states
 
@@ -540,7 +480,6 @@ class TimeSeriesTransformerDecoderLayer(GradientCheckpointingLayer):
             hidden_states = residual + hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.activation_fn(self.fc1(hidden_states))
         hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
@@ -559,8 +498,6 @@ class TimeSeriesTransformerPreTrainedModel(PreTrainedModel):
     main_input_name = "past_values"
     input_modalities = ("time",)
     supports_gradient_checkpointing = True
-    # TODO: tests would need a rewrite to check for correct implementation
-    # Current tests always assume certain inputs to be passed
     _supports_flash_attn = False
     _supports_sdpa = False
     _supports_flex_attn = False
@@ -573,13 +510,6 @@ class TimeSeriesTransformerPreTrainedModel(PreTrainedModel):
 
 
 class TimeSeriesTransformerEncoder(TimeSeriesTransformerPreTrainedModel):
-    """
-    Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a
-    [`TimeSeriesTransformerEncoderLayer`].
-
-    Args:
-        config: TimeSeriesTransformerConfig
-    """
 
     _can_record_outputs = {
         "hidden_states": TimeSeriesTransformerEncoderLayer,
@@ -602,7 +532,6 @@ class TimeSeriesTransformerEncoder(TimeSeriesTransformerPreTrainedModel):
         self.layernorm_embedding = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -627,7 +556,6 @@ class TimeSeriesTransformerEncoder(TimeSeriesTransformerPreTrainedModel):
         )
 
         for idx, encoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -647,13 +575,6 @@ class TimeSeriesTransformerEncoder(TimeSeriesTransformerPreTrainedModel):
 
 
 class TimeSeriesTransformerDecoder(TimeSeriesTransformerPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a
-    [`TimeSeriesTransformerDecoderLayer`]
-
-    Args:
-        config: TimeSeriesTransformerConfig
-    """
 
     _can_record_outputs = {
         "hidden_states": TimeSeriesTransformerDecoderLayer,
@@ -678,7 +599,6 @@ class TimeSeriesTransformerDecoder(TimeSeriesTransformerPreTrainedModel):
         self.layernorm_embedding = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -728,7 +648,6 @@ class TimeSeriesTransformerDecoder(TimeSeriesTransformerPreTrainedModel):
                 than the model's internal embedding lookup matrix.
         """
 
-        # initialize `past_key_values`
         if use_cache and past_key_values is None:
             past_key_values = EncoderDecoderCache(DynamicCache(config=self.config), DynamicCache(config=self.config))
 
@@ -757,7 +676,6 @@ class TimeSeriesTransformerDecoder(TimeSeriesTransformerPreTrainedModel):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if self.training:
                 dropout_probability = torch.rand([])
                 if dropout_probability < self.layerdrop:
@@ -796,16 +714,14 @@ class TimeSeriesTransformerModel(TimeSeriesTransformerPreTrainedModel):
                 embedding_dims=config.embedding_dimension,
             )
 
-        # transformer encoder-decoder and mask initializer
         self.encoder = TimeSeriesTransformerEncoder(config)
         self.decoder = TimeSeriesTransformerDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @property
     def _past_length(self) -> int:
-        return self.config.context_length + max(self.config.lags_sequence)
+        pass
 
     def get_lagged_subsequences(
         self, sequence: torch.Tensor, subsequences_length: int, shift: int = 0
@@ -849,7 +765,6 @@ class TimeSeriesTransformerModel(TimeSeriesTransformerPreTrainedModel):
         future_values: torch.Tensor | None = None,
         future_time_features: torch.Tensor | None = None,
     ):
-        # time feature
         time_feat = (
             torch.cat(
                 (
@@ -862,7 +777,6 @@ class TimeSeriesTransformerModel(TimeSeriesTransformerPreTrainedModel):
             else past_time_features[:, self._past_length - self.config.context_length :, ...]
         )
 
-        # target
         if past_observed_mask is None:
             past_observed_mask = torch.ones_like(past_values)
 
@@ -876,7 +790,6 @@ class TimeSeriesTransformerModel(TimeSeriesTransformerPreTrainedModel):
             else (past_values - loc) / scale
         )
 
-        # static features
         if loc.ndim == 3:
             squeezed_loc = loc.squeeze(1)
             squeezed_scale = scale.squeeze(1)
@@ -894,10 +807,8 @@ class TimeSeriesTransformerModel(TimeSeriesTransformerPreTrainedModel):
             static_feat = torch.cat((embedded_cat, static_feat), dim=1)
         expanded_static_feat = static_feat.unsqueeze(1).expand(-1, time_feat.shape[1], -1)
 
-        # all features
         features = torch.cat((expanded_static_feat, time_feat), dim=-1)
 
-        # lagged features
         subsequences_length = (
             self.config.context_length + self.config.prediction_length
             if future_values is not None
@@ -912,7 +823,6 @@ class TimeSeriesTransformerModel(TimeSeriesTransformerPreTrainedModel):
                 f"input length {reshaped_lagged_sequence.shape[1]} and time feature lengths {time_feat.shape[1]} does not match"
             )
 
-        # transformer inputs
         transformer_inputs = torch.cat((reshaped_lagged_sequence, features), dim=-1)
 
         return transformer_inputs, loc, scale, static_feat
@@ -1068,7 +978,6 @@ class TimeSeriesTransformerModel(TimeSeriesTransformerPreTrainedModel):
                 inputs_embeds=enc_input,
                 **kwargs,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
         elif not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -1076,8 +985,6 @@ class TimeSeriesTransformerModel(TimeSeriesTransformerPreTrainedModel):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        # Avoid empty tensors and instead create a zeroes tensor which
-        # will be treated the same in torch, i.e. matmul with empty == all 0s
         if self.config.context_length >= transformer_inputs.shape[1]:
             bsz, _, dim = transformer_inputs.shape
             dec_input = torch.zeros(
@@ -1132,7 +1039,6 @@ class TimeSeriesTransformerForPrediction(TimeSeriesTransformerPreTrainedModel):
         else:
             raise ValueError(f"Unknown loss function {config.loss}")
 
-        # Initialize weights of distribution_output and apply final processing
         self.post_init()
 
     def output_params(self, dec_output):

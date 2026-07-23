@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert DPT checkpoints from the original repository. URL: https://github.com/isl-org/DPT"""
 
 import argparse
 import json
@@ -32,42 +18,7 @@ logger = logging.get_logger(__name__)
 
 
 def get_dpt_config(checkpoint_url):
-    config = DPTConfig(embedding_type="hybrid")
-
-    if "large" in checkpoint_url:
-        config.hidden_size = 1024
-        config.intermediate_size = 4096
-        config.num_hidden_layers = 24
-        config.num_attention_heads = 16
-        config.backbone_out_indices = [5, 11, 17, 23]
-        config.neck_hidden_sizes = [256, 512, 1024, 1024]
-        expected_shape = (1, 384, 384)
-
-    if "nyu" in checkpoint_url or "midas" in checkpoint_url:
-        config.hidden_size = 768
-        config.reassemble_factors = [1, 1, 1, 0.5]
-        config.neck_hidden_sizes = [256, 512, 768, 768]
-        config.num_labels = 150
-        config.patch_size = 16
-        expected_shape = (1, 384, 384)
-        config.use_batch_norm_in_fusion_residual = False
-        config.readout_type = "project"
-
-    if "ade" in checkpoint_url:
-        config.use_batch_norm_in_fusion_residual = True
-        config.hidden_size = 768
-        config.reassemble_stage = [1, 1, 1, 0.5]
-        config.num_labels = 150
-        config.patch_size = 16
-        repo_id = "huggingface/label-files"
-        filename = "ade20k-id2label.json"
-        id2label = json.loads(Path(hf_hub_download(repo_id, filename, repo_type="dataset")).read_text())
-        id2label = {int(k): v for k, v in id2label.items()}
-        config.id2label = id2label
-        config.label2id = {v: k for k, v in id2label.items()}
-        expected_shape = [1, 150, 480, 480]
-
-    return config, expected_shape
+    pass
 
 
 def remove_ignore_keys_(state_dict):
@@ -118,7 +69,6 @@ def rename_key(name):
         name = name.replace("layer4_rn", "convs.3")
     if "refinenet" in name:
         layer_idx = int(name[len("neck.refinenet") : len("neck.refinenet") + 1])
-        # tricky here: we need to map 4 to 0, 3 to 1, 2 to 2 and 1 to 3
         name = name.replace(f"refinenet{layer_idx}", f"fusion_stage.layers.{abs(layer_idx - 4)}")
     if "out_conv" in name:
         name = name.replace("out_conv", "projection")
@@ -130,7 +80,6 @@ def rename_key(name):
         name = name.replace("conv1", "convolution1")
     if "conv2" in name:
         name = name.replace("conv2", "convolution2")
-    # readout blocks
     if "pretrained.act_postprocess1.0.project.0" in name:
         name = name.replace("pretrained.act_postprocess1.0.project.0", "neck.reassemble_stage.readout_projects.0.0")
     if "pretrained.act_postprocess2.0.project.0" in name:
@@ -140,7 +89,6 @@ def rename_key(name):
     if "pretrained.act_postprocess4.0.project.0" in name:
         name = name.replace("pretrained.act_postprocess4.0.project.0", "neck.reassemble_stage.readout_projects.3.0")
 
-    # resize blocks
     if "pretrained.act_postprocess1.3" in name:
         name = name.replace("pretrained.act_postprocess1.3", "neck.reassemble_stage.layers.0.projection")
     if "pretrained.act_postprocess1.4" in name:
@@ -188,13 +136,10 @@ def rename_key(name):
     return name
 
 
-# we split up the matrix of each encoder layer into queries, keys and values
 def read_in_q_k_v(state_dict, config):
     for i in range(config.num_hidden_layers):
-        # read in weights + bias of input projection layer (in timm, this is a single matrix + bias)
         in_proj_weight = state_dict.pop(f"dpt.encoder.layer.{i}.attn.qkv.weight")
         in_proj_bias = state_dict.pop(f"dpt.encoder.layer.{i}.attn.qkv.bias")
-        # next, add query, keys and values (in that order) to the state dict
         state_dict[f"dpt.encoder.layer.{i}.attention.attention.query.weight"] = in_proj_weight[: config.hidden_size, :]
         state_dict[f"dpt.encoder.layer.{i}.attention.attention.query.bias"] = in_proj_bias[: config.hidden_size]
         state_dict[f"dpt.encoder.layer.{i}.attention.attention.key.weight"] = in_proj_weight[
@@ -209,7 +154,6 @@ def read_in_q_k_v(state_dict, config):
         state_dict[f"dpt.encoder.layer.{i}.attention.attention.value.bias"] = in_proj_bias[-config.hidden_size :]
 
 
-# We will verify our results on an image of cute cats
 def prepare_img():
     url = "http://images.cocodataset.org/val2017/000000039769.jpg"
     with httpx.stream("GET", url) as response:
@@ -219,69 +163,11 @@ def prepare_img():
 
 @torch.no_grad()
 def convert_dpt_checkpoint(checkpoint_url, pytorch_dump_folder_path, push_to_hub, model_name, show_prediction):
-    """
-    Copy/paste/tweak model's weights to our DPT structure.
-    """
-
-    # define DPT configuration based on URL
-    config, expected_shape = get_dpt_config(checkpoint_url)
-    # load original state_dict from URL
-    # state_dict = torch.hub.load_state_dict_from_url(checkpoint_url, map_location="cpu")
-    state_dict = torch.load(checkpoint_url, map_location="cpu", weights_only=True)
-    # remove certain keys
-    remove_ignore_keys_(state_dict)
-    # rename keys
-    for key in state_dict.copy():
-        val = state_dict.pop(key)
-        state_dict[rename_key(key)] = val
-    # read in qkv matrices
-    read_in_q_k_v(state_dict, config)
-
-    # load HuggingFace model
-    model = DPTForSemanticSegmentation(config) if "ade" in checkpoint_url else DPTForDepthEstimation(config)
-    model.load_state_dict(state_dict)
-    model.eval()
-
-    # Check outputs on an image
-    size = 480 if "ade" in checkpoint_url else 384
-    image_processor = DPTImageProcessor(size=size)
-
-    image = prepare_img()
-    encoding = image_processor(image, return_tensors="pt")
-
-    # forward pass
-    outputs = model(**encoding).logits if "ade" in checkpoint_url else model(**encoding).predicted_depth
-
-    if show_prediction:
-        prediction = (
-            torch.nn.functional.interpolate(
-                outputs.unsqueeze(1),
-                size=(image.size[1], image.size[0]),
-                mode="bicubic",
-                align_corners=False,
-            )
-            .squeeze()
-            .cpu()
-            .numpy()
-        )
-
-        Image.fromarray((prediction / prediction.max()) * 255).show()
-
-    if pytorch_dump_folder_path is not None:
-        Path(pytorch_dump_folder_path).mkdir(exist_ok=True)
-        print(f"Saving model to {pytorch_dump_folder_path}")
-        model.save_pretrained(pytorch_dump_folder_path)
-        print(f"Saving image processor to {pytorch_dump_folder_path}")
-        image_processor.save_pretrained(pytorch_dump_folder_path)
-
-    if push_to_hub:
-        model.push_to_hub("ybelkada/dpt-hybrid-midas")
-        image_processor.push_to_hub("ybelkada/dpt-hybrid-midas")
+    pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--checkpoint_url",
         default="https://github.com/intel-isl/DPT/releases/download/1_0/dpt_large-midas-2f21e586.pt",

@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch UperNet model. Based on OpenMMLab's implementation, found in https://github.com/open-mmlab/mmsegmentation."""
 
 import torch
 from torch import nn
@@ -25,10 +11,6 @@ from .configuration_upernet import UperNetConfig
 
 
 class UperNetConvModule(nn.Module):
-    """
-    A convolutional block that bundles conv/norm/activation layers. This block simplifies the usage of convolution
-    layers, which are commonly used with a norm layer (e.g., BatchNorm) and activation layer (e.g., ReLU).
-    """
 
     def __init__(
         self,
@@ -77,19 +59,6 @@ class UperNetPyramidPoolingBlock(nn.Module):
 
 
 class UperNetPyramidPoolingModule(nn.Module):
-    """
-    Pyramid Pooling Module (PPM) used in PSPNet.
-
-    Args:
-        pool_scales (`tuple[int]`):
-            Pooling scales used in Pooling Pyramid Module.
-        in_channels (`int`):
-            Input channels.
-        channels (`int`):
-            Channels after modules, before conv_seg.
-        align_corners (`bool`):
-            align_corners argument of F.interpolate.
-    """
 
     def __init__(self, pool_scales: tuple[int, ...], in_channels: int, channels: int, align_corners: bool) -> None:
         super().__init__()
@@ -115,10 +84,6 @@ class UperNetPyramidPoolingModule(nn.Module):
 
 
 class UperNetHead(nn.Module):
-    """
-    Unified Perceptual Parsing for Scene Understanding. This head is the implementation of
-    [UPerNet](https://huggingface.co/papers/1807.10221).
-    """
 
     def __init__(self, config, in_channels):
         super().__init__()
@@ -130,7 +95,6 @@ class UperNetHead(nn.Module):
         self.align_corners = False
         self.classifier = nn.Conv2d(self.channels, config.num_labels, kernel_size=1)
 
-        # PSP Module
         self.psp_modules = UperNetPyramidPoolingModule(
             self.pool_scales,
             self.in_channels[-1],
@@ -143,7 +107,6 @@ class UperNetHead(nn.Module):
             kernel_size=3,
             padding=1,
         )
-        # FPN Module
         self.lateral_convs = nn.ModuleList()
         self.fpn_convs = nn.ModuleList()
         for in_channels in self.in_channels[:-1]:  # skip the top layer
@@ -169,12 +132,10 @@ class UperNetHead(nn.Module):
         return output
 
     def forward(self, encoder_hidden_states: torch.Tensor) -> torch.Tensor:
-        # build laterals
         laterals = [lateral_conv(encoder_hidden_states[i]) for i, lateral_conv in enumerate(self.lateral_convs)]
 
         laterals.append(self.psp_forward(encoder_hidden_states))
 
-        # build top-down path
         used_backbone_levels = len(laterals)
         for i in range(used_backbone_levels - 1, 0, -1):
             prev_shape = laterals[i - 1].shape[2:]
@@ -182,9 +143,7 @@ class UperNetHead(nn.Module):
                 laterals[i], size=prev_shape, mode="bilinear", align_corners=self.align_corners
             )
 
-        # build outputs
         fpn_outs = [self.fpn_convs[i](laterals[i]) for i in range(used_backbone_levels - 1)]
-        # append psp feature
         fpn_outs.append(laterals[-1])
 
         for i in range(used_backbone_levels - 1, 0, -1):
@@ -199,20 +158,6 @@ class UperNetHead(nn.Module):
 
 
 class UperNetFCNHead(nn.Module):
-    """
-    Fully Convolution Networks for Semantic Segmentation. This head is the implementation of
-    [FCNNet](https://huggingface.co/papers/1411.4038>).
-
-    Args:
-        config:
-            Configuration.
-        in_channels (int):
-            Number of input channels.
-        kernel_size (int):
-            The kernel size for convs in the head. Default: 3.
-        dilation (int):
-            The dilation rate for convs in the head. Default: 1.
-    """
 
     def __init__(
         self, config, in_channels, in_index: int = 2, kernel_size: int = 3, dilation: int | tuple[int, int] = 1
@@ -253,7 +198,6 @@ class UperNetFCNHead(nn.Module):
         self.classifier = nn.Conv2d(self.channels, config.num_labels, kernel_size=1)
 
     def forward(self, encoder_hidden_states: torch.Tensor) -> torch.Tensor:
-        # just take the relevant feature maps
         hidden_states = encoder_hidden_states[self.in_index]
         output = self.convs(hidden_states)
         if self.concat_input:
@@ -281,13 +225,11 @@ class UperNetForSemanticSegmentation(UperNetPreTrainedModel):
 
         self.backbone = load_backbone(config)
 
-        # Semantic segmentation head(s)
         self.decode_head = UperNetHead(config, in_channels=self.backbone.channels)
         self.auxiliary_head = (
             UperNetFCNHead(config, in_channels=self.backbone.channels) if config.use_auxiliary_head else None
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -353,7 +295,6 @@ class UperNetForSemanticSegmentation(UperNetPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # compute weighted loss
             loss_fct = CrossEntropyLoss(ignore_index=self.config.loss_ignore_index)
             loss = loss_fct(logits, labels)
             if auxiliary_logits is not None:

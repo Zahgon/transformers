@@ -1,16 +1,3 @@
-# Copyright 2025 Meituan and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable
 
@@ -132,11 +119,7 @@ class LongcatFlashExperts(nn.Module):
         return final_hidden_states
 
 
-# remap config key expert_ffn_hidden_size -> moe_intermediate_size
 class LongcatFlashMoE(nn.Module):
-    """
-    A mixed expert module containing zero compute (identity) experts.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -172,7 +155,6 @@ class LongcatFlashMLA(DeepseekV3Attention):
         batch_size, seq_length = hidden_states.shape[:-1]
         query_shape = (batch_size, seq_length, -1, self.qk_head_dim)
         key_shape = (batch_size, seq_length, -1, self.qk_nope_head_dim + self.v_head_dim)
-        # we always do a lora for queries as well
         q_states = self.q_b_proj(self.q_a_layernorm(self.q_a_proj(hidden_states)))
         q_states = q_states.view(query_shape).transpose(1, 2)
         q_pass, q_rot = torch.split(q_states, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1)
@@ -181,7 +163,6 @@ class LongcatFlashMLA(DeepseekV3Attention):
         k_pass, k_rot = torch.split(compressed_kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
         k_pass = self.kv_a_layernorm(k_pass)
 
-        # apply LoRA scaling
         q_pass = q_pass * self.mla_scale_q_lora
         q_rot = q_rot * self.mla_scale_q_lora
         k_pass = k_pass * self.mla_scale_kv_lora
@@ -222,14 +203,6 @@ class LongcatFlashMLA(DeepseekV3Attention):
 
 
 class LongcatFlashDecoderLayer(GradientCheckpointingLayer):
-    """
-    LongCat decoder layer with dual-sublayer + shortcut MoE architecture.
-
-    Each logical layer contains:
-    - 2 attention sublayers (with layer indices: layer_idx*2, layer_idx*2+1)
-    - 2 MLP sublayers
-    - 1 shortcut MoE connection
-    """
 
     def __init__(self, config, layer_idx: int):
         super().__init__()
@@ -278,7 +251,6 @@ class LongcatFlashDecoderLayer(GradientCheckpointingLayer):
         hidden_states = self.mlps[0](hidden_states)
         hidden_states = residual + hidden_states
 
-        # shortcut connection after second sublayer
         residual = hidden_states
         hidden_states = self.input_layernorm[1](hidden_states)
 
@@ -341,7 +313,6 @@ class LongcatFlashModel(DeepseekV3Model):
         self.layers = nn.ModuleList(
             [LongcatFlashDecoderLayer(config, layer_idx) for layer_idx in range(config.num_layers)]
         )
-        # Each layer above has 2 sublayers, config hack to have a correct cache (to avoid a checkpoint change)
         self.head_dim = config.head_dim  # For CI happiness (we didn't convert so head_dim is not directly used)
 
         self.config.num_hidden_layers = 2 * config.num_layers
@@ -349,7 +320,6 @@ class LongcatFlashModel(DeepseekV3Model):
         self.rotary_emb = LongcatFlashRotaryEmbedding(config=config)
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(

@@ -1,17 +1,3 @@
-# Copyright 2023-present NAVER Corp, The Microsoft Research Asia LayoutLM Team Authors and the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Bros model."""
 
 import math
 from dataclasses import dataclass
@@ -48,14 +34,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class BrosSpadeOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Classification loss.
-    initial_token_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.num_labels)`):
-        Classification scores for entity initial tokens (before SoftMax).
-    subsequent_token_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, sequence_length+1)`):
-        Classification scores for entity sequence tokens (before SoftMax).
-    """
 
     loss: torch.FloatTensor | None = None
     initial_token_logits: torch.FloatTensor | None = None
@@ -65,7 +43,6 @@ class BrosSpadeOutput(ModelOutput):
 
 
 class BrosPositionalEmbedding1D(nn.Module):
-    # Reference: https://github.com/kimiyoung/transformer-xl/blob/master/pytorch/mem_transformer.py#L15
 
     def __init__(self, config):
         super().__init__()
@@ -120,7 +97,6 @@ class BrosBboxEmbeddings(nn.Module):
 
 
 class BrosTextEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -131,7 +107,6 @@ class BrosTextEmbeddings(nn.Module):
 
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer("position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)))
         self.register_buffer(
             "token_type_ids",
@@ -213,9 +188,6 @@ class BrosSelfAttention(nn.Module):
         hidden_shape = (hidden_states.shape[0], -1, self.num_attention_heads, self.attention_head_size)
         query_layer = self.query(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # If this is instantiated as a cross-attention module, the keys
-        # and values come from an encoder; the attention mask needs to be
-        # such that the encoder's padding tokens are not attended to.
         is_cross_attention = encoder_hidden_states is not None
 
         if is_cross_attention:
@@ -226,7 +198,6 @@ class BrosSelfAttention(nn.Module):
             key_layer = self.key(hidden_states).view(hidden_shape).transpose(1, 2)
             value_layer = self.value(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         # bbox positional encoding
@@ -239,14 +210,10 @@ class BrosSelfAttention(nn.Module):
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in BrosModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -258,7 +225,6 @@ class BrosSelfAttention(nn.Module):
         return context_layer, attention_probs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput with Bert->Bros
 class BrosSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -299,7 +265,6 @@ class BrosAttention(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->Bros
 class BrosIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -388,7 +353,6 @@ class BrosLayer(GradientCheckpointingLayer):
         return layer_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler with Bert->Bros
 class BrosPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -396,8 +360,6 @@ class BrosPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -591,7 +553,6 @@ class BrosModel(BrosPreTrainedModel):
                 encoder_hidden_states=encoder_hidden_states,
             )
 
-        # if bbox has 2 points (4 float tensors) per token, convert it to 4 points (8 float tensors) per token
         if bbox.shape[-1] == 4:
             bbox = bbox[:, :, [0, 1, 2, 1, 2, 3, 0, 3]]
         scaled_bbox = bbox * self.config.bbox_scale
@@ -733,7 +694,6 @@ class BrosSpadeEEForTokenClassification(BrosPreTrainedModel):
             config.classifier_dropout if hasattr(config, "classifier_dropout") else config.hidden_dropout_prob
         )
 
-        # Initial token classification for Entity Extraction (NER)
         self.initial_token_classifier = nn.Sequential(
             nn.Dropout(classifier_dropout),
             nn.Linear(config.hidden_size, config.hidden_size),
@@ -741,7 +701,6 @@ class BrosSpadeEEForTokenClassification(BrosPreTrainedModel):
             nn.Linear(config.hidden_size, config.num_labels),
         )
 
-        # Subsequent token classification for Entity Extraction (NER)
         self.subsequent_token_classifier = BrosRelationExtractor(config)
 
         self.post_init()
@@ -807,7 +766,6 @@ class BrosSpadeEEForTokenClassification(BrosPreTrainedModel):
         initial_token_logits = self.initial_token_classifier(last_hidden_states).transpose(0, 1).contiguous()
         subsequent_token_logits = self.subsequent_token_classifier(last_hidden_states, last_hidden_states).squeeze(0)
 
-        # make subsequent token (sequence token classification) mask
         inv_attention_mask = 1 - attention_mask
         batch_size, max_seq_length = inv_attention_mask.shape
         device = inv_attention_mask.device
@@ -827,7 +785,6 @@ class BrosSpadeEEForTokenClassification(BrosPreTrainedModel):
         if initial_token_labels is not None and subsequent_token_labels is not None:
             loss_fct = CrossEntropyLoss()
 
-            # get initial token loss
             initial_token_labels = initial_token_labels.view(-1)
             if bbox_first_token_mask is not None:
                 bbox_first_token_mask = bbox_first_token_mask.view(-1)

@@ -1,17 +1,3 @@
-# Copyright 2024 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""RecurrentGemma model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,35 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="google/recurrentgemma-2b")
 @strict
 class RecurrentGemmaConfig(PreTrainedConfig):
-    r"""
-    lru_width (`int` or `None`, *optional*):
-        Dimension of the hidden representations of the RG-LRU. If `None`
-        this will be set to `hidden_size`.
-        Whether to scale the output of the embeddings by `sqrt(hidden_size)`.
-    attention_window_size (`int`, *optional*, defaults to 2048):
-        The size of the attention window used in the attention block.
-    conv1d_width (`int`, *optional*, defaults to 4):
-        The kernel size of conv1d layers used in the recurrent blocks.
-    logits_soft_cap (`float`, *optional*, defaults to 30.0):
-        The value at which the logits should be soft-capped to after the transformer and LM-head computation in the Causal LM architecture.
-    block_types (`list[str]`, *optional*, defaults to `('recurrent', 'recurrent', 'attention')`):
-        List of aleternating blocks that will be repeated to initialize the `temporal_block` layer.
-    w_init_variance_scale (`float`, *optional*, defaults to 0.01):
-        weight initialization variance.
-
-    ```python
-    >>> from transformers import RecurrentGemmaModel, RecurrentGemmaConfig
-
-    >>> # Initializing a RecurrentGemma recurrentgemma-2b style configuration
-    >>> configuration = RecurrentGemmaConfig()
-
-    >>> # Initializing a model from the recurrentgemma-2b style configuration
-    >>> model = RecurrentGemmaModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "recurrent_gemma"
     attribute_map = {"sliding_window": "attention_window_size"}
@@ -91,13 +48,11 @@ class RecurrentGemmaConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.num_key_value_heads > self.num_attention_heads:
-            raise ValueError("The number of `num_key_value_heads` must be smaller than `num_attention_heads`")
+        pass
 
     @property
     def layers_block_type(self):
-        return (self.block_types * 100)[: self.num_hidden_layers]
+        pass
 
 
 __all__ = ["RecurrentGemmaConfig"]

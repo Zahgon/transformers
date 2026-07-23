@@ -1,17 +1,3 @@
-# Copyright Google AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for CANINE."""
 
 from ...tokenization_python import AddedToken, PreTrainedTokenizer
 from ...utils import logging
@@ -20,11 +6,8 @@ from ...utils import logging
 logger = logging.get_logger(__name__)
 
 
-# Unicode defines 1,114,112 total “codepoints”
 UNICODE_VOCAB_SIZE = 1114112
 
-# Below: Constants defining canonical codepoints for special, pseudo-characters.
-# Copied from https://github.com/google-research/language/blob/master/language/canine/special_codepoints.py
 PAD = 0
 CLS = 0xE000
 SEP = 0xE001
@@ -32,14 +15,7 @@ BOS = 0xE002
 MASK = 0xE003
 RESERVED = 0xE004
 
-# Maps special codepoints to human-readable names.
 SPECIAL_CODEPOINTS: dict[int, str] = {
-    # Special symbols are represented using codepoints values that are valid,
-    # but designated as "Private Use", meaning that they will never be assigned
-    # characters by the Unicode Consortium, and are thus safe for use here.
-    #
-    # NOTE: Do *NOT* add any sort of [UNK_CHAR] here. They are explicitly
-    # excluded and should fail with a hard error.
     CLS: "[CLS]",
     SEP: "[SEP]",
     BOS: "[BOS]",
@@ -48,23 +24,10 @@ SPECIAL_CODEPOINTS: dict[int, str] = {
     RESERVED: "[RESERVED]",
 }
 
-# Maps special codepoint human-readable names to their codepoint values.
 SPECIAL_CODEPOINTS_BY_NAME: dict[str, int] = {name: codepoint for codepoint, name in SPECIAL_CODEPOINTS.items()}
 
 
 class CanineTokenizer(PreTrainedTokenizer):
-    r"""
-    Construct a CANINE tokenizer (i.e. a character splitter). It turns text into a sequence of characters, and then
-    converts each character into its Unicode code point.
-
-    [`CanineTokenizer`] inherits from [`PreTrainedTokenizer`].
-
-    Refer to superclass [`PreTrainedTokenizer`] for usage examples and documentation concerning parameters.
-
-    Args:
-        model_max_length (`int`, *optional*, defaults to 2048):
-                The maximum sentence length the model accepts.
-    """
 
     model_input_names = ["input_ids", "attention_mask", "token_type_ids"]
 
@@ -86,15 +49,12 @@ class CanineTokenizer(PreTrainedTokenizer):
         cls_token = AddedToken(cls_token, lstrip=False, rstrip=False) if isinstance(cls_token, str) else cls_token
         pad_token = AddedToken(pad_token, lstrip=False, rstrip=False) if isinstance(pad_token, str) else pad_token
 
-        # Mask token behave like a normal word, i.e. include the space before it
         mask_token = AddedToken(mask_token, lstrip=True, rstrip=False) if isinstance(mask_token, str) else mask_token
 
-        # Creates a mapping for looking up the IDs of special symbols.
         self._special_codepoints: dict[str, int] = {}
         for codepoint, name in SPECIAL_CODEPOINTS.items():
             self._special_codepoints[name] = codepoint
 
-        # Creates a mapping for looking up the string forms of special symbol IDs.
         self._special_codepoint_strings: dict[int, str] = {
             codepoint: name for name, codepoint in self._special_codepoints.items()
         }
@@ -119,7 +79,7 @@ class CanineTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self) -> int:
-        return self._unicode_vocab_size
+        pass
 
     def get_vocab(self):
         vocab = {chr(i): i for i in range(self.vocab_size)}

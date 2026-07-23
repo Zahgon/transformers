@@ -1,16 +1,3 @@
-# Copyright 2024 The Emu team, BAAI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import argparse
 import json
 import os
@@ -59,12 +46,10 @@ byte_encoder = bytes_to_unicode()
 CHAT_TEMPLATE = "{% for message in messages %}{% if message['role'] != 'system' %}{{ message['role'].upper() + ': '}}{% endif %}{# Render all images first #}{% for content in message['content'] | selectattr('type', 'equalto', 'image') %}{{ '<image>' }}{% endfor %}{# Render all text next #}{% if message['role'] != 'assistant' %}{% for content in message['content'] | selectattr('type', 'equalto', 'text') %}{{ content['text'] + ' '}}{% endfor %}{% else %}{% for content in message['content'] | selectattr('type', 'equalto', 'text') %}{% generation %}{{ content['text'] + ' '}}{% endgeneration %}{% endfor %}{% endif %}{% endfor %}{% if add_generation_prompt %}{{ 'ASSISTANT:' }}{% endif %}"
 
 
-# Tiktoken to HF conversion, thanks for Xenova
 def token_bytes_to_string(b):
     return "".join([byte_encoder[ord(char)] for char in b.decode("latin-1")])
 
 
-# Adapted from https://github.com/openai/tiktoken/issues/60#issuecomment-1499977960
 def bpe(mergeable_ranks: dict[bytes, int], token: bytes, max_rank: int | None = None):
     parts = [bytes([b]) for b in token]
     while True:
@@ -96,7 +81,6 @@ def generate_vocab_and_merges(encoder):
         assert len(merged) == 2
         merges.append(" ".join(map(token_bytes_to_string, merged)))
 
-    # Also add special tokens
     vocab.update(encoder._special_tokens)
     return vocab, merges
 
@@ -118,7 +102,6 @@ def convert_tiktoken(tokenizer, output_dir):
         if content != "<|extra_0|>"
     ]
 
-    # https://huggingface.co/Xenova/gpt2/raw/main/tokenizer_config.json
     tokenizer_config_template = {
         "add_prefix_space": False,
         "bos_token": "<|extra_203|>",
@@ -129,7 +112,6 @@ def convert_tiktoken(tokenizer, output_dir):
     tokenizer_config_template.update({"tokenizer_class": "GPT2Tokenizer"})
     tokenizer_config_template = dict(sorted(tokenizer_config_template.items(), key=lambda x: x[0]))
 
-    # add placeholder image token by taking one of the reserved tokens
     reserved_token_id = vocab["<|extra_0|>"]
     vocab["<image>"] = reserved_token_id
     del vocab["<|extra_0|>"]
@@ -154,7 +136,6 @@ def convert_tiktoken(tokenizer, output_dir):
         "use_regex": True,
     }
 
-    # https://huggingface.co/Xenova/gpt2/raw/main/tokenizer.json
     tokenizer_template = {
         "version": "1.0",
         "truncation": None,
@@ -182,7 +163,6 @@ def convert_tiktoken(tokenizer, output_dir):
         },
     }
 
-    # Save to files
     with open(os.path.join(output_dir, "vocab.json"), "w", encoding="utf-8") as fp:
         json.dump(vocab, fp, indent=2, ensure_ascii=False)
 
@@ -217,18 +197,15 @@ KEYS_TO_MODIFY_MAPPING = {
     "^quant_conv": "model.vqmodel.quant_conv",
     "^quantize": "model.vqmodel.quantize",
     r"lm_head\.weight": "lm_head.weight",
-    # rename QKV proj for the VQ-VAE model because we use SiglipAttention
     r"\.q\.": ".q_proj.",
     r"\.k\.": ".k_proj.",
     r"\.v\.": ".v_proj.",
     r"\.proj_out\.": ".out_proj.",
-    # move the attention norms outside of attention modules
     r"mid\.attn_1\.norm\.": "mid.attn_norm.",
     r"attn\.0\.norm\.": "attn_norms.0.",
     r"attn\.1\.norm\.": "attn_norms.1.",
     r"attn\.2\.norm\.": "attn_norms.2.",
     r"attn\.3\.norm\.": "attn_norms.3.",
-    # isolate down/mid/up into separate classes for readability
     r"\.down\.": ".down_block.down.",
     r"\.up\.": ".up_block.up.",
     r"\.mid\.": ".middle_block.",
@@ -237,7 +214,6 @@ KEYS_TO_MODIFY_MAPPING = {
 
 def convert_state_dict_to_hf(old_state_dict, new_state_dict):
     for key, value in old_state_dict.items():
-        # convert conv layers in attn to linear
         if (
             any(key.endswith(name) for name in ["q.weight", "k.weight", "v.weight", "proj_out.weight"])
             and value.ndim == 4
@@ -254,7 +230,6 @@ def convert_state_dict_to_hf(old_state_dict, new_state_dict):
 def convert_model(vq_model_id, llm_model_id, output_dir, hub_model_id=None, test_inference=False):
     os.makedirs(output_dir, exist_ok=True)
 
-    # Convert and save processor
     tokenizer_tiktoken = AutoTokenizer.from_pretrained(llm_model_id, trust_remote_code=True)
     convert_tiktoken(tokenizer_tiktoken, output_dir)
     extra_special_tokens = {
@@ -271,7 +246,6 @@ def convert_model(vq_model_id, llm_model_id, output_dir, hub_model_id=None, test
     processor = Emu3Processor(image_processor, tokenizer_converted, chat_template=CHAT_TEMPLATE)
     processor.save_pretrained(output_dir)
 
-    # load models
     model_llm = AutoModelForCausalLM.from_pretrained(
         llm_model_id,
         trust_remote_code=True,
@@ -309,7 +283,6 @@ def convert_model(vq_model_id, llm_model_id, output_dir, hub_model_id=None, test
         processor.push_to_hub(hub_model_id)
 
     if test_inference and llm_model_id.endswith("Chat"):
-        # Short inference on a few examples to check if generation makes sense
         print("Loading the checkpoint in a Emu3 model...")
         print("*" * 100)
         model = Emu3ForConditionalGeneration.from_pretrained(output_dir, dtype=torch.bfloat16, device_map="auto")
@@ -366,29 +339,7 @@ def convert_model(vq_model_id, llm_model_id, output_dir, hub_model_id=None, test
         VISUAL_TOKENS = model.vocabulary_mapping.image_tokens
 
         def prefix_allowed_tokens_fn(batch_id, input_ids):
-            height, width = HEIGHT, WIDTH
-            visual_tokens = VISUAL_TOKENS
-            image_token_id = processor.tokenizer.encode("<|image token|>", return_tensors="pt")[0].to(model.device)
-            eoi_token_id = processor.tokenizer.encode("<|image end|>", return_tensors="pt")[0]
-            eos_token_id = processor.tokenizer.encode("<|extra_204|>", return_tensors="pt")[0]
-            pad_token_id = processor.tokenizer.encode("<|endoftext|>", return_tensors="pt")[0]
-            eol_token_id = processor.tokenizer.encode("<|extra_200|>", return_tensors="pt")[0]
-            eof_token_id = processor.tokenizer.encode("<|extra_201|>", return_tensors="pt")[0]
-
-            position = torch.nonzero(input_ids == image_token_id, as_tuple=True)[0][0]
-            offset = input_ids.shape[0] - position
-            if offset % (width + 1) == 0:
-                return (eol_token_id,)
-            elif offset == (width + 1) * height + 1:
-                return (eof_token_id,)
-            elif offset == (width + 1) * height + 2:
-                return (eoi_token_id,)
-            elif offset == (width + 1) * height + 3:
-                return (eos_token_id,)
-            elif offset > (width + 1) * height + 3:
-                return (pad_token_id,)
-            else:
-                return visual_tokens
+            pass
 
         out = model.generate(
             **inputs,

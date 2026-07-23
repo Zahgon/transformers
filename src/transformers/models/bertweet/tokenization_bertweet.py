@@ -1,18 +1,3 @@
-# Copyright (c) 2020, VinAI Research and the HuggingFace Inc. team.
-# Copyright 2018 The Open AI Team Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for BERTweet"""
 
 import html
 import os
@@ -49,55 +34,6 @@ def get_pairs(word):
 
 
 class BertweetTokenizer(PreTrainedTokenizer):
-    """
-    Constructs a BERTweet tokenizer, using Byte-Pair-Encoding.
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            Path to the vocabulary file.
-        merges_file (`str`):
-            Path to the merges file.
-        normalization (`bool`, *optional*, defaults to `False`):
-            Whether or not to apply a normalization preprocess.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the beginning of
-            sequence. The token used is the `cls_token`.
-
-            </Tip>
-
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the end of sequence.
-            The token used is the `sep_token`.
-
-            </Tip>
-
-        sep_token (`str`, *optional*, defaults to `"</s>"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        cls_token (`str`, *optional*, defaults to `"<s>"`):
-            The classifier token which is used when doing sequence classification (classification of the whole sequence
-            instead of per-token classification). It is the first token of the sequence when built with special tokens.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        mask_token (`str`, *optional*, defaults to `"<mask>"`):
-            The token used for masking values. This is the token used when training this model with masked language
-            modeling. This is the token which the model will try to predict.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
 
@@ -158,7 +94,6 @@ class BertweetTokenizer(PreTrainedTokenizer):
             unk_token=unk_token,
             pad_token=pad_token,
             mask_token=mask_token,
-            # Configure patterns instead of overriding methods
             token_type_ids_pattern="all_zeros",  # BERTweet doesn't use token type IDs
             token_type_ids_include_special_tokens=True,
             special_tokens_pattern="cls_double_sep",  # <s> X </s></s> Y </s>
@@ -167,7 +102,7 @@ class BertweetTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        return len(self.encoder)
+        pass
 
     def get_vocab(self):
         return dict(self.encoder, **self.added_tokens_encoder)
@@ -293,11 +228,6 @@ class BertweetTokenizer(PreTrainedTokenizer):
         out_string = " ".join(tokens).replace("@@ ", "").strip()
         return out_string
 
-    # def decode(self, token_ids, skip_special_tokens=False, clean_up_tokenization_spaces=True):
-    #     filtered_tokens = ' '.join(self.convert_ids_to_tokens(token_ids, skip_special_tokens=skip_special_tokens))
-    #     tokens_generated_so_far = re.sub('(@@ )', '', string=filtered_tokens)
-    #     tokens_generated_so_far = re.sub('(@@ ?$)', '', string=tokens_generated_so_far)
-    #     return ''.join(tokens_generated_so_far)
 
     def save_vocabulary(self, save_directory: str, filename_prefix: str | None = None) -> tuple[str, ...]:
         """
@@ -310,16 +240,12 @@ class BertweetTokenizer(PreTrainedTokenizer):
         vocab_files_names = getattr(self, "vocab_files_names", {})
         prefix = f"{filename_prefix}-" if filename_prefix else ""
 
-        # Save vocabulary in the format expected by add_from_file: <token> <id>
-        # Exclude special tokens (IDs 0-3) as they are added in __init__ before add_from_file
         vocab_file = os.path.join(save_directory, prefix + vocab_files_names.get("vocab_file", "vocab.txt"))
         with open(vocab_file, "w", encoding="utf-8") as f:
             for token, token_id in sorted(self.encoder.items(), key=lambda kv: kv[1]):
-                # Only save tokens with ID >= 4, as IDs 0-3 are reserved for special tokens
                 if token_id >= 4:
                     f.write(f"{token} {token_id}\n")
 
-        # Save BPE merges
         merge_file = os.path.join(save_directory, prefix + vocab_files_names.get("merges_file", "bpe.codes"))
         with open(merge_file, "w", encoding="utf-8") as writer:
             writer.writelines(
@@ -353,15 +279,6 @@ class BertweetTokenizer(PreTrainedTokenizer):
             self.encoder[word] = len(self.encoder)
 
 
-# Natural Language Toolkit: Twitter Tokenizer
-#
-# Copyright (C) 2001-2020 NLTK Project
-# Author: Christopher Potts <cgpotts@stanford.edu>
-#         Ewan Klein <ewan@inf.ed.ac.uk> (modifications)
-#         Pierpaolo Pantone <> (modifications)
-# URL: http://nltk.org/
-# For license information, see LICENSE.TXT
-#
 
 
 """
@@ -380,28 +297,8 @@ Twitter-aware tokenizer, designed to be flexible and easy to adapt to new domain
 """
 
 
-######################################################################
-#
-# import regex  # https://github.com/nltk/nltk/issues/2409
-# import html
-#
-######################################################################
-# The following strings are components in the regular expression
-# that is used for tokenizing. It's important that phone_number
-# appears first in the final regex (since it can contain whitespace).
-# It also could matter that tags comes after emoticons, due to the
-# possibility of having text like
-#
-#     <:| and some text >:)
-#
-# Most importantly, the final element should always be last, since it
-# does a last ditch whitespace-based tokenization of whatever is left.
 
-# ToDo: Update with http://en.wikipedia.org/wiki/List_of_emoticons ?
 
-# This particular element is used in a couple ways, so we define it
-# with a name:
-# docstyle-ignore
 EMOTICONS = r"""
     (?:
       [<>]?
@@ -417,9 +314,6 @@ EMOTICONS = r"""
       <3                         # heart
     )"""
 
-# URL pattern due to John Gruber, modified by Tom Winzig. See
-# https://gist.github.com/winzig/8894715
-# docstyle-ignore
 URLS = r"""			# Capture 1: entire matched URL
   (?:
   https?:				# URL protocol and colon
@@ -463,11 +357,8 @@ URLS = r"""			# Capture 1: entire matched URL
   )
 """
 
-# docstyle-ignore
-# The components of the tokenizer:
 REGEXPS = (
     URLS,
-    # Phone numbers:
     r"""
     (?:
       (?:            # (international)
@@ -483,20 +374,12 @@ REGEXPS = (
       [ *\-.\)]*
       \d{4}          # base
     )""",
-    # ASCII Emoticons
     EMOTICONS,
-    # HTML tags:
     r"""<[^>\s]+>""",
-    # ASCII Arrows
     r"""[\-]+>|<[\-]+""",
-    # Twitter username:
     r"""(?:@[\w_]+)""",
-    # Twitter hashtags:
     r"""(?:\#+[\w_]+[\w\'_\-]*[\w_]+)""",
-    # email addresses
     r"""[\w.+-]+@[\w-]+\.(?:[\w-]\.?)+[\w-]""",
-    # docstyle-ignore
-    # Remaining word types:
     r"""
     (?:[^\W\d_](?:[^\W\d_]|['\-_])+[^\W\d_]) # Words with apostrophes or dashes.
     |
@@ -510,25 +393,16 @@ REGEXPS = (
     """,
 )
 
-######################################################################
-# This is the core tokenizing regex:
 
 WORD_RE = regex.compile(r"""(%s)""" % "|".join(REGEXPS), regex.VERBOSE | regex.I | regex.UNICODE)
 
-# WORD_RE performs poorly on these patterns:
 HANG_RE = regex.compile(r"([^a-zA-Z0-9])\1{3,}")
 
-# The emoticon string gets its own regex so that we can preserve case for
-# them as needed:
 EMOTICON_RE = regex.compile(EMOTICONS, regex.VERBOSE | regex.I | regex.UNICODE)
 
-# These are for regularizing HTML entities to Unicode:
 ENT_RE = regex.compile(r"&(#?(x?))([^&;\s]+);")
 
 
-######################################################################
-# Functions for converting html entities
-######################################################################
 
 
 def _str_to_unicode(text, encoding=None, errors="strict"):
@@ -569,59 +443,14 @@ def _replace_html_entities(text, keep=(), remove_illegal=True, encoding="utf-8")
     ```"""
 
     def _convert_entity(match):
-        entity_body = match.group(3)
-        if match.group(1):
-            try:
-                if match.group(2):
-                    number = int(entity_body, 16)
-                else:
-                    number = int(entity_body, 10)
-                # Numeric character references in the 80-9F range are typically
-                # interpreted by browsers as representing the characters mapped
-                # to bytes 80-9F in the Windows-1252 encoding. For more info
-                # see: https://en.wikipedia.org/wiki/ISO/IEC_8859-1#Similar_character_sets
-                if 0x80 <= number <= 0x9F:
-                    return bytes((number,)).decode("cp1252")
-            except ValueError:
-                number = None
-        else:
-            if entity_body in keep:
-                return match.group(0)
-            else:
-                number = html.entities.name2codepoint.get(entity_body)
-        if number is not None:
-            try:
-                return chr(number)
-            except (ValueError, OverflowError):
-                pass
-
-        return "" if remove_illegal else match.group(0)
+        pass
 
     return ENT_RE.sub(_convert_entity, _str_to_unicode(text, encoding))
 
 
-######################################################################
 
 
 class TweetTokenizer:
-    r"""
-    Examples:
-
-    ```python
-    >>> # Tokenizer for tweets.
-    >>> from nltk.tokenize import TweetTokenizer
-
-    >>> tknzr = TweetTokenizer()
-    >>> s0 = "This is a cooool #dummysmiley: :-) :-P <3 and some arrows < > -> <--"
-    >>> tknzr.tokenize(s0)
-    ['This', 'is', 'a', 'cooool', '#dummysmiley', ':', ':-)', ':-P', '<3', 'and', 'some', 'arrows', '<', '>', '->', '<--']
-
-    >>> # Examples using *strip_handles* and *reduce_len parameters*:
-    >>> tknzr = TweetTokenizer(strip_handles=True, reduce_len=True)
-    >>> s1 = "@remy: This is waaaaayyyy too much for you!!!!!!"
-    >>> tknzr.tokenize(s1)
-    [':', 'This', 'is', 'waaayyy', 'too', 'much', 'for', 'you', '!', '!', '!']
-    ```"""
 
     def __init__(self, preserve_case=True, reduce_len=False, strip_handles=False):
         self.preserve_case = preserve_case
@@ -636,27 +465,18 @@ class TweetTokenizer:
         Returns: list(str) A tokenized list of strings; concatenating this list returns the original string if
         `preserve_case=False`
         """
-        # Fix HTML character entities:
         text = _replace_html_entities(text)
-        # Remove username handles
         if self.strip_handles:
             text = remove_handles(text)
-        # Normalize word lengthening
         if self.reduce_len:
             text = reduce_lengthening(text)
-        # Shorten problematic sequences of characters
         safe_text = HANG_RE.sub(r"\1\1\1", text)
-        # Tokenize:
         words = WORD_RE.findall(safe_text)
-        # Possibly alter the case, but avoid changing emoticons like :D into :d:
         if not self.preserve_case:
             words = [x if EMOTICON_RE.search(x) else x.lower() for x in words]
         return words
 
 
-######################################################################
-# Normalization Functions
-######################################################################
 
 
 def reduce_lengthening(text):
@@ -674,25 +494,15 @@ def remove_handles(text):
     pattern = regex.compile(
         r"(?<![A-Za-z0-9_!@#\$%&*])@(([A-Za-z0-9_]){20}(?!@))|(?<![A-Za-z0-9_!@#\$%&*])@(([A-Za-z0-9_]){1,19})(?![A-Za-z0-9_]*@)"
     )
-    # Substitute handles with ' ' to ensure that text on either side of removed handles are tokenized correctly
     return pattern.sub(" ", text)
 
 
-######################################################################
-# Tokenization Function
-######################################################################
 
 
 def casual_tokenize(text, preserve_case=True, reduce_len=False, strip_handles=False):
-    """
-    Convenience function for wrapping the tokenizer.
-    """
-    return TweetTokenizer(preserve_case=preserve_case, reduce_len=reduce_len, strip_handles=strip_handles).tokenize(
-        text
-    )
+    pass
 
 
-###############################################################################
 
 
 __all__ = ["BertweetTokenizer"]

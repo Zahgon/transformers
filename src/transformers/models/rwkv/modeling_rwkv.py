@@ -1,18 +1,3 @@
-# Copyright 2023 Bo Peng and HuggingFace Inc. team.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch RWKV model."""
 
 import math
 from dataclasses import dataclass
@@ -86,7 +71,6 @@ class RwkvLinearAttention(torch.autograd.Function):
         time_first = time_first.contiguous()
         key = key.contiguous()
         value = value.contiguous()
-        # The CUDA kernel will fill this tensor.
         output = torch.empty_like(key, memory_format=torch.contiguous_format)
         if return_state or state is not None:
             if state is None:
@@ -118,50 +102,11 @@ class RwkvLinearAttention(torch.autograd.Function):
         return output.to(ctx.input_dtype), state
 
     @staticmethod
-    # g stands for grad
     def backward(ctx, g_output, g_state=None):
-        input_dtype = ctx.input_dtype
-
-        time_decay, time_first, key, value, output = ctx.saved_tensors
-        # The CUDA kernel will fill those tensors.
-        g_time_decay = torch.empty_like(
-            time_decay,
-            memory_format=torch.contiguous_format,
-            dtype=torch.bfloat16 if input_dtype == torch.bfloat16 else torch.float32,
-        )
-        g_time_first = torch.empty_like(time_first, memory_format=torch.contiguous_format)
-        g_key = torch.empty_like(key, memory_format=torch.contiguous_format)
-        g_value = torch.empty_like(value, memory_format=torch.contiguous_format)
-
-        if input_dtype == torch.float16:
-            g_output = g_output.float()
-        backward_func = rwkv_cuda_kernel.backward_bf16 if input_dtype == torch.bfloat16 else rwkv_cuda_kernel.backward
-        backward_func(
-            time_decay,
-            time_first,
-            key,
-            value,
-            output,
-            g_output.contiguous(),
-            g_time_decay,
-            g_time_first,
-            g_key,
-            g_value,
-        )
-
-        return (
-            g_time_decay.to(input_dtype),
-            g_time_first.to(input_dtype),
-            g_key.to(input_dtype),
-            g_value.to(input_dtype),
-            None,
-            None,
-        )
+        pass
 
 
 def rwkv_linear_attention_cpu(time_decay, time_first, key, value, state=None, return_state=False):
-    # For CPU fallback. Will be slower and probably take more memory than the custom CUDA kernel if not executed
-    # within a torch.no_grad.
     _, seq_length, _ = key.size()
     output = torch.zeros_like(key)
 
@@ -171,9 +116,6 @@ def rwkv_linear_attention_cpu(time_decay, time_first, key, value, state=None, re
         max_state = torch.zeros_like(key[:, 0], dtype=torch.float32) - 1e38
     else:
         num_state, den_state, max_state = state
-    # For numerical stability
-    #    real_numerator_state = num_state * torch.exp(max_state)
-    #    real_denominator_state = den_state * torch.exp(max_state)
 
     time_decay = -torch.exp(time_decay)
 
@@ -181,7 +123,6 @@ def rwkv_linear_attention_cpu(time_decay, time_first, key, value, state=None, re
         current_key = key[:, current_index].float()
         current_value = value[:, current_index]
 
-        # wkv computation at time t
         max_for_output = torch.maximum(max_state, current_key + time_first)
         e1 = torch.exp(max_state - max_for_output)
         e2 = torch.exp(current_key + time_first - max_for_output)
@@ -189,7 +130,6 @@ def rwkv_linear_attention_cpu(time_decay, time_first, key, value, state=None, re
         denominator = e1 * den_state + e2
         output[:, current_index] = (numerator / denominator).to(output.dtype)
 
-        # Update state for next iteration
         max_for_state = torch.maximum(max_state + time_decay, current_key)
         e1 = torch.exp(max_state + time_decay - max_for_state)
         e2 = torch.exp(current_key - max_for_state)
@@ -205,8 +145,6 @@ def rwkv_linear_attention_cpu(time_decay, time_first, key, value, state=None, re
 
 def rwkv_linear_attention(time_decay, time_first, key, value, state=None, return_state=False):
     no_cuda = any(t.device.type != "cuda" for t in [time_decay, time_first, key, value])
-    # Launching the CUDA kernel for just one token will actually be slower (there is no for loop in the CPU version
-    # in this case).
     one_token = key.size(1) == 1
     if rwkv_cuda_kernel is None or no_cuda or one_token:
         return rwkv_linear_attention_cpu(time_decay, time_first, key, value, state=state, return_state=return_state)
@@ -244,9 +182,7 @@ class RwkvSelfAttention(nn.Module):
         self.receptance = nn.Linear(hidden_size, attention_hidden_size, bias=False)
         self.output = nn.Linear(attention_hidden_size, hidden_size, bias=False)
 
-    # TODO: maybe jit, otherwise move inside forward
     def extract_key_value(self, hidden, state=None):
-        # Mix hidden with the previous timestep to produce key, value, receptance
         if hidden.size(1) == 1 and state is not None:
             shifted = state[1][:, :, self.layer_id]
         else:
@@ -447,11 +383,6 @@ class RwkvPreTrainedModel(PreTrainedModel):
 )
 @dataclass
 class RwkvOutput(ModelOutput):
-    r"""
-    state (list of five `torch.FloatTensor` of shape `(batch_size, hidden_size, num_hidden_layers)`):
-        The state of the model at the last time step. Can be used in a forward method with the next `input_ids` to
-        avoid providing the old `input_ids`.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     state: list[torch.FloatTensor] | None = None
@@ -466,15 +397,6 @@ class RwkvOutput(ModelOutput):
 )
 @dataclass
 class RwkvCausalLMOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    state (list of five `torch.FloatTensor` of shape `(batch_size, hidden_size, num_hidden_layers)`):
-        The state of the model at the last time step. Can be used in a forward method with the next `input_ids` to
-        avoid providing the old `input_ids`.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -496,7 +418,6 @@ class RwkvModel(RwkvPreTrainedModel):
 
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -613,7 +534,6 @@ class RwkvModel(RwkvPreTrainedModel):
         )
 
     def _rescale_layers(self):
-        # Layers should be rescaled for inference only.
         if self.layers_are_rescaled == (not self.training):
             return
         if self.config.rescale_every > 0:
@@ -623,7 +543,6 @@ class RwkvModel(RwkvPreTrainedModel):
                         block.attention.output.weight.mul_(2 ** int(block_id // self.config.rescale_every))
                         block.feed_forward.value.weight.mul_(2 ** int(block_id // self.config.rescale_every))
                     else:
-                        # Deal with quantization statistics
                         if hasattr(block.attention.output.weight, "SCB"):
                             block.attention.output.weight.SCB.div_(2 ** int(block_id // self.config.rescale_every))
                             block.feed_forward.value.weight.SCB.div_(2 ** int(block_id // self.config.rescale_every))
@@ -649,11 +568,6 @@ class RwkvModel(RwkvPreTrainedModel):
 
         dequant_weights.div_(2 ** int(block_id // self.config.rescale_every))
 
-        # re-quantize the model:
-        # we need to put it first on CPU then back to the device
-        # this will create an overhead :/
-        # We set requires_grad=False as we cannot compute gradients on top of 4bit parameters anyway and to avoid
-        # bugs with bnb
         quant_weight = bnb.nn.Params4bit(dequant_weights.to("cpu"), requires_grad=False).to(dequant_weights.device)
         setattr(target_layer, "weight", quant_weight)
 
@@ -672,7 +586,6 @@ class RwkvForCausalLM(RwkvPreTrainedModel, GenerationMixin):
         self.rwkv = RwkvModel(config)
         self.head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -732,7 +645,6 @@ class RwkvForCausalLM(RwkvPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = rwkv_outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.head(hidden_states[:, slice_indices, :])
 

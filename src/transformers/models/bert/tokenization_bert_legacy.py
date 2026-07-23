@@ -1,17 +1,3 @@
-# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for Bert."""
 
 import collections
 import os
@@ -47,49 +33,6 @@ def whitespace_tokenize(text):
 
 
 class BertTokenizerLegacy(PreTrainedTokenizer):
-    r"""
-    Construct a BERT tokenizer. Based on WordPiece.
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            File containing the vocabulary.
-        do_lower_case (`bool`, *optional*, defaults to `True`):
-            Whether or not to lowercase the input when tokenizing.
-        do_basic_tokenize (`bool`, *optional*, defaults to `True`):
-            Whether or not to do basic tokenization before WordPiece.
-        never_split (`Iterable`, *optional*):
-            Collection of tokens which will never be split during tokenization. Only has an effect when
-            `do_basic_tokenize=True`
-        unk_token (`str`, *optional*, defaults to `"[UNK]"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        sep_token (`str`, *optional*, defaults to `"[SEP]"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        pad_token (`str`, *optional*, defaults to `"[PAD]"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        cls_token (`str`, *optional*, defaults to `"[CLS]"`):
-            The classifier token which is used when doing sequence classification (classification of the whole sequence
-            instead of per-token classification). It is the first token of the sequence when built with special tokens.
-        mask_token (`str`, *optional*, defaults to `"[MASK]"`):
-            The token used for masking values. This is the token used when training this model with masked language
-            modeling. This is the token which the model will try to predict.
-        tokenize_chinese_chars (`bool`, *optional*, defaults to `True`):
-            Whether or not to tokenize Chinese characters.
-
-            This should likely be deactivated for Japanese (see this
-            [issue](https://github.com/huggingface/transformers/issues/328)).
-        strip_accents (`bool`, *optional*):
-            Whether or not to strip all accents. If this option is not specified, then it will be determined by the
-            value for `lowercase` (as in the original BERT).
-        clean_up_tokenization_spaces (`bool`, *optional*, defaults to `True`):
-            Whether or not to cleanup spaces after decoding, cleanup consists in removing potential artifacts like
-            extra spaces.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
 
@@ -144,11 +87,11 @@ class BertTokenizerLegacy(PreTrainedTokenizer):
 
     @property
     def do_lower_case(self):
-        return self.basic_tokenizer.do_lower_case
+        pass
 
     @property
     def vocab_size(self):
-        return len(self.vocab)
+        pass
 
     def get_vocab(self):
         return dict(self.vocab, **self.added_tokens_encoder)
@@ -159,7 +102,6 @@ class BertTokenizerLegacy(PreTrainedTokenizer):
             for token in self.basic_tokenizer.tokenize(
                 text, never_split=self.all_special_tokens if not split_special_tokens else None
             ):
-                # If the token is part of the never_split set
                 if token in self.basic_tokenizer.never_split:
                     split_tokens.append(token)
                 else:
@@ -256,27 +198,6 @@ class BertTokenizerLegacy(PreTrainedTokenizer):
 
 
 class BasicTokenizer:
-    """
-    Constructs a BasicTokenizer that will run basic tokenization (punctuation splitting, lower casing, etc.).
-
-    Args:
-        do_lower_case (`bool`, *optional*, defaults to `True`):
-            Whether or not to lowercase the input when tokenizing.
-        never_split (`Iterable`, *optional*):
-            Collection of tokens which will never be split during tokenization. Only has an effect when
-            `do_basic_tokenize=True`
-        tokenize_chinese_chars (`bool`, *optional*, defaults to `True`):
-            Whether or not to tokenize Chinese characters.
-
-            This should likely be deactivated for Japanese (see this
-            [issue](https://github.com/huggingface/transformers/issues/328)).
-        strip_accents (`bool`, *optional*):
-            Whether or not to strip all accents. If this option is not specified, then it will be determined by the
-            value for `lowercase` (as in the original BERT).
-        do_split_on_punc (`bool`, *optional*, defaults to `True`):
-            In some instances we want to skip the basic punctuation splitting so that later tokenization can capture
-            the full context of the words, such as contractions.
-    """
 
     def __init__(
         self,
@@ -303,19 +224,11 @@ class BasicTokenizer:
                 Kept for backward compatibility purposes. Now implemented directly at the base class level (see
                 [`PreTrainedTokenizer.tokenize`]) List of token not to split.
         """
-        # union() returns a new set by concatenating the two sets.
         never_split = self.never_split.union(set(never_split)) if never_split else self.never_split
         text = self._clean_text(text)
 
-        # This was added on November 1st, 2018 for the multilingual and Chinese
-        # models. This is also applied to the English models now, but it doesn't
-        # matter since the English models were not trained on any Chinese data
-        # and generally don't have any Chinese data in them (there are Chinese
-        # characters in the vocabulary because Wikipedia does have some Chinese
-        # words in the English Wikipedia.).
         if self.tokenize_chinese_chars:
             text = self._tokenize_chinese_chars(text)
-        # prevents treating the same character with different unicode codepoints as different characters
         unicode_normalized_text = unicodedata.normalize("NFC", text)
         orig_tokens = whitespace_tokenize(unicode_normalized_text)
         split_tokens = []
@@ -380,14 +293,6 @@ class BasicTokenizer:
 
     def _is_chinese_char(self, cp):
         """Checks whether CP is the codepoint of a CJK character."""
-        # This defines a "chinese character" as anything in the CJK Unicode block:
-        #   https://en.wikipedia.org/wiki/CJK_Unified_Ideographs_(Unicode_block)
-        #
-        # Note that the CJK Unicode block is NOT all Japanese and Korean characters,
-        # despite its name. The modern Korean Hangul alphabet is a different block,
-        # as is Japanese Hiragana and Katakana. Those alphabets are used to write
-        # space-separated words, so they are not treated specially and handled
-        # like the all of the other languages.
         if (
             (cp >= 0x4E00 and cp <= 0x9FFF)
             or (cp >= 0x3400 and cp <= 0x4DBF)
@@ -417,7 +322,6 @@ class BasicTokenizer:
 
 
 class WordpieceTokenizer:
-    """Runs WordPiece tokenization."""
 
     def __init__(self, vocab, unk_token, max_input_chars_per_word=100):
         self.vocab = vocab

@@ -1,17 +1,3 @@
-# Copyright 2022 UW-Madison The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Nystromformer model."""
 
 import math
 
@@ -44,7 +30,6 @@ logger = logging.get_logger(__name__)
 
 
 class NystromformerEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -55,7 +40,6 @@ class NystromformerEmbeddings(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)) + 2, persistent=False
         )
@@ -76,9 +60,6 @@ class NystromformerEmbeddings(nn.Module):
         if position_ids is None:
             position_ids = self.position_ids[:, :seq_length]
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
                 buffered_token_type_ids = self.token_type_ids[:, :seq_length]
@@ -138,17 +119,13 @@ class NystromformerSelfAttention(nn.Module):
                 groups=self.num_attention_heads,
             )
 
-    # Function to approximate Moore-Penrose inverse via the iterative method
     def iterative_inv(self, mat, n_iter=6):
         identity = torch.eye(mat.size(-1), device=mat.device)
         key = mat
 
-        # The entries of key are positive and ||key||_{\infty} = 1 due to softmax
         if self.init_option == "original":
-            # This original implementation is more conservative to compute coefficient of Z_0.
             value = 1 / torch.max(torch.sum(key, dim=-2)) * key.transpose(-1, -2)
         else:
-            # This is the exact coefficient computation, 1 / ||key||_1, of initialization of Z_0, leading to faster convergence.
             value = 1 / torch.max(torch.sum(key, dim=-2), dim=-1).values[:, :, None, None] * key.transpose(-1, -2)
 
         for _ in range(n_iter):
@@ -174,7 +151,6 @@ class NystromformerSelfAttention(nn.Module):
             attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
             if attention_mask is not None:
-                # Apply the attention mask is (precomputed for all layers in NystromformerModel forward() function)
                 attention_scores = attention_scores + attention_mask
 
             attention_probs = nn.functional.softmax(attention_scores, dim=-1)
@@ -202,7 +178,6 @@ class NystromformerSelfAttention(nn.Module):
             attention_scores = torch.matmul(q_landmarks, key_layer.transpose(-1, -2))
 
             if attention_mask is not None:
-                # Apply the attention mask is (precomputed for all layers in NystromformerModel forward() function)
                 attention_scores = attention_scores + attention_mask
 
             kernel_3 = nn.functional.softmax(attention_scores, dim=-1)
@@ -222,7 +197,6 @@ class NystromformerSelfAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput
 class NystromformerSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -250,7 +224,6 @@ class NystromformerAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->Nystromformer
 class NystromformerIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -266,7 +239,6 @@ class NystromformerIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput with Bert->Nystromformer
 class NystromformerOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -350,7 +322,6 @@ class NystromformerEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPredictionHeadTransform with Bert->Nystromformer
 class NystromformerPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -368,14 +339,11 @@ class NystromformerPredictionHeadTransform(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertLMPredictionHead with Bert->Nystromformer
 class NystromformerLMPredictionHead(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.transform = NystromformerPredictionHeadTransform(config)
 
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=True)
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
@@ -385,7 +353,6 @@ class NystromformerLMPredictionHead(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOnlyMLMHead with Bert->Nystromformer
 class NystromformerOnlyMLMHead(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -418,7 +385,6 @@ class NystromformerModel(NystromformerPreTrainedModel):
         self.embeddings = NystromformerEmbeddings(config)
         self.encoder = NystromformerEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -516,7 +482,6 @@ class NystromformerForMaskedLM(NystromformerPreTrainedModel):
         self.nystromformer = NystromformerModel(config)
         self.cls = NystromformerOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -580,7 +545,6 @@ class NystromformerForMaskedLM(NystromformerPreTrainedModel):
 
 
 class NystromformerClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config):
         super().__init__()
@@ -613,7 +577,6 @@ class NystromformerForSequenceClassification(NystromformerPreTrainedModel):
         self.nystromformer = NystromformerModel(config)
         self.classifier = NystromformerClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -695,7 +658,6 @@ class NystromformerForMultipleChoice(NystromformerPreTrainedModel):
         self.pre_classifier = nn.Linear(config.hidden_size, config.hidden_size)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -801,7 +763,6 @@ class NystromformerForTokenClassification(NystromformerPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -868,7 +829,6 @@ class NystromformerForQuestionAnswering(NystromformerPreTrainedModel):
         self.nystromformer = NystromformerModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -908,12 +868,10 @@ class NystromformerForQuestionAnswering(NystromformerPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

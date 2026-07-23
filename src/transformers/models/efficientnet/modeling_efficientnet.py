@@ -1,17 +1,3 @@
-# Copyright 2023 Google Research, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch EfficientNet model."""
 
 import math
 
@@ -41,7 +27,6 @@ def round_filters(config: EfficientNetConfig, num_channels: int):
     num_channels *= config.width_coefficient
     new_dim = max(divisor, int(num_channels + divisor / 2) // divisor * divisor)
 
-    # Make sure that round down does not go down by more than 10%.
     if new_dim < 0.9 * num_channels:
         new_dim += divisor
 
@@ -69,9 +54,6 @@ def correct_pad(kernel_size: int | tuple, adjust: bool = True):
 
 
 class EfficientNetEmbeddings(nn.Module):
-    r"""
-    A module that corresponds to the stem module of the original work.
-    """
 
     def __init__(self, config: EfficientNetConfig):
         super().__init__()
@@ -120,9 +102,6 @@ class EfficientNetDepthwiseConv2d(nn.Conv2d):
 
 
 class EfficientNetExpansionLayer(nn.Module):
-    r"""
-    This corresponds to the expansion phase of each block in the original implementation.
-    """
 
     def __init__(self, config: EfficientNetConfig, in_dim: int, out_dim: int, stride: int):
         super().__init__()
@@ -137,7 +116,6 @@ class EfficientNetExpansionLayer(nn.Module):
         self.expand_act = ACT2FN[config.hidden_act]
 
     def forward(self, hidden_states: torch.FloatTensor) -> torch.Tensor:
-        # Expand phase
         hidden_states = self.expand_conv(hidden_states)
         hidden_states = self.expand_bn(hidden_states)
         hidden_states = self.expand_act(hidden_states)
@@ -146,9 +124,6 @@ class EfficientNetExpansionLayer(nn.Module):
 
 
 class EfficientNetDepthwiseLayer(nn.Module):
-    r"""
-    This corresponds to the depthwise convolution phase of each block in the original implementation.
-    """
 
     def __init__(
         self,
@@ -173,7 +148,6 @@ class EfficientNetDepthwiseLayer(nn.Module):
         self.depthwise_act = ACT2FN[config.hidden_act]
 
     def forward(self, hidden_states: torch.FloatTensor) -> torch.Tensor:
-        # Depthwise convolution
         if self.stride == 2:
             hidden_states = self.depthwise_conv_pad(hidden_states)
 
@@ -185,9 +159,6 @@ class EfficientNetDepthwiseLayer(nn.Module):
 
 
 class EfficientNetSqueezeExciteLayer(nn.Module):
-    r"""
-    This corresponds to the Squeeze and Excitement phase of each block in the original implementation.
-    """
 
     def __init__(self, config: EfficientNetConfig, in_dim: int, expand_dim: int, expand: bool = False):
         super().__init__()
@@ -224,9 +195,6 @@ class EfficientNetSqueezeExciteLayer(nn.Module):
 
 
 class EfficientNetFinalBlockLayer(nn.Module):
-    r"""
-    This corresponds to the final phase of each block in the original implementation.
-    """
 
     def __init__(
         self, config: EfficientNetConfig, in_dim: int, out_dim: int, stride: int, drop_rate: float, id_skip: bool
@@ -257,31 +225,6 @@ class EfficientNetFinalBlockLayer(nn.Module):
 
 
 class EfficientNetBlock(nn.Module):
-    r"""
-    This corresponds to the expansion and depthwise convolution phase of each block in the original implementation.
-
-    Args:
-        config ([`EfficientNetConfig`]):
-            Model configuration class.
-        in_dim (`int`):
-            Number of input channels.
-        out_dim (`int`):
-            Number of output channels.
-        stride (`int`):
-            Stride size to be used in convolution layers.
-        expand_ratio (`int`):
-            Expand ratio to set the output dimensions for the expansion and squeeze-excite layers.
-        kernel_size (`int`):
-            Kernel size for the depthwise convolution layer.
-        drop_rate (`float`):
-            Dropout rate to be used in the final phase of each block.
-        id_skip (`bool`):
-            Whether to apply dropout and sum the final hidden states with the input embeddings during the final phase
-            of each block. Set to `True` for the first block of each stage.
-        adjust_padding (`bool`):
-            Whether to apply padding to only right and bottom side of the input kernel before the depthwise convolution
-            operation, set to `True` for inputs with odd input sizes.
-    """
 
     def __init__(
         self,
@@ -326,25 +269,16 @@ class EfficientNetBlock(nn.Module):
 
     def forward(self, hidden_states: torch.FloatTensor) -> torch.Tensor:
         embeddings = hidden_states
-        # Expansion and depthwise convolution phase
         if self.expand_ratio != 1:
             hidden_states = self.expansion(hidden_states)
         hidden_states = self.depthwise_conv(hidden_states)
 
-        # Squeeze and excite phase
         hidden_states = self.squeeze_excite(hidden_states)
         hidden_states = self.projection(embeddings, hidden_states)
         return hidden_states
 
 
 class EfficientNetEncoder(nn.Module):
-    r"""
-    Forward propagates the embeddings through each EfficientNet block.
-
-    Args:
-        config ([`EfficientNetConfig`]):
-            Model configuration class.
-    """
 
     def __init__(self, config: EfficientNetConfig):
         super().__init__()
@@ -352,7 +286,6 @@ class EfficientNetEncoder(nn.Module):
         self.depth_coefficient = config.depth_coefficient
 
         def round_repeats(repeats):
-            # Round number of block repeats based on depth multiplier.
             return int(math.ceil(self.depth_coefficient * repeats))
 
         num_base_blocks = len(config.in_channels)
@@ -457,7 +390,6 @@ class EfficientNetModel(EfficientNetPreTrainedModel):
         self.embeddings = EfficientNetEmbeddings(config)
         self.encoder = EfficientNetEncoder(config)
 
-        # Final pooling layer
         if config.pooling_type == "mean":
             self.pooler = nn.AvgPool2d(config.hidden_dim, ceil_mode=True)
         elif config.pooling_type == "max":
@@ -465,7 +397,6 @@ class EfficientNetModel(EfficientNetPreTrainedModel):
         else:
             raise ValueError(f"config.pooling must be one of ['mean', 'max'] got {config.pooling}")
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -491,10 +422,8 @@ class EfficientNetModel(EfficientNetPreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        # Apply pooling
         last_hidden_state = encoder_outputs[0]
         pooled_output = self.pooler(last_hidden_state)
-        # Reshape (batch_size, 1280, 1 , 1) -> (batch_size, 1280)
         pooled_output = pooled_output.reshape(pooled_output.shape[:2])
 
         if not return_dict:
@@ -519,11 +448,9 @@ class EfficientNetForImageClassification(EfficientNetPreTrainedModel):
         self.num_labels = config.num_labels
         self.config = config
         self.efficientnet = EfficientNetModel(config)
-        # Classifier head
         self.dropout = nn.Dropout(p=config.dropout_rate)
         self.classifier = nn.Linear(config.hidden_dim, self.num_labels) if self.num_labels > 0 else nn.Identity()
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

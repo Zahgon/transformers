@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from __future__ import annotations
 
@@ -81,13 +68,6 @@ def replace_with_sinq_linear(
 
 
 class SinqQuantize(ConversionOps):
-    """
-    Param-level ConversionOp for SINQ (from FP weights).
-
-    At load time, for each `Linear.weight` that should be quantized:
-      - The SINQLinear module already exists (created in _process_model_before_weight_loading)
-      - We just call quantize() on it with the loaded weight tensor
-    """
 
     def __init__(self, hf_quantizer):
         self.hf_quantizer = hf_quantizer
@@ -116,21 +96,6 @@ class SinqQuantize(ConversionOps):
 
 
 class SinqDeserialize(ConversionOps):
-    """
-    ConversionOp for loading *pre-quantized* SINQ checkpoints.
-
-    Checkpoint layout (what `SINQLinear.state_dict` produces) is, per module:
-        <prefix>.W_q
-        <prefix>.bias
-        <prefix>.meta
-
-    WeightConverter in the quantizer is configured so that:
-      - we group ".W_q", ".meta", ".bias" as input_dict
-      - conceptually treat them as belonging to "<prefix>.weight"
-      - and call this SinqDeserialize.convert to load the state into the existing SINQLinear.
-
-    The returned dict is {} because we load directly into the module.
-    """
 
     def __init__(self, hf_quantizer):
         self.hf_quantizer = hf_quantizer
@@ -150,8 +115,6 @@ class SinqDeserialize(ConversionOps):
         meta = input_dict.get(".meta")
         bias = input_dict.get(".bias")
 
-        # Fallback path: if W_q or meta is missing, this is not a valid SINQ checkpoint.
-        # Return the tensor as-is so standard HF weight loading can handle it.
         if W_q is None or meta is None:
             v = next(iter(input_dict.values()))
             if isinstance(v, list):

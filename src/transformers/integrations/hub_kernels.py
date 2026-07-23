@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import functools
 import importlib
 import os
@@ -100,10 +87,6 @@ if is_kernels_available():
             )
             return lambda func: func
 
-    # The default kernel mapping is built lazily (see `get_kernel_mapping_transformers`) so that simply
-    # importing transformers (or `transformers.pipeline`) does not instantiate any `LayerRepository` /
-    # `FuncRepository`. This keeps the `kernels` library decoupled from normal transformers usage: the
-    # repositories are only constructed when the user explicitly opts in via `use_kernels=True`.
     _KERNEL_MAPPING_CACHE: dict | None = None
 
     def _build_kernel_mapping() -> dict:
@@ -115,15 +98,6 @@ if is_kernels_available():
                     version=1,
                 )
             },
-            # NOTE: No longer maintained
-            # "Llama4TextMoe": {
-            #    "cuda": LayerRepository(
-            #        repo_id="kernels-community/moe",
-            #        layer_name="Llama4TextMoe",
-            #        version=1,
-            #    )
-            # },
-            # GB10/SM121 GDN fast path (no fla/causal_conv1d build there); dense and MoE share it.
             "Qwen3_5GatedDeltaNet": {
                 Device(
                     type="cuda",
@@ -132,7 +106,6 @@ if is_kernels_available():
                     repo_id="Atlas-Inference/gdn",
                     layer_name="Qwen3_5GatedDeltaNet",
                     revision="ef12347fc77d6ddf1cb72c0bd0af1c7d6cc69172",
-                    # TODO: drop once Atlas-Inference is an allow-listed trusted publisher
                     trust_remote_code=True,
                 ),
             },
@@ -202,7 +175,6 @@ if is_kernels_available():
                 },
             },
             "RMSNorm": {
-                # NOTE: Not torch.compile friendly for unknown reasons
                 "cuda": {
                     Mode.TRAINING: LayerRepository(
                         repo_id="kernels-community/liger-kernels",
@@ -344,7 +316,6 @@ if is_kernels_available():
             },
         }
 
-        # Add function kernel mappings
         _FUNCTION_KERNEL_MAPPING = {
             "rotary_pos_emb": {
                 "xpu": {
@@ -388,17 +359,15 @@ if is_kernels_available():
 else:
     _kernels_enabled = False
 
-    # Stub to make decorators int transformers work when `kernels`
-    # is not installed.
     def use_kernel_forward_from_hub(*args, **kwargs):
         def decorator(cls):
-            return cls
+            pass
 
         return decorator
 
     def use_kernel_func_from_hub(*args, **kwargs):
         def decorator(func):
-            return func
+            pass
 
         return decorator
 
@@ -481,7 +450,6 @@ def load_and_register_attn_kernel(
     if not is_kernels_available():
         raise ImportError(_MISSING_KERNELS_MESSAGE)
 
-    # Extract repo_id and kernel_name from the string
     if ":" in actual_attn_name:
         repo_id, kernel_name = actual_attn_name.split(":")
         kernel_name = kernel_name.strip()
@@ -489,19 +457,15 @@ def load_and_register_attn_kernel(
         repo_id = actual_attn_name
         kernel_name = None
     repo_id = repo_id.strip()
-    # extract the rev after the @ if it exists
     repo_id, _, rev = repo_id.partition("@")
     repo_id = repo_id.strip()
 
-    # create revision xor version
     rev = rev.strip() if rev else None
     version = None
     if rev is None:
-        # FA4 is still in beta -> redirect to v0 else default to v1
         is_fa4 = is_flash_attention_requested(requested_attention_implementation=repo_id, version=4)
         version = 0 if is_fa4 else 1
 
-    # Load the kernel from hub
     try:
         kernel = get_kernel(repo_id, revision=rev, version=version, allow_all_kernels=allow_all_kernels)
     except ValueError:
@@ -509,17 +473,12 @@ def load_and_register_attn_kernel(
     except Exception as e:
         raise ValueError(f"An error occurred while trying to load from '{repo_id}': {e}.")
 
-    # correctly wrap the kernel
     mask_implementation = "flash_attention_2"
     if hasattr(kernel, "flash_attn_varlen_func"):
         if attention_wrapper is None:
             attention_wrapper = flash_attention_forward
         kernel_function = attention_wrapper
     elif hasattr(kernel, "sparse_atten_func"):
-        # Block-sparse kernels (e.g. `kernels-staging/msa`) expose `sparse_atten_func` instead of
-        # `flash_attn_varlen_func`; their call contract differs from the attention interface, so we
-        # bind the dedicated transformers-side wrapper that adapts the arguments and hides the
-        # prefill-kernel / decode-fallback dispatch.
         from .msa_attention import msa_attention_forward
 
         kernel_function = attention_wrapper if attention_wrapper is not None else msa_attention_forward
@@ -527,7 +486,6 @@ def load_and_register_attn_kernel(
     elif kernel_name is not None:
         kernel_function = getattr(kernel, kernel_name)
 
-    # Register the kernel as a valid attention
     ALL_ATTENTION_FUNCTIONS.register(attn_implementation, kernel_function)
     ALL_MASK_ATTENTION_FUNCTIONS.register(attn_implementation, ALL_MASK_ATTENTION_FUNCTIONS[mask_implementation])
 
@@ -546,7 +504,6 @@ def lazy_load_kernel(kernel_name: str, mapping: dict[str, ModuleType | None] = _
             repo_id = _HUB_KERNEL_MAPPING[kernel_name]["repo_id"]
             revision = _HUB_KERNEL_MAPPING[kernel_name].get("revision", None)
             version = _HUB_KERNEL_MAPPING[kernel_name].get("version", None)
-            # Default version as it's mandatory
             if version is None and revision is None:
                 version = 1
 
@@ -556,11 +513,9 @@ def lazy_load_kernel(kernel_name: str, mapping: dict[str, ModuleType | None] = _
             mapping[kernel_name] = None
             logger.warning_once(f"Failed to load kernel {kernel_name}: {e}")
         except AssertionError:
-            # Happens when torch is built without an accelerator backend; fall back to slow path.
             mapping[kernel_name] = None
 
     else:
-        # Try to import is_{kernel_name}_available from ..utils
         new_kernel_name = kernel_name.replace("-", "_")
         func_name = f"is_{new_kernel_name}_available"
 
@@ -571,7 +526,6 @@ def lazy_load_kernel(kernel_name: str, mapping: dict[str, ModuleType | None] = _
             is_kernel_available = None
 
         if callable(is_kernel_available) and is_kernel_available():
-            # Try to import the module "{kernel_name}" from parent package level
             try:
                 module = importlib.import_module(f"{new_kernel_name}")
                 mapping[kernel_name] = module
@@ -590,22 +544,10 @@ def kernelize(model: "PreTrainedModel", mode: "Mode | None" = None):
         raise ImportError(_MISSING_KERNELS_MESSAGE)
 
     def attach_hidden_kernels(module):
-        for name, fn in getattr(module, "_hidden_kernels", {}).items():
-            if name not in dict(module.named_children()):
-                if not isinstance(fn, nn.Module):
-                    raise ValueError(
-                        f"Attempted to register a kernel for {name}, but it was not a `torch.nn.Module`. "
-                        "This means the underlying function needs to be decorated with `@use_kernel_func_from_hub`. "
-                        "Please submit and issue to the transformers repo: `https://github.com/huggingface/transformers/issues`."
-                    )
-                module.register_module(name, fn)
+        pass
 
     def detach_hidden_kernels(module):
-        for name in getattr(module, "_hidden_kernels", {}):
-            # Skip deregistering if it failed to properly register,
-            # i.e. `ValueError` will be raised afterwards
-            if hasattr(module, name):
-                delattr(module, name)
+        pass
 
     try:
         model.apply(attach_hidden_kernels)
@@ -658,32 +600,11 @@ def use_kernelized_func(module_names: list[Callable] | Callable):
         module_names = [module_names]
 
     def decorator(cls):
-        orig_init = cls.__init__
-
-        def new_init(self, *args, **kwargs):
-            orig_init(self, *args, **kwargs)
-
-            # Register new function as non-submodule within the modules dict
-            hidden_kernels = self.__dict__.setdefault("_hidden_kernels", {})
-            for fn in module_names:
-                name = (
-                    getattr(fn, "__name__", None)
-                    or getattr(fn, "kernel_layer_name", None)
-                    or getattr(fn, "func_name", None)
-                )
-                if name is None:
-                    raise ValueError(f"Could not infer kernel function name for {fn!r}")
-
-                # Do not register as submodule! Hide it behind a dict to be removed later after registering it
-                hidden_kernels[name] = fn
-
-        cls.__init__ = new_init
-        return cls
+        pass
 
     return decorator
 
 
-# Whether to allow hub kernels coming from untrusted repos, i.e. repos outside `kernels-community`
 ALLOW_ALL_KERNELS = False
 
 
@@ -700,7 +621,6 @@ def allow_all_hub_kernels():
 
         yield
     finally:
-        # Set back the original
         ALLOW_ALL_KERNELS = False
 
 
@@ -718,12 +638,7 @@ def make_parent_class_for_kernel_fusion(
     original_init = parent_cls.__init__
 
     def patched_init(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        children = [getattr(self, name) for name in child_names]
-        kernel_instance = kernel_cls(*children)
-        setattr(self, child_names[0], kernel_instance)
-        for name in child_names[1:]:
-            setattr(self, name, nn.Identity())
+        pass
 
     patched_cls = type(f"Fused{parent_cls.__name__}", (parent_cls,), {"__init__": patched_init})
     patched_cls.__qualname__ = f"Fused{parent_cls.__qualname__}"
@@ -742,8 +657,6 @@ def register_kernel_replacements_and_fusions(
     patch_mapping: dict[str, type] = {}
     new_mapping: dict = {}
 
-    # We might need to instantiate the model on meta device.
-    # We do it lazily, only if we encounter a fused kernel.
     meta_model = None
 
     for layer_name, hub_repo in kernel_config.kernel_mapping.items():
@@ -760,7 +673,6 @@ def register_kernel_replacements_and_fusions(
 
         hub_repo = next(iter(hub_repo.values()))
 
-        # Infer metadata (revision/version/trust_remote_code)
         if isinstance(hub_repo, tuple):
             repo_str, metadata = hub_repo
 
@@ -808,21 +720,16 @@ def register_kernel_replacements_and_fusions(
 
             layout_cls.forward = _noop_forward
 
-        # Case 1: no fusion.
         if isinstance(layer_name, str):
-            # No layout class: stateless kernel, leave for kernels.kernelize.
             if layout_cls is None:
                 new_mapping[layer_name] = final_repo
                 continue
 
-            # Register the layout class as a monkey patch for the parent module containing the target layer.
             layout_cls.kernel_layer_name = kernel_cls.__name__
             patch_mapping[layer_name] = layout_cls
 
-            # Keep the original repo string so kernelize can replace the layout's forward.
             new_mapping[kernel_cls.__name__] = final_repo
 
-        # Case 2: fusion.
         elif isinstance(layer_name, tuple):
             if layout_cls is None:
                 raise ValueError(

@@ -1,17 +1,3 @@
-# Copyright 2022 Microsoft Research and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch X-CLIP model."""
 
 import copy
 from collections.abc import Callable
@@ -49,27 +35,6 @@ from .configuration_x_clip import XCLIPConfig, XCLIPTextConfig, XCLIPVisionConfi
 
 
 class XCLIPOutput(CLIPOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `return_loss` is `True`):
-        Contrastive loss for video-text similarity.
-    logits_per_text (`torch.FloatTensor` of shape `(text_batch_size, video_batch_size)`):
-        The scaled dot product scores between `text_embeds` and `video_embeds`. This represents the text-video
-        similarity scores.
-    text_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim`):
-        The text embeddings obtained by applying the projection layer to the pooled output of [`XCLIPTextModel`].
-    text_model_output (`BaseModelOutputWithPooling`):
-        The output of the [`XCLIPTextModel`].
-    vision_model_output (`BaseModelOutputWithPooling`):
-        The output of the [`XCLIPVisionModel`].
-    logits_per_video (`torch.FloatTensor` of shape `(video_batch_size, text_batch_size)`):
-        The scaled dot product scores between `video_embeds` and `text_embeds`. This represents the video-text
-        similarity scores.
-    video_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim`):
-        The video embeddings obtained by applying the projection layer to the pooled output of
-        [`XCLIPVisionModel`].
-    mit_output (`BaseModelOutputWithPooling`):
-        The output of `XCLIPMultiframeIntegrationTransformer` (MIT for short).
-    """
 
     logits_per_video: torch.FloatTensor | None = None
     video_embeds: torch.FloatTensor | None = None
@@ -118,9 +83,6 @@ class XCLIPDropPath(BeitDropPath):
 
 
 class XCLIPVisionEncoderLayer(CLIPEncoderLayer):
-    """
-    This corresponds to the `CrossFramelAttentionBlock` class in the original implementation.
-    """
 
     def __init__(self, config: XCLIPConfig):
         super().__init__()
@@ -144,7 +106,6 @@ class XCLIPVisionEncoderLayer(CLIPEncoderLayer):
         msg_token = msg_token.view(batch_size, self.num_frames, hidden_size)
 
         msg_token = msg_token + self.drop_path(self.message_attn(self.message_ln(msg_token), **kwargs)[0])
-        # add dummy sequence dimension
         msg_token = msg_token.view(-1, 1, hidden_size)
 
         hidden_states = torch.cat([hidden_states, msg_token], dim=1)
@@ -270,7 +231,6 @@ class XCLIPVisionModel(CLIPVisionModel, XCLIPPreTrainedModel):
 
     def __init__(self, config: XCLIPVisionConfig):
         super().__init__(config)
-        # TODO: fix typos across all models and add in conversion mapping
         del self.pre_layrnorm
         embed_dim = config.hidden_size
 
@@ -377,9 +337,6 @@ class XCLIPVisionModel(CLIPVisionModel, XCLIPPreTrainedModel):
 
 
 class XCLIPMultiframeIntegrationTransformer(nn.Module):
-    """
-    This corresponds to the `MultiframeIntegrationTransformer` class in the original implementation.
-    """
 
     def __init__(self, config: XCLIPVisionConfig):
         super().__init__()
@@ -394,7 +351,6 @@ class XCLIPMultiframeIntegrationTransformer(nn.Module):
     ) -> tuple | BaseModelOutput:
         residual = hidden_states
 
-        # add position embeddings
         hidden_states = hidden_states + self.position_embedding
 
         encoder_outputs = self.encoder(
@@ -414,7 +370,6 @@ class XCLIPMultiframeIntegrationTransformer(nn.Module):
 
 
 class XCLIPCrossAttention(CLIPAttention):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config):
         super().__init__()
@@ -494,7 +449,6 @@ class PromptGeneratorLayer(nn.Module):
 
 
 class XCLIPPromptGenerator(nn.Module):
-    """This corresponds to the `VideoSpecificPrompt` class in the original implementation."""
 
     def __init__(self, config):
         super().__init__()
@@ -776,11 +730,9 @@ class XCLIPModel(CLIPModel, XCLIPPreTrainedModel):
         text_embeds = text_embeds.unsqueeze(0).expand(batch_size, -1, -1)
         text_embeds = text_embeds + self.prompts_generator(text_embeds, img_features)
 
-        # normalized features
         video_embeds = video_embeds / video_embeds.norm(p=2, dim=-1, keepdim=True)
         text_embeds = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True)
 
-        # cosine similarity as logits
         logit_scale = self.logit_scale.exp()
         logits_per_video = torch.einsum("bd,bkd->bk", video_embeds, logit_scale * text_embeds)
         logits_per_text = logits_per_video.T

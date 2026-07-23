@@ -1,16 +1,3 @@
-# Copyright 2024 The Rhymes-AI Teams Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import math
 
 import torch
@@ -81,7 +68,6 @@ def sequential_experts_gemm(token_states, expert_weights, tokens_per_expert):
     output = torch.zeros(num_tokens, out_features, dtype=token_states.dtype, device=token_states.device)
 
     cumsum_num_tokens = torch.cumsum(tokens_per_expert, dim=0)
-    # Insert zero at the beginning for offset index's convenience
     zero_tensor = torch.zeros(1, dtype=torch.long, device=cumsum_num_tokens.device)
     cumsum_num_tokens = torch.cat((zero_tensor, cumsum_num_tokens))
 
@@ -98,14 +84,6 @@ def sequential_experts_gemm(token_states, expert_weights, tokens_per_expert):
 @auto_docstring(checkpoint="rhymes-ai/Aria")
 @strict
 class AriaTextConfig(LlamaConfig):
-    r"""
-    moe_num_experts (`int`, *optional*, defaults to 8):
-        The number of experts in the MoE layer.
-    moe_topk (`int`, *optional*, defaults to 2):
-        The number of top experts to route to for each token.
-    moe_num_shared_experts (`int`, *optional*, defaults to 2):
-        The number of shared experts.
-    """
 
     model_type = "aria_text"
     base_config_key = "text_config"
@@ -129,10 +107,6 @@ class AriaTextConfig(LlamaConfig):
 @auto_docstring(checkpoint="rhymes-ai/Aria")
 @strict
 class AriaConfig(PreTrainedConfig):
-    r"""
-    projector_patch_to_query_dict (`dict`, *optional*):
-        Mapping of patch sizes to query dimensions.
-    """
 
     model_type = "aria"
     attribute_map = {
@@ -149,8 +123,6 @@ class AriaConfig(PreTrainedConfig):
     tie_word_embeddings: bool = False
 
     def __post_init__(self, **kwargs):
-        # Convert the keys and values of projector_patch_to_query_dict to integers
-        # This ensures consistency even if they were provided as strings
         if self.projector_patch_to_query_dict is None:
             self.projector_patch_to_query_dict = {
                 1225: 128,
@@ -178,17 +150,6 @@ class AriaTextRMSNorm(LlamaRMSNorm):
 
 
 class AriaProjectorMLP(nn.Module):
-    """
-    Feed-Forward Network module for the Aria Projector.
-
-    Args:
-        in_features (`int`):
-            Input embedding dimension.
-        hidden_features (`int`):
-            Hidden dimension of the feed-forward network.
-        output_dim (`int`):
-            Output dimension.
-    """
 
     def __init__(self, in_features, hidden_features, output_dim):
         super().__init__()
@@ -203,13 +164,6 @@ class AriaProjectorMLP(nn.Module):
 
 
 class AriaCrossAttention(nn.Module):
-    """
-    Aria Cross-Attention module.
-
-    Args:
-        config (`AriaConfig`):
-            The configuration to use.
-    """
 
     def __init__(self, config: AriaConfig, dropout_rate: float = 0):
         super().__init__()
@@ -220,7 +174,6 @@ class AriaCrossAttention(nn.Module):
         self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
         self.v_proj = nn.Linear(hidden_size, hidden_size, bias=False)
 
-        # Original code here: https://github.com/rhymes-ai/Aria/blob/719ff4e52b727443cba3793b0e27fe64e0244fe1/aria/model/projector.py#L48
         self.multihead_attn = nn.MultiheadAttention(hidden_size, num_heads, batch_first=True)
         self.linear = nn.Linear(hidden_size, hidden_size)
         self.dropout = nn.Dropout(dropout_rate)
@@ -258,15 +211,6 @@ class AriaCrossAttention(nn.Module):
 
 
 class AriaProjector(nn.Module):
-    """
-    Aria Projector module.
-
-    This module projects vision features into the language model's embedding space, enabling interaction between vision and language components.
-
-    Args:
-        config (`AriaConfig`):
-            Configuration object for the model.
-    """
 
     def __init__(
         self,
@@ -323,16 +267,6 @@ class AriaProjector(nn.Module):
 
 
 class AriaImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    max_image_size (`int`, *optional*, defaults to `self.max_image_size`):
-        Maximum image size. Must be either 490 or 980.
-    min_image_size (`int`, *optional*, defaults to `self.min_image_size`):
-        Minimum image size. Images smaller than this in any dimension will be scaled up.
-    split_resolutions (`list[list[int]]`, *optional*, defaults to `self.split_resolutions`):
-        A list of possible resolutions as (height, width) pairs for splitting high-resolution images into patches.
-    split_image (`bool`, *optional*, defaults to `self.split_image`):
-        Whether to split the image into patches using the best matching resolution from `split_resolutions`.
-    """
 
     max_image_size: int
     min_image_size: int
@@ -495,48 +429,10 @@ class AriaImageProcessor(TorchvisionBackend):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None):
-        """
-        A utility that returns number of image patches for a given image size.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`, *optional*):
-                Any kwargs to override defaults of the image processor.
-
-        Returns:
-            `int`: Number of patches per image.
-        """
-        split_image = images_kwargs.get("split_image", self.split_image)
-        max_image_size = images_kwargs.get("max_image_size", self.max_image_size)
-        split_resolutions = images_kwargs.get("split_resolutions", self.split_resolutions)
-
-        resized_height, resized_width = select_best_resolution((height, width), split_resolutions)
-        num_patches = (
-            1
-            if not split_image
-            else math.ceil(resized_height / max_image_size) * math.ceil(resized_width / max_image_size)
-        )
-        return num_patches
+        pass
 
 
 class AriaImagesKwargs(ImagesKwargs, total=False):
-    """
-    split_image (`bool`, *optional*, defaults to `False`):
-        Whether to split large images into multiple crops. When enabled, images exceeding the maximum size are
-        divided into overlapping crops that are processed separately and then combined. This allows processing
-        of very high-resolution images that exceed the model's input size limits.
-    max_image_size (`int`, *optional*, defaults to `980`):
-        Maximum image size (in pixels) for a single image crop. Images larger than this will be split into
-        multiple crops when `split_image=True`, or resized if splitting is disabled. This parameter controls
-        the maximum resolution of individual image patches processed by the model.
-    min_image_size (`int`, *optional*):
-        Minimum image size (in pixels) for a single image crop. Images smaller than this will be upscaled to
-        meet the minimum requirement. If not specified, images are processed at their original size (subject
-        to the maximum size constraint).
-    """
 
     split_image: bool
     max_image_size: int
@@ -586,51 +482,17 @@ class AriaProcessor(ProcessorMixin):
         super().__init__(image_processor, tokenizer, chat_template=chat_template)
 
     def replace_image_token(self, image_inputs: dict, image_idx: int) -> str:
-        tokens_per_image = self.size_conversion[image_inputs["pixel_values"].shape[2]]
-        num_image_tokens = image_inputs["num_crops"] * tokens_per_image
-        return self.image_token * num_image_tokens
+        pass
 
     def _get_num_multimodal_tokens(self, image_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-        Args:
-            image_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (height, width) per each image.
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-
-        vision_data = {}
-        if image_sizes is not None:
-            images_kwargs = AriaProcessorKwargs._defaults.get("images_kwargs", {})
-            images_kwargs.update(kwargs)
-
-            max_size = images_kwargs.get("max_image_size", None) or self.image_processor.max_image_size
-            num_image_patches = [
-                self.image_processor.get_number_of_image_patches(*image_size, images_kwargs)
-                for image_size in image_sizes
-            ]
-            num_image_tokens = [self.size_conversion[max_size] * num_patches for num_patches in num_image_patches]
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-
-        return MultiModalData(**vision_data)
+        pass
 
     @property
     def unused_input_names(self) -> list[str]:
-        return ["num_crops"]
+        pass
 
 
 class AriaSharedExpertsMLP(LlamaMLP):
-    """
-    Shared Expert MLP for shared experts.
-
-    Unlike routed experts, shared experts process all tokens without routing.
-    This class reconfigures the intermediate size in comparison to the LlamaMLP.
-
-    Args:
-        config (`AriaTextConfig`): Configuration object for the Aria language model.
-    """
 
     def __init__(self, config: AriaTextConfig):
         super().__init__(config)
@@ -638,21 +500,6 @@ class AriaSharedExpertsMLP(LlamaMLP):
 
 
 class AriaGroupedExpertsGemm(nn.Module):
-    """
-    Grouped GEMM (General Matrix Multiplication) module for efficient expert computation.
-    This module utilizes the grouped_gemm library (https://github.com/fanshiqing/grouped_gemm)
-    for optimized performance. If the grouped_gemm library is not installed, it gracefully
-    falls back to a sequential GEMM implementation, which may be slower but ensures
-    functionality.
-
-    Args:
-        in_features (`int`):
-            Number of input features.
-        out_features (`int`):
-            Number of output features.
-        groups (`int`):
-            Number of expert groups.
-    """
 
     def __init__(self, in_features, out_features, groups):
         super().__init__()
@@ -743,21 +590,10 @@ class AriaTextMoELayer(nn.Module):
 
 
 class AriaTextAttention(LlamaAttention):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
+    pass
 
 
 class AriaTextDecoderLayer(LlamaDecoderLayer):
-    """
-    Aria Text Decoder Layer.
-
-    This class defines a single decoder layer in the language model, incorporating self-attention and Mixture of Experts (MoE) feed-forward network.
-
-    Args:
-        config (`AriaTextConfig`):
-            Configuration object for the text component of the model.
-        layer_idx (`int`):
-            Index of the layer.
-    """
 
     def __init__(self, config: AriaTextConfig, layer_idx: int):
         super().__init__(config, layer_idx)
@@ -820,7 +656,6 @@ class AriaTextForCausalLM(AriaTextPreTrainedModel, LlamaForCausalLM):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -898,7 +733,6 @@ class AriaModel(LlavaModel):
         if inputs_embeds is None:
             inputs_embeds = self.get_input_embeddings()(input_ids)
 
-        # 2. Merge text and images
         if pixel_values is not None and inputs_embeds.shape[1] != 1:
             image_features = self.get_image_features(
                 pixel_values=pixel_values,
@@ -1046,7 +880,6 @@ class AriaForConditionalGeneration(LlavaForConditionalGeneration):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -1087,10 +920,6 @@ class AriaForConditionalGeneration(LlavaForConditionalGeneration):
         )
 
         if is_first_iteration or not kwargs.get("use_cache", True):
-            # Pixel values are used only in the first iteration if available
-            # In subsequent iterations, they are already merged with text and cached
-            # NOTE: first iteration doesn't have to be prefill, it can be the first
-            # iteration with a question and cached system prompt (continue generate from cache)
             model_inputs["pixel_values"] = pixel_values
             model_inputs["pixel_mask"] = pixel_mask
 

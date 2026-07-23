@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from dataclasses import dataclass
@@ -88,21 +75,6 @@ logger = logging.get_logger(__name__)
 
 
 class DeepseekOcr2ImageProcessorKwargs(GotOcr2ImageProcessorKwargs, total=False):
-    r"""
-    crop_to_patches (`bool`, *optional*, defaults to `self.crop_to_patches`):
-        Whether to crop the image to patches. Can be overridden by the `crop_to_patches` parameter in the
-        `preprocess` method.
-    min_patches (`int`, *optional*, defaults to `self.min_patches`):
-        The minimum number of patches to be extracted from the image. Only has an effect if `crop_to_patches` is
-        set to `True`. Can be overridden by the `min_patches` parameter in the `preprocess` method.
-    max_patches (`int`, *optional*, defaults to `self.max_patches`):
-        The maximum number of patches to be extracted from the image. Only has an effect if `crop_to_patches` is
-        set to `True`. Can be overridden by the `max_patches` parameter in the `preprocess` method.
-    tile_size (`int`, *optional*, defaults to `768`):
-        The size of each local tile. Must match the model's query embedding size.
-    background_color (`list[int]`, *optional*, defaults to `[127, 127, 127]`):
-        The background color for padding.
-    """
 
     tile_size: int
     background_color: list[int]
@@ -120,7 +92,6 @@ class DeepseekOcr2ImageProcessor(GotOcr2ImageProcessor):
     background_color = [127, 127, 127]
     model_input_names = ["pixel_values", "num_local_patches"]
 
-    # Copied from transformers.models.llava.image_processing_llava.LlavaImageProcessor.pad_to_square
     def pad_to_square(
         self,
         images: "torch.Tensor",
@@ -235,7 +206,6 @@ class DeepseekOcr2ImageProcessor(GotOcr2ImageProcessor):
         return_tensors: str | TensorType | None,
         **kwargs,
     ) -> BatchFeature:
-        # --- Local patches (batched by shape group) ---
         num_local_patches = {}
         local_patches_grouped = {}
 
@@ -270,7 +240,6 @@ class DeepseekOcr2ImageProcessor(GotOcr2ImageProcessor):
 
         flat_local_list = [patch for item in ordered_local if item is not None for patch in item]
 
-        # --- Global view (batched by shape group) ---
         global_target_size = size.height if crop_to_patches else tile_size
 
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
@@ -298,24 +267,7 @@ class DeepseekOcr2ImageProcessor(GotOcr2ImageProcessor):
         return BatchFeature(data=data, tensor_type=return_tensors)
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None) -> int:
-        """
-        Returns the number of image patches for a given image size (1 global + local patches).
-        """
-        if images_kwargs is None:
-            images_kwargs = {}
-        min_patches = images_kwargs.get("min_patches", self.min_patches)
-        max_patches = images_kwargs.get("max_patches", self.max_patches)
-        tile_size = images_kwargs.get("tile_size", self.tile_size)
-        crop_to_patches = images_kwargs.get("crop_to_patches", self.crop_to_patches)
-
-        num_patches = 1  # global view
-        if crop_to_patches and max(height, width) > tile_size:
-            num_columns, num_rows = get_optimal_tiled_canvas(
-                (height, width), (tile_size, tile_size), min_patches, max_patches
-            )
-            num_patches += num_columns * num_rows
-
-        return num_patches
+        pass
 
 
 @requires(backends=("vision",))
@@ -373,7 +325,6 @@ class DeepseekOcr2ImageProcessorPil(GotOcr2ImageProcessorPil):
 
         return processed_images
 
-    # Copied from transformers.models.llava.image_processing_pil_llava.LlavaImageProcessorPil.pad_to_square
     def pad_to_square(
         self,
         image: np.ndarray,
@@ -391,7 +342,6 @@ class DeepseekOcr2ImageProcessorPil(GotOcr2ImageProcessorPil):
         Returns:
             `np.ndarray`: The padded image.
         """
-        # Backend always uses channels_first format: (num_channels, height, width)
         num_channels, height, width = image.shape
 
         if height == width:
@@ -399,7 +349,6 @@ class DeepseekOcr2ImageProcessorPil(GotOcr2ImageProcessorPil):
 
         max_dim = max(height, width)
 
-        # Ensure background_color is the correct shape
         if isinstance(background_color, int):
             background_color = [background_color]
         elif len(background_color) != num_channels:
@@ -447,7 +396,6 @@ class DeepseekOcr2ImageProcessorPil(GotOcr2ImageProcessorPil):
         for image in images:
             original_height, original_width = get_image_size(image)
 
-            # --- Local patches ---
             if crop_to_patches and max(original_width, original_height) > tile_size:
                 local_patches = self.crop_image_to_patches(
                     image,
@@ -466,7 +414,6 @@ class DeepseekOcr2ImageProcessorPil(GotOcr2ImageProcessorPil):
             else:
                 num_local_patches.append(0)
 
-            # --- Global view ---
             global_target_size = size.height if crop_to_patches else tile_size
             scale = global_target_size / max(original_width, original_height)
             new_width = round(original_width * scale)
@@ -493,22 +440,9 @@ class DeepseekOcr2ImageProcessorPil(GotOcr2ImageProcessorPil):
 @auto_docstring(checkpoint="deepseek-community/DeepSeek-OCR-2")
 @strict
 class DeepseekOcr2SamVisionConfig(SamVisionConfig):
-    r"""
-    output_channels (`int`, *optional*, defaults to 256):
-        The number of output channels in the SAM neck.
-    window_size (`int`, *optional*, defaults to 14):
-        Window size for windowed attention layers.
-    global_attn_indexes (`list[int]`, *optional*, defaults to `[2, 5, 8, 11]`):
-        Indices of encoder layers that use global (non-windowed) attention.
-    mlp_dim (`int`, *optional*):
-        Dimensionality of the MLP layer in each vision encoder block. Defaults to `hidden_size * mlp_ratio`.
-    downsample_channels (`list[int]`, *optional*):
-        The channel dimensions for the multi-scale downsampling neck layers. Defaults to `[512, 896]`.
-    """
 
     base_config_key = "sam_config"
 
-    # Remove unused attribute inherited from SamVisionConfig
     num_pos_feats = AttributeError()
 
     downsample_channels: list[int] | None = None
@@ -522,15 +456,6 @@ class DeepseekOcr2SamVisionConfig(SamVisionConfig):
 @auto_docstring(checkpoint="deepseek-community/DeepSeek-OCR-2")
 @strict
 class DeepseekOcr2VisionEncoderConfig(Qwen2Config):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import DeepseekOcr2Config
-
-    >>> config = DeepseekOcr2Config()
-    >>> encoder_config = config.vision_config.encoder_config
-    ```"""
 
     base_config_key = "encoder_config"
 
@@ -538,12 +463,6 @@ class DeepseekOcr2VisionEncoderConfig(Qwen2Config):
 @auto_docstring(checkpoint="deepseek-community/DeepSeek-OCR-2")
 @strict
 class DeepseekOcr2VisionConfig(PreTrainedConfig):
-    r"""
-    sam_config (`dict` or `DeepseekOcr2SamVisionConfig`, *optional*):
-        Configuration for the SAM vision encoder. Defaults to `DeepseekOcr2SamVisionConfig()`.
-    encoder_config (`dict` or `DeepseekOcr2VisionEncoderConfig`, *optional*):
-        Configuration for the DeepSeek-OCR-2 vision encoder. Defaults to `DeepseekOcr2VisionEncoderConfig()`.
-    """
 
     model_type = "deepseek_ocr2_vision"
     base_config_key = "vision_config"
@@ -572,19 +491,10 @@ class DeepseekOcr2VisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="deepseek-community/DeepSeek-OCR-2")
 @strict
 class DeepseekOcr2TextConfig(DeepseekV2Config):
-    r"""
-    n_group (`int`, *optional*):
-        Number of groups for grouped top-k expert routing.
-    topk_method (`str`, *optional*, defaults to `"greedy"`):
-        Method for selecting top-k experts in MoE layers.
-    mlp_layer_types (`list[str]`, *optional*):
-        MLP type (`"dense"` or `"sparse"`) for each decoder layer, e.g. `["dense", "sparse", "sparse", ...]`.
-    """
 
     base_config_key = "text_config"
     mlp_layer_types: list[str] | None = None
 
-    # Override DeepseekV2's MLA TP plan with standard MHA projections
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",
@@ -601,7 +511,6 @@ class DeepseekOcr2TextConfig(DeepseekV2Config):
         "layers.*.mlp.down_proj": "rowwise",
     }
 
-    # Remove unused attributes inherited from DeepseekV2Config
     first_k_dense_replace = AttributeError()
     kv_lora_rank = AttributeError()
     norm_topk_prob = AttributeError()
@@ -620,10 +529,6 @@ class DeepseekOcr2TextConfig(DeepseekV2Config):
 @auto_docstring(checkpoint="deepseek-community/DeepSeek-OCR-2")
 @strict
 class DeepseekOcr2Config(PreTrainedConfig):
-    r"""
-    vision_config (`dict` or `DeepseekOcr2VisionConfig`, *optional*):
-        Configuration for the vision encoders. Defaults to `DeepseekOcr2VisionConfig()`.
-    """
 
     model_type = "deepseek_ocr2"
     sub_configs = {
@@ -652,14 +557,6 @@ class DeepseekOcr2Config(PreTrainedConfig):
 
 @dataclass
 class DeepseekOcr2ModelOutputWithPooling(BaseModelOutputWithPooling):
-    """
-    local_last_hidden_state (`torch.FloatTensor` of shape `(total_local_patches, sequence_length, hidden_size)`, *optional*):
-        Last hidden state from the vision encoder for local (cropped) patches.
-    local_hidden_states (`torch.FloatTensor`, *optional*):
-        Hidden states from all layers of the vision encoder for local patches.
-    local_attentions (`torch.FloatTensor`, *optional*):
-        Attention weights from all layers of the vision encoder for local patches.
-    """
 
     local_last_hidden_state: torch.FloatTensor | None = None
     local_hidden_states: torch.FloatTensor | None = None
@@ -680,7 +577,6 @@ class DeepseekOcr2PreTrainedModel(LlavaNextPreTrainedModel):
         "DeepseekOcr2VisionEncoderLayer",
         "DeepseekOcr2TextDecoderLayer",
     ]
-    # SAM uses rel-pos bias, incompatible with flash attention.
     _supports_flash_attn = False
 
     @torch.no_grad()
@@ -717,7 +613,6 @@ class DeepseekOcr2SamPatchEmbeddings(SamPatchEmbeddings):
 
 
 class DeepseekOcr2SamVisionProj(nn.Module):
-    """Neck and multi-scale downsampling for SAM ViT-B output."""
 
     def __init__(self, config: DeepseekOcr2SamVisionConfig):
         super().__init__()
@@ -864,14 +759,12 @@ class DeepseekOcr2VisionEncoder(Qwen2Model, DeepseekOcr2PreTrainedModel):
 
 
 class DeepseekOcr2VisionModel(DeepseekOcr2PreTrainedModel):
-    """Vision pipeline: SAM ViT-B (with neck)"""
 
     def __init__(self, config: DeepseekOcr2VisionConfig):
         super().__init__(config)
         self.sam_encoder = DeepseekOcr2SamVisionEncoder(config.sam_config)
         self.vision_encoder = DeepseekOcr2VisionEncoder(config.encoder_config)
 
-        # Resolution-specific learnable queries
         self.query_768_resolution = nn.Embedding(144, config.encoder_config.hidden_size)  # 12x12 for 768px
         self.query_1024_resolution = nn.Embedding(256, config.encoder_config.hidden_size)  # 16x16 for 1024px
         self.post_init()
@@ -936,7 +829,6 @@ class DeepseekOcr2TextPreTrainedModel(DeepseekV2PreTrainedModel):
 class DeepseekOcr2TextModel(DeepseekV2Model):
     def __init__(self, config: DeepseekOcr2TextConfig):
         super().__init__(config)
-        # Use (cos/sin) RoPE instead of complex RoPE to match LlamaAttention (MHA)
         self.rotary_emb = DeepseekOcr2TextRotaryEmbedding(config=config)
 
 
@@ -951,7 +843,6 @@ class DeepseekOcr2Model(LlavaNextModel):
             config.vision_config.encoder_config.hidden_size, config.text_config.hidden_size
         )
 
-        # Learnable separator between local and global views (initialized in `_init_weights`).
         self.view_separator = nn.Parameter(torch.empty(config.text_config.hidden_size))
 
         self.language_model = DeepseekOcr2TextModel(config.text_config)
@@ -974,7 +865,6 @@ class DeepseekOcr2Model(LlavaNextModel):
         num_local_patches (`list[int]` or `torch.Tensor`, *optional*):
             Number of local patches per image, e.g. `[6, 0, 4]`.
         """
-        # torch.split requires list[int], not Tensor, for per-image variable-length splitting
         if isinstance(num_local_patches, torch.Tensor):
             num_local_patches = num_local_patches.tolist()
 

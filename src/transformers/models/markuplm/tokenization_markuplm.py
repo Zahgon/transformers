@@ -1,16 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from tokenizers import Tokenizer, decoders, pre_tokenizers, processors
@@ -89,62 +76,6 @@ MARKUPLM_ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING = r"""
 
 
 class MarkupLMTokenizer(TokenizersBackend):
-    r"""
-    Construct a MarkupLM tokenizer. Based on byte-level Byte-Pair-Encoding (BPE).
-
-    [`MarkupLMTokenizer`] can be used to turn HTML strings into to token-level `input_ids`, `attention_mask`,
-    `token_type_ids`, `xpath_tags_seq` and `xpath_tags_seq`. This tokenizer inherits from [`TokenizersBackend`] which
-    contains most of the main methods and ensures a `tokenizers` backend is always instantiated.
-
-    Users should refer to this superclass for more information regarding those methods.
-
-    Args:
-        vocab (`str` or `dict[str, int]`, *optional*):
-            Custom vocabulary dictionary. If not provided, the vocabulary is loaded from `vocab_file`.
-        merges (`str` or `list[str]`, *optional*):
-            Custom merges list. If not provided, merges are loaded from `merges_file`.
-        errors (`str`, *optional*, defaults to `"replace"`):
-            Paradigm to follow when decoding bytes to UTF-8. See
-            [bytes.decode](https://docs.python.org/3/library/stdtypes.html#bytes.decode) for more information.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the beginning of
-            sequence. The token used is the `cls_token`.
-
-            </Tip>
-
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the end of sequence.
-            The token used is the `sep_token`.
-
-            </Tip>
-
-        sep_token (`str`, *optional*, defaults to `"</s>"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        cls_token (`str`, *optional*, defaults to `"<s>"`):
-            The classifier token which is used when doing sequence classification (classification of the whole sequence
-            instead of per-token classification). It is the first token of the sequence when built with special tokens.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        mask_token (`str`, *optional*, defaults to `"<mask>"`):
-            The token used for masking values. This is the token used when training this model with masked language
-            modeling. This is the token which the model will try to predict.
-        add_prefix_space (`bool`, *optional*, defaults to `False`):
-            Whether or not to add an initial space to the input. This allows to treat the leading word just as any
-            other word. (RoBERTa tokenizer detect beginning of words by the preceding space).
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "token_type_ids", "attention_mask"]
@@ -178,7 +109,6 @@ class MarkupLMTokenizer(TokenizersBackend):
         cls_token = AddedToken(cls_token, lstrip=False, rstrip=False) if isinstance(cls_token, str) else cls_token
         unk_token = AddedToken(unk_token, lstrip=False, rstrip=False) if isinstance(unk_token, str) else unk_token
         pad_token = AddedToken(pad_token, lstrip=False, rstrip=False) if isinstance(pad_token, str) else pad_token
-        # Mask token behave like a normal word, i.e. include the space before it
         mask_token = AddedToken(mask_token, lstrip=True, rstrip=False) if isinstance(mask_token, str) else mask_token
 
         if vocab is None:
@@ -239,7 +169,6 @@ class MarkupLMTokenizer(TokenizersBackend):
 
         self.tags_dict = tags_dict
 
-        # additional properties
         self.max_depth = max_depth
         self.max_width = max_width
         self.pad_width = pad_width
@@ -369,7 +298,6 @@ class MarkupLMTokenizer(TokenizersBackend):
             return False
 
         if text_pair is not None:
-            # in case text + text_pair are provided, text = questions, text_pair = nodes
             if not _is_valid_text_input(text):
                 raise ValueError("text input must of type `str` (single example) or `list[str]` (batch of examples). ")
             if not isinstance(text_pair, (list, tuple)):
@@ -379,7 +307,6 @@ class MarkupLMTokenizer(TokenizersBackend):
                 )
             is_batched = isinstance(text, (list, tuple))
         else:
-            # in case only text is provided => must be nodes
             if not isinstance(text, (list, tuple)):
                 raise ValueError(
                     "Nodes must be of type `list[str]` (single pretokenized example), "
@@ -474,38 +401,7 @@ class MarkupLMTokenizer(TokenizersBackend):
         verbose: bool = True,
         **kwargs,
     ) -> BatchEncoding:
-        # Backward compatibility for 'truncation_strategy', 'pad_to_max_length'
-        padding_strategy, truncation_strategy, max_length, kwargs = self._get_padding_truncation_strategies(
-            padding=padding,
-            truncation=truncation,
-            max_length=max_length,
-            pad_to_multiple_of=pad_to_multiple_of,
-            verbose=verbose,
-            **kwargs,
-        )
-
-        return self._batch_encode_plus(
-            batch_text_or_text_pairs=batch_text_or_text_pairs,
-            is_pair=is_pair,
-            xpaths=xpaths,
-            node_labels=node_labels,
-            add_special_tokens=add_special_tokens,
-            padding_strategy=padding_strategy,
-            truncation_strategy=truncation_strategy,
-            max_length=max_length,
-            stride=stride,
-            pad_to_multiple_of=pad_to_multiple_of,
-            padding_side=padding_side,
-            return_tensors=return_tensors,
-            return_token_type_ids=return_token_type_ids,
-            return_attention_mask=return_attention_mask,
-            return_overflowing_tokens=return_overflowing_tokens,
-            return_special_tokens_mask=return_special_tokens_mask,
-            return_offsets_mapping=return_offsets_mapping,
-            return_length=return_length,
-            verbose=verbose,
-            **kwargs,
-        )
+        pass
 
     def tokenize(self, text: str, pair: str | None = None, add_special_tokens: bool = False, **kwargs) -> list[str]:
         batched_input = [(text, pair)] if pair else [text]
@@ -551,7 +447,6 @@ class MarkupLMTokenizer(TokenizersBackend):
                 list of list of strings (words of a batch of examples).
         """
 
-        # Backward compatibility for 'truncation_strategy', 'pad_to_max_length'
         padding_strategy, truncation_strategy, max_length, kwargs = self._get_padding_truncation_strategies(
             padding=padding,
             truncation=truncation,
@@ -609,7 +504,6 @@ class MarkupLMTokenizer(TokenizersBackend):
         if not isinstance(batch_text_or_text_pairs, list):
             raise TypeError(f"batch_text_or_text_pairs has to be a list (got {type(batch_text_or_text_pairs)})")
 
-        # Set the truncation and padding strategy and restore the initial configuration
         self.set_truncation_and_padding(
             padding_strategy=padding_strategy,
             truncation_strategy=truncation_strategy,
@@ -649,7 +543,6 @@ class MarkupLMTokenizer(TokenizersBackend):
         )
 
         # Convert encoding to dict
-        # `Tokens` is a tuple of (list[dict[str, list[list[int]]]] or list[dict[str, 2D-Tensor]],
         #  list[EncodingFast]) with nested dimensions corresponding to batch, overflows, sequence length
         tokens_and_encodings = [
             self._convert_encoding(
@@ -667,20 +560,12 @@ class MarkupLMTokenizer(TokenizersBackend):
             for encoding in encodings
         ]
 
-        # Convert the output to have dict[list] from list[dict] and remove the additional overflows dimension
-        # From (variable) shape (batch, overflows, sequence length) to ~ (batch * overflows, sequence length)
-        # (we say ~ because the number of overflow varies with the example in the batch)
-        #
-        # To match each overflowing sample with the original sample in the batch
-        # we add an overflow_to_sample_mapping array (see below)
         sanitized_tokens = {}
         for key in tokens_and_encodings[0][0]:
             stack = [e for item, _ in tokens_and_encodings for e in item[key]]
             sanitized_tokens[key] = stack
         sanitized_encodings = [e for _, item in tokens_and_encodings for e in item]
 
-        # If returning overflowing tokens, we need to return a mapping
-        # from the batch idx to the original sample
         if return_overflowing_tokens:
             overflow_to_sample_mapping = []
             for i, (toks, _) in enumerate(tokens_and_encodings):
@@ -690,7 +575,6 @@ class MarkupLMTokenizer(TokenizersBackend):
         for input_ids in sanitized_tokens["input_ids"]:
             self._eventual_warn_about_too_long_sequence(input_ids, max_length, verbose)
 
-        # create the token-level xpaths tags and subscripts
         xpath_tags_seq = []
         xpath_subs_seq = []
         for batch_index in range(len(sanitized_tokens["input_ids"])):
@@ -725,7 +609,6 @@ class MarkupLMTokenizer(TokenizersBackend):
         sanitized_tokens["xpath_tags_seq"] = xpath_tags_seq
         sanitized_tokens["xpath_subs_seq"] = xpath_subs_seq
 
-        # optionally, create the labels
         if node_labels is not None:
             labels = []
             for batch_index in range(len(sanitized_tokens["input_ids"])):
@@ -742,7 +625,6 @@ class MarkupLMTokenizer(TokenizersBackend):
                     if word_id is not None:
                         if self.only_label_first_subword:
                             if offset[0] == 0:
-                                # Use the real label id for the first token of the word, and padding ids for the remaining tokens
                                 labels_example.append(node_labels[original_index][word_id])
                             else:
                                 labels_example.append(self.pad_token_label)
@@ -753,7 +635,6 @@ class MarkupLMTokenizer(TokenizersBackend):
                 labels.append(labels_example)
 
             sanitized_tokens["labels"] = labels
-            # finally, remove offsets if the user didn't want them
             if not return_offsets_mapping:
                 del sanitized_tokens["offset_mapping"]
 
@@ -806,10 +687,6 @@ class MarkupLMTokenizer(TokenizersBackend):
             length = len(processed_nodes) if hasattr(processed_nodes, "__len__") else 0
             xpaths = [placeholder_xpath] * length
 
-        # make it a batched input
-        # 2 options:
-        # 1) only text, in case text must be a list of str
-        # 2) text + text_pair, in which case text = str and text_pair a list of str
         batched_input = [(text, text_pair)] if text_pair else [text]
         batched_xpaths = [xpaths]
         batched_node_labels = [node_labels] if node_labels is not None else None
@@ -836,8 +713,6 @@ class MarkupLMTokenizer(TokenizersBackend):
             **kwargs,
         )
 
-        # Return tensor is None, then we can remove the leading batch axis
-        # Overflowing tokens are returned as a batch of output so we keep them in this case
         if return_tensors is None and not return_overflowing_tokens:
             batched_output = BatchEncoding(
                 {
@@ -883,7 +758,6 @@ class MarkupLMTokenizer(TokenizersBackend):
             return_attention_mask:
                 (optional) Set to False to avoid returning attention mask (default: set to model specifics)
         """
-        # Load from model defaults
         if return_attention_mask is None:
             return_attention_mask = "attention_mask" in self.model_input_names
 
@@ -897,7 +771,6 @@ class MarkupLMTokenizer(TokenizersBackend):
 
         needs_to_be_padded = padding_strategy != PaddingStrategy.DO_NOT_PAD and len(required_input) != max_length
 
-        # Initialize attention mask if not present.
         if return_attention_mask and "attention_mask" not in encoded_inputs:
             encoded_inputs["attention_mask"] = [1] * len(required_input)
 

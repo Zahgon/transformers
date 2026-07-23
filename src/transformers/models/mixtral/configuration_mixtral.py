@@ -1,17 +1,3 @@
-# Copyright 2023 Mixtral AI and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Mixtral model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,21 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="mistralai/Mixtral-8x7B-v0.1")
 @strict
 class MixtralConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import MixtralModel, MixtralConfig
-
-    >>> # Initializing a Mixtral 7B style configuration
-    >>> configuration = MixtralConfig()
-
-    >>> # Initializing a model from the Mixtral 7B style configuration
-    >>> model = MixtralModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "mixtral"
     keys_to_ignore_at_inference = ["past_key_values"]

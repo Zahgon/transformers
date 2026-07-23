@@ -1,17 +1,3 @@
-# Copyright 2025 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import copy
 from collections.abc import Callable
 from typing import Any
@@ -67,23 +53,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="google/t5_gemma_module-7b")
 @strict
 class T5GemmaModuleConfig(Gemma2Config):
-    r"""
-    query_pre_attn_scalar (`float`, *optional*, defaults to 256):
-        scaling factor used on the attention scores
-    final_logit_softcapping (`float`, *optional*, defaults to 30.0):
-        scaling factor when applying tanh softcapping on the logits.
-    attn_logit_softcapping (`float`, *optional*, defaults to 50.0):
-        scaling factor when applying tanh softcapping on the attention scores.
-
-    ```python
-    >>> from transformers import T5GemmaModuleModel, T5GemmaModuleConfig
-    >>> # Initializing a T5GemmaModule t5_gemma_module-7b style configuration
-    >>> configuration = T5GemmaModuleConfig()
-    >>> # Initializing a model from the t5_gemma_module-7b style configuration
-    >>> model = T5GemmaModuleModel(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     is_decoder: bool = False
     use_bidirectional_attention = AttributeError()
@@ -92,19 +61,6 @@ class T5GemmaModuleConfig(Gemma2Config):
 @auto_docstring(checkpoint="google/t5_gemma_module-7b")
 @strict
 class T5GemmaConfig(PreTrainedConfig):
-    r"""
-    encoder (`Union[T5GemmaModuleConfig, dict]`, optional, *optional*):
-        Configuration for the encoder.
-    decoder (`Union[T5GemmaModuleConfig, dict]`, optional, *optional*):
-        Configuration for the decoder.
-
-    Example:
-
-    ```python
-    >>> from transformers import T5GemmaConfig, T5GemmaModel
-    >>> t5gemma_config = T5GemmaConfig.from_pretrained("google/t5gemma-2b-2b-prefixlm-it")
-    >>> model = T5GemmaModel(t5gemma_config)
-    ```"""
 
     model_type = "t5gemma"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -172,7 +128,6 @@ class T5GemmaRotaryEmbedding(Gemma2RotaryEmbedding):
 class T5GemmaSelfAttention(Gemma2Attention):
     def __init__(self, config: T5GemmaModuleConfig, layer_idx: int):
         super().__init__(config, layer_idx)
-        # Required by flash attention: encoder selfattention is non-causal
         self.is_causal = config.is_decoder
 
 
@@ -248,7 +203,6 @@ class T5GemmaCrossAttention(Gemma2Attention):
 
 
 class T5GemmaEncoderLayer(GradientCheckpointingLayer):
-    """Encoder sub-layer."""
 
     def __init__(self, config, layer_idx: int):
         super().__init__()
@@ -300,7 +254,6 @@ class T5GemmaEncoderLayer(GradientCheckpointingLayer):
 
 
 class T5GemmaDecoderLayer(GradientCheckpointingLayer):
-    """Decoder sub-layer: an extra cross-attention layer."""
 
     def __init__(self, config, layer_idx: int):
         super().__init__()
@@ -373,7 +326,6 @@ class T5GemmaDecoderLayer(GradientCheckpointingLayer):
 
 
 class T5GemmaClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, hidden_size: int, num_labels: int, classifier_dropout_rate: float = 0.0):
         super().__init__()
@@ -387,7 +339,6 @@ class T5GemmaClassificationHead(nn.Module):
 
 
 class T5GemmaLMHead(nn.Module):
-    """Head for language modeling (generation) tasks."""
 
     def __init__(self, hidden_size: int, vocab_size: int, bias: bool = False):
         super().__init__()
@@ -404,12 +355,10 @@ class T5GemmaPreTrainedModel(Gemma2PreTrainedModel):
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
     _no_split_modules = ["T5GemmaEncoderLayer", "T5GemmaDecoderLayer"]
-    # Recording is declared on T5GemmaEncoder/T5GemmaDecoder; None avoids inheriting the gemma2 dict
     _can_record_outputs = None
 
     @torch.no_grad()
     def _init_weights(self, module):
-        # TODO: support initialization for encoders and decoders separately(?)
         PreTrainedModel._init_weights(self, module)
         std = self.config.initializer_range
         if isinstance(module, T5GemmaClassificationHead):
@@ -421,7 +370,6 @@ class T5GemmaPreTrainedModel(Gemma2PreTrainedModel):
             if not self.config.tie_word_embeddings:
                 scale = module.out_proj.weight.shape[0] ** -0.5
                 init.normal_(module.out_proj.weight, mean=0.0, std=std * scale)
-        # We initialize with 0s to be 1 centered as the RMSNorm here does (1 + weight)
         elif "RMSNorm" in module.__class__.__name__:
             init.zeros_(module.weight)
 
@@ -437,7 +385,6 @@ class T5GemmaPreTrainedModel(Gemma2PreTrainedModel):
         if decoder_start_token_id is None:
             raise ValueError("self.model.config.decoder.bos_token_id has to be defined. ")
 
-        # shift inputs to the right
         shifted_input_ids = input_ids.new_zeros(input_ids.shape)
         shifted_input_ids[..., 1:] = input_ids[..., :-1].clone()
         shifted_input_ids[..., 0] = decoder_start_token_id
@@ -445,8 +392,6 @@ class T5GemmaPreTrainedModel(Gemma2PreTrainedModel):
         if pad_token_id is None:
             raise ValueError("self.model.config.decoder.pad_token_id has to be defined.")
 
-        # Is this T5 specific?
-        # replace possible -100 values in labels by `pad_token_id`
         shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
         return shifted_input_ids
@@ -490,7 +435,6 @@ class T5GemmaEncoder(T5GemmaPreTrainedModel):
         self.dropout = nn.Dropout(config.dropout_rate)
         self.rotary_emb = T5GemmaRotaryEmbedding(config=config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -506,7 +450,6 @@ class T5GemmaEncoder(T5GemmaPreTrainedModel):
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        # As we want to pass `past_key_values=None` explicitly everywhere, we need to pop them from kwargs if present
         kwargs.pop("past_key_values", None)
 
         if inputs_embeds is None:
@@ -574,7 +517,6 @@ class T5GemmaDecoder(T5GemmaPreTrainedModel):
         self.dropout = nn.Dropout(config.dropout_rate)
         self.rotary_emb = T5GemmaRotaryEmbedding(config=config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -600,8 +542,6 @@ class T5GemmaDecoder(T5GemmaPreTrainedModel):
             inputs_embeds = self.embed_tokens(input_ids)
 
         if not self.training and use_cache and past_key_values is None:
-            # We do not pass the config to the cross attn cache to avoid initializing SWA
-            # --> we use full attention between our cross attentions
             past_key_values = EncoderDecoderCache(DynamicCache(config=self.config), DynamicCache())
 
         if position_ids is None:
@@ -795,9 +735,6 @@ class T5GemmaForConditionalGeneration(T5GemmaPreTrainedModel, GenerationMixin):
 
     def set_output_embeddings(self, new_embeddings):
         self.lm_head.out_proj = new_embeddings
-        # The tying happens from decoder to lm-head, but when resizing
-        # the resized embed is assigned only to the head. Then tying weights
-        # again reverts everything back. So we have to update decoder here
         if self.config.tie_word_embeddings:
             self.model.decoder.embed_tokens.weight = new_embeddings.weight
             self.model.decoder.embed_tokens.num_embeddings = new_embeddings.weight.shape[0]
@@ -835,7 +772,6 @@ class T5GemmaForConditionalGeneration(T5GemmaPreTrainedModel, GenerationMixin):
         """
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
-            # get decoder inputs from shifting lm labels to the right
             decoder_input_ids = self._shift_right(labels)
 
         decoder_outputs: Seq2SeqModelOutput = self.model(
@@ -854,7 +790,6 @@ class T5GemmaForConditionalGeneration(T5GemmaPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = decoder_outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
         decoder_config = self.get_decoder().config
@@ -865,7 +800,6 @@ class T5GemmaForConditionalGeneration(T5GemmaPreTrainedModel, GenerationMixin):
 
         loss = None
         if labels is not None:
-            # Input has right-shifted so we directly perform masked lm loss
             loss = self.loss_function(logits, labels, self.vocab_size, **kwargs)
 
         return Seq2SeqLMOutput(
@@ -904,7 +838,6 @@ class T5GemmaForConditionalGeneration(T5GemmaPreTrainedModel, GenerationMixin):
             max_cache_length,
         )
 
-        # If use_cache is False, do not prepare the cache.
         if generation_config.use_cache is False:
             return
 
@@ -914,7 +847,6 @@ class T5GemmaForConditionalGeneration(T5GemmaPreTrainedModel, GenerationMixin):
         else:
             offload_cache = "offloaded" in generation_config.cache_implementation
 
-        # Main change: use full cache for cross-attention.
         cross_attn_config = copy.deepcopy(self.config.get_text_config(decoder=True))
         cross_attn_config.sliding_window = None
         cross_attn_config.layer_types = ["full_attention"] * cross_attn_config.num_hidden_layers
@@ -931,17 +863,14 @@ class T5GemmaForConditionalGeneration(T5GemmaPreTrainedModel, GenerationMixin):
                     "The `past_key_values` in `model_kwargs` must be of type `EncoderDecoderCache` for T5Gemma model."
                 )
 
-            # Cache already established, no need to re-initialize.
             if len(past_key_values.is_updated) > 0 and past_key_values.is_updated.get(0):
                 return
 
             cross_attn_cls = type(past_key_values.cross_attention_cache)
             if cross_attn_cls == StaticCache:
                 cross_attn_cache_kwargs["max_cache_len"] = model_kwargs["encoder_outputs"][0].shape[1]
-            # Update cross-attention cache only (switch from sliding_window to full).
             past_key_values.cross_attention_cache = cross_attn_cls(**cross_attn_cache_kwargs)
         else:
-            # Initialize new cache.
             model_kwargs["past_key_values"] = EncoderDecoderCache(
                 DynamicCache(
                     **{
@@ -1020,7 +949,6 @@ class T5GemmaForSequenceClassification(T5GemmaPreTrainedModel):
                 f"Passing input embeddings is currently not supported for {self.__class__.__name__} in encoder-decoder mode."
             )
 
-        # Following T5, we automatically creates decoder_input_ids from input_ids if no decoder_input_ids are provided
         if self.config.is_encoder_decoder and (decoder_input_ids is None and decoder_inputs_embeds is None):
             if input_ids is None:
                 raise ValueError(
@@ -1071,7 +999,6 @@ class T5GemmaForSequenceClassification(T5GemmaPreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)

@@ -1,17 +1,3 @@
-# Copyright 2021 T5 Authors and HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization class for model ByT5."""
 
 import warnings
 
@@ -23,37 +9,6 @@ logger = logging.get_logger(__name__)
 
 
 class ByT5Tokenizer(PreTrainedTokenizer):
-    """
-    Construct a ByT5 tokenizer. ByT5 simply uses raw bytes utf-8 encoding.
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the end of sequence.
-            The token used is the `sep_token`.
-
-            </Tip>
-
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        extra_ids (`int`, *optional*, defaults to 125):
-            Add a number of extra ids added to the end of the vocabulary for use as sentinels. These tokens are
-            accessible as "<extra_id_{%d}>" where "{%d}" is a number between 0 and extra_ids-1. Extra tokens are
-            indexed from the end of the vocabulary up to beginning ("<extra_id_0>" is the last token in the vocabulary
-            like in ByT5 preprocessing see
-            [here](https://github.com/google-research/text-to-text-transfer-transformer/blob/9fd7b14a769417be33bc6c850f9598764913c833/t5/data/preprocessors.py#L2117)).
-        additional_special_tokens (`list[str]`, *optional*):
-            Additional special tokens used by the tokenizer.
-    """
 
     model_input_names = ["input_ids", "attention_mask"]
 
@@ -66,11 +21,9 @@ class ByT5Tokenizer(PreTrainedTokenizer):
         additional_special_tokens=None,
         **kwargs,
     ) -> None:
-        # Add extra_ids to the special token list
         if extra_ids > 0 and additional_special_tokens is None:
             additional_special_tokens = [f"<extra_id_{i}>" for i in range(extra_ids)]
         elif extra_ids > 0 and additional_special_tokens is not None and len(additional_special_tokens) > 0:
-            # Check that we have the right number of extra_id special tokens
             extra_tokens = len(set(filter(lambda x: bool("extra_id" in str(x)), additional_special_tokens)))
             if extra_tokens != extra_ids:
                 raise ValueError(
@@ -80,10 +33,8 @@ class ByT5Tokenizer(PreTrainedTokenizer):
                 )
 
         pad_token = AddedToken(pad_token, lstrip=True, rstrip=True) if isinstance(pad_token, str) else pad_token
-        # we force left and right stripping for backward compatibility. The byt5tests depend on this.
         eos_token = AddedToken(eos_token, lstrip=True, rstrip=True) if isinstance(eos_token, str) else eos_token
         unk_token = AddedToken(unk_token, lstrip=True, rstrip=True) if isinstance(unk_token, str) else unk_token
-        # unk token needs to be in the vocab with correct index
         self._added_tokens_decoder = {0: pad_token, 1: eos_token, 2: unk_token}
         self.offset = len(self._added_tokens_decoder)
         self._utf_vocab_size = 2**8  # utf is 8 bits
@@ -98,7 +49,7 @@ class ByT5Tokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        return self._utf_vocab_size
+        pass
 
     def get_vocab(self):
         vocab = {self.convert_ids_to_tokens(i): i for i in range(self.vocab_size + self.offset)}
@@ -128,7 +79,6 @@ class ByT5Tokenizer(PreTrainedTokenizer):
                 token_ids_0=token_ids_0, token_ids_1=token_ids_1, already_has_special_tokens=True
             )
 
-        # normal case: some special tokens
         if token_ids_1 is None:
             return ([0] * len(token_ids_0)) + [1]
         return ([0] * len(token_ids_0)) + [1] + ([0] * len(token_ids_1)) + [1]
@@ -226,7 +176,6 @@ class ByT5Tokenizer(PreTrainedTokenizer):
         string = bstring.decode("utf-8", errors="ignore")
         return string
 
-    # ByT5Tokenizer has no vocab file
     def save_vocabulary(self, save_directory: str, filename_prefix: str | None = None) -> tuple[str]:
         return ()
 

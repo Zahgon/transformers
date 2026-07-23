@@ -1,24 +1,9 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""AutoImageProcessor class."""
 
 import importlib
 import os
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
-# Build the list of all image processors
 from ...configuration_utils import PreTrainedConfig
 from ...dynamic_module_utils import get_class_from_dynamic_module, resolve_trust_remote_code
 from ...image_processing_utils import ImageProcessingMixin
@@ -47,10 +32,6 @@ from .configuration_auto import (
 
 logger = logging.get_logger(__name__)
 
-# These image processors use Lanczos interpolation, which is not supported by torchvision < 0.27.
-# To avoid important differences in outputs, we default to using the PIL backend for these processors
-# when running on older torchvision versions. With torchvision >= 0.27, Lanczos is natively supported
-# and these processors can use the torchvision backend directly.
 _LANCZOS_IMAGE_PROCESSORS = [
     "ChameleonImageProcessor",
     "FlavaImageProcessor",
@@ -62,11 +43,8 @@ DEFAULT_TO_PIL_BACKEND_IMAGE_PROCESSORS = [] if is_torchvision_greater_or_equal(
 
 
 if TYPE_CHECKING:
-    # This significantly improves completion suggestion performance when
-    # the transformers package is used with Microsoft's Pylance language server.
     IMAGE_PROCESSOR_MAPPING_NAMES: OrderedDict[str, dict[str, str | None]] = OrderedDict()
 else:
-    # Merge non-standard mapping names with auto-inferred `IMAGE_PROCESSOR_MAPPING_NAMES`
     MISSING_IMAGE_PROCESSOR_MAPPING_NAMES = OrderedDict(
         [
             ("aimv2", {"torchvision": "CLIPImageProcessor", "pil": "CLIPImageProcessorPil"}),
@@ -175,18 +153,15 @@ def get_image_processor_class_from_name(class_name: str):
     """Resolve an image processor class name to its class. Handles both base names (e.g. CLIPImageProcessor)
     and PIL backend names (e.g. CLIPImageProcessorPil). No recursion needed since names are direct."""
     if class_name == "BaseImageProcessorFast":
-        # kept for backward compatibility - return TorchvisionBackend
         from ...image_processing_backends import TorchvisionBackend
 
         return TorchvisionBackend
 
-    # First, check registered extra content (user-registered classes)
     for mapping in IMAGE_PROCESSOR_MAPPING._extra_content.values():
         for extractor_class in mapping.values():
             if isinstance(extractor_class, type) and getattr(extractor_class, "__name__", None) == class_name:
                 return extractor_class
 
-    # Check the mapping names - class names are either base (torchvision) or base+Pil (pil)
     for model_type, extractors_dict in IMAGE_PROCESSOR_MAPPING_NAMES.items():
         if class_name in extractors_dict.values():
             module_name = model_type_to_module_name(model_type)
@@ -196,7 +171,6 @@ def get_image_processor_class_from_name(class_name: str):
             except AttributeError:
                 continue
 
-    # Fallback: class may be in main init (e.g. when dep is missing, returns dummy)
     main_module = importlib.import_module("transformers")
     if hasattr(main_module, class_name):
         return getattr(main_module, class_name)
@@ -269,7 +243,6 @@ def get_image_processor_config(
     image_processor.save_pretrained("image-processor-test")
     image_processor_config = get_image_processor_config("image-processor-test")
     ```"""
-    # Load with a priority given to the nested processor config, if available in repo
     resolved_processor_file = cached_file(
         pretrained_model_name_or_path,
         filename=PROCESSOR_NAME,
@@ -295,14 +268,10 @@ def get_image_processor_config(
         _raise_exceptions_for_missing_entries=False,
     )
 
-    # An empty list if none of the possible files is found in the repo
     if not resolved_image_processor_file and not resolved_processor_file:
         logger.info("Could not locate the image processor configuration file.")
         return {}
 
-    # Load image_processor dict. Priority goes as (nested config if found -> image processor config)
-    # We are downloading both configs because almost all models have a `processor_config.json` but
-    # not all of these are nested. We need to check if it was saved recently as nested or if it is legacy style
     image_processor_dict = {}
     if resolved_processor_file is not None:
         processor_dict = safe_load_json_file(resolved_processor_file)
@@ -368,7 +337,6 @@ def _load_class_with_fallback(mapping, backend):
         if value is None:
             continue
 
-        # Value can be a class object (from resolved mapping) or a string class name
         if isinstance(value, type):
             processor_class = value
         else:
@@ -449,7 +417,6 @@ def _load_backend_class(base_class_name, backend, is_legacy_fast=False):
         }
     processor_class = _load_class_with_fallback(mapping, backend)
 
-    # For legacy Fast classes, try the original Fast class name as last resort
     if processor_class is None and is_legacy_fast:
         processor_class = get_image_processor_class_from_name(base_class_name + "Fast")
 
@@ -471,18 +438,11 @@ def _resolve_auto_map_class_ref(auto_map, backend):
         if backend == "torchvision" and len(auto_map) > 1 and auto_map[1] is not None:
             return auto_map[1]
         return auto_map[0]
-    # Single string (legacy)
     return auto_map
 
 
 @requires(backends=("vision",))
 class AutoImageProcessor:
-    r"""
-    This is a generic image processor class that will be instantiated as one of the image processor classes of the
-    library when created with the [`AutoImageProcessor.from_pretrained`] class method.
-
-    This class cannot be instantiated directly using `__init__()` (throws an error).
-    """
 
     def __init__(self):
         raise OSError(
@@ -579,7 +539,6 @@ class AutoImageProcessor:
         trust_remote_code = kwargs.pop("trust_remote_code", None)
         kwargs["_from_auto"] = True
 
-        # Resolve the image processor config filename
         if "image_processor_filename" in kwargs:
             image_processor_filename = kwargs.pop("image_processor_filename")
         elif is_timm_local_checkpoint(pretrained_model_name_or_path):
@@ -587,14 +546,12 @@ class AutoImageProcessor:
         else:
             image_processor_filename = IMAGE_PROCESSOR_NAME
 
-        # Load the image processor config
 
         try:
             config_dict, _ = ImageProcessingMixin.get_image_processor_dict(
                 pretrained_model_name_or_path, image_processor_filename=image_processor_filename, **kwargs
             )
         except Exception as initial_exception:
-            # Fallback for Hub TimmWrapper checkpoints (image processing in config.json, not preprocessor_config.json)
             try:
                 config_dict, _ = ImageProcessingMixin.get_image_processor_dict(
                     pretrained_model_name_or_path, image_processor_filename=CONFIG_NAME, **kwargs
@@ -610,7 +567,6 @@ class AutoImageProcessor:
         if "AutoImageProcessor" in config_dict.get("auto_map", {}):
             image_processor_auto_map = config_dict["auto_map"]["AutoImageProcessor"]
 
-        # Backward compat: infer from feature extractor config
         if image_processor_type is None and image_processor_auto_map is None:
             feature_extractor_class = config_dict.pop("feature_extractor_type", None)
             if feature_extractor_class is not None:
@@ -619,7 +575,6 @@ class AutoImageProcessor:
                 feature_extractor_auto_map = config_dict["auto_map"]["AutoFeatureExtractor"]
                 image_processor_auto_map = feature_extractor_auto_map.replace("FeatureExtractor", "ImageProcessor")
 
-        # If not in image processor config, try the model config
         if image_processor_type is None:
             try:
                 if not isinstance(config, PreTrainedConfig):
@@ -631,11 +586,8 @@ class AutoImageProcessor:
                 if hasattr(config, "auto_map") and "AutoImageProcessor" in config.auto_map:
                     image_processor_auto_map = config.auto_map["AutoImageProcessor"]
             except ValueError:
-                # Config loading failed (unrecognized model_type, invalid config, etc.)
-                # Continue to fallback logic below (AutoTokenizer, AutoImageProcessor, etc.)
                 pass
 
-        # Derive base_class_name from image_processor_type
         is_legacy_fast = False
         base_class_name = None
         if image_processor_type is not None:
@@ -648,7 +600,6 @@ class AutoImageProcessor:
         if base_class_name is not None:
             image_processor_class = _load_backend_class(base_class_name, backend, is_legacy_fast)
 
-        # Handle remote code
         has_remote_code = image_processor_auto_map is not None
         has_local_code = image_processor_class is not None or type(config) in IMAGE_PROCESSOR_MAPPING
         explicit_local_code = False
@@ -674,7 +625,6 @@ class AutoImageProcessor:
             return image_processor_class.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
         elif image_processor_class is not None:
             return image_processor_class.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
-        # Last try: we use the IMAGE_PROCESSOR_MAPPING.
         elif type(config) in IMAGE_PROCESSOR_MAPPING:
             image_processor_mapping = IMAGE_PROCESSOR_MAPPING[type(config)]
             image_processor_class = _load_class_with_fallback(image_processor_mapping, backend)
@@ -719,7 +669,6 @@ class AutoImageProcessor:
             exist_ok (`bool`, *optional*, defaults to `False`):
                 If `True`, allow overwriting existing registrations.
         """
-        # Handle backward compatibility: convert old parameters to new format
         if image_processor_classes is None:
             image_processor_classes = {}
             if slow_image_processor_class is not None:
@@ -734,13 +683,11 @@ class AutoImageProcessor:
                 "`slow_image_processor_class`/`fast_image_processor_class` parameters."
             )
 
-        # Avoid resetting existing processors if we are passing partial updates
         if config_class in IMAGE_PROCESSOR_MAPPING._extra_content:
             existing_mapping = IMAGE_PROCESSOR_MAPPING[config_class]
             existing_mapping.update(image_processor_classes)
             image_processor_classes = existing_mapping
 
-        # Validate that all classes are proper image processor classes
         from ...image_processing_utils import BaseImageProcessor
 
         for backend_key, processor_class in image_processor_classes.items():

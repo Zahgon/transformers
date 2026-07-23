@@ -1,21 +1,3 @@
-# Copyright 2024 The ggml.ai team and The HuggingFace Inc. team. and pygguf author (github.com/99991)
-# https://github.com/99991/pygguf
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Integration with GGML / The file is copied and adapted from https://github.com/99991/pygguf
-with extra methods beings exposed
-"""
 
 from array import array
 
@@ -42,7 +24,6 @@ GGUF_CONFIG_MAPPING = {
         "block_count": "num_hidden_layers",
         "feed_forward_length": "intermediate_size",
         "embedding_length": "hidden_size",
-        # NOTE: rope.dimension_count==head_dim only suitable for llama/mistral
         "rope.dimension_count": "head_dim",
         "rope.freq_base": "rope_theta",
         "attention.head_count": "num_attention_heads",
@@ -55,7 +36,6 @@ GGUF_CONFIG_MAPPING = {
         "block_count": "num_hidden_layers",
         "feed_forward_length": "intermediate_size",
         "embedding_length": "hidden_size",
-        # NOTE: rope.dimension_count==head_dim only suitable for llama/mistral
         "rope.dimension_count": "head_dim",
         "rope.freq_base": "rope_theta",
         "attention.head_count": "num_attention_heads",
@@ -252,8 +232,6 @@ GGUF_CONFIG_MAPPING = {
         "embedding_length": "hidden_size",
         "rope.dimension_count": None,
         "rope.freq_base": "rope_theta",
-        # NOTE: Gemma2 has key_length==value_length==head_dim
-        # See: https://github.com/ggerganov/llama.cpp/blob/2e2f8f093cd4fb6bbb87ba84f6b9684fa082f3fa/convert_hf_to_gguf.py#L3293-L3294
         "attention.key_length": "head_dim",
         "attention.head_count": "num_attention_heads",
         "attention.head_count_kv": "num_key_value_heads",
@@ -268,8 +246,6 @@ GGUF_CONFIG_MAPPING = {
         "embedding_length": "hidden_size",
         "rope.dimension_count": None,
         "rope.freq_base": "rope_theta",
-        # NOTE: Gemma3 has key_length==value_length==head_dim
-        # See: https://github.com/ggml-org/llama.cpp/blob/fe5b78c89670b2f37ecb216306bed3e677b49d9f/convert_hf_to_gguf.py#L3495-L3496
         "attention.key_length": "head_dim",
         "attention.head_count": "num_attention_heads",
         "attention.head_count_kv": "num_key_value_heads",
@@ -284,9 +260,6 @@ GGUF_CONFIG_MAPPING = {
         "embedding_length": "hidden_size",
         "rope.dimension_count": None,
         "rope.freq_base": None,
-        # Gemma4 has mixed attention: sliding (head_dim=256) and full (global_head_dim=512)
-        # GGUF stores the full attention head dimension in attention.key_length
-        # We want to preserve the default head_dim=256 and only set global_head_dim from GGUF
         "attention.key_length": "global_head_dim",
         "attention.head_count": "num_attention_heads",
         "attention.head_count_kv": "num_key_value_heads",
@@ -362,18 +335,11 @@ GGUF_TOKENIZER_MAPPING = {
     },
 }
 
-# We only need to set here the parameters that default to different values between transformers and llamacpp.
 GGUF_CONFIG_DEFAULTS_MAPPING = {
     "qwen3_moe": {
-        # NOTE: Qwen3MoeConfig defaults to false but llama.cpp needs this to be true.
-        # See: https://github.com/ggml-org/llama.cpp/blob/17f7f4baad8b3a716ee139da7bb56ae984e8c0fa/src/models/qwen3moe.cpp#L85-L96
-        #      (the parameter right after LLM_FFN_SILU corresponds to norm_topk_prob)
         "norm_topk_prob": True,
     },
     "minimax_m2": {
-        # MiniMax-M2 uses routing bias (e_score_correction_bias) for MoE expert selection,
-        # but this is not stored in GGUF metadata. Set it as default so the model weights
-        # (which include e_score_correction_bias tensors) are loaded correctly.
         "use_routing_bias": True,
     },
 }
@@ -441,7 +407,6 @@ class GGUFTokenizerSkeleton:
         if not hasattr(self, "unk_token_id"):
             self.unk_token_id = None
 
-        # Llama2 uses the field `unknown_token_id`
         if hasattr(self, "unknown_token_id") and self.unk_token_id is None:
             self.unk_token_id = self.unknown_token_id
 
@@ -490,7 +455,6 @@ class GGUFLlamaConverter(LlamaConverter):
             if eos_token is not None:
                 special_tokens.append(AddedToken(eos_token, normalized=False, special=True))
         else:
-            # 3 stands for special tokens
             special_tokens_idx = np.where(np.array(self.proto.token_type) == 3)[0]
 
             for idx in special_tokens_idx:
@@ -532,10 +496,8 @@ class GGUFLlamaConverter(LlamaConverter):
         return decoders.Sequence(sequence)
 
     def converted(self):
-        # Copied partly from converted method in SpmConverter class
         tokenizer = self.tokenizer(self.proto)
 
-        # Tokenizer assemble
         normalizer = self.normalizer(self.proto)
         if normalizer is not None:
             tokenizer.normalizer = normalizer
@@ -554,14 +516,10 @@ class GGUFLlamaConverter(LlamaConverter):
         if post_processor:
             tokenizer.post_processor = post_processor
 
-        # HACK: patch the llama-3 tokenizer to use the corresponding pre-tokenizer
-        # and normalizer
         if self.is_llama_3_tokenizer:
             tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(
                 add_prefix_space=False, trim_offsets=False, use_regex=True
             )
-            # This is tricky as the additional kwargs are passed after legacy is force-set in LlamaTokenizer's
-            # init.
             tokenizer.normalizer = normalizers.Sequence([])
 
         return tokenizer
@@ -605,7 +563,6 @@ class GGUFPhi3Converter(LlamaConverter):
         bpe_vocab = {word: i for i, (word, _score) in enumerate(vocab_scores)}
 
         tokenizer = Tokenizer(BPE(bpe_vocab, merges))
-        # add the special tokens from phi3 tokenizer config
         tokenizer.add_special_tokens(
             [
                 AddedToken("</s>", rstrip=True, lstrip=False, normalized=False, special=True),
@@ -676,7 +633,6 @@ class GGUFGPTConverter(GPT2Converter):
 
 class GGUFT5Converter(T5Converter):
     def __init__(self, tokenizer_dict):
-        # set dummy data to avoid unnecessary merges calculation
         tokenizer_dict["merges"] = ["dummy text"]
 
         self.proto = GGUFTokenizerSkeleton(tokenizer_dict)
@@ -715,7 +671,6 @@ class GGUFT5Converter(T5Converter):
             )
         )
 
-        # Tokenizer assemble
         normalizer = self.normalizer(self.proto)
         if normalizer is not None:
             tokenizer.normalizer = normalizer
@@ -739,7 +694,6 @@ class GGUFT5Converter(T5Converter):
 
 class GGUFGemmaConverter(GemmaConverter):
     def __init__(self, tokenizer_dict):
-        # set dummy data to avoid unnecessary merges calculation
         tokenizer_dict["merges"] = ["dummy text"]
 
         self.proto = GGUFTokenizerSkeleton(tokenizer_dict)

@@ -1,17 +1,3 @@
-# Copyright 2018 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Auto Config class."""
 
 import importlib
 import os
@@ -31,8 +17,6 @@ logger = logging.get_logger(__name__)
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
-# Add non-standard models that can't be inferred from parsing the code
-# New models should follow consistent naming instead of being added here!
 CONFIG_MAPPING_NAMES.update(
     {
         "EvollaModel": "EvollaConfig",
@@ -43,8 +27,6 @@ CONFIG_MAPPING_NAMES.update(
     }
 )
 
-# TODO: deprecate and remove `gpt-sw3`, old model. And prohibit mapping the same config to different model types
-# Auto-classes rely a lot on these, and it is much easier when we have 1-1 mapping
 CONFIG_MAPPING_NAMES = OrderedDict(**{"gpt-sw3": "GPT2Config"}, **CONFIG_MAPPING_NAMES)
 
 SPECIAL_MODEL_TYPE_TO_MODULE_NAME.update(
@@ -56,14 +38,11 @@ SPECIAL_MODEL_TYPE_TO_MODULE_NAME.update(
     }
 )
 
-# This is tied to the processing `-` -> `_` in `model_type_to_module_name`. For example, instead of putting
-# `transfo-xl` (as in `CONFIG_MAPPING_NAMES`), we should use `transfo_xl`.
 DEPRECATED_MODELS = []
 
 
 def model_type_to_module_name(key) -> str:
     """Converts a config key to the corresponding module."""
-    # Special treatment
     if key in SPECIAL_MODEL_TYPE_TO_MODULE_NAME:
         key = SPECIAL_MODEL_TYPE_TO_MODULE_NAME[key]
 
@@ -83,7 +62,6 @@ def config_class_to_model_type(config) -> str | None:
     for key, cls in CONFIG_MAPPING_NAMES.items():
         if cls == config:
             return key
-    # if key not found check in extra content
     for key, cls in CONFIG_MAPPING._extra_content.items():
         if cls.__name__ == config:
             return key
@@ -91,9 +69,6 @@ def config_class_to_model_type(config) -> str | None:
 
 
 class _LazyConfigMapping(OrderedDict[str, type[PreTrainedConfig]]):
-    """
-    A dictionary that lazily load its values when they are requested.
-    """
 
     def __init__(self, mapping) -> None:
         self._mapping = mapping
@@ -112,8 +87,6 @@ class _LazyConfigMapping(OrderedDict[str, type[PreTrainedConfig]]):
         if hasattr(self._modules[module_name], value):
             return getattr(self._modules[module_name], value)
 
-        # Some of the mappings have entries model_type -> config of another model type. In that case we try to grab the
-        # object at the top level.
         transformers_module = importlib.import_module("transformers")
         return getattr(transformers_module, value)
 
@@ -145,13 +118,6 @@ CONFIG_MAPPING = _LazyConfigMapping(CONFIG_MAPPING_NAMES)
 
 
 class _LazyLoadAllMappings(OrderedDict[str, str]):
-    """
-    A mapping that will load all pairs of key values at the first access (either by indexing, requestions keys, values,
-    etc.)
-
-    Args:
-        mapping: The mapping to load.
-    """
 
     def __init__(self, mapping):
         self._mapping = mapping
@@ -238,38 +204,12 @@ def replace_list_option_in_docstrings(
     config_to_class=None, use_model_types: bool = True
 ) -> Callable[[_CallableT], _CallableT]:
     def docstring_decorator(fn):
-        docstrings = fn.__doc__
-        if docstrings is None:
-            # Example: -OO
-            return fn
-        lines = docstrings.split("\n")
-        i = 0
-        while i < len(lines) and re.search(r"^(\s*)List options\s*$", lines[i]) is None:
-            i += 1
-        if i < len(lines):
-            indent = re.search(r"^(\s*)List options\s*$", lines[i]).groups()[0]
-            if use_model_types:
-                indent = f"{indent}    "
-            lines[i] = _list_model_options(indent, config_to_class=config_to_class, use_model_types=use_model_types)
-            docstrings = "\n".join(lines)
-        else:
-            raise ValueError(
-                f"The function {fn} should have an empty 'List options' in its docstring as placeholder, current"
-                f" docstring is:\n{docstrings}"
-            )
-        fn.__doc__ = docstrings
-        return fn
+        pass
 
     return docstring_decorator
 
 
 class AutoConfig:
-    r"""
-    This is a generic configuration class that will be instantiated as one of the configuration classes of the library
-    when created with the [`~AutoConfig.from_pretrained`] class method.
-
-    This class cannot be instantiated directly using `__init__()` (throws an error).
-    """
 
     def __init__(self) -> None:
         raise OSError(
@@ -396,7 +336,6 @@ class AutoConfig:
             config_class.register_for_auto_class()
             return config_class.from_pretrained(pretrained_model_name_or_path, **kwargs)
         elif "model_type" in config_dict:
-            # Apply heuristic: if model_type is mistral but layer_types is present, treat as ministral
             if config_dict["model_type"] == "mistral" and "layer_types" in config_dict:
                 logger.info(
                     "Detected mistral model with layer_types, treating as ministral for alternating attention compatibility. "

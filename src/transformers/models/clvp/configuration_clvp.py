@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""CLVP model configuration"""
 
 import os
 
@@ -27,29 +13,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="susnato/clvp_dev")
 @strict
 class ClvpEncoderConfig(PreTrainedConfig):
-    r"""
-    use_rotary_embedding (`bool`, *optional*, defaults to `True`):
-        Whether to use rotary_embedding or not.
-    use_attention_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use bias in Query, Key and Value layers during self attention.
-    summary_type (`str`, *optional*, defaults to `"mean"`):
-        What strategy to use to get pooler_output from the last_hidden_state. `"last"`, `"first"`, `"mean"` and
-        `"cls_index"` are supported.
-
-    Example:
-
-    ```python
-    >>> from transformers import ClvpEncoderConfig, ClvpEncoder
-
-    >>> # Initializing a ClvpEncoderConfig with susnato/clvp_dev style configuration
-    >>> encoder_configuration = ClvpEncoderConfig()
-
-    >>> # Initializing a ClvpEncoder (with random weights) from the susnato/clvp_dev style configuration
-    >>> model = ClvpEncoder(encoder_configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "clvp_encoder"
     base_config_key = ["text_config", "speech_config"]
@@ -78,14 +41,11 @@ class ClvpEncoderConfig(PreTrainedConfig):
     ):
         config_dict, kwargs = cls.get_config_dict(pretrained_model_name_or_path, **kwargs)
 
-        # make sure to have the config_type be either "text_config" or "speech_config"
-        # this is to make sure that we can load only text or speech configs from the nested ClvpConfig.
         if config_type not in cls.base_config_key:
             raise ValueError(
                 f"We can only load either 'text_config' or 'speech_config' but you are trying to load{config_type}"
             )
 
-        # get the text config dict if we are loading from ClvpConfig
         if config_dict.get("model_type") == "clvp":
             config_dict = config_dict[config_type]
 
@@ -101,51 +61,6 @@ class ClvpEncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="susnato/clvp_dev")
 @strict
 class ClvpDecoderConfig(PreTrainedConfig):
-    r"""
-    max_text_tokens (`int`, *optional*, defaults to 404):
-        The maximum sequence length of text tokens that this model might ever be used with. Similar to
-        `n_positions` in `GPT2Config`.
-    n_inner (`int`, *optional*):
-        Dimensionality of the inner feed-forward layers. `None` will set it to 4 times `hidden_size`.
-    num_mel_attn_blocks (`int`, *optional*, defaults to 6):
-        Denotes the number of self attention layers in [`ClvpConditioningEncoder`].
-    summary_type (`string`, *optional*, defaults to `"cls_index"`):
-        Argument used when doing sequence summary.
-        Has to be one of the following options:
-            - `"last"`: Take the last token hidden state (like XLNet).
-            - `"first"`: Take the first token hidden state (like BERT).
-            - `"mean"`: Take the mean of all tokens hidden states.
-            - `"cls_index"`: Supply a Tensor of classification token position (like GPT/GPT-2).
-            - `"attn"`: Not implemented now, use multi-head attention.
-    summary_use_proj (`bool`, *optional*, defaults to `True`):
-        Whether or not to add a projection after the vector extraction.
-    summary_activation (`str`, *optional*):
-        Pass `"tanh"` for a tanh activation to the output, any other value will result in no activation.
-    summary_proj_to_labels (`bool`, *optional*, defaults to `True`):
-        Whether the projection outputs should have `config.num_labels` or `config.hidden_size` classes.
-    summary_first_dropout (`float`, *optional*, defaults to 0.1):
-        The dropout ratio to be used after the projection and activation.
-    feature_size (`int`, *optional*, defaults to 80):
-        The feature dimension of the extracted mel features. This value is used in [`ClvpConditioningEncoder`].
-    use_attention_bias (`bool`, *optional*, defaults to `True`):
-        Whether to use bias in Query, Key and Value layers during self attention.
-    decoder_fixing_codes (`list`, *optional*, defaults to `[83, 45, 45, 248]`):
-        These values are used in the method `fix_speech_decoder_output` to fix decoder generated outputs.
-
-    Example:
-
-    ```python
-    >>> from transformers import ClvpDecoderConfig, ClvpDecoder
-
-    >>> # Initializing a ClvpDecoderConfig with susnato/clvp_dev style configuration
-    >>> decoder_configuration = ClvpDecoderConfig()
-
-    >>> # Initializing a ClvpDecoder (with random weights) from the susnato/clvp_dev style configuration
-    >>> model = ClvpDecoder(decoder_configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "clvp_decoder"
     base_config_key = "decoder_config"
@@ -183,36 +98,6 @@ class ClvpDecoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="susnato/clvp_dev")
 @strict
 class ClvpConfig(PreTrainedConfig):
-    r"""
-    speech_config (`dict`, *optional*):
-        Dictionary of configuration options used to initialize CLVP speech encoder.
-    decoder_config (`dict`, *optional*):
-        Dictionary of configuration options used to initialize [`ClvpDecoderConfig`].
-
-    Example:
-
-    ```python
-    >>> from transformers import ClvpConfig, ClvpModelForConditionalGeneration
-
-    >>> # Initializing a ClvpConfig with susnato/clvp_dev style configuration
-    >>> configuration = ClvpConfig()
-
-    >>> # Initializing a ClvpModelForConditionalGeneration (with random weights) from the susnato/clvp_dev style configuration
-    >>> model = ClvpModelForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-
-    >>> # We can also initialize a CLVPConfig from a CLVPTextConfig, CLVPSpeechConfig and a CLVPAutoRegressiveConfig
-    >>> from transformers import ClvpEncoderConfig, ClvpDecoderConfig
-
-    >>> # Initializing a CLVP text, CLVP speech and CLVP decoder configuration
-    >>> config_text = ClvpEncoderConfig()
-    >>> config_speech = ClvpEncoderConfig()
-    >>> decoder_config = ClvpDecoderConfig()
-
-    >>> config = ClvpConfig(config_text, config_speech, decoder_config)
-    ```"""
 
     model_type = "clvp"
     sub_configs = {

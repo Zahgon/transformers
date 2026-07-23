@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License
-"""Tokenization classes for UDOP model."""
 
 from tokenizers import Tokenizer, decoders, pre_tokenizers, processors
 from tokenizers.models import Unigram
@@ -137,46 +123,6 @@ UDOP_ENCODE_KWARGS_DOCSTRING = r"""
 
 
 class UdopTokenizer(TokenizersBackend):
-    """
-    Construct a "fast" UDOP tokenizer (backed by HuggingFace's *tokenizers* library). Adapted from
-    [`LayoutXLMTokenizer`] and [`T5Tokenizer`]. Based on
-    [BPE](https://huggingface.co/docs/tokenizers/python/latest/components.html?highlight=BPE#models).
-
-    This tokenizer inherits from [`TokenizersBackend`] which contains most of the main methods. Users should
-    refer to this superclass for more information regarding those methods.
-
-    Args:
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the end of sequence.
-            The token used is the `sep_token`.
-
-            </Tip>
-
-        sep_token (`str`, *optional*, defaults to `"</s>"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        sep_token_box (`list[int]`, *optional*, defaults to `[1000, 1000, 1000, 1000]`):
-            The bounding box to use for the special [SEP] token.
-        pad_token_box (`list[int]`, *optional*, defaults to `[0, 0, 0, 0]`):
-            The bounding box to use for the special [PAD] token.
-        pad_token_label (`int`, *optional*, defaults to -100):
-            The label to use for padding tokens. Defaults to -100, which is the `ignore_index` of PyTorch's
-            CrossEntropyLoss.
-        only_label_first_subword (`bool`, *optional*, defaults to `True`):
-            Whether or not to only label the first subword, in case word labels are provided.
-        extra_special_tokens (`list[str]`, *optional*, defaults to `["<s>NOTUSED", "</s>NOTUSED"]`):
-            Extra special tokens used by the tokenizer.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -271,8 +217,6 @@ class UdopTokenizer(TokenizersBackend):
         if text is None and text_target is None:
             raise ValueError("You need to specify either `text` or `text_target`.")
         if text is not None:
-            # The context manager will send the inputs as normal texts and not text_target, but we shouldn't change the
-            # input mode in this case.
             if not self._in_target_context_manager and hasattr(self, "_switch_to_input_mode"):
                 self._switch_to_input_mode()
             encodings = self.call_boxes(text=text, text_pair=text_pair, boxes=boxes, word_labels=word_labels, **kwargs)
@@ -284,7 +228,6 @@ class UdopTokenizer(TokenizersBackend):
                 text_pair=text_pair_target,
                 **kwargs,
             )
-        # Leave back tokenizer in input mode
         if hasattr(self, "_switch_to_input_mode"):
             self._switch_to_input_mode()
 
@@ -320,133 +263,7 @@ class UdopTokenizer(TokenizersBackend):
         verbose: bool = True,
         **kwargs,
     ) -> BatchEncoding:
-        """
-        Main method to tokenize and prepare for the model one or several sequence(s) or one or several pair(s) of
-        sequences with word-level normalized bounding boxes and optional labels.
-
-        Args:
-            text (`str`, `list[str]`, `list[list[str]]`):
-                The sequence or batch of sequences to be encoded. Each sequence can be a string, a list of strings
-                (words of a single example or questions of a batch of examples) or a list of list of strings (batch of
-                words).
-            text_pair (`list[str]`, `list[list[str]]`):
-                The sequence or batch of sequences to be encoded. Each sequence should be a list of strings
-                (pretokenized string).
-            boxes (`list[list[int]]`, `list[list[list[int]]]`):
-                Word-level bounding boxes. Each bounding box should be normalized to be on a 0-1000 scale.
-            word_labels (`list[int]`, `list[list[int]]`, *optional*):
-                Word-level integer labels (for token classification tasks such as FUNSD, CORD).
-        """
-
-        # Input type checking for clearer error
-        def _is_valid_text_input(t):
-            if isinstance(t, str):
-                # Strings are fine
-                return True
-            elif isinstance(t, (list, tuple)):
-                # List are fine as long as they are...
-                if len(t) == 0:
-                    # ... empty
-                    return True
-                elif isinstance(t[0], str):
-                    # ... list of strings
-                    return True
-                elif isinstance(t[0], (list, tuple)):
-                    # ... list with an empty list or with a list of strings
-                    return len(t[0]) == 0 or isinstance(t[0][0], str)
-                else:
-                    return False
-            else:
-                return False
-
-        if text_pair is not None:
-            # in case text + text_pair are provided, text = questions, text_pair = words
-            if not _is_valid_text_input(text):
-                raise ValueError("text input must of type `str` (single example) or `list[str]` (batch of examples). ")
-            if not isinstance(text_pair, (list, tuple)):
-                raise ValueError(
-                    "words must of type `list[str]` (single pretokenized example), "
-                    "or `list[list[str]]` (batch of pretokenized examples)."
-                )
-        else:
-            # in case only text is provided => must be words
-            if not isinstance(text, (list, tuple)):
-                raise ValueError(
-                    "Words must of type `list[str]` (single pretokenized example), "
-                    "or `list[list[str]]` (batch of pretokenized examples)."
-                )
-
-        if text_pair is not None:
-            is_batched = isinstance(text, (list, tuple))
-        else:
-            is_batched = isinstance(text, (list, tuple)) and text and isinstance(text[0], (list, tuple))
-
-        words = text if text_pair is None else text_pair
-        if boxes is None:
-            raise ValueError("You must provide corresponding bounding boxes")
-        if is_batched:
-            if len(words) != len(boxes):
-                raise ValueError("You must provide words and boxes for an equal amount of examples")
-            for words_example, boxes_example in zip(words, boxes):
-                if len(words_example) != len(boxes_example):
-                    raise ValueError("You must provide as many words as there are bounding boxes")
-        else:
-            if len(words) != len(boxes):
-                raise ValueError("You must provide as many words as there are bounding boxes")
-
-        if is_batched:
-            if text_pair is not None and len(text) != len(text_pair):
-                raise ValueError(
-                    f"batch length of `text`: {len(text)} does not match batch length of `text_pair`:"
-                    f" {len(text_pair)}."
-                )
-            batch_text_or_text_pairs = list(zip(text, text_pair)) if text_pair is not None else text
-            is_pair = bool(text_pair is not None)
-            return self.batch_encode_plus_boxes(
-                batch_text_or_text_pairs=batch_text_or_text_pairs,
-                is_pair=is_pair,
-                boxes=boxes,
-                word_labels=word_labels,
-                add_special_tokens=add_special_tokens,
-                padding=padding,
-                truncation=truncation,
-                max_length=max_length,
-                stride=stride,
-                pad_to_multiple_of=pad_to_multiple_of,
-                padding_side=padding_side,
-                return_tensors=return_tensors,
-                return_token_type_ids=return_token_type_ids,
-                return_attention_mask=return_attention_mask,
-                return_overflowing_tokens=return_overflowing_tokens,
-                return_special_tokens_mask=return_special_tokens_mask,
-                return_offsets_mapping=return_offsets_mapping,
-                return_length=return_length,
-                verbose=verbose,
-                **kwargs,
-            )
-        else:
-            return self.encode_plus_boxes(
-                text=text,
-                text_pair=text_pair,
-                boxes=boxes,
-                word_labels=word_labels,
-                add_special_tokens=add_special_tokens,
-                padding=padding,
-                truncation=truncation,
-                max_length=max_length,
-                stride=stride,
-                pad_to_multiple_of=pad_to_multiple_of,
-                padding_side=padding_side,
-                return_tensors=return_tensors,
-                return_token_type_ids=return_token_type_ids,
-                return_attention_mask=return_attention_mask,
-                return_overflowing_tokens=return_overflowing_tokens,
-                return_special_tokens_mask=return_special_tokens_mask,
-                return_offsets_mapping=return_offsets_mapping,
-                return_length=return_length,
-                verbose=verbose,
-                **kwargs,
-            )
+        pass
 
     def tokenize(self, text: str, pair: str | None = None, add_special_tokens: bool = False, **kwargs) -> list[str]:
         batched_input = [(text, pair)] if pair else [text]
@@ -483,55 +300,7 @@ class UdopTokenizer(TokenizersBackend):
         verbose: bool = True,
         **kwargs,
     ) -> BatchEncoding:
-        """
-        Tokenize and prepare for the model a list of sequences or a list of pairs of sequences.
-
-        <Tip warning={true}>
-
-        This method is deprecated, `__call__` should be used instead.
-
-        </Tip>
-
-        Args:
-            batch_text_or_text_pairs (`list[str]`, `list[tuple[str, str]]`, `list[list[str]]`, `list[tuple[list[str], list[str]]]`, and for not-fast tokenizers, also `list[list[int]]`, `list[tuple[list[int], list[int]]]`):
-                Batch of sequences or pair of sequences to be encoded. This can be a list of
-                string/string-sequences/int-sequences or a list of pair of string/string-sequences/int-sequence (see
-                details in `encode_plus`).
-        """
-
-        # Backward compatibility for 'truncation_strategy', 'pad_to_max_length'
-        padding_strategy, truncation_strategy, max_length, kwargs = self._get_padding_truncation_strategies(
-            padding=padding,
-            truncation=truncation,
-            max_length=max_length,
-            pad_to_multiple_of=pad_to_multiple_of,
-            verbose=verbose,
-            **kwargs,
-        )
-
-        return self._batch_encode_plus_boxes(
-            batch_text_or_text_pairs=batch_text_or_text_pairs,
-            is_pair=is_pair,
-            boxes=boxes,
-            word_labels=word_labels,
-            add_special_tokens=add_special_tokens,
-            padding_strategy=padding_strategy,
-            truncation_strategy=truncation_strategy,
-            max_length=max_length,
-            stride=stride,
-            is_split_into_words=is_split_into_words,
-            pad_to_multiple_of=pad_to_multiple_of,
-            padding_side=padding_side,
-            return_tensors=return_tensors,
-            return_token_type_ids=return_token_type_ids,
-            return_attention_mask=return_attention_mask,
-            return_overflowing_tokens=return_overflowing_tokens,
-            return_special_tokens_mask=return_special_tokens_mask,
-            return_offsets_mapping=return_offsets_mapping,
-            return_length=return_length,
-            verbose=verbose,
-            **kwargs,
-        )
+        pass
 
     def _batch_encode_plus_boxes(
         self,
@@ -559,7 +328,6 @@ class UdopTokenizer(TokenizersBackend):
         if not isinstance(batch_text_or_text_pairs, list):
             raise TypeError(f"batch_text_or_text_pairs has to be a list (got {type(batch_text_or_text_pairs)})")
 
-        # Set the truncation and padding strategy and restore the initial configuration
         self.set_truncation_and_padding(
             padding_strategy=padding_strategy,
             truncation_strategy=truncation_strategy,
@@ -579,11 +347,6 @@ class UdopTokenizer(TokenizersBackend):
         )
 
         # Convert encoding to dict
-        # `Tokens` has type: tuple[
-        #                       list[dict[str, list[list[int]]]] or list[dict[str, 2D-Tensor]],
-        #                       list[EncodingFast]
-        #                    ]
-        # with nested dimensions corresponding to batch, overflows, sequence length
         tokens_and_encodings = [
             self._convert_encoding(
                 encoding=encoding,
@@ -600,20 +363,12 @@ class UdopTokenizer(TokenizersBackend):
             for encoding in encodings
         ]
 
-        # Convert the output to have dict[list] from list[dict] and remove the additional overflows dimension
-        # From (variable) shape (batch, overflows, sequence length) to ~ (batch * overflows, sequence length)
-        # (we say ~ because the number of overflow varies with the example in the batch)
-        #
-        # To match each overflowing sample with the original sample in the batch
-        # we add an overflow_to_sample_mapping array (see below)
         sanitized_tokens = {}
         for key in tokens_and_encodings[0][0]:
             stack = [e for item, _ in tokens_and_encodings for e in item[key]]
             sanitized_tokens[key] = stack
         sanitized_encodings = [e for _, item in tokens_and_encodings for e in item]
 
-        # If returning overflowing tokens, we need to return a mapping
-        # from the batch idx to the original sample
         if return_overflowing_tokens:
             overflow_to_sample_mapping = []
             for i, (toks, _) in enumerate(tokens_and_encodings):
@@ -623,7 +378,6 @@ class UdopTokenizer(TokenizersBackend):
         for input_ids in sanitized_tokens["input_ids"]:
             self._eventual_warn_about_too_long_sequence(input_ids, max_length, verbose)
 
-        # create the token boxes
         token_boxes = []
         for batch_index in range(len(sanitized_tokens["input_ids"])):
             if return_overflowing_tokens:
@@ -652,7 +406,6 @@ class UdopTokenizer(TokenizersBackend):
 
         sanitized_tokens["bbox"] = token_boxes
 
-        # optionally, create the labels
         if word_labels is not None:
             labels = []
             for batch_index in range(len(sanitized_tokens["input_ids"])):
@@ -670,7 +423,6 @@ class UdopTokenizer(TokenizersBackend):
                     if word_id is not None:
                         if self.only_label_first_subword:
                             if offset[0] == 0 and not previous_token_empty:
-                                # Use the real label id for the first token of the word, and padding ids for the remaining tokens
                                 labels_example.append(word_labels[original_index][word_id])
                             else:
                                 labels_example.append(self.pad_token_label)
@@ -685,7 +437,6 @@ class UdopTokenizer(TokenizersBackend):
                 labels.append(labels_example)
 
             sanitized_tokens["labels"] = labels
-            # finally, remove offsets if the user didn't want them
             if not return_offsets_mapping:
                 del sanitized_tokens["offset_mapping"]
 
@@ -714,10 +465,6 @@ class UdopTokenizer(TokenizersBackend):
         verbose: bool = True,
         **kwargs,
     ) -> BatchEncoding:
-        # make it a batched input
-        # 2 options:
-        # 1) only text, in case text must be a list of str
-        # 2) text + text_pair, in which case text = str and text_pair a list of str
         batched_input = [(text, text_pair)] if text_pair else [text]
         batched_boxes = [boxes]
         batched_word_labels = [word_labels] if word_labels is not None else None
@@ -744,8 +491,6 @@ class UdopTokenizer(TokenizersBackend):
             **kwargs,
         )
 
-        # Return tensor is None, then we can remove the leading batch axis
-        # Overflowing tokens are returned as a batch of output so we keep them in this case
         if return_tensors is None and not return_overflowing_tokens:
             batched_output = BatchEncoding(
                 {
@@ -846,7 +591,6 @@ class UdopTokenizer(TokenizersBackend):
                 method).
         """
 
-        # Backward compatibility for 'truncation_strategy', 'pad_to_max_length'
         padding_strategy, truncation_strategy, max_length, kwargs = self._get_padding_truncation_strategies(
             padding=padding,
             truncation=truncation,
@@ -915,7 +659,6 @@ class UdopTokenizer(TokenizersBackend):
             return_attention_mask:
                 (optional) Set to False to avoid returning attention mask (default: set to model specifics)
         """
-        # Load from model defaults
         if return_attention_mask is None:
             return_attention_mask = "attention_mask" in self.model_input_names
 
@@ -929,7 +672,6 @@ class UdopTokenizer(TokenizersBackend):
 
         needs_to_be_padded = padding_strategy != PaddingStrategy.DO_NOT_PAD and len(required_input) != max_length
 
-        # Initialize attention mask if not present.
         if return_attention_mask and "attention_mask" not in encoded_inputs:
             encoded_inputs["attention_mask"] = [1] * len(required_input)
 
@@ -1023,8 +765,6 @@ class UdopTokenizer(TokenizersBackend):
         Save the tokenizer vocabulary files. For TokenizersBackend, the tokenizer.json file is saved
         by the base class. This method returns an empty tuple since we only use tokenizer.json.
         """
-        # The base class handles saving tokenizer.json in _save_pretrained
-        # We don't need to save vocab_file since we only use tokenizer.json
         return ()
 
 

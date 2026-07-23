@@ -1,17 +1,3 @@
-# Copyright 2021 Tel AViv University, AllenAI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Splinter model."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -38,7 +24,6 @@ logger = logging.get_logger(__name__)
 
 
 class SplinterEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -49,7 +34,6 @@ class SplinterEmbeddings(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -87,7 +71,6 @@ class SplinterEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.align.modeling_align.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -110,7 +93,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextSelfAttention with AlignText->Splinter
 class SplinterSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -165,7 +147,6 @@ class SplinterSelfAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput with Bert->Splinter
 class SplinterSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -180,7 +161,6 @@ class SplinterSelfOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextAttention with AlignText->Splinter
 class SplinterAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -203,7 +183,6 @@ class SplinterAttention(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->Splinter
 class SplinterIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -219,7 +198,6 @@ class SplinterIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput with Bert->Splinter
 class SplinterOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -234,7 +212,6 @@ class SplinterOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextLayer with AlignText->Splinter
 class SplinterLayer(GradientCheckpointingLayer):
     def __init__(self, config):
         super().__init__()
@@ -268,7 +245,6 @@ class SplinterLayer(GradientCheckpointingLayer):
         return layer_output
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextEncoder with AlignText->Splinter
 class SplinterEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -312,11 +288,6 @@ class SplinterPreTrainedModel(PreTrainedModel):
 
 @auto_docstring
 class SplinterModel(SplinterPreTrainedModel):
-    """
-    The model is an encoder (with only self-attention) following the architecture described in [Attention is all you
-    need](https://huggingface.co/papers/1706.03762) by Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones,
-    Aidan N. Gomez, Lukasz Kaiser and Illia Polosukhin.
-    """
 
     def __init__(self, config):
         super().__init__(config)
@@ -325,7 +296,6 @@ class SplinterModel(SplinterPreTrainedModel):
         self.embeddings = SplinterEmbeddings(config)
         self.encoder = SplinterEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -423,10 +393,6 @@ class SplinterFullyConnectedLayer(nn.Module):
 
 
 class QuestionAwareSpanSelectionHead(nn.Module):
-    """
-    Implementation of Question-Aware Span Selection (QASS) head, described in Splinter's paper:
-
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -469,7 +435,6 @@ class SplinterForQuestionAnswering(SplinterPreTrainedModel):
         self.splinter_qass = QuestionAwareSpanSelectionHead(config)
         self.question_token_id = config.question_token_id
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -540,12 +505,10 @@ class SplinterForQuestionAnswering(SplinterPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions.clamp_(0, ignored_index)
             end_positions.clamp_(0, ignored_index)
@@ -571,14 +534,6 @@ class SplinterForQuestionAnswering(SplinterPreTrainedModel):
 )
 @dataclass
 class SplinterForPreTrainingOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when start and end positions are provided):
-        Total span extraction loss is the sum of a Cross-Entropy for the start and end positions.
-    start_logits (`torch.FloatTensor` of shape `(batch_size, num_questions, sequence_length)`):
-        Span-start scores (before SoftMax).
-    end_logits (`torch.FloatTensor` of shape `(batch_size, num_questions, sequence_length)`):
-        Span-end scores (before SoftMax).
-    """
 
     loss: torch.FloatTensor | None = None
     start_logits: torch.FloatTensor | None = None
@@ -602,7 +557,6 @@ class SplinterForPreTraining(SplinterPreTrainedModel):
         self.splinter_qass = QuestionAwareSpanSelectionHead(config)
         self.question_token_id = config.question_token_id
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -678,7 +632,6 @@ class SplinterForPreTraining(SplinterPreTrainedModel):
 
         sequence_output = outputs[0]
         batch_size, sequence_length, dim = sequence_output.size()
-        # [batch_size, num_questions, sequence_length]
         start_logits, end_logits = self.splinter_qass(sequence_output, question_positions)
 
         num_questions = question_positions.size(1)
@@ -690,16 +643,10 @@ class SplinterForPreTraining(SplinterPreTrainedModel):
             end_logits = end_logits + (1 - attention_mask_for_each_question) * torch.finfo(end_logits.dtype).min
 
         total_loss = None
-        # [batch_size, num_questions, sequence_length]
         if start_positions is not None and end_positions is not None:
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             start_positions.clamp_(0, max(0, sequence_length - 1))
             end_positions.clamp_(0, max(0, sequence_length - 1))
 
-            # Ignore zero positions in the loss. Splinter never predicts zero
-            # during pretraining and zero is used for padding question
-            # tokens as well as for start and end positions of padded
-            # question tokens.
             loss_fct = CrossEntropyLoss(ignore_index=self.config.pad_token_id)
             start_loss = loss_fct(
                 start_logits.view(batch_size * num_questions, sequence_length),
@@ -726,7 +673,6 @@ class SplinterForPreTraining(SplinterPreTrainedModel):
             num_questions.size(0) == input_ids.size(0),
             "All samples in the batch must have at least one question token.",
         )
-        # rows is sorted: col[i] = i - first_occurrence(rows[i])
         first_idx = torch.searchsorted(rows, rows, side="left")
         cols = torch.arange(rows.size(0), device=rows.device) - first_idx
         positions = torch.full(

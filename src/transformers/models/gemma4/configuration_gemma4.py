@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from typing import Any, Literal
 
@@ -27,28 +14,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="google/gemma-4-e2b-it")
 @strict
 class Gemma4AudioConfig(PreTrainedConfig):
-    r"""
-    subsampling_conv_channels (`list[int]`, defaults to `[128, 32]`):
-        Channel sizes for the convolutional layers in the Sub-sample Convolution Projection.
-    residual_weight (`float`, defaults to `0.5`):
-        Scaling applied to hidden_states prior to combining with the residual in the feedforward.
-    attention_chunk_size (`int`, defaults to `12`):
-        The sub-sequence size for attention processing.
-    attention_context_left (`int`, defaults to `13`):
-        The leftward context size for the attention chunk.
-    attention_context_right (`int`, defaults to `0`):
-        The rightward context size for the attention chunk.
-    attention_logit_cap (`float`, defaults to `50.0`):
-        Cap applied to attention weights.
-    attention_invalid_logits_value (`float`, defaults to `1e-9`):
-        Value to use for invalid logits in attention.
-    use_clipped_linears (`bool`, defaults to `True`):
-        If true, apply clipping to the Linear layers, drawing bounds from the model checkpoint.
-    gradient_clipping (`float`, defaults to `1e10`):
-        Clipping value used to stabilize extremely large gradient values.
-    output_proj_dims (`int`, defaults to `1536`):
-        Dimension of the final linear projection from `hidden_size` to the model's output.
-    """
 
     model_type = "gemma4_audio"
 
@@ -57,10 +22,8 @@ class Gemma4AudioConfig(PreTrainedConfig):
     num_attention_heads: int = 8
     hidden_act: str = "silu"
 
-    # subsampling parameters
     subsampling_conv_channels: list[int] | tuple[int, int] = (128, 32)
 
-    # conformer parameters
     conv_kernel_size: int = 5
     residual_weight: float = 0.5
     attention_chunk_size: int = 12
@@ -76,7 +39,6 @@ class Gemma4AudioConfig(PreTrainedConfig):
     initializer_range: float = interval(min=0.0, max=1.0)(default=0.02)
 
     def __post_init__(self, **kwargs):
-        # JSON serialization converts tuples to lists, convert back
         if isinstance(self.subsampling_conv_channels, tuple):
             self.subsampling_conv_channels = list(self.subsampling_conv_channels)
         super().__post_init__(**kwargs)
@@ -85,42 +47,6 @@ class Gemma4AudioConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="google/gemma-4-e2b-it")
 @strict
 class Gemma4TextConfig(PreTrainedConfig):
-    r"""
-    use_bidirectional_attention (`str`, *optional*):
-        Controls bidirectional attention behavior. When set to `"vision"`, vision tokens
-        attend bidirectionally while text tokens use causal attention. When set to `"all"`,
-        all tokens use bidirectional attention.
-    vocab_size_per_layer_input (`int`, defaults to 262144):
-        Vocabulary size for the per-layer input embeddings (PLE). Used by models with
-        per-layer residual streams where a smaller embedding is added at each decoder layer.
-    hidden_size_per_layer_input (`int`, defaults to 256):
-        Per-layer hidden dimension for the PLE system. The actual embedding weight has shape
-        `[vocab_size_per_layer_input, num_hidden_layers * hidden_size_per_layer_input]`
-        because all layers are packed into a single table. See the [Gemma4](https://huggingface.co/docs/transformers/main/en/model_doc/gemma4#per-layer-embeddings-ple) docs
-        for a description of the full PLE pipeline.
-    num_global_key_value_heads (`int`, *optional*):
-        Number of key-value heads for global (full) attention layers. If `None`, defaults
-        to `num_key_value_heads`.
-    global_head_dim (`int`, defaults to 512):
-        Dimension of each attention head in global (full) attention layers.
-    attention_k_eq_v (`bool`, defaults to `False`):
-        Whether keys and values share the same projection weights. When `True`, the key
-        projection output is reused as the value projection.
-    num_kv_shared_layers (`int`, defaults to 0):
-        Number of consecutive decoder layers that share the same key-value projections.
-        A value of 0 means no sharing (each layer has independent KV projections).
-    enable_moe_block (`bool`, defaults to `False`):
-        Whether to enable Mixture-of-Experts (MoE) blocks in the decoder layers. When
-        `True`, eligible layers will use a sparse MoE feed-forward network.
-    use_double_wide_mlp (`bool`, defaults to `False`):
-        Whether to use a double-width MLP with fused gate and up projections.
-    top_k_experts (`int`, *optional*):
-        Number of experts activated per token in MoE layers. Only used when
-        `enable_moe_block=True`.
-    moe_intermediate_size (`int`, *optional*):
-        Intermediate (hidden) size of each expert's feed-forward network in MoE layers.
-        Only used when `enable_moe_block=True`.
-    """
 
     model_type = "gemma4_text"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -139,7 +65,6 @@ class Gemma4TextConfig(PreTrainedConfig):
         "layers.*.experts": "moe_tp_experts",
     }
     base_model_ep_plan = {
-        # EP plan for google/gemma-4-26B-A4B-it: do not tp in attention (num_global_key_value_heads=2 too small to partition)
         "layers.*.mlp.gate_proj": "colwise",
         "layers.*.mlp.up_proj": "colwise",
         "layers.*.mlp.down_proj": "rowwise",
@@ -217,25 +142,12 @@ class Gemma4TextConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def convert_rope_params_to_dict(self, **kwargs):
-        # No need to handle BC for new models, because they have no old-format `rope_scaling`
         return kwargs
 
 
 @auto_docstring(checkpoint="google/gemma-4-e2b-it")
 @strict
 class Gemma4VisionConfig(PreTrainedConfig):
-    r"""
-    pooling_kernel_size (`int`, *optional*):
-        Spatial pooling kernel size applied after patchification.
-    position_embedding_size (`int`, defaults to 10240):
-        Maximum number of position embeddings for the vision encoder. Controls the size of
-        the learned 2D position embedding table used by the patch embedder.
-    use_clipped_linears (`bool`, defaults to `False`):
-        Whether to use weight-clipped linear layers. When enabled, linear layer weights are
-        clamped to a fixed range during the forward pass to improve numerical stability.
-    standardize (`bool`, defaults to `False`):
-        If true, applies a bias and scale to the soft tokens returned from the pooler.
-    """
 
     model_type = "gemma4_vision"
     base_model_tp_plan = {
@@ -280,45 +192,6 @@ class Gemma4VisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="google/gemma-4-e2b-it")
 @strict
 class Gemma4Config(PreTrainedConfig):
-    r"""
-    boi_token_id (`int`, *optional*, defaults to 255999):
-        The begin-of-image token index to wrap the image prompt.
-    eoi_token_id (`int`, *optional*, defaults to 258882):
-        The end-of-image token index to wrap the image prompt.
-    boa_token_id (`int`, *optional*, defaults to 256000):
-        The begin-of-audio token index to wrap the audio prompt.
-    eoa_token_index (`int`, *optional*, defaults to 258883):
-        The end-of-audio token index to wrap the audio prompt.
-
-    Example:
-
-    ```python
-    >>> from transformers import (
-    >>>     Gemma4AudioConfig,
-    >>>     Gemma4Config,
-    >>>     Gemma4ForConditionalGeneration,
-    >>>     Gemma4TextConfig,
-    >>>     Gemma4VisionConfig,
-    >>> )
-
-    >>> # Initializing a Gemma 4 Audio config.
-    >>> audio_config = Gemma4AudioConfig()
-
-    >>> # Initializing a Gemma 4 Text config.
-    >>> text_config = Gemma4TextConfig()
-
-    >>> # Initializing a Gemma 4 vision config.
-    >>> vision_config = Gemma4VisionConfig()
-
-    >>> # Initializing a Gemma 4 config similar to google/gemma-4-e2b-it
-    >>> configuration = Gemma4Config(text_config, vision_config, audio_config)
-
-    >>> # Initializing a model from the google/gemma-4-e2b-it configuration
-    >>> model = Gemma4ForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "gemma4"
     sub_configs = {

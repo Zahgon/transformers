@@ -1,17 +1,3 @@
-# Copyright 2023 Meta Platforms, Inc. and affiliates, and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch EnCodec model."""
 
 import math
 from dataclasses import dataclass
@@ -32,18 +18,11 @@ from .configuration_encodec import EncodecConfig
 logger = logging.get_logger(__name__)
 
 
-# General docstring
 
 
 @auto_docstring
 @dataclass
 class EncodecOutput(ModelOutput):
-    r"""
-    audio_codes (`torch.LongTensor`  of shape `(nb_frames, batch_size, nb_quantizers, frame_len)`, *optional*):
-        Discrete code embeddings computed using `model.encode`.
-    audio_values (`torch.FloatTensor`  of shape `(batch_size, segment_length)`, *optional*):
-        Decoded audio values, obtained using the decoder part of Encodec.
-    """
 
     audio_codes: torch.LongTensor | None = None
     audio_values: torch.FloatTensor | None = None
@@ -52,16 +31,6 @@ class EncodecOutput(ModelOutput):
 @auto_docstring
 @dataclass
 class EncodecEncoderOutput(ModelOutput):
-    r"""
-    audio_codes (`torch.LongTensor`  of shape `(nb_frames, batch_size, nb_quantizers, frame_len)`, *optional*):
-        Discrete code embeddings computed using `model.encode`.
-    audio_scales (list of length `nb_frames` of `torch.Tensor` of shape `(batch_size, 1)`, *optional*):
-        Scaling factor for each `audio_codes` input. This is used to unscale each chunk of audio when decoding.
-    last_frame_pad_length (`int`, *optional*):
-        The length of the padding in the last frame, if any. This is used to ensure that the encoded frames can be
-        outputted as a tensor. This value should be passed during decoding to ensure padding is removed from the
-        encoded frames.
-    """
 
     audio_codes: torch.LongTensor | None = None
     audio_scales: torch.FloatTensor | None = None
@@ -71,16 +40,11 @@ class EncodecEncoderOutput(ModelOutput):
 @auto_docstring
 @dataclass
 class EncodecDecoderOutput(ModelOutput):
-    r"""
-    audio_values (`torch.FloatTensor`  of shape `(batch_size, segment_length)`, *optional*):
-        Decoded audio values, obtained using the decoder part of Encodec.
-    """
 
     audio_values: torch.FloatTensor | None = None
 
 
 class EncodecConv1d(nn.Module):
-    """Conv1d with asymmetric or causal padding and normalization."""
 
     def __init__(
         self, config, in_channels: int, out_channels: int, kernel_size: int, stride: int = 1, dilation: int = 1
@@ -95,7 +59,6 @@ class EncodecConv1d(nn.Module):
                 f'self.norm_type must be one of `"weight_norm"`, `"time_group_norm"`), got {self.norm_type}'
             )
 
-        # warn user on unusual setup between dilation and stride
         if stride > 1 and dilation > 1:
             logger.warning(
                 "EncodecConv1d has been initialized with stride > 1 and dilation > 1"
@@ -116,7 +79,6 @@ class EncodecConv1d(nn.Module):
         stride = torch.tensor(self.conv.stride[0], dtype=torch.int64)
         dilation = self.conv.dilation[0]
 
-        # Effective kernel size with dilations.
         kernel_size = torch.tensor((kernel_size - 1) * dilation + 1, dtype=torch.int64)
 
         self.register_buffer("stride", stride, persistent=False)
@@ -158,10 +120,8 @@ class EncodecConv1d(nn.Module):
         extra_padding = self._get_extra_padding_for_conv1d(hidden_states)
 
         if self.causal:
-            # Left padding for causal
             hidden_states = self._pad1d(hidden_states, (self.padding_total, extra_padding), mode=self.pad_mode)
         else:
-            # Asymmetric padding required for odd strides
             padding_right = self.padding_total // 2
             padding_left = self.padding_total - padding_right
             hidden_states = self._pad1d(
@@ -177,7 +137,6 @@ class EncodecConv1d(nn.Module):
 
 
 class EncodecConvTranspose1d(nn.Module):
-    """ConvTranspose1d with asymmetric or causal padding and normalization."""
 
     def __init__(self, config, in_channels: int, out_channels: int, kernel_size: int, stride: int = 1):
         super().__init__()
@@ -213,30 +172,19 @@ class EncodecConvTranspose1d(nn.Module):
         if self.norm_type == "time_group_norm":
             hidden_states = self.norm(hidden_states)
 
-        # We will only trim fixed padding. Extra padding from `pad_for_conv1d` would be
-        # removed at the very end, when keeping only the right length for the output,
-        # as removing it here would require also passing the length at the matching layer
-        # in the encoder.
         if self.causal:
-            # Trim the padding on the right according to the specified ratio
-            # if trim_right_ratio = 1.0, trim everything from right
             padding_right = math.ceil(padding_total * self.trim_right_ratio)
         else:
-            # Asymmetric padding required for odd strides
             padding_right = padding_total // 2
 
         padding_left = padding_total - padding_right
 
-        # unpad
         end = hidden_states.shape[-1] - padding_right
         hidden_states = hidden_states[..., padding_left:end]
         return hidden_states
 
 
 class EncodecLSTM(nn.Module):
-    """
-    LSTM without worrying about the hidden state, nor the layout of the data. Expects input as convolutional layout.
-    """
 
     def __init__(self, config: EncodecConfig, dimension: int):
         super().__init__()
@@ -250,9 +198,6 @@ class EncodecLSTM(nn.Module):
 
 
 class EncodecResnetBlock(nn.Module):
-    """
-    Residual block from SEANet model as used by EnCodec.
-    """
 
     def __init__(self, config: EncodecConfig, dim: int, dilations: list[int]):
         super().__init__()
@@ -283,20 +228,16 @@ class EncodecResnetBlock(nn.Module):
 
 
 class EncodecEncoder(nn.Module):
-    """SEANet encoder as used by EnCodec."""
 
     def __init__(self, config: EncodecConfig):
         super().__init__()
         model = [EncodecConv1d(config, config.audio_channels, config.num_filters, config.kernel_size)]
         scaling = 1
 
-        # Downsample to raw audio scale
         for ratio in reversed(config.upsampling_ratios):
             current_scale = scaling * config.num_filters
-            # Add residual layers
             for j in range(config.num_residual_layers):
                 model += [EncodecResnetBlock(config, current_scale, [config.dilation_growth_rate**j, 1])]
-            # Add downsampling layers
             model += [nn.ELU()]
             model += [EncodecConv1d(config, current_scale, current_scale * 2, kernel_size=ratio * 2, stride=ratio)]
             scaling *= 2
@@ -314,7 +255,6 @@ class EncodecEncoder(nn.Module):
 
 
 class EncodecDecoder(nn.Module):
-    """SEANet decoder as used by EnCodec."""
 
     def __init__(self, config: EncodecConfig):
         super().__init__()
@@ -323,20 +263,16 @@ class EncodecDecoder(nn.Module):
 
         model += [EncodecLSTM(config, scaling * config.num_filters)]
 
-        # Upsample to raw audio scale
         for ratio in config.upsampling_ratios:
             current_scale = scaling * config.num_filters
-            # Add upsampling layers
             model += [nn.ELU()]
             model += [
                 EncodecConvTranspose1d(config, current_scale, current_scale // 2, kernel_size=ratio * 2, stride=ratio)
             ]
-            # Add residual layers
             for j in range(config.num_residual_layers):
                 model += [EncodecResnetBlock(config, current_scale // 2, (config.dilation_growth_rate**j, 1))]
             scaling //= 2
 
-        # Add final layers
         model += [nn.ELU()]
         model += [EncodecConv1d(config, config.num_filters, config.audio_channels, config.last_kernel_size)]
         self.layers = nn.ModuleList(model)
@@ -348,7 +284,6 @@ class EncodecDecoder(nn.Module):
 
 
 class EncodecEuclideanCodebook(nn.Module):
-    """Codebook with Euclidean distance."""
 
     def __init__(self, config: EncodecConfig):
         super().__init__()
@@ -370,11 +305,8 @@ class EncodecEuclideanCodebook(nn.Module):
 
     def encode(self, hidden_states):
         shape = hidden_states.shape
-        # pre-process
         hidden_states = hidden_states.reshape((-1, shape[-1]))
-        # quantize
         embed_ind = self.quantize(hidden_states)
-        # post-process
         embed_ind = embed_ind.view(*shape[:-1])
         return embed_ind
 
@@ -384,9 +316,6 @@ class EncodecEuclideanCodebook(nn.Module):
 
 
 class EncodecVectorQuantization(nn.Module):
-    """
-    Vector quantization implementation. Currently supports only euclidean distance.
-    """
 
     def __init__(self, config: EncodecConfig):
         super().__init__()
@@ -404,7 +333,6 @@ class EncodecVectorQuantization(nn.Module):
 
 
 class EncodecResidualVectorQuantizer(nn.Module):
-    """Residual Vector Quantizer."""
 
     def __init__(self, config: EncodecConfig):
         super().__init__()
@@ -465,7 +393,6 @@ class EncodecPreTrainedModel(PreTrainedAudioTokenizerBase):
             kernel_size = module.conv.kernel_size[0]
             stride = torch.tensor(module.conv.stride[0], dtype=torch.int64)
             dilation = module.conv.dilation[0]
-            # Effective kernel size with dilations.
             kernel_size = torch.tensor((kernel_size - 1) * dilation + 1, dtype=torch.int64)
             init.copy_(module.stride, stride)
             init.copy_(module.kernel_size, kernel_size)
@@ -496,7 +423,6 @@ class EncodecModel(EncodecPreTrainedModel):
         if 2**self.bits_per_codebook != self.config.codebook_size:
             raise ValueError("The codebook_size must be a power of 2.")
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def _encode_frame(self, input_values: torch.Tensor, bandwidth: float) -> tuple[torch.Tensor, torch.Tensor | None]:
@@ -592,7 +518,6 @@ class EncodecModel(EncodecPreTrainedModel):
             encoded_frames.append(encoded_frame)
             scales.append(scale)
 
-        # pad last frame (if necessary) to be able to apply `torch.stack`
         last_frame_pad_length = encoded_frames[0].shape[-1] - encoded_frames[-1].shape[-1]
         if last_frame_pad_length > 0:
             last_frame = nn.functional.pad(encoded_frames[-1], (0, last_frame_pad_length), value=0)
@@ -605,24 +530,6 @@ class EncodecModel(EncodecPreTrainedModel):
 
     @staticmethod
     def _linear_overlap_add(frames: list[torch.Tensor], stride: int):
-        # Generic overlap add, with linear fade-in/fade-out, supporting complex scenario
-        # e.g., more than 2 frames per position.
-        # The core idea is to use a weight function that is a triangle,
-        # with a maximum value at the middle of the chunk.
-        # We use this weighting when summing the frames, and divide by the sum of weights
-        # for each positions at the end. Thus:
-        #   - if a frame is the only one to cover a position, the weighting is a no-op.
-        #   - if 2 frames cover a position:
-        #          ...  ...
-        #         /   \/   \
-        #        /    /\    \
-        #            S  T       , i.e. S offset of second frame starts, T end of first frame.
-        # Then the weight function for each one is: (t - S), (T - t), with `t` a given offset.
-        # After the final normalization, the weight of the second frame at position `t` is
-        # (t - S) / (t - S + (T - t)) = (t - S) / (T - S), which is exactly what we want.
-        #
-        #   - if more than 2 frames overlap at a given point, we hope that by induction
-        #      something sensible happens.
         if len(frames) == 0:
             raise ValueError("`frames` cannot be an empty list.")
 
@@ -705,7 +612,6 @@ class EncodecModel(EncodecPreTrainedModel):
 
             audio_values = self._linear_overlap_add(decoded_frames, self.config.chunk_stride or 1)
 
-        # truncate based on padding mask
         if padding_mask is not None and padding_mask.shape[-1] < audio_values.shape[-1]:
             audio_values = audio_values[..., : padding_mask.shape[-1]]
 
@@ -781,7 +687,6 @@ class EncodecModel(EncodecPreTrainedModel):
         if padding_mask is None:
             padding_mask = torch.ones_like(input_values).bool()
         else:
-            # ensure that channel dimension is present
             padding_mask = padding_mask.view(padding_mask.shape[0], -1, padding_mask.shape[-1])
 
         if audio_codes is not None and audio_scales is None:

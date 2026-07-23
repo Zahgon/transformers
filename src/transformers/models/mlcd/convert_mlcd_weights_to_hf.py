@@ -1,20 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert MLCD checkpoints from the original repository.
-
-URL: https://github.com/deepglint/unicom/tree/main
-"""
 
 import argparse
 import collections
@@ -60,12 +43,10 @@ COMMON_CONFIG_PARAMS = {
 }
 
 MODEL_NAME_TO_CHECKPOINT_PATH = {
-    # base checkpoints
     "mlcd-vit-bigG-patch14-336": "MLCD_ViT_bigG_14_336px_pytorch.pt",
     "mlcd-vit-bigG-patch14-448": "MLCD_ViT_bigG_14_448px_pytorch.pt",
 }
 
-# fmt: off
 EXPECTED_OUTPUTS = {
     "mlcd-vit-bigG-patch14-336": torch.tensor([
         [-0.8921, -0.1069,  0.2989,  0.6018, -0.5892],
@@ -82,16 +63,12 @@ EXPECTED_OUTPUTS = {
         [ 0.2323, -0.8346, -0.9680, -0.2951,  0.0867],
     ]),
 }
-# fmt: on
 
-# fmt: off
 ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
-    # Vision embeddings
     r"conv1.weight":                                                r"vision_model.embeddings.patch_embedding.weight",
     r"class_embedding":                                             r"vision_model.embeddings.class_embedding",
     r"vision_rotary_embedding":                                     r"vision_model.vision_rotary_embedding",
     r"class_pos_emb":                                               r"vision_model.class_pos_emb",
-    # Vision encoder
     r"transformer.resblocks_(\d+).ln_1.weight":                     r"vision_model.encoder.layers.\1.layer_norm1.weight",
     r"transformer.resblocks_(\d+).ln_1.bias":                       r"vision_model.encoder.layers.\1.layer_norm1.bias",
     r"transformer.resblocks_(\d+).ln_2.weight":                     r"vision_model.encoder.layers.\1.layer_norm2.weight",
@@ -102,111 +79,35 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"transformer.resblocks_(\d+).mlp.c_proj.bias":                 r"vision_model.encoder.layers.\1.mlp.fc2.bias",
     r"transformer.resblocks_(\d+).attn.(q|k|v|out)_proj.weight":    r"vision_model.encoder.layers.\1.self_attn.\2_proj.weight",
     r"transformer.resblocks_(\d+).attn.(q|k|v|out)_proj.bias":      r"vision_model.encoder.layers.\1.self_attn.\2_proj.bias",
-    # Vision norm
     r"ln_post.weight":                                              r"vision_model.post_layernorm.weight",
     r"ln_post.bias":                                                r"vision_model.post_layernorm.bias",
     r"ln_pre.weight":                                               r"vision_model.pre_layernorm.weight",
     r"ln_pre.bias":                                                 r"vision_model.pre_layernorm.bias",
 }
-# fmt: on
 
 
-# --------------------------------------------------------------------------------------------
-# Model objects: configuration, image processor
-# --------------------------------------------------------------------------------------------
 
 
 def get_mlcd_config(model_name: str) -> MLCDVisionConfig:
-    """
-    Create a configuration for the MLCD model based on the model name.
-    """
-    assert model_name in COMMON_CONFIG_PARAMS, f"Model {model_name} not found in the list of COMMON_CONFIG_PARAMS."
-    config_params = COMMON_CONFIG_PARAMS[model_name]
-    config = MLCDVisionConfig(
-        hidden_size=config_params["hidden_size"],
-        image_size=config_params["image_size"],
-        intermediate_size=config_params["intermediate_size"],
-        num_attention_heads=config_params["num_attention_heads"],
-        num_hidden_layers=config_params["num_hidden_layers"],
-        patch_size=config_params["patch_size"],
-        projection_dim=config_params["projection_dim"],
-    )
-    return config
+    pass
 
 
 def get_mlcd_image_processor(model_name: str) -> CLIPImageProcessor:
-    """
-    Create an image processor for the MLCD model based on the model name.
-    """
-    assert model_name in COMMON_CONFIG_PARAMS, f"Model {model_name} not found in the list of COMMON_CONFIG_PARAMS."
-    config_params = COMMON_CONFIG_PARAMS[model_name]
-    image_processor = CLIPImageProcessor(
-        do_center_crop=True,
-        do_normalize=True,
-        do_resize=True,
-        feature_extractor_type="CLIPFeatureExtractor",
-        image_mean=[0.48145466, 0.4578275, 0.40821073],
-        image_std=[0.26862954, 0.26130258, 0.27577711],
-        resample=3,
-        size=config_params["image_size"],
-        crop_size=config_params["image_size"],
-    )
-    return image_processor
+    pass
 
 
-# --------------------------------------------------------------------------------------------
-# Helper functions for state dict conversion
-# --------------------------------------------------------------------------------------------
 
 
 def flatten_nested_dict(params: dict, parent_key: str = "", sep: str = ".") -> dict:
-    """
-    Flatten a nested original checkpoint dictionary into a flat dictionary.
-    """
-    items = []
-    for k, v in params.items():
-        new_key = parent_key + sep + k if parent_key else k
-        if isinstance(v, collections.abc.MutableMapping):
-            items.extend(flatten_nested_dict(v, new_key, sep=sep).items())
-        else:
-            items.append((new_key, v))
-    return dict(items)
+    pass
 
 
 def split_resblocks_layers(state_dict: dict) -> dict:
-    """
-    Split the resblocks weight into layers. In some cases they are concatenated in
-    the original checkpoints.
-    """
-    # Make shallow copy
-    state_dict = state_dict.copy()
-    # Split resblocks weight into layers
-    keys = list(state_dict.keys())
-    for key in keys:
-        if ".resblocks." in key:
-            weight = state_dict.pop(key)
-            for i, weight_i in enumerate(weight):
-                new_name = key.replace("resblocks", f"resblocks_{i}")
-                state_dict[new_name] = weight_i
-    return state_dict
+    pass
 
 
 def chunk_qkv_for_attn(state_dict: dict) -> dict:
-    """
-    Chunk the q/k/v weights and biases for the attention layers.
-    """
-    # Make shallow copy
-    state_dict = state_dict.copy()
-    # Read and process q/k/v weights and biases
-    keys = list(state_dict.keys())
-    for key in keys:
-        if ".in_proj." in key:
-            weight = state_dict.pop(key)
-            qkv_weights = weight.chunk(3, dim=0)
-            for name, weight_i in zip(["q_proj", "k_proj", "v_proj"], qkv_weights):
-                new_name = key.replace("in_proj", name)
-                state_dict[new_name] = weight_i
-    return state_dict
+    pass
 
 
 def convert_old_keys_to_new_keys(state_dict_keys: list) -> dict:
@@ -227,84 +128,15 @@ def convert_old_keys_to_new_keys(state_dict_keys: list) -> dict:
     return output_dict
 
 
-# --------------------------------------------------------------------------------------------
-# Convert model
-# --------------------------------------------------------------------------------------------
 
 
 @torch.no_grad()
 def convert_mlcd_checkpoint(model_name, input_dir, output_dir, verify_hidden_state=True, push_to_hub=False):
-    """
-    Copy/paste/tweak model's weights to our MLCD structure.
-    """
-
-    # Define MLCD configuration
-    config = get_mlcd_config(model_name)
-
-    checkpoint = MODEL_NAME_TO_CHECKPOINT_PATH[model_name]
-    checkpoint_path = os.path.join(input_dir, checkpoint)
-    assert os.path.exists(checkpoint_path), f"Checkpoint path ({checkpoint_path}) not found."
-
-    # Load original checkpoint
-    print(f"Loading checkpoint from {checkpoint_path}...")
-    state_dict = torch.load(checkpoint_path, "cpu")
-
-    # Flatten nested dictionary
-    print("Flattening nested dictionary...")
-    state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
-    if "positional_embedding" in state_dict:
-        state_dict.pop("positional_embedding")
-    state_dict = flatten_nested_dict(state_dict)
-    state_dict = split_resblocks_layers(state_dict)
-    state_dict = chunk_qkv_for_attn(state_dict)
-
-    # Rename and transform weights
-    print("Renaming and transforming weights...")
-    original_keys = list(state_dict.keys())
-    hf_keys = convert_old_keys_to_new_keys(original_keys)
-    new_state_dict = {}
-    for original_key in original_keys:
-        new_key = hf_keys[original_key]
-        parameter = state_dict.pop(original_key)
-        new_state_dict[new_key] = torch.from_numpy(parameter)
-
-    # load HuggingFace model
-    print("Loading HuggingFace model...")
-    model = MLCDVisionModel(config).eval()
-    model.load_state_dict(new_state_dict)
-
-    # Create processor
-    print("Creating processor...")
-    image_processor = get_mlcd_image_processor(model_name)
-
-    # Verify hidden state
-    if verify_hidden_state:
-        print("Verifying hidden state for {model_name}...")
-        url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-        with httpx.stream("GET", url) as response:
-            image = Image.open(BytesIO(response.read()))
-        pixel_values = image_processor(image, return_tensors="pt")["pixel_values"]
-        last_hidden_state = model(pixel_values, output_hidden_states=True).last_hidden_state[0, :5, :5]
-        expected_hidden_state = EXPECTED_OUTPUTS[model_name]
-        np.testing.assert_allclose(last_hidden_state.cpu().numpy(), expected_hidden_state.numpy(), atol=1e-4)
-
-    # Save model
-    if output_dir is not None:
-        dst_dir = os.path.join(output_dir, model_name)
-        print(f"Saving model {model_name} to {dst_dir}...")
-        model.save_pretrained(dst_dir)
-        print(f"Saving processor to {dst_dir}...")
-        image_processor.save_pretrained(dst_dir)
-
-    if push_to_hub:
-        print(f"Pushing model and processor for {model_name} to the HuggingFace Hub...")
-        model.push_to_hub(f"deepglint-hf/{model_name}", private=True)
-        image_processor.push_to_hub(f"deepglint-hf/{model_name}", private=True)
+    pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--model_name",
         default="mlcd-vit-bigG-patch14-448",

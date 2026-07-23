@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import math
@@ -60,21 +47,6 @@ class SLANeXtVisionAttention(GotOcr2VisionAttention):
 @auto_docstring(checkpoint="PaddlePaddle/SLANeXt_wired_safetensors")
 @strict
 class SLANeXtConfig(PreTrainedConfig):
-    r"""
-    vision_config (`dict` or [`SLANeXtVisionConfig`], *optional*):
-        Configuration for the vision encoder. If `None`, a default [`SLANeXtVisionConfig`] is used.
-    post_conv_in_channels (`int`, *optional*, defaults to 256):
-        Number of input channels for the post-encoder convolution layer.
-    post_conv_out_channels (`int`, *optional*, defaults to 512):
-        Number of output channels for the post-encoder convolution layer.
-    out_channels (`int`, *optional*, defaults to 50):
-        Vocabulary size for the table structure token prediction head, i.e., the number of distinct structure
-        tokens the model can predict.
-    hidden_size (`int`, *optional*, defaults to 512):
-        Dimensionality of the hidden states in the attention GRU cell and the structure/location prediction heads.
-    max_text_length (`int`, *optional*, defaults to 500):
-        Maximum number of autoregressive decoding steps (tokens) for the structure and location decoder.
-    """
 
     model_type = "slanext"
     sub_configs = {"vision_config": SLANeXtVisionConfig}
@@ -154,18 +126,15 @@ class SLANeXtPreTrainedModel(PreTrainedModel):
         """Initialize the weights"""
         super()._init_weights(module)
 
-        # Initialize positional embeddings to zero (SLANeXtVisionEncoder holds pos_embed)
         if isinstance(module, SLANeXtVisionEncoder):
             if module.pos_embed is not None:
                 init.constant_(module.pos_embed, 0.0)
 
-        # Initialize relative positional embeddings to zero (SLANeXtVisionAttention holds rel_pos_h/w)
         if isinstance(module, SLANeXtVisionAttention):
             if module.use_rel_pos:
                 init.constant_(module.rel_pos_h, 0.0)
                 init.constant_(module.rel_pos_w, 0.0)
 
-        # Initialize GRUCell (replicates PyTorch default reset_parameters)
         if isinstance(module, nn.GRUCell):
             std = 1.0 / math.sqrt(module.hidden_size) if module.hidden_size > 0 else 0
             init.uniform_(module.weight_ih, -std, std)
@@ -175,10 +144,8 @@ class SLANeXtPreTrainedModel(PreTrainedModel):
             if module.bias_hh is not None:
                 init.uniform_(module.bias_hh, -std, std)
 
-        # Initialize SLAHead layers
         if isinstance(module, SLANeXtSLAHead):
             std = 1.0 / math.sqrt(self.config.hidden_size * 1.0)
-            # Initialize structure_generator and loc_generator layers
             for generator in (module.structure_generator,):
                 for layer in generator.children():
                     if isinstance(layer, nn.Linear):
@@ -270,12 +237,6 @@ class SLANeXtSLAHead(SLANeXtPreTrainedModel):
 @auto_docstring
 @dataclass
 class SLANeXtForTableRecognitionOutput(BaseModelOutput):
-    r"""
-    head_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Hidden-states of the SLANeXtSLAHead at each prediction step, varies up to max `self.config.max_text_length` states (depending on early exits).
-    head_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Attentions of the SLANeXtSLAHead at each prediction step, varies up to max `self.config.max_text_length` attentions (depending on early exits).
-    """
 
     head_hidden_states: torch.FloatTensor | None = None
     head_attentions: torch.FloatTensor | None = None
@@ -342,17 +303,14 @@ class SLANeXtImageProcessor(TorchvisionBackend):
         src_col = (target_col + 0.5) * (float(width) / float(target_width)) - 0.5
         src_col_floor = src_col.floor().to(torch.int32)
         src_col_frac = src_col - src_col_floor.float()
-        # boundary handling
         src_col_frac = torch.where(src_col_floor < 0, torch.zeros_like(src_col_frac), src_col_frac)
         src_col_floor = torch.where(src_col_floor < 0, torch.zeros_like(src_col_floor), src_col_floor)
         src_col_frac = torch.where(src_col_floor >= width - 1, torch.ones_like(src_col_frac), src_col_frac)
         src_col_floor = torch.where(
             src_col_floor >= width - 1, torch.full_like(src_col_floor, width - 2), src_col_floor
         )
-        # fixed-point weights
         weight_right = (src_col_frac * 2048 + 0.5).floor().to(torch.int32)  # round-to-nearest
         weight_left = 2048 - weight_right  # (target_w,)
-        # --- row coordinate tables ---
         target_row = torch.arange(target_height, dtype=torch.float32, device=device)
         src_row = (target_row + 0.5) * (float(height) / float(target_height)) - 0.5
         src_row_floor = src_row.floor().to(torch.int32)
@@ -372,12 +330,10 @@ class SLANeXtImageProcessor(TorchvisionBackend):
         col_right = (src_col_floor + 1).long()  # (target_w,)  safe: src_col_floor <= width-2
         row_top = src_row_floor.long()  # (target_h,)
         row_bottom = (src_row_floor + 1).long()  # (target_h,)
-        # gather 4 neighbours: (C, target_h, target_w)
         pixel_top_left = image_int32[:, row_top[:, None], col_left[None, :]]
         pixel_top_right = image_int32[:, row_top[:, None], col_right[None, :]]
         pixel_bottom_left = image_int32[:, row_bottom[:, None], col_left[None, :]]
         pixel_bottom_right = image_int32[:, row_bottom[:, None], col_right[None, :]]
-        # fixed-point bilinear: weights broadcast over (C, target_h, target_w)
         weight_bottom_3d = weight_bottom.view(1, target_height, 1)
         weight_top_3d = weight_top.view(1, target_height, 1)
         weight_right_3d = weight_right.view(1, 1, target_width)
@@ -412,7 +368,6 @@ class SLANeXtImageProcessor(TorchvisionBackend):
         if resample is not None and not is_torchdynamo_compiling():
             logger.warning_once("Resampling is not supported in SLANeXt")
 
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -421,14 +376,11 @@ class SLANeXtImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_center_crop:
                 stacked_images = self.center_crop(stacked_images, crop_size)
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -481,52 +433,7 @@ class SLANeXtImageProcessor(TorchvisionBackend):
         self.eos_id = self.dict["eos"]
 
     def post_process_table_recognition(self, outputs):
-        """
-        Post-process the raw model outputs to decode the predicted table structure into an HTML token sequence.
-
-        Converts the model's predicted probability distributions over the structure vocabulary into a sequence of
-        HTML tokens representing the table structure. The decoded tokens are wrapped with `<html>`, `<body>`, and
-        `<table>` tags to form a complete HTML table structure.
-
-        Args:
-            outputs ([`SLANeXtForTableRecognitionOutput`]):
-                Raw outputs from the SLANeXt model. The `last_hidden_state` field contains the predicted probability
-                distributions over the structure vocabulary at each decoding step, with shape
-                `(batch_size, max_text_length, num_classes)`.
-
-        Returns:
-            `dict`: A dictionary containing:
-                - **structure** (`list[str]`): The predicted HTML table structure as a list of tokens, wrapped with
-                  `<html>`, `<body>`, and `<table>` tags.
-                - **structure_score** (`float`): The mean confidence score across all predicted tokens.
-        """
-        self.pred = outputs.last_hidden_state
-        structure_probs = self.pred[0:1]
-        ignored_tokens = [int(self.bos_id), int(self.eos_id)]
-        end_idx = int(self.eos_id)
-
-        structure_idx = structure_probs.argmax(dim=2)
-        structure_probs = structure_probs.max(dim=2).values
-
-        structure_str_list = []
-        batch_size = structure_idx.shape[0]
-        for batch_index in range(batch_size):
-            structure_list = []
-            score_list = []
-            for position in range(structure_idx.shape[1]):
-                char_idx = int(structure_idx[batch_index, position])
-                if position > 0 and char_idx == end_idx:
-                    break
-                if char_idx in ignored_tokens:
-                    continue
-                text = self.character[char_idx]
-                structure_list.append(text)
-                score_list.append(structure_probs[batch_index, position])
-            structure_str_list.append(structure_list)
-            structure_score = torch.stack(score_list).mean().item()
-
-        structure = ["<html>", "<body>", "<table>"] + structure_str_list[0] + ["</table>", "</body>", "</html>"]
-        return {"structure": structure, "structure_score": structure_score}
+        pass
 
 
 __all__ = [

@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PIL Image processor class for OVIS2."""
 
 from functools import lru_cache
 
@@ -33,23 +19,7 @@ from ...processing_utils import ImagesKwargs, Unpack
 from ...utils import TensorType, auto_docstring
 
 
-# Adapted from transformers.models.ovis2.image_processing_ovis2.Ovis2ImageProcessorKwargs
 class Ovis2ImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    crop_to_patches (`bool`, *optional*, defaults to `False`):
-        Whether to crop the image to patches. Can be overridden by the `crop_to_patches` parameter in the
-        `preprocess` method.
-    min_patches (`int`, *optional*, defaults to 1):
-        The minimum number of patches to be extracted from the image. Only has an effect if `crop_to_patches` is
-        set to `True`. Can be overridden by the `min_patches` parameter in the `preprocess` method.
-    max_patches (`int`, *optional*, defaults to 12):
-        The maximum number of patches to be extracted from the image. Only has an effect if `crop_to_patches` is
-        set to `True`. Can be overridden by the `max_patches` parameter in the `preprocess` method.
-    use_covering_area_grid (`bool`, *optional*, defaults to `True`):
-        Whether to use the covering area grid to determine the number of patches. Only has an effect if
-        `crop_to_patches` is set to `True`. Can be overridden by the `use_covering_area_grid` parameter in the
-        `preprocess` method.
-    """
 
     crop_to_patches: bool
     min_patches: int
@@ -57,7 +27,6 @@ class Ovis2ImageProcessorKwargs(ImagesKwargs, total=False):
     use_covering_area_grid: bool
 
 
-# Adapted from transformers.models.ovis2.image_processing_ovis2.get_all_supported_aspect_ratios
 @lru_cache(maxsize=10)
 def get_all_supported_aspect_ratios(min_image_tiles: int, max_image_tiles: int) -> list[tuple[int, int]]:
     """Computes all allowed aspect ratios for a given minimum and maximum number of input tiles."""
@@ -69,7 +38,6 @@ def get_all_supported_aspect_ratios(min_image_tiles: int, max_image_tiles: int) 
     return sorted(aspect_ratios, key=lambda x: x[0] * x[1])
 
 
-# Adapted from transformers.models.ovis2.image_processing_ovis2.compute_patch_covering_area
 def compute_patch_covering_area(left: int, upper: int, right: int, lower: int, side: int) -> float:
     w = right - left
     h = lower - upper
@@ -80,7 +48,6 @@ def compute_patch_covering_area(left: int, upper: int, right: int, lower: int, s
     return w * h
 
 
-# Adapted from transformers.models.ovis2.image_processing_ovis2.split_image_into_grid
 def split_image_into_grid(h: int, w: int, grid: tuple[int, int]) -> list[tuple[int, int, int, int]]:
     row_height = h // grid[0]
     col_width = w // grid[1]
@@ -96,7 +63,6 @@ def split_image_into_grid(h: int, w: int, grid: tuple[int, int]) -> list[tuple[i
     ]
 
 
-# Adapted from transformers.models.ovis2.image_processing_ovis2.get_min_tile_covering_grid
 @lru_cache(maxsize=100)
 def get_min_tile_covering_grid(
     image_size: tuple[int, int],
@@ -124,7 +90,6 @@ def get_min_tile_covering_grid(
     return min(evaluated_grids, key=lambda x: (-x[1], x[0][0] * x[0][1]))[0]
 
 
-# Adapted from transformers.models.ovis2.image_processing_ovis2.get_optimal_tiled_canvas
 @lru_cache(maxsize=100)
 def get_optimal_tiled_canvas(
     original_image_size: tuple[int, int],
@@ -191,7 +156,6 @@ class Ovis2ImageProcessorPil(PilBackend):
         Crop the image to patches and return a list of cropped images.
         Mirrors TorchvisionBackend.crop_image_to_patches.
         """
-        # Normalize to CHW when called directly (e.g. from tests); _preprocess already receives CHW
         input_data_format = infer_channel_dimension_format(image)
         image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_data_format)
 
@@ -199,7 +163,6 @@ class Ovis2ImageProcessorPil(PilBackend):
         original_height, original_width = image.shape[-2:]
 
         if use_covering_area_grid:
-            # Use the original OVIS2 approach: compute the minimal number of tiles that cover at least 90% of the image area
             num_columns, num_rows = get_min_tile_covering_grid(
                 (original_height, original_width),
                 target_patch_size=patch_size_height,  # square patch size
@@ -207,19 +170,15 @@ class Ovis2ImageProcessorPil(PilBackend):
                 covering_threshold=covering_threshold,
             )
         else:
-            # find the closest aspect ratio to the target
             num_columns, num_rows = get_optimal_tiled_canvas(
                 (original_height, original_width), (patch_size_height, patch_size_width), min_patches, max_patches
             )
 
-        # calculate the target width and height
         target_width = patch_size_width * num_columns
         target_height = patch_size_height * num_rows
         num_blocks = num_columns * num_rows
 
-        # resize the image so that each patch is of patch_size
         resized_image = self.resize(image, SizeDict(height=target_height, width=target_width), resample=resample)
-        # split the image into patches
         processed_images = []
         for i in range(num_blocks):
             column = i % num_columns
@@ -260,7 +219,6 @@ class Ovis2ImageProcessorPil(PilBackend):
         **kwargs,
     ) -> BatchFeature:
         if crop_to_patches and max_patches > 1:
-            # Crop to patches first
             processed_images = []
             grids = []
             for image in images:
@@ -278,7 +236,6 @@ class Ovis2ImageProcessorPil(PilBackend):
         else:
             grids = [[1, 1] for _ in range(len(images))]
 
-        # Process all images (including patches if any) through the standard pipeline
         processed_images = []
         for image in images:
             if do_resize:

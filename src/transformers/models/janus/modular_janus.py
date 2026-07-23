@@ -1,16 +1,3 @@
-# Copyright 2025 Deepseek AI and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -58,18 +45,11 @@ if is_vision_available():
 
 logger = logging.get_logger(__name__)
 
-# General docstring
 
 
 @auto_docstring(checkpoint="deepseek-community/Janus-Pro-1B")
 @strict
 class JanusVisionConfig(SiglipVisionConfig):
-    r"""
-    projection_dropout (`float`, *optional*, defaults to 0.0):
-        Dropout probability for the projection layer.
-    num_image_tokens (`int`, *optional*, defaults to 576):
-        Number of image tokens.
-    """
 
     hidden_size: int = 1024
     num_hidden_layers: int = 24
@@ -91,20 +71,6 @@ class JanusVisionConfig(SiglipVisionConfig):
 @auto_docstring(checkpoint="deepseek-community/Janus-Pro-1B")
 @strict
 class JanusVQVAEConfig(ChameleonVQVAEConfig):
-    r"""
-    base_channels (`int`, *optional*, defaults to 128):
-        Base channel count.
-    channel_multiplier (`list[int]`, *optional*, defaults to `[1, 1, 2, 2, 4]`):
-        Channel multipliers for each resolution.
-    num_res_blocks (`int`, *optional*, defaults to 2):
-        Number of residual blocks.
-    num_patches (`int`, *optional*, defaults to 32):
-        Num of patches the input images can be divided into.
-    out_channels (`int`, *optional*, defaults to 3):
-        Number of out channels.
-    image_token_embed_dim (`int`, *optional*, defaults to 2048):
-        Dimension of image embeddings. It should be same as the dimensionality of text embeddings.
-    """
 
     embed_dim: int = 8
     num_embeddings: int = 16384
@@ -131,30 +97,6 @@ class JanusVQVAEConfig(ChameleonVQVAEConfig):
 @auto_docstring(checkpoint="deepseek-community/Janus-Pro-1B")
 @strict
 class JanusConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import JanusForConditionalGeneration, JanusConfig, JanusVisionConfig, JanusVQVAEConfig, LlamaConfig
-
-    >>> # Initializing a Janus vision config
-    >>> vision_config = JanusVisionConfig()
-
-    >>> # Initializing a Llama config
-    >>> text_config = LlamaConfig()
-
-    >>> # Initializing a VQ config
-    >>> vq_config = JanusVQVAEConfig()
-
-    >>> # Initializing a Janus Pro 1B style configuration
-    >>> configuration = JanusConfig(vision_config=vision_config, text_config=text_config, vq_config=vq_config)
-
-    >>> # Initializing a model from the Janus Pro 1B style configuration
-    >>> model = JanusForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "janus"
     sub_configs = {
@@ -189,7 +131,6 @@ class JanusConfig(PreTrainedConfig):
         elif isinstance(self.vq_config, dict):
             self.vq_config = JanusVQVAEConfig(**self.vq_config)
 
-        # This dimension is required when decoding discrete image tokens to continuous input.
         self.vq_config.num_patches = self.vision_config.image_size // self.vision_config.patch_size
         super().__post_init__(**kwargs)
 
@@ -220,12 +161,6 @@ class JanusPreTrainedModel(PreTrainedModel):
 )
 @dataclass
 class JanusVQVAEOutput(ModelOutput):
-    r"""
-    decoded_pixel_values (`torch.FloatTensor` of shape `(batch_size, num_channels, image_size, image_size)`):
-        Reconstructed pixel values after encoding and decoding the input.
-    embedding_loss (`torch.FloatTensor`):
-        Embedding loss.
-    """
 
     decoded_pixel_values: torch.FloatTensor | None = None
     embedding_loss: torch.FloatTensor | None = None
@@ -257,7 +192,6 @@ class JanusVisionEmbeddings(SiglipVisionEmbeddings):
 
 
 class JanusVisionAttention(nn.Module):
-    """Attention Class for Janus Vision Encoder"""
 
     def __init__(self, config: JanusVisionConfig):
         super().__init__()
@@ -276,7 +210,6 @@ class JanusVisionAttention(nn.Module):
         qk_norm = config.use_qk_norm
         self.is_causal = False
 
-        # Janus has no MHA, hence for `eager_attention_forward` call setting `num_key_value_groups` to 1.
         self.num_key_value_groups = 1
 
         self.q_proj = nn.Linear(self.embed_dim, self.num_heads * self.head_dim, bias=config.attention_bias)
@@ -434,12 +367,9 @@ class JanusVQVAEVectorQuantizer(ChameleonVQVAEVectorQuantizer):
         batch_size = image_tokens.shape[0]
         emb_dim: int = self.embedding.weight.shape[-1]
 
-        # get quantized latent vectors
         hidden_state_quant = self.embedding(image_tokens)
-        # l2 normalization on the last dimension
         hidden_state_quant = F.normalize(hidden_state_quant, p=2, dim=-1)
 
-        # reshape back to match original input shape
         hidden_state_quant = hidden_state_quant.view((batch_size, *self.quant_state_dims, emb_dim))
         hidden_state_quant = hidden_state_quant.permute(0, 3, 1, 2).contiguous()
 
@@ -544,7 +474,6 @@ class JanusVQVAEEncoder(nn.Module):
         )
 
     def forward(self, pixel_values: torch.LongTensor):
-        # downsampling
         hidden_states = [self.conv_in(pixel_values)]
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
@@ -557,11 +486,9 @@ class JanusVQVAEEncoder(nn.Module):
             if i_level != self.num_resolutions - 1:
                 hidden_states.append(self.down[i_level].downsample(hidden_states[-1]))
 
-        # middle
         last_hidden_state = hidden_states[-1]
         last_hidden_state = self.mid(last_hidden_state)
 
-        # end
         last_hidden_state = self.norm_out(last_hidden_state)
         last_hidden_state *= torch.sigmoid(last_hidden_state)
         last_hidden_state = self.conv_out(last_hidden_state)
@@ -578,16 +505,12 @@ class JanusVQVAEDecoder(nn.Module):
         latent_channels = config.latent_channels
         out_channels = config.out_channels
 
-        # compute in_ch_mult, block_in and curr_res at lowest res
         block_in = base_channels * config.channel_multiplier[self.num_resolutions - 1]
 
-        # z to block_in
         self.conv_in = torch.nn.Conv2d(latent_channels, block_in, kernel_size=3, stride=1, padding=1)
 
-        # middle
         self.mid = JanusVQVAEMidBlock(config, block_in)
 
-        # upsampling
         self.up = nn.ModuleList()
         for i_level in reversed(range(self.num_resolutions)):
             block = nn.ModuleList()
@@ -611,17 +534,14 @@ class JanusVQVAEDecoder(nn.Module):
                 up.upsample = JanusVQVAEConvUpsample(block_in)
             self.up.append(up)
 
-        # end
         self.norm_out = torch.nn.GroupNorm(num_groups=32, num_channels=block_in, eps=1e-6, affine=True)
         self.conv_out = torch.nn.Conv2d(block_in, out_channels, kernel_size=3, stride=1, padding=1)
 
     def forward(self, hidden_state: torch.FloatTensor) -> torch.FloatTensor:
         hidden_state = self.conv_in(hidden_state)
 
-        # middle
         hidden_state = self.mid(hidden_state)
 
-        # upsampling
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks + 1):
                 hidden_state = self.up[i_level].block[i_block](hidden_state)
@@ -653,7 +573,6 @@ class JanusVQVAE(ChameleonVQVAE):
         self.decoder = JanusVQVAEDecoder(config)
         self.gradient_checkpointing = False
 
-        # Initialize the VQVAE model.
         self.post_init()
 
     def decode(self, image_tokens: torch.LongTensor) -> torch.FloatTensor:
@@ -708,7 +627,6 @@ class JanusVQVAEAlignerMLP(nn.Module):
 
 
 class JanusVQVAEHead(nn.Module):
-    """Head used for sampling tokens in image generation, replacing the usual lm head."""
 
     def __init__(self, config: JanusVQVAEConfig):
         super().__init__()
@@ -732,14 +650,11 @@ class JanusModel(JanusPreTrainedModel):
     def __init__(self, config: JanusConfig):
         super().__init__(config)
         self.config = config
-        # This is necessary for backward compatibility, see SiglipModel initialization
         self.vision_model = JanusVisionModel._from_config(config.vision_config)
         self.aligner = JanusVisionAlignerMLP(self.vision_model.config)
 
         self.vqmodel = JanusVQVAE._from_config(config.vq_config)
 
-        # Below generation_* modules are used for Image generation.
-        # Embeddings used for image generation, instead of Janus vision embeddings.
         self.generation_embeddings = nn.Embedding(self.vqmodel.config.num_embeddings, self.vqmodel.config.embed_dim)
         self.generation_aligner = JanusVQVAEAlignerMLP(self.vqmodel.config)
         self.generation_head = JanusVQVAEHead(self.vqmodel.config)
@@ -747,7 +662,6 @@ class JanusModel(JanusPreTrainedModel):
         self.language_model = AutoModel.from_config(config=config.text_config)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing.
         self.post_init()
 
     @can_return_tuple
@@ -844,7 +758,6 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
         self.model = JanusModel(config)
         self.lm_head = nn.Linear(config.text_config.hidden_size, config.text_config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing.
         self.post_init()
 
     def prepare_embeddings_for_image_generation(self, inputs: torch.Tensor) -> torch.Tensor:
@@ -884,7 +797,6 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
             **kwargs,
         )
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -914,7 +826,6 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- extra custom processing
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -926,10 +837,6 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
             **kwargs,
         )
 
-        # Pixel values are used only in the first iteration if available
-        # In subsequent iterations, they are already merged with text and cached
-        # NOTE: first iteration doesn't have to be prefill, it can be the first
-        # iteration with a question and cached system prompt (continue generate from cache)
         if is_first_iteration or not kwargs.get("use_cache", True):
             model_inputs["pixel_values"] = pixel_values
 
@@ -955,16 +862,12 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
         logits_processor: LogitsProcessorList | None = None,
         **kwargs,
     ):
-        # 1. Handle generation config and model kwargs
-        # Pop generation_mode first since it's specific to Janus
         generation_mode = kwargs.pop("generation_mode", "text")
         generation_config, model_kwargs = self._prepare_generation_config(
             kwargs.pop("generation_config", None), **kwargs
         )
 
-        # Default to "text" generation if mode isn't provided
         if generation_mode == "text":
-            # Set guidance_scale=None to prevent running UnbatchedCFG processor.
             return super().generate(
                 inputs=inputs,
                 attention_mask=attention_mask,
@@ -973,21 +876,17 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
                 **model_kwargs,
             )
 
-        # Validate generation mode
         if generation_config.get_generation_mode() not in (GenerationMode.SAMPLE, GenerationMode.GREEDY_SEARCH):
             raise ValueError(
                 "Got incompatible mode for Image Generation, should be one of greedy or sampling. "
                 "Ensure that beam search is de-activated by setting `num_beams=1`."
             )
 
-        # Validate the configuration and model kwargs
         generation_config.validate()
         self._validate_model_kwargs(model_kwargs.copy())
 
-        # 2. Initialize logit processors
         logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
 
-        # Set `use_cache=True` as we will be using input embeds for generation.
         model_kwargs["use_cache"] = True
 
         if generation_config.guidance_scale is None:
@@ -995,7 +894,6 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
             generation_config.guidance_scale = 5
         model_kwargs["guidance_scale"] = generation_config.guidance_scale
 
-        # 3. Prepare model inputs
         input_ids, model_input_name, model_kwargs = self._prepare_model_inputs(
             inputs, generation_config.bos_token_id, model_kwargs
         )
@@ -1007,16 +905,13 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
                 "Passing `inputs embeds` is not supported currently."
             )
 
-        # Prepare special tokens which will be used generate internally.
         kwargs_has_attention_mask = attention_mask is not None
         self._prepare_special_tokens(generation_config, kwargs_has_attention_mask, device=input_ids.device)
 
-        # 4. Add CFG processor along with user passed logit processor.
         if generation_config.guidance_scale and generation_config.guidance_scale > 1:
             logits_processor.append(ClassifierFreeGuidanceLogitsProcessor(generation_config.guidance_scale))
             generation_config.guidance_scale = None  # Reset to prevent processor duplication.
 
-        # 5. Prepare logits processor
         logits_processor = self._get_logits_processor(
             generation_config=generation_config,
             input_ids_seq_length=input_ids.shape[1],
@@ -1026,7 +921,6 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
             device=device,
         )
 
-        # 6. Expand inputs for multiple image generations per prompt.
         input_ids, model_kwargs = self._expand_inputs_for_generation(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -1034,7 +928,6 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
             **model_kwargs,
         )
 
-        # 7. Prepare input and model caches
         num_image_tokens = self.model.vision_model.config.num_image_tokens
         batch_size, seq_len = input_ids.shape
 
@@ -1043,7 +936,6 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
         attention_mask = attention_mask.repeat(2, 1)
         model_kwargs["attention_mask"] = attention_mask
 
-        # Mask all the tokens that are neither BOS nor BOI with pad token in the unconditional logits.
         mask = (input_tokens[batch_size:, :] != generation_config.bos_token_id) & (
             input_tokens[batch_size:, :] != generation_config.generation_kwargs["boi_token_id"]
         )
@@ -1052,20 +944,15 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
         inputs_embeds = self.get_input_embeddings()(input_tokens)
 
         if model_kwargs.get("past_key_values", None) is None:
-            # Prepare cache if not provided.
             model_kwargs["past_key_values"] = self._prepare_static_cache(
                 cache_implementation=generation_config.cache_implementation or "static",
-                # batch_size should account for both conditional/unconditional input; hence multiplied by 2.
                 batch_size=batch_size * 2,
-                # we should have at least a cache len of seq_len + num_image_tokens.
                 max_cache_len=max(generation_config.max_length, num_image_tokens + seq_len),
                 model_kwargs=model_kwargs,
             )
 
-        # Placeholder for generated tokens.
         generated_tokens = torch.zeros((batch_size, num_image_tokens), dtype=dtype, device=device)
 
-        # 8. init attention / hidden states / scores tuples
         output_attentions = generation_config.output_attentions
         output_hidden_states = generation_config.output_hidden_states
         output_scores = generation_config.output_scores
@@ -1078,12 +965,6 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
         decoder_attentions = () if (return_dict_in_generate and output_attentions) else None
 
         for i in range(num_image_tokens):
-            # Set `is_first_iteration=True` to force using `inputs_embeds` instead of `input_ids`.
-            # Without this, `prepare_inputs_for_generation` would use `input_ids` (the full prompt)
-            # instead of our prepared `inputs_embeds` (1 new token).
-            # This causes CUDA error: device-side assert triggered, seen around the call to ` self.self_attn`.
-            # Set this to `True` is also necessary to match the expected output, see the more detailed comment
-            # https://github.com/huggingface/transformers/pull/45044#discussion_r3020805374.
             model_inputs = self.prepare_inputs_for_generation(
                 inputs_embeds=inputs_embeds, input_ids=input_tokens, is_first_iteration=True, **model_kwargs
             )
@@ -1096,15 +977,12 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
                 output_hidden_states=output_hidden_states,
             )
 
-            # Update model_kwargs like attention_mask for next generation.
             model_kwargs = self._update_model_kwargs_for_generation(outputs, model_kwargs)
             hidden_state = outputs.last_hidden_state[:, -1, :].clone()
 
-            # Generate scores using the generation head (Not using above defined LM Head)
             scores = self.model.generation_head(hidden_state)
             next_token_scores = logits_processor(input_ids, scores)
 
-            # Sample next token.
             if generation_config.do_sample:
                 probs = torch.softmax(next_token_scores, dim=-1)
                 next_token = torch.multinomial(probs, num_samples=1).squeeze(-1)
@@ -1113,7 +991,6 @@ class JanusForConditionalGeneration(JanusPreTrainedModel, GenerationMixin):
 
             generated_tokens[:, i] = next_token
 
-            # Prepare embeddings for the next step.
             next_token = torch.cat([next_token, next_token])
             next_token = next_token.unsqueeze(-1)
 

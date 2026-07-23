@@ -1,17 +1,3 @@
-# Copyright 2023 The Google Research Team Authors and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ALIGN model."""
 
 import math
 from collections.abc import Callable
@@ -50,10 +36,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class AlignVisionModelOutput(ModelOutput):
-    r"""
-    image_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim)` *optional* returned when model is initialized with `with_projection=True`):
-        The image embeddings obtained by applying the projection layer to the pooler_output.
-    """
 
     image_embeds: torch.FloatTensor | None = None
     last_hidden_state: torch.FloatTensor | None = None
@@ -67,10 +49,6 @@ class AlignVisionModelOutput(ModelOutput):
 )
 @dataclass
 class AlignTextModelOutput(ModelOutput):
-    r"""
-    text_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim)` *optional* returned when model is initialized with `with_projection=True`):
-        The text embeddings obtained by applying the projection layer to the pooler_output.
-    """
 
     text_embeds: torch.FloatTensor | None = None
     last_hidden_state: torch.FloatTensor | None = None
@@ -81,24 +59,6 @@ class AlignTextModelOutput(ModelOutput):
 @auto_docstring
 @dataclass
 class AlignOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `return_loss` is `True`):
-        Contrastive loss for image-text similarity.
-    logits_per_image (`torch.FloatTensor` of shape `(image_batch_size, text_batch_size)`):
-        The scaled dot product scores between `image_embeds` and `text_embeds`. This represents the image-text
-        similarity scores.
-    logits_per_text (`torch.FloatTensor` of shape `(text_batch_size, image_batch_size)`):
-        The scaled dot product scores between `text_embeds` and `image_embeds`. This represents the text-image
-        similarity scores.
-    text_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim`):
-        The text embeddings obtained by applying the projection layer to the pooled output of [`AlignTextModel`].
-    image_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim`):
-        The output of [`AlignVisionModel`].
-    text_model_output (`BaseModelOutputWithPooling`):
-        The output of the [`AlignTextModel`].
-    vision_model_output (`BaseModelOutputWithPoolingAndNoAttention`):
-        The output of the [`AlignVisionModel`].
-    """
 
     loss: torch.FloatTensor | None = None
     logits_per_image: torch.FloatTensor | None = None
@@ -115,8 +75,6 @@ class AlignOutput(ModelOutput):
         )
 
 
-# contrastive loss function, adapted from
-# https://sachinruk.github.io/blog/pytorch/pytorch%20lightning/loss%20function/gpu/2021/03/07/CLIP.html
 def contrastive_loss(logits: torch.Tensor) -> torch.Tensor:
     return nn.functional.cross_entropy(logits, torch.arange(len(logits), device=logits.device), label_smoothing=0.1)
 
@@ -127,7 +85,6 @@ def align_loss(similarity: torch.Tensor) -> torch.Tensor:
     return (caption_loss + image_loss) / 2.0
 
 
-# Copied from transformers.models.efficientnet.modeling_efficientnet.round_filters with EfficientNet->AlignVision
 def round_filters(config: AlignVisionConfig, num_channels: int):
     r"""
     Round number of filters based on depth multiplier.
@@ -136,14 +93,12 @@ def round_filters(config: AlignVisionConfig, num_channels: int):
     num_channels *= config.width_coefficient
     new_dim = max(divisor, int(num_channels + divisor / 2) // divisor * divisor)
 
-    # Make sure that round down does not go down by more than 10%.
     if new_dim < 0.9 * num_channels:
         new_dim += divisor
 
     return int(new_dim)
 
 
-# Copied from transformers.models.efficientnet.modeling_efficientnet.correct_pad
 def correct_pad(kernel_size: int | tuple, adjust: bool = True):
     r"""
     Utility function to get the tuple padding value for the depthwise convolution.
@@ -164,11 +119,7 @@ def correct_pad(kernel_size: int | tuple, adjust: bool = True):
         return (correct[1], correct[1], correct[0], correct[0])
 
 
-# Copied from transformers.models.efficientnet.modeling_efficientnet.EfficientNetEmbeddings with EfficientNet->AlignVision
 class AlignVisionEmbeddings(nn.Module):
-    r"""
-    A module that corresponds to the stem module of the original work.
-    """
 
     def __init__(self, config: AlignVisionConfig):
         super().__init__()
@@ -190,7 +141,6 @@ class AlignVisionEmbeddings(nn.Module):
         return features
 
 
-# Copied from transformers.models.efficientnet.modeling_efficientnet.EfficientNetDepthwiseConv2d with EfficientNet->AlignVision
 class AlignVisionDepthwiseConv2d(nn.Conv2d):
     def __init__(
         self,
@@ -217,11 +167,7 @@ class AlignVisionDepthwiseConv2d(nn.Conv2d):
         )
 
 
-# Copied from transformers.models.efficientnet.modeling_efficientnet.EfficientNetExpansionLayer with EfficientNet->AlignVision
 class AlignVisionExpansionLayer(nn.Module):
-    r"""
-    This corresponds to the expansion phase of each block in the original implementation.
-    """
 
     def __init__(self, config: AlignVisionConfig, in_dim: int, out_dim: int, stride: int):
         super().__init__()
@@ -236,7 +182,6 @@ class AlignVisionExpansionLayer(nn.Module):
         self.expand_act = ACT2FN[config.hidden_act]
 
     def forward(self, hidden_states: torch.FloatTensor) -> torch.Tensor:
-        # Expand phase
         hidden_states = self.expand_conv(hidden_states)
         hidden_states = self.expand_bn(hidden_states)
         hidden_states = self.expand_act(hidden_states)
@@ -244,11 +189,7 @@ class AlignVisionExpansionLayer(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.efficientnet.modeling_efficientnet.EfficientNetDepthwiseLayer with EfficientNet->AlignVision
 class AlignVisionDepthwiseLayer(nn.Module):
-    r"""
-    This corresponds to the depthwise convolution phase of each block in the original implementation.
-    """
 
     def __init__(
         self,
@@ -273,7 +214,6 @@ class AlignVisionDepthwiseLayer(nn.Module):
         self.depthwise_act = ACT2FN[config.hidden_act]
 
     def forward(self, hidden_states: torch.FloatTensor) -> torch.Tensor:
-        # Depthwise convolution
         if self.stride == 2:
             hidden_states = self.depthwise_conv_pad(hidden_states)
 
@@ -284,11 +224,7 @@ class AlignVisionDepthwiseLayer(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.efficientnet.modeling_efficientnet.EfficientNetSqueezeExciteLayer with EfficientNet->AlignVision
 class AlignVisionSqueezeExciteLayer(nn.Module):
-    r"""
-    This corresponds to the Squeeze and Excitement phase of each block in the original implementation.
-    """
 
     def __init__(self, config: AlignVisionConfig, in_dim: int, expand_dim: int, expand: bool = False):
         super().__init__()
@@ -325,9 +261,6 @@ class AlignVisionSqueezeExciteLayer(nn.Module):
 
 
 class AlignVisionFinalBlockLayer(nn.Module):
-    r"""
-    This corresponds to the final phase of each block in the original implementation.
-    """
 
     def __init__(
         self, config: AlignVisionConfig, in_dim: int, out_dim: int, stride: int, drop_rate: float, id_skip: bool
@@ -358,31 +291,6 @@ class AlignVisionFinalBlockLayer(nn.Module):
 
 
 class AlignVisionBlock(nn.Module):
-    r"""
-    This corresponds to the block module of original the EfficientNet vision encoder implementation.
-
-    Args:
-        config ([`AlignVisionConfig`]):
-            Model configuration class.
-        in_dim (`int`):
-            Number of input channels.
-        out_dim (`int`):
-            Number of output channels.
-        stride (`int`):
-            Stride size to be used in convolution layers.
-        expand_ratio (`int`):
-            Expand ratio to set the output dimensions for the expansion and squeeze-excite layers.
-        kernel_size (`int`):
-            Kernel size for the depthwise convolution layer.
-        drop_rate (`float`):
-            Dropout rate to be used in the final phase of each block.
-        id_skip (`bool`):
-            Whether to apply dropout and sum the final hidden states with the input embeddings during the final phase
-            of each block. Set to `True` for the first block of each stage.
-        adjust_padding (`bool`):
-            Whether to apply padding to only right and bottom side of the input kernel before the depthwise convolution
-            operation, set to `True` for inputs with odd input sizes.
-    """
 
     def __init__(
         self,
@@ -427,32 +335,22 @@ class AlignVisionBlock(nn.Module):
 
     def forward(self, hidden_states: torch.FloatTensor) -> torch.Tensor:
         embeddings = hidden_states
-        # Expansion and depthwise convolution phase
         if self.expand_ratio != 1:
             hidden_states = self.expansion(hidden_states)
         hidden_states = self.depthwise_conv(hidden_states)
 
-        # Squeeze and excite phase
         hidden_states = self.squeeze_excite(hidden_states)
         hidden_states = self.projection(embeddings, hidden_states)
         return hidden_states
 
 
 class AlignVisionEncoder(nn.Module):
-    r"""
-    Forward propagates the embeddings through each vision encoder (EfficientNet) block.
-
-    Args:
-        config ([`AlignVisionConfig`]):
-            Model configuration class.
-    """
 
     def __init__(self, config: AlignVisionConfig):
         super().__init__()
         self.depth_coefficient = config.depth_coefficient
 
         def round_repeats(repeats):
-            # Round number of block repeats based on depth multiplier.
             return int(math.ceil(self.depth_coefficient * repeats))
 
         num_base_blocks = len(config.in_channels)
@@ -504,7 +402,6 @@ class AlignVisionEncoder(nn.Module):
 
 
 class AlignTextEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -514,7 +411,6 @@ class AlignTextEmbeddings(nn.Module):
 
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -539,9 +435,6 @@ class AlignTextEmbeddings(nn.Module):
         if position_ids is None:
             position_ids = self.position_ids[:, :seq_length]
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
                 buffered_token_type_ids = self.token_type_ids[:, :seq_length]
@@ -639,7 +532,6 @@ class AlignTextSelfAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput with Bert->AlignText
 class AlignTextSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -676,7 +568,6 @@ class AlignTextAttention(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->AlignText
 class AlignTextIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -692,7 +583,6 @@ class AlignTextIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput with Bert->AlignText
 class AlignTextOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -765,7 +655,6 @@ class AlignTextEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler with Bert -> AlignText
 class AlignTextPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -773,8 +662,6 @@ class AlignTextPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -828,7 +715,6 @@ class AlignTextModel(AlignPreTrainedModel):
 
         self.pooler = AlignTextPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -929,7 +815,6 @@ class AlignVisionModel(AlignPreTrainedModel):
         self.embeddings = AlignVisionEmbeddings(config)
         self.encoder = AlignVisionEncoder(config)
 
-        # Final pooling layer
         if config.pooling_type == "mean":
             self.pooler = nn.AvgPool2d(config.hidden_dim, ceil_mode=True)
         elif config.pooling_type == "max":
@@ -937,7 +822,6 @@ class AlignVisionModel(AlignPreTrainedModel):
         else:
             raise ValueError(f"config.pooling must be one of ['mean', 'max'] got {config.pooling}")
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -1019,7 +903,6 @@ class AlignModel(AlignPreTrainedModel):
         self.text_projection = nn.Linear(self.text_embed_dim, self.projection_dim)
         self.temperature = nn.Parameter(torch.tensor(self.config.temperature_init_value))
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1142,11 +1025,9 @@ class AlignModel(AlignPreTrainedModel):
         text_embeds = text_outputs[0][:, 0, :]
         text_embeds = self.text_projection(text_embeds)
 
-        # normalized features
         image_embeds = image_embeds / image_embeds.norm(p=2, dim=-1, keepdim=True)
         text_embeds = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True)
 
-        # cosine similarity as logits
         logits_per_text = torch.matmul(text_embeds, image_embeds.t()) / self.temperature
         logits_per_image = logits_per_text.t()
 

@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch LiLT model."""
 
 import math
 
@@ -49,12 +35,10 @@ class LiltTextEmbeddings(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
 
-        # End copy
         self.padding_idx = config.pad_token_id
         self.position_embeddings = nn.Embedding(
             config.max_position_embeddings, config.hidden_size, padding_idx=self.padding_idx
@@ -69,7 +53,6 @@ class LiltTextEmbeddings(nn.Module):
     ):
         if position_ids is None:
             if input_ids is not None:
-                # Create the position ids from the input token ids. Any padded tokens remain padded.
                 position_ids = self.create_position_ids_from_input_ids(input_ids, self.padding_idx).to(
                     input_ids.device
                 )
@@ -104,7 +87,6 @@ class LiltTextEmbeddings(nn.Module):
             x: torch.Tensor x:
         Returns: torch.Tensor
         """
-        # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
         mask = input_ids.ne(padding_idx).int()
         incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask)) * mask
         return incremental_indices.long() + padding_idx
@@ -128,8 +110,6 @@ class LiltTextEmbeddings(nn.Module):
 class LiltLayoutEmbeddings(nn.Module):
     def __init__(self, config):
         super().__init__()
-        # we divide the hidden_size by 6 here as there are 6 different layout embeddings,
-        # namely left_position, upper_position, right_position, lower_position, height, width
         self.x_position_embeddings = nn.Embedding(config.max_2d_position_embeddings, config.hidden_size // 6)
         self.y_position_embeddings = nn.Embedding(config.max_2d_position_embeddings, config.hidden_size // 6)
         self.h_position_embeddings = nn.Embedding(config.max_2d_position_embeddings, config.hidden_size // 6)
@@ -246,14 +226,10 @@ class LiltSelfAttention(nn.Module):
         layout_attention_scores = tmp_layout_attention_scores + tmp_attention_scores
 
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
             layout_attention_scores = layout_attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         layout_attention_probs = nn.Softmax(dim=-1)(layout_attention_scores)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         layout_attention_probs = self.dropout(layout_attention_probs)
 
         layout_context_layer = torch.matmul(layout_attention_probs, layout_value_layer)
@@ -263,14 +239,10 @@ class LiltSelfAttention(nn.Module):
         layout_context_layer = layout_context_layer.view(*new_context_layer_shape)
 
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in RobertaModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -286,7 +258,6 @@ class LiltSelfAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput
 class LiltSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -331,7 +302,6 @@ class LiltAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate
 class LiltIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -347,7 +317,6 @@ class LiltIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput
 class LiltOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -408,16 +377,13 @@ class LiltLayer(GradientCheckpointingLayer):
 
         return outputs
 
-    # Copied from transformers.models.bert.modeling_bert.BertLayer.feed_forward_chunk
     def feed_forward_chunk(self, attention_output):
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output
 
     def layout_feed_forward_chunk(self, attention_output):
-        intermediate_output = self.layout_intermediate(attention_output)
-        layer_output = self.layout_output(intermediate_output, attention_output)
-        return layer_output
+        pass
 
 
 class LiltEncoder(nn.Module):
@@ -475,7 +441,6 @@ class LiltEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler
 class LiltPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -483,8 +448,6 @@ class LiltPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -520,7 +483,6 @@ class LiltModel(LiltPreTrainedModel):
 
         self.pooler = LiltPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -646,7 +608,6 @@ class LiltModel(LiltPreTrainedModel):
     """
 )
 class LiltForSequenceClassification(LiltPreTrainedModel):
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForSequenceClassification.__init__ with Roberta->Lilt, roberta->lilt
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -655,7 +616,6 @@ class LiltForSequenceClassification(LiltPreTrainedModel):
         self.lilt = LiltModel(config, add_pooling_layer=False)
         self.classifier = LiltClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -722,7 +682,6 @@ class LiltForSequenceClassification(LiltPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(logits.device)
             if self.config.problem_type is None:
                 if self.num_labels == 1:
@@ -759,7 +718,6 @@ class LiltForSequenceClassification(LiltPreTrainedModel):
 
 @auto_docstring
 class LiltForTokenClassification(LiltPreTrainedModel):
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForTokenClassification.__init__ with Roberta->Lilt, roberta->lilt
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -771,7 +729,6 @@ class LiltForTokenClassification(LiltPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -838,7 +795,6 @@ class LiltForTokenClassification(LiltPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(logits.device)
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
@@ -855,9 +811,7 @@ class LiltForTokenClassification(LiltPreTrainedModel):
         )
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaClassificationHead with Roberta->Lilt
 class LiltClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config):
         super().__init__()
@@ -880,7 +834,6 @@ class LiltClassificationHead(nn.Module):
 
 @auto_docstring
 class LiltForQuestionAnswering(LiltPreTrainedModel):
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForQuestionAnswering.__init__ with Roberta->Lilt, roberta->lilt
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -888,7 +841,6 @@ class LiltForQuestionAnswering(LiltPreTrainedModel):
         self.lilt = LiltModel(config, add_pooling_layer=False)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -961,12 +913,10 @@ class LiltForQuestionAnswering(LiltPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

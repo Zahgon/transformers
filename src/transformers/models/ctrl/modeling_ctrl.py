@@ -1,18 +1,3 @@
-# Copyright 2018 Salesforce and HuggingFace Inc. team.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch CTRL model."""
 
 from collections.abc import Callable
 
@@ -48,7 +33,6 @@ def angle_defn(pos, i, d_model_size):
 
 
 def positional_encoding(position, d_model_size, dtype):
-    # create the sinusoidal pattern for the positional encoding
     angle_rads = angle_defn(
         torch.arange(position, dtype=torch.int64).to(dtype).unsqueeze(1),
         torch.arange(d_model_size, dtype=torch.int64).to(dtype).unsqueeze(0),
@@ -62,7 +46,6 @@ def positional_encoding(position, d_model_size, dtype):
     return pos_encoding
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -76,7 +59,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -230,7 +212,6 @@ class CTRLModel(CTRLPreTrainedModel):
             "pos_encoding", positional_encoding(config.n_positions, self.d_model_size, torch.float), persistent=False
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -351,7 +332,6 @@ class CTRLLMHeadModel(CTRLPreTrainedModel, GenerationMixin):
         self.transformer = CTRLModel(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=True)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -412,7 +392,6 @@ class CTRLLMHeadModel(CTRLPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = transformer_outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -436,7 +415,6 @@ class CTRLLMHeadModel(CTRLPreTrainedModel, GenerationMixin):
     def prepare_inputs_for_generation(
         self, input_ids, past_key_values=None, use_cache=None, is_first_iteration=False, **kwargs
     ):
-        # Overwritten -- `token_type_ids` are created in custom way inside model`
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -446,7 +424,6 @@ class CTRLLMHeadModel(CTRLPreTrainedModel, GenerationMixin):
             **kwargs,
         )
 
-        # token_type_ids are computed on CTRLModel.forward()
         model_inputs.pop("token_type_ids", None)
 
         return model_inputs
@@ -470,7 +447,6 @@ class CTRLForSequenceClassification(CTRLPreTrainedModel):
         self.transformer = CTRLModel(config)
         self.classifier = nn.Linear(config.n_embd, self.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -588,7 +564,6 @@ class CTRLForSequenceClassification(CTRLPreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)

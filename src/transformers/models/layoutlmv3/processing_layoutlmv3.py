@@ -1,19 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for LayoutLMv3.
-"""
 
 from ...processing_utils import ProcessorMixin
 from ...tokenization_utils_base import BatchEncoding, PaddingStrategy, PreTokenizedInput, TextInput, TruncationStrategy
@@ -59,10 +43,8 @@ class LayoutLMv3Processor(ProcessorMixin):
                 "You cannot provide word labels if you initialized the image processor with apply_ocr set to True."
             )
 
-        # first, apply the image processor
         features = self.image_processor(images=images, return_tensors=return_tensors)
 
-        # second, apply the tokenizer
         if text is not None and self.image_processor.apply_ocr and text_pair is None:
             if isinstance(text, str):
                 text = [text]  # add batch dimension (as the image processor always adds a batch dimension)
@@ -90,7 +72,6 @@ class LayoutLMv3Processor(ProcessorMixin):
             **kwargs,
         )
 
-        # add pixel values
         images = features.pop("pixel_values")
         if return_overflowing_tokens is True:
             images = self.get_overflowing_images(images, encoded_inputs["overflow_to_sample_mapping"])
@@ -99,22 +80,11 @@ class LayoutLMv3Processor(ProcessorMixin):
         return encoded_inputs
 
     def get_overflowing_images(self, images, overflow_to_sample_mapping):
-        # in case there's an overflow, ensure each `input_ids` sample is mapped to its corresponding image
-        images_with_overflow = []
-        for sample_idx in overflow_to_sample_mapping:
-            images_with_overflow.append(images[sample_idx])
-
-        if len(images_with_overflow) != len(overflow_to_sample_mapping):
-            raise ValueError(
-                "Expected length of images to be the same as the length of `overflow_to_sample_mapping`, but got"
-                f" {len(images_with_overflow)} and {len(overflow_to_sample_mapping)}"
-            )
-
-        return images_with_overflow
+        pass
 
     @property
     def model_input_names(self):
-        return ["input_ids", "bbox", "attention_mask", "pixel_values"]
+        pass
 
 
 __all__ = ["LayoutLMv3Processor"]

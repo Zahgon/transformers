@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for MobileNetV2."""
 
 from typing import TYPE_CHECKING
 
@@ -41,21 +27,13 @@ if is_torch_available():
     import torch
 
 
-# Adapted from transformers.models.mobilenet_v2.image_processing_mobilenet_v2.MobileNetV2ImageProcessorKwargs
 class MobileNetV2ImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    do_reduce_labels (`bool`, *optional*, defaults to `self.do_reduce_labels`):
-        Whether or not to reduce all label values of segmentation maps by 1. Usually used for datasets where 0
-        is used for background, and background itself is not included in all classes of a dataset (e.g.
-        ADE20k). The background label will be replaced by 255.
-    """
 
     do_reduce_labels: bool
 
 
 @auto_docstring
 class MobileNetV2ImageProcessorPil(PilBackend):
-    """PIL backend for MobileNetV2 with reduce_label support."""
 
     valid_kwargs = MobileNetV2ImageProcessorKwargs
 
@@ -119,7 +97,6 @@ class MobileNetV2ImageProcessorPil(PilBackend):
                 {
                     "do_normalize": False,
                     "do_rescale": False,
-                    # Nearest interpolation is used for segmentation maps instead of BILINEAR.
                     "resample": PILImageResampling.NEAREST,
                 }
             )
@@ -128,7 +105,6 @@ class MobileNetV2ImageProcessorPil(PilBackend):
                 images=processed_segmentation_maps, **segmentation_maps_kwargs
             )
 
-            # Squeeze channel dimension and convert to int64
             processed_segmentation_maps = [
                 processed_segmentation_map.squeeze(0).astype(np.int64)
                 for processed_segmentation_map in processed_segmentation_maps
@@ -139,7 +115,6 @@ class MobileNetV2ImageProcessorPil(PilBackend):
 
     def reduce_label(self, image: np.ndarray) -> np.ndarray:
         """Reduce label values by 1, replacing 0 with 255."""
-        # Avoid using underflow conversion
         image[image == 0] = 255
         image = image - 1
         image[image == 254] = 255

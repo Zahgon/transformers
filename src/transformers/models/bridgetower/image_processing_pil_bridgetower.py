@@ -1,17 +1,3 @@
-# Copyright 2023 The Intel Labs Team Authors, The Microsoft Research Team Authors and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for BridgeTower."""
 
 import numpy as np
 
@@ -29,17 +15,11 @@ from ...processing_utils import ImagesKwargs, Unpack
 from ...utils import TensorType, auto_docstring
 
 
-# Adapted from transformers.models.bridgetower.image_processing_bridgetower.BridgeTowerImageProcessorKwargs
 class BridgeTowerImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    size_divisor (`int`, *optional*, defaults to `self.size_divisor`):
-        The size by which to make sure both the height and width can be divided.
-    """
 
     size_divisor: int
 
 
-# adapted from transformers.models.bridgetower.image_processing_bridgetower.get_resize_output_image_size
 def get_resize_output_image_size(
     input_image: np.ndarray,
     shorter: int = 800,
@@ -73,7 +53,6 @@ def get_resize_output_image_size(
 
 @auto_docstring
 class BridgeTowerImageProcessorPil(PilBackend):
-    """PIL backend for BridgeTower with custom resize and center_crop."""
 
     valid_kwargs = BridgeTowerImageProcessorKwargs
     model_input_names = ["pixel_values", "pixel_mask"]

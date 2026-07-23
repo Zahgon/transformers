@@ -1,17 +1,3 @@
-# Copyright 2025 The ZhipuAI Inc. team and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PIL Image processor class for GLM-4.1V."""
 
 import math
 
@@ -33,7 +19,6 @@ from ...utils import TensorType, auto_docstring, logging
 logger = logging.get_logger(__name__)
 
 
-# Adapted from transformers.models.glm4v.image_processing_glm4v.smart_resize
 def smart_resize(
     num_frames: int,
     height: int,
@@ -71,14 +56,6 @@ def smart_resize(
 
 
 class Glm4vImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    patch_size (`int`, *optional*, defaults to 14):
-        The spatial patch size of the vision encoder.
-    temporal_patch_size (`int`, *optional*, defaults to 2):
-        The temporal patch size of the vision encoder.
-    merge_size (`int`, *optional*, defaults to 2):
-        The merge size of the vision encoder to llm encoder.
-    """
 
     patch_size: int
     temporal_patch_size: int
@@ -166,13 +143,11 @@ class Glm4vImageProcessorPil(PilBackend):
                     resample=resample,
                 )
 
-            # Rescale and normalize
             if do_rescale:
                 image = self.rescale(image, rescale_factor)
             if do_normalize:
                 image = self.normalize(image, image_mean, image_std)
 
-            # Ensure float32 for patch processing
             image_array = np.asarray(image, dtype=np.float32)
             if image_array.ndim == 3:  # (C, H, W)
                 image_array = np.expand_dims(image_array, axis=0)  # (1, C, H, W)
@@ -205,7 +180,6 @@ class Glm4vImageProcessorPil(PilBackend):
                 merge_size,
                 patch_size,
             )
-            # (B, grid_t, gh, gw, mh, mw, C, tp, ph, pw)
             patches = np.transpose(patches, (0, 1, 4, 7, 5, 8, 3, 2, 6, 9))
 
             flatten_patches = patches.reshape(
@@ -214,11 +188,9 @@ class Glm4vImageProcessorPil(PilBackend):
                 channel * temporal_patch_size * patch_size * patch_size,
             )
 
-            # Remove batch dimension and append: shape is (seq_len, hidden_dim)
             processed_images.append(flatten_patches.squeeze(0))
             processed_grids.append([grid_t, grid_h, grid_w])
 
-        # Concatenate all images along sequence dimension: (total_seq_len, hidden_dim)
         pixel_values = np.concatenate(processed_images, axis=0)
         image_grid_thw = np.array(processed_grids)
 
@@ -227,40 +199,7 @@ class Glm4vImageProcessorPil(PilBackend):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None):
-        """
-        A utility that returns number of image patches for a given image size.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`, *optional*)
-                Any kwargs to override defaults of the image processor.
-        Returns:
-            `int`: Number of image patches per image.
-        """
-        if images_kwargs is not None:
-            patch_size = images_kwargs.get("patch_size", self.patch_size)
-            merge_size = images_kwargs.get("merge_size", self.merge_size)
-            size = images_kwargs.get("size", {"shortest_edge": 112 * 112, "longest_edge": 28 * 28 * 15000})
-        else:
-            patch_size = self.patch_size
-            merge_size = self.merge_size
-            size = self.size
-
-        factor = patch_size * merge_size
-        resized_height, resized_width = smart_resize(
-            num_frames=self.temporal_patch_size,
-            height=height,
-            width=width,
-            factor=factor,
-            min_pixels=size["shortest_edge"] if isinstance(size, dict) else size.shortest_edge,
-            max_pixels=size["longest_edge"] if isinstance(size, dict) else size.longest_edge,
-            temporal_factor=self.temporal_patch_size,
-        )
-        grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
-        return grid_h * grid_w
+        pass
 
 
 __all__ = ["Glm4vImageProcessorPil"]

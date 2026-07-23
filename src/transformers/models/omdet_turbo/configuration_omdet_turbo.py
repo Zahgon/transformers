@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""OmDet-Turbo model configuration"""
 
 from typing import Literal
 
@@ -29,76 +15,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="omlab/omdet-turbo-swin-tiny-hf")
 @strict
 class OmDetTurboConfig(PreTrainedConfig):
-    r"""
-    apply_layernorm_after_vision_backbone (`bool`, *optional*, defaults to `True`):
-        Whether to apply layer normalization on the feature maps of the vision backbone output.
-    disable_custom_kernels (`bool`, *optional*, defaults to `False`):
-        Whether to disable custom kernels.
-    text_projection_in_dim (`int`, *optional*, defaults to 512):
-        The input dimension for the text projection.
-    text_projection_out_dim (`int`, *optional*, defaults to 512):
-        The output dimension for the text projection.
-    task_encoder_hidden_dim (`int`, *optional*, defaults to 1024):
-        The feedforward dimension for the task encoder.
-    class_embed_dim (`int`, *optional*, defaults to 512):
-        The dimension of the classes embeddings.
-    class_distance_type (`str`, *optional*, defaults to `"cosine"`):
-        The type of distance to compare predicted classes to projected classes embeddings.
-        Can be `"cosine"` or `"dot"`.
-    num_queries (`int`, *optional*, defaults to 900):
-        The number of queries.
-    csp_activation (`str`, *optional*, defaults to `"silu"`):
-        The activation function of the Cross Stage Partial (CSP) networks of the encoder.
-    conv_norm_activation (`str`, *optional*, defaults to `"gelu"`):
-        The activation function of the ConvNormLayer layers of the encoder.
-    encoder_feedforward_activation (`str`, *optional*, defaults to `"relu"`):
-        The activation function for the feedforward network of the encoder.
-    encoder_feedforward_dropout (`float`, *optional*, defaults to 0.0):
-        The dropout rate following the activation of the encoder feedforward network.
-    hidden_expansion (`int`, *optional*, defaults to 1):
-        The hidden expansion of the CSP networks in the encoder.
-    vision_features_channels (`tuple(int)`, *optional*, defaults to `[256, 256, 256]`):
-        The projected vision features channels used as inputs for the decoder.
-    encoder_in_channels (`List(int)`, *optional*, defaults to `[192, 384, 768]`):
-        The input channels for the encoder.
-    encoder_projection_indices (`List(int)`, *optional*, defaults to `[2]`):
-        The indices of the input features projected by each layers.
-    encoder_dim_feedforward (`int`, *optional*, defaults to 2048):
-        The feedforward dimension for the encoder.
-    positional_encoding_temperature (`int`, *optional*, defaults to 10000):
-        The positional encoding temperature in the encoder.
-    num_feature_levels (`int`, *optional*, defaults to 3):
-        The number of feature levels for the multi-scale deformable attention module of the decoder.
-    decoder_activation (`str`, *optional*, defaults to `"relu"`):
-        The activation function for the decoder.
-    decoder_dim_feedforward (`int`, *optional*, defaults to 2048):
-        The feedforward dimension for the decoder.
-    decoder_num_points (`int`, *optional*, defaults to 4):
-        The number of points sampled in the decoder multi-scale deformable attention module.
-    decoder_dropout (`float`, *optional*, defaults to 0.0):
-        The dropout rate for the decoder.
-    eval_size (`tuple[int, int]`, *optional*):
-        Height and width used to computes the effective height and width of the position embeddings after taking
-        into account the stride (see RTDetr).
-    learn_initial_query (`bool`, *optional*, defaults to `False`):
-        Whether to learn the initial query.
-    cache_size (`int`, *optional*, defaults to 100):
-        The cache size for the classes and prompts caches.
-
-    Examples:
-
-    ```python
-    >>> from transformers import OmDetTurboConfig, OmDetTurboForObjectDetection
-
-    >>> # Initializing a OmDet-Turbo omlab/omdet-turbo-swin-tiny-hf style configuration
-    >>> configuration = OmDetTurboConfig()
-
-    >>> # Initializing a model (with random weights) from the omlab/omdet-turbo-swin-tiny-hf style configuration
-    >>> model = OmDetTurboForObjectDetection(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "omdet-turbo"
     sub_configs = {"backbone_config": AutoConfig, "text_config": AutoConfig}
@@ -149,7 +65,6 @@ class OmDetTurboConfig(PreTrainedConfig):
     is_encoder_decoder: bool = True
 
     def __post_init__(self, **kwargs):
-        # Init timm backbone with hardcoded values for BC
         timm_default_kwargs = {
             "out_indices": [1, 2, 3],
             "img_size": self.image_size,
@@ -164,7 +79,6 @@ class OmDetTurboConfig(PreTrainedConfig):
             **kwargs,
         )
 
-        # Extract timm.create_model kwargs; TimmBackbone doesn't forward arbitrary config attrs to timm
         self.timm_kwargs = {}
         if getattr(self.backbone_config, "model_type", None) == "timm_backbone":
             for attr in ("img_size", "always_partition"):

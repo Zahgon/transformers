@@ -1,17 +1,3 @@
-# Copyright 2024 TikTok and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Depth Anything model."""
 
 import torch
 from torch import nn
@@ -25,7 +11,6 @@ from .configuration_depth_anything import DepthAnythingConfig
 
 logger = logging.get_logger(__name__)
 
-# General docstring
 
 
 class DepthAnythingReassembleLayer(nn.Module):
@@ -33,16 +18,13 @@ class DepthAnythingReassembleLayer(nn.Module):
         super().__init__()
         self.projection = nn.Conv2d(in_channels=config.reassemble_hidden_size, out_channels=channels, kernel_size=1)
 
-        # up/down sampling depending on factor
         if factor > 1:
             self.resize = nn.ConvTranspose2d(channels, channels, kernel_size=factor, stride=factor, padding=0)
         elif factor == 1:
             self.resize = nn.Identity()
         elif factor < 1:
-            # so should downsample
             self.resize = nn.Conv2d(channels, channels, kernel_size=3, stride=int(1 / factor), padding=1)
 
-    # Copied from transformers.models.dpt.modeling_dpt.DPTReassembleLayer.forward
     def forward(self, hidden_state):
         hidden_state = self.projection(hidden_state)
         hidden_state = self.resize(hidden_state)
@@ -51,19 +33,6 @@ class DepthAnythingReassembleLayer(nn.Module):
 
 
 class DepthAnythingReassembleStage(nn.Module):
-    """
-    This class reassembles the hidden states of the backbone into image-like feature representations at various
-    resolutions.
-
-    This happens in 3 stages:
-    1. Take the patch embeddings and reshape them to image-like feature representations.
-    2. Project the channel dimension of the hidden states according to `config.neck_hidden_sizes`.
-    3. Resizing the spatial dimensions (height, width).
-
-    Args:
-        config (`[DepthAnythingConfig]`):
-            Model configuration class defining the model architecture.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -82,7 +51,6 @@ class DepthAnythingReassembleStage(nn.Module):
         out = []
 
         for i, hidden_state in enumerate(hidden_states):
-            # reshape to (batch_size, num_channels, height, width)
             hidden_state = hidden_state[:, 1:]
             batch_size, _, num_channels = hidden_state.shape
             hidden_state = hidden_state.reshape(batch_size, patch_height, patch_width, num_channels)
@@ -94,13 +62,6 @@ class DepthAnythingReassembleStage(nn.Module):
 
 
 class DepthAnythingPreActResidualLayer(nn.Module):
-    """
-    ResidualConvUnit, pre-activate residual unit.
-
-    Args:
-        config (`[DepthAnythingConfig]`):
-            Model configuration class defining the model architecture.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -136,12 +97,6 @@ class DepthAnythingPreActResidualLayer(nn.Module):
 
 
 class DepthAnythingFeatureFusionLayer(nn.Module):
-    """Feature fusion layer, merges feature maps from different stages.
-
-    Args:
-        config (`[DepthAnythingConfig]`):
-            Model configuration class defining the model architecture.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -175,7 +130,6 @@ class DepthAnythingFeatureFusionLayer(nn.Module):
 
 
 class DepthAnythingFeatureFusionStage(nn.Module):
-    # Copied from transformers.models.dpt.modeling_dpt.DPTFeatureFusionStage.__init__ with DPT->DepthAnything
     def __init__(self, config: DepthAnythingConfig):
         super().__init__()
         self.layers = nn.ModuleList()
@@ -183,7 +137,6 @@ class DepthAnythingFeatureFusionStage(nn.Module):
             self.layers.append(DepthAnythingFeatureFusionLayer(config))
 
     def forward(self, hidden_states, size=None):
-        # reversing the hidden_states, we start from the last
         hidden_states = hidden_states[::-1]
 
         fused_hidden_states = []
@@ -193,7 +146,6 @@ class DepthAnythingFeatureFusionStage(nn.Module):
             size = hidden_states[idx + 1].shape[2:] if idx != (len(hidden_states) - 1) else None
 
             if fused_hidden_state is None:
-                # first layer only uses the last hidden_state
                 fused_hidden_state = layer(hidden_state, size=size)
             else:
                 fused_hidden_state = layer(fused_hidden_state, hidden_state, size=size)
@@ -203,8 +155,6 @@ class DepthAnythingFeatureFusionStage(nn.Module):
         return fused_hidden_states
 
 
-# Modified from transformers.models.dpt.modeling_dpt.DPTPreTrainedModel with DPT->DepthAnything,dpt->depth_anything
-# avoiding sdpa and flash_attn_2 support, it's done in the backend
 @auto_docstring
 class DepthAnythingPreTrainedModel(PreTrainedModel):
     config: DepthAnythingConfig
@@ -215,16 +165,6 @@ class DepthAnythingPreTrainedModel(PreTrainedModel):
 
 
 class DepthAnythingNeck(nn.Module):
-    """
-    DepthAnythingNeck. A neck is a module that is normally used between the backbone and the head. It takes a list of tensors as
-    input and produces another list of tensors as output. For DepthAnything, it includes 2 stages:
-
-    * DepthAnythingReassembleStage
-    * DepthAnythingFeatureFusionStage.
-
-    Args:
-        config (dict): config dict.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -236,7 +176,6 @@ class DepthAnythingNeck(nn.Module):
         for channel in config.neck_hidden_sizes:
             self.convs.append(nn.Conv2d(channel, config.fusion_hidden_size, kernel_size=3, padding=1, bias=False))
 
-        # fusion
         self.fusion_stage = DepthAnythingFeatureFusionStage(config)
 
     def forward(self, hidden_states: list[torch.Tensor], patch_height=None, patch_width=None) -> list[torch.Tensor]:
@@ -251,24 +190,16 @@ class DepthAnythingNeck(nn.Module):
         if len(hidden_states) != len(self.config.neck_hidden_sizes):
             raise ValueError("The number of hidden states should be equal to the number of neck hidden sizes.")
 
-        # postprocess hidden states
         hidden_states = self.reassemble_stage(hidden_states, patch_height, patch_width)
 
         features = [self.convs[i](feature) for i, feature in enumerate(hidden_states)]
 
-        # fusion blocks
         output = self.fusion_stage(features)
 
         return output
 
 
 class DepthAnythingDepthEstimationHead(nn.Module):
-    """
-    Output head consisting of 3 convolutional layers. It progressively halves the feature dimension and upsamples
-    the predictions to the input resolution after the first convolutional layer (details can be found in the DPT paper's
-    supplementary material). The final activation function is either ReLU or Sigmoid, depending on the depth estimation
-    type (relative or metric). For metric depth estimation, the output is scaled by the maximum depth used during pretraining.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -323,7 +254,6 @@ class DepthAnythingForDepthEstimation(DepthAnythingPreTrainedModel):
         self.neck = DepthAnythingNeck(config)
         self.head = DepthAnythingDepthEstimationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

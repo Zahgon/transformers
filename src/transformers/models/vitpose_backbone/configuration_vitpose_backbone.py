@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""VitPose backbone configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,24 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="usyd-community/vitpose-base-simple")
 @strict
 class VitPoseBackboneConfig(BackboneConfigMixin, PreTrainedConfig):
-    r"""
-    part_features (`int`, *optional*):
-        The number of part features to output. Only used in case `num_experts` is greater than 1.
-
-    Example:
-
-    ```python
-    >>> from transformers import VitPoseBackboneConfig, VitPoseBackbone
-
-    >>> # Initializing a VitPose configuration
-    >>> configuration = VitPoseBackboneConfig()
-
-    >>> # Initializing a model (with random weights) from the configuration
-    >>> model = VitPoseBackbone(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "vitpose_backbone"
 

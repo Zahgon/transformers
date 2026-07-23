@@ -1,17 +1,3 @@
-# Copyright 2022 School of EIC, Huazhong University of Science & Technology and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch YOLOS model."""
 
 import collections.abc
 from collections.abc import Callable
@@ -41,27 +27,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class YolosObjectDetectionOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` are provided)):
-        Total loss as a linear combination of a negative log-likelihood (cross-entropy) for class prediction and a
-        bounding box loss. The latter is defined as a linear combination of the L1 loss and the generalized
-        scale-invariant IoU loss.
-    loss_dict (`Dict`, *optional*):
-        A dictionary containing the individual losses. Useful for logging.
-    logits (`torch.FloatTensor` of shape `(batch_size, num_queries, num_classes + 1)`):
-        Classification logits (including no-object) for all queries.
-    pred_boxes (`torch.FloatTensor` of shape `(batch_size, num_queries, 4)`):
-        Normalized boxes coordinates for all queries, represented as (center_x, center_y, width, height). These
-        values are normalized in [0, 1], relative to the size of each individual image in the batch (disregarding
-        possible padding). You can use [`~YolosImageProcessor.post_process`] to retrieve the unnormalized bounding
-        boxes.
-    auxiliary_outputs (`list[Dict]`, *optional*):
-        Optional, only returned when auxiliary losses are activated (i.e. `config.auxiliary_loss` is set to `True`)
-        and labels are provided. It is a list of dictionaries containing the two above keys (`logits` and
-        `pred_boxes`) for each decoder layer.
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
-        Sequence of hidden-states at the output of the last layer of the decoder of the model.
-    """
 
     loss: torch.FloatTensor | None = None
     loss_dict: dict | None = None
@@ -74,10 +39,6 @@ class YolosObjectDetectionOutput(ModelOutput):
 
 
 class YolosEmbeddings(nn.Module):
-    """
-    Construct the CLS token, detection tokens, position and patch embeddings.
-
-    """
 
     def __init__(self, config: YolosConfig) -> None:
         super().__init__()
@@ -100,13 +61,11 @@ class YolosEmbeddings(nn.Module):
 
         batch_size, seq_len, _ = embeddings.size()
 
-        # add the [CLS] and detection tokens to the embedded patch tokens
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         detection_tokens = self.detection_tokens.expand(batch_size, -1, -1)
         embeddings = torch.cat((cls_tokens, embeddings, detection_tokens), dim=1)
 
         # add positional encoding to each token
-        # this might require interpolation of the existing position embeddings
         position_embeddings = self.interpolation(self.position_embeddings, (height, width))
 
         embeddings = embeddings + position_embeddings
@@ -178,11 +137,6 @@ class InterpolateMidPositionEmbeddings(nn.Module):
 
 
 class YolosPatchEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
-    `hidden_states` (patch embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
-    Transformer.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -210,7 +164,6 @@ class YolosPatchEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -224,7 +177,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -239,7 +191,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->Yolos
 class YolosSelfAttention(nn.Module):
     def __init__(self, config: YolosConfig):
         super().__init__()
@@ -295,12 +246,7 @@ class YolosSelfAttention(nn.Module):
         return context_layer, attention_probs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->Yolos
 class YolosSelfOutput(nn.Module):
-    """
-    The residual connection is defined in YolosLayer instead of here (as is the case with other models), due to the
-    layernorm applied before each block.
-    """
 
     def __init__(self, config: YolosConfig):
         super().__init__()
@@ -313,7 +259,6 @@ class YolosSelfOutput(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->Yolos
 class YolosAttention(nn.Module):
     def __init__(self, config: YolosConfig):
         super().__init__()
@@ -330,7 +275,6 @@ class YolosAttention(nn.Module):
         return output
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTMLP with ViT->Yolos
 class YolosIntermediate(nn.Module):
     def __init__(self, config: YolosConfig):
         super().__init__()
@@ -346,7 +290,6 @@ class YolosIntermediate(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTMLP with ViT->Yolos
 class YolosOutput(nn.Module):
     def __init__(self, config: YolosConfig):
         super().__init__()
@@ -360,9 +303,7 @@ class YolosOutput(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTLayer with ViT->Yolos,VIT->YOLOS
 class YolosLayer(GradientCheckpointingLayer):
-    """This corresponds to the Block class in the timm implementation."""
 
     def __init__(self, config: YolosConfig):
         super().__init__()
@@ -382,14 +323,11 @@ class YolosLayer(GradientCheckpointingLayer):
         hidden_states_norm = self.layernorm_before(hidden_states)
         attention_output = self.attention(hidden_states_norm, **kwargs)
 
-        # first residual connection
         hidden_states = attention_output + hidden_states
 
-        # in Yolos, layernorm is also applied after self-attention
         layer_output = self.layernorm_after(hidden_states)
         layer_output = self.intermediate(layer_output)
 
-        # second residual connection is done here
         layer_output = self.output(layer_output, hidden_states)
 
         return layer_output
@@ -473,7 +411,6 @@ class YolosModel(YolosPreTrainedModel):
         self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.pooler = YolosPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> YolosPatchEmbeddings:
@@ -508,21 +445,13 @@ class YolosPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
 
 
-# Copied from transformers.models.detr.modeling_detr.DetrMLPPredictionHead with Detr->Yolos
 class YolosMLPPredictionHead(nn.Module):
-    """
-    Very simple multi-layer perceptron (MLP, also called FFN), used to predict the normalized center coordinates,
-    height and width of a bounding box w.r.t. an image.
-
-    """
 
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
         super().__init__()
@@ -545,11 +474,8 @@ class YolosForObjectDetection(YolosPreTrainedModel):
     def __init__(self, config: YolosConfig):
         super().__init__(config)
 
-        # YOLOS (ViT) encoder model
         self.vit = YolosModel(config, add_pooling_layer=False)
 
-        # Object detection heads
-        # We add one for the "no object" class
         self.class_labels_classifier = YolosMLPPredictionHead(
             input_dim=config.hidden_size, hidden_dim=config.hidden_size, output_dim=config.num_labels + 1, num_layers=3
         )
@@ -557,12 +483,10 @@ class YolosForObjectDetection(YolosPreTrainedModel):
             input_dim=config.hidden_size, hidden_dim=config.hidden_size, output_dim=4, num_layers=3
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # taken from https://github.com/facebookresearch/detr/blob/master/models/detr.py
     def _set_aux_loss(self, outputs_class, outputs_coord):
-        return [{"logits": a, "pred_boxes": b} for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
+        pass
 
     @can_return_tuple
     @auto_docstring
@@ -618,14 +542,11 @@ class YolosForObjectDetection(YolosPreTrainedModel):
         Detected remote with confidence 0.974 at location [41.63, 72.23, 178.09, 119.99]
         ```"""
 
-        # First, sent images through YOLOS base model to obtain hidden states
         outputs: BaseModelOutputWithPooling = self.vit(pixel_values, **kwargs)
         sequence_output = outputs.last_hidden_state
 
-        # Take the final hidden states of the detection tokens
         sequence_output = sequence_output[:, -self.config.num_detection_tokens :, :]
 
-        # Class logits + predicted bounding boxes
         logits = self.class_labels_classifier(sequence_output)
         pred_boxes = self.bbox_predictor(sequence_output).sigmoid()
 

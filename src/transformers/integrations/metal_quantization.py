@@ -1,37 +1,4 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""
-Metal affine quantization integration for transformers.
-
-This module provides:
-  - ``MetalLinear``: a drop-in replacement for ``nn.Linear`` that stores weights
-    as affine-quantized uint32 packed tensors and uses the ``quantization-mlx``
-    Metal kernels for the forward pass.
-  - ``replace_with_metal_linear``: walks a model and swaps every eligible
-    ``nn.Linear`` with ``MetalLinear``.
-  - ``MetalQuantize`` / ``MetalDequantize``: weight conversion operations that
-    participate in the new ``WeightConverter`` pipeline.
-
-Weight layout (transposed, matching ``affine_qmm_t``):
-  - ``weight``: ``[N, K_packed]`` (``uint32``) -- K is the packed dimension.
-  - ``scales``:  ``[N, K // group_size]`` (``float16 / bfloat16``)
-  - ``qbiases``: ``[N, K // group_size]`` (same dtype as scales)
-
-The kernel call is ``affine_qmm_t(x, weight, scales, qbiases, group_size, bits)``
-which computes ``y = x @ dequant(weight).T``, identical to ``nn.Linear``.
-"""
 
 from ..core_model_loading import ConversionOps, _IdentityOp
 from ..quantizers.quantizers_utils import should_convert_module
@@ -65,18 +32,9 @@ def _get_metal_kernel():
     return _metal_kernel
 
 
-# ---------------------------------------------------------------------------
-# MetalLinear -- the quantized nn.Linear replacement
-# ---------------------------------------------------------------------------
 
 
 class MetalLinear(nn.Linear):
-    """
-    A quantized linear layer that stores weights in affine uint32 packed format
-    and uses the ``quantization-mlx`` Metal kernels for the forward pass.
-
-    Parameters match ``nn.Linear`` with additional quantization metadata.
-    """
 
     def __init__(
         self,
@@ -206,7 +164,6 @@ def _affine_quantize_tensor(weight: torch.Tensor, group_size: int, bits: int):
     w_int = (w_grouped - biases.unsqueeze(-1)) / scales.unsqueeze(-1)
     w_int = w_int.round().clamp(0, max_val).to(torch.int32).reshape(N, K)
 
-    # Pack into uint32
     k_packed = K // elems_per_int
     w_packed = torch.zeros(N, k_packed, dtype=torch.int32, device=weight.device)
     for i in range(elems_per_int):
@@ -239,12 +196,6 @@ def _affine_dequantize_tensor(
 
 
 class MetalQuantize(ConversionOps):
-    """
-    Quantize a full-precision weight tensor into (weight, scales, qbiases).
-
-    Used during quantize-on-the-fly.  The float ``weight`` is replaced in-place
-    by the packed uint32 tensor.
-    """
 
     def __init__(self, hf_quantizer):
         self.hf_quantizer = hf_quantizer
@@ -271,12 +222,6 @@ class MetalQuantize(ConversionOps):
 
 
 class MetalDequantize(ConversionOps):
-    """
-    Dequantize (weight, scales, qbiases) back to a full-precision tensor.
-
-    Used when ``dequantize=True`` is set in the config to fall back to a normal
-    ``nn.Linear`` on devices without MPS.
-    """
 
     def __init__(self, hf_quantizer):
         self.hf_quantizer = hf_quantizer
@@ -297,4 +242,4 @@ class MetalDequantize(ConversionOps):
 
     @property
     def reverse_op(self) -> "ConversionOps":
-        return _IdentityOp()
+        pass

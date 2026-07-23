@@ -1,17 +1,3 @@
-# Copyright 2021 The Fairseq Authors The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch XGLM model."""
 
 import math
 
@@ -36,11 +22,7 @@ from .configuration_xglm import XGLMConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.bart.modeling_bart.BartScaledWordEmbedding with Bart->XGLM
 class XGLMScaledWordEmbedding(nn.Embedding):
-    """
-    This module overrides nn.Embeddings' forward by multiplying with embeddings scale.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int, embed_scale: float | None = 1.0):
         super().__init__(num_embeddings, embedding_dim, padding_idx)
@@ -51,7 +33,6 @@ class XGLMScaledWordEmbedding(nn.Embedding):
 
 
 class XGLMSinusoidalPositionalEmbedding(nn.Module):
-    """This module produces sinusoidal positional embeddings of any length."""
 
     def __init__(self, num_positions: int, embedding_dim: int, padding_idx: int | None = None):
         super().__init__()
@@ -64,7 +45,6 @@ class XGLMSinusoidalPositionalEmbedding(nn.Module):
     def make_weights(self, num_embeddings: int, embedding_dim: int, padding_idx: int | None = None):
         emb_weights = self.get_embedding(num_embeddings, embedding_dim, padding_idx)
         if hasattr(self, "weights"):
-            # in forward put the weights on the correct dtype and device of the param
             emb_weights = emb_weights.to(dtype=self.weights.dtype, device=self.weights.device)
 
         self.register_buffer("weights", emb_weights, persistent=False)
@@ -83,7 +63,6 @@ class XGLMSinusoidalPositionalEmbedding(nn.Module):
         emb = torch.arange(num_embeddings, dtype=torch.int64).float().unsqueeze(1) * emb.unsqueeze(0)
         emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_embeddings, -1)
         if embedding_dim % 2 == 1:
-            # zero pad
             emb = torch.cat([emb, torch.zeros(num_embeddings, 1)], dim=1)
         if padding_idx is not None:
             emb[padding_idx, :] = 0
@@ -103,7 +82,6 @@ class XGLMSinusoidalPositionalEmbedding(nn.Module):
 
 
 class XGLMAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -144,14 +122,11 @@ class XGLMAttention(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
         bsz, tgt_len, _ = hidden_states.size()
         src_len = key_value_states.shape[1] if is_cross_attention else tgt_len
 
-        # get query proj
         query_states = self.q_proj(hidden_states) * self.scaling
 
         is_updated = False
@@ -159,7 +134,6 @@ class XGLMAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -168,7 +142,6 @@ class XGLMAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -178,9 +151,7 @@ class XGLMAttention(nn.Module):
             value_states = value_states.view(bsz, src_len, -1, self.head_dim).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all key/value_states to cache to be re-used for fast auto-regressive generation
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -210,16 +181,11 @@ class XGLMAttention(nn.Module):
             )
             attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
 
-        # upcast to fp32 if the weights are in fp16. Please see https://github.com/huggingface/transformers/pull/17437
         if attn_weights.dtype == torch.float16:
             attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(torch.float16)
         else:
             attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
-        # this operation is a bit awkward, but it's required to
-        # make sure that attn_weights keeps its gradient.
-        # In order to do so, attn_weights have to be reshaped
-        # twice and have to be reused in the following
         attn_weights_reshaped = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
         attn_weights = attn_weights_reshaped.view(bsz * self.num_heads, tgt_len, src_len)
 
@@ -236,8 +202,6 @@ class XGLMAttention(nn.Module):
         attn_output = attn_output.view(bsz, self.num_heads, tgt_len, self.head_dim)
         attn_output = attn_output.transpose(1, 2)
 
-        # Use the `embed_dim` from the config (stored in the class) rather than `hidden_state` because `attn_output` can be
-        # partitioned across GPUs when using tensor-parallelism.
         attn_output = attn_output.reshape(bsz, tgt_len, self.embed_dim)
 
         attn_output = self.out_proj(attn_output)
@@ -276,7 +240,6 @@ class XGLMDecoderLayer(GradientCheckpointingLayer):
         self.fc2 = nn.Linear(config.ffn_dim, self.embed_dim)
         self.final_layer_norm = nn.LayerNorm(self.embed_dim)
 
-    # Copied from transformers.models.musicgen.modeling_musicgen.MusicgenDecoderLayer.forward
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -301,7 +264,6 @@ class XGLMDecoderLayer(GradientCheckpointingLayer):
         residual = hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states,
             past_key_values=past_key_values,
@@ -311,7 +273,6 @@ class XGLMDecoderLayer(GradientCheckpointingLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
 
-        # Cross-Attention Block
         if encoder_hidden_states is not None:
             residual = hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
@@ -326,7 +287,6 @@ class XGLMDecoderLayer(GradientCheckpointingLayer):
             hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
             hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.activation_fn(self.fc1(hidden_states))
@@ -383,7 +343,6 @@ class XGLMModel(XGLMPreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -420,7 +379,6 @@ class XGLMModel(XGLMPreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # initialize `past_key_values`
         if use_cache and past_key_values is None:
             past_key_values = (
                 EncoderDecoderCache(DynamicCache(config=self.config), DynamicCache(config=self.config))
@@ -446,7 +404,6 @@ class XGLMModel(XGLMPreTrainedModel):
             )
             position_ids = position_ids.unsqueeze(0)
 
-        # expand encoder attention mask
         if encoder_hidden_states is not None and encoder_attention_mask is not None:
             encoder_attention_mask = create_bidirectional_mask(
                 config=self.config,
@@ -461,7 +418,6 @@ class XGLMModel(XGLMPreTrainedModel):
         hidden_states = nn.functional.dropout(hidden_states, p=float(self.dropout), training=self.training)
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if self.training:
                 dropout_probability = torch.rand([])
                 if dropout_probability < self.layerdrop:
@@ -500,7 +456,6 @@ class XGLMForCausalLM(XGLMPreTrainedModel, GenerationMixin):
         self.model = XGLMModel(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -551,7 +506,6 @@ class XGLMForCausalLM(XGLMPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

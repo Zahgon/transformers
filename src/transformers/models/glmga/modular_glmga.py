@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 
@@ -35,47 +22,12 @@ from ..glm46v.image_processing_pil_glm46v import Glm46VImageProcessorPil
 from ..glm46v.video_processing_glm46v import Glm46VVideoProcessor
 
 
-# Glmga reuses GLM-4.6V's modeling and processor as-is; only the config and the
-# image/video processors differ. The model and processor are wired to the glm46v
-# classes through the auto-mappings, so no modeling/processing classes live here.
 class GlmgaConfig(Glm46VConfig):
-    r"""
-    image_start_token_id (`int`, *optional*, defaults to 151339):
-        The image start token index to encode the start of image.
-    image_end_token_id (`int`, *optional*, defaults to 151340):
-        The image end token index to encode the end of image.
-    video_start_token_id (`int`, *optional*, defaults to 151361):
-        The video start token index to encode the start of video.
-    video_end_token_id (`int`, *optional*, defaults to 151362):
-        The video end token index to encode the end of video.
-
-    ```python
-    >>> from transformers import AutoModelForImageTextToText, GlmgaConfig
-
-    >>> # Initializing a Glmga style configuration
-    >>> configuration = GlmgaConfig()
-
-    >>> # Initializing a model (reusing the GLM-4.6V implementation) from that configuration
-    >>> model = AutoModelForImageTextToText.from_config(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "glmga"
 
 
 class GlmgaImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    patch_size (`int`, *optional*, defaults to 14):
-        The spatial patch size of the vision encoder.
-    temporal_patch_size (`int`, *optional*, defaults to 2):
-        The temporal patch size of the vision encoder.
-    merge_size (`int`, *optional*, defaults to 2):
-        The merge size of the vision encoder to llm encoder.
-    patch_expand_factor (`int`, *optional*, defaults to 1):
-        The patch_expand_factor of the vision encoder to llm encoder.
-    """
 
     patch_size: int
     temporal_patch_size: int
@@ -167,7 +119,6 @@ class GlmgaImageProcessor(Glm46VImageProcessor):
                 merge_size,
                 patch_size,
             )
-            # (B, grid_t, gh, gw, mh, mw, C, tp, ph, pw)
             patches = patches.permute(0, 1, 4, 7, 5, 8, 3, 2, 6, 9)
 
             flatten_patches = patches.reshape(
@@ -235,13 +186,11 @@ class GlmgaImageProcessorPil(Glm46VImageProcessorPil):
                     resample=resample,
                 )
 
-            # Rescale and normalize
             if do_rescale:
                 image = self.rescale(image, rescale_factor)
             if do_normalize:
                 image = self.normalize(image, image_mean, image_std)
 
-            # Ensure float32 for patch processing
             image_array = np.asarray(image, dtype=np.float32)
             if image_array.ndim == 3:  # (C, H, W)
                 image_array = np.expand_dims(image_array, axis=0)  # (1, C, H, W)
@@ -274,7 +223,6 @@ class GlmgaImageProcessorPil(Glm46VImageProcessorPil):
                 merge_size,
                 patch_size,
             )
-            # (B, grid_t, gh, gw, mh, mw, C, tp, ph, pw)
             patches = np.transpose(patches, (0, 1, 4, 7, 5, 8, 3, 2, 6, 9))
 
             flatten_patches = patches.reshape(
@@ -283,11 +231,9 @@ class GlmgaImageProcessorPil(Glm46VImageProcessorPil):
                 channel * temporal_patch_size * patch_size * patch_size,
             )
 
-            # Remove batch dimension and append: shape is (seq_len, hidden_dim)
             processed_images.append(flatten_patches.squeeze(0))
             processed_grids.append([grid_t, grid_h, grid_w])
 
-        # Concatenate all images along sequence dimension: (total_seq_len, hidden_dim)
         pixel_values = np.concatenate(processed_images, axis=0)
         image_grid_thw = np.array(processed_grids)
 
@@ -318,66 +264,7 @@ class GlmgaVideoProcessor(Glm46VVideoProcessor):
         fps: int | float | None = None,
         **kwargs,
     ):
-        """
-        Args:
-            metadata (`VideoMetadata`):
-                Metadata of the video containing information about total duration, fps and total number of frames.
-            fps (`int` or `float`, *optional*):
-                Target frames to sample per second. Defaults to `self.fps`.
-        Returns:
-            np.ndarray:
-                Indices to sample video frames.
-        """
-        if metadata is None or getattr(metadata, "fps", None) is None:
-            raise ValueError(
-                "Asked to sample frames per second but no video metadata was provided which is required when sampling in Glmga. "
-                "Please pass in `VideoMetadata` object or set `do_sample_frames=False`"
-            )
-
-        total_frames = metadata.total_num_frames
-        max_frame_idx = total_frames - 1
-        duration = metadata.duration or round(max_frame_idx / metadata.fps) + 1
-
-        target_fps = fps if fps is not None else self.fps
-
-        extract_t = int(duration * target_fps)
-        extract_t = min(extract_t, self.max_frames)
-
-        duration_per_frame = 1 / metadata.fps
-        timestamps = [i * duration_per_frame for i in range(total_frames)]
-
-        if total_frames < extract_t:
-            frame_indices = [math.floor(_i * total_frames / extract_t) for _i in range(extract_t)]
-        else:
-            frame_indices = []
-            current_second = 0
-            inv_fps = 1 / target_fps
-            for frame_index in range(total_frames):
-                if timestamps[frame_index] >= current_second:
-                    current_second += inv_fps
-                    frame_indices.append(frame_index)
-                    if current_second >= duration - inv_fps:
-                        break
-
-        if len(frame_indices) < extract_t:
-            if len(frame_indices) == 0:
-                start, end = 0, max(total_frames - 1, 0)
-            else:
-                start, end = frame_indices[0], frame_indices[-1]
-            frame_indices = np.linspace(start, end, extract_t, dtype=int).tolist()
-        elif len(frame_indices) > extract_t:
-            frame_indices = np.linspace(0, total_frames - 1, extract_t, dtype=int).tolist()
-
-        seen, uniq = set(), []
-        for idx in frame_indices:
-            if idx not in seen:
-                seen.add(idx)
-                uniq.append(idx)
-
-        if len(uniq) & 1:
-            uniq.append(uniq[-1])
-
-        return np.array(uniq)
+        pass
 
     def _preprocess(
         self,
@@ -426,21 +313,17 @@ class GlmgaVideoProcessor(Glm46VVideoProcessor):
             resized_videos_grouped[shape] = stacked_videos
         resized_videos = reorder_videos(resized_videos_grouped, grouped_videos_index)
 
-        # Group videos by size for further processing
-        # Needed in case do_resize is False, or resize returns videos with different sizes
         grouped_videos, grouped_videos_index = group_videos_by_shape(resized_videos)
         processed_videos_grouped = {}
         processed_grids = {}
         for shape, stacked_videos in grouped_videos.items():
             resized_height, resized_width = get_image_size(stacked_videos[0], channel_dim=ChannelDimension.FIRST)
 
-            # Fused rescale and normalize
             stacked_videos = self.rescale_and_normalize(
                 stacked_videos, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
             patches = stacked_videos
 
-            # Check that videos have `num_frames` divisible by `temporal_patch_size`
             T = patches.shape[1]
             if pad := -T % temporal_patch_size:
                 repeats = patches[:, -1:].expand(-1, pad, -1, -1, -1)

@@ -1,16 +1,3 @@
-# Copyright 2025 Boson AI and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -28,42 +15,6 @@ from ..xcodec.modeling_xcodec import XcodecEuclideanCodebook, XcodecModel, Xcode
 @auto_docstring(checkpoint="bosonai/higgs-audio-v2-tokenizer")
 @strict
 class HiggsAudioV2TokenizerConfig(XcodecConfig):
-    r"""
-    target_bandwidths (`List[float]`, *optional*, defaults to `[0.5, 1, 1.5, 2]`):
-        The range of different bandwidths (in kbps) the model can encode audio with.
-    kernel_size (`int`, *optional*, defaults to 3):
-        Kernel size for the initial semantic convolution.
-    channel_ratios (`List[float]`, *optional*, defaults to `[1, 1]`):
-        Expansion factors for the number of output channels in each semantic block.
-    strides (`List[int]`, *optional*, defaults to `[1, 1]`):
-        Strides for each semantic encoder block.
-    block_dilations (`List[int]`, *optional*, defaults to `[1, 1]`):
-        Dilation factors for the residual units in semantic blocks.
-    unit_kernel_size (`int`, *optional*, defaults to 3):
-        Kernel size inside each ResidualUnit in semantic blocks.
-    acoustic_model_config (`Union[Dict, AutoConfig]`, *optional*):
-        An instance of the configuration for the acoustic (DAC) model.
-    semantic_model_config (`Union[Dict, AutoConfig]`, *optional*):
-        An instance of the configuration object for the semantic (HuBERT) model.
-    semantic_sample_rate (`int`, *optional*, defaults to 16000):
-        The sampling rate at which the semantic model expects audio input, in hertz (Hz).
-    downsample_factor (`int`, *optional*, defaults to 320):
-        Downsampling factor for the semantic features.
-
-    Example:
-
-    ```python
-    >>> from transformers import HiggsAudioV2TokenizerModel, HiggsAudioV2TokenizerConfig
-
-    >>> # Initializing configuration
-    >>> configuration = HiggsAudioV2TokenizerConfig()
-
-    >>> # Initializing a model (with random weights) from the configuration
-    >>> model = HiggsAudioV2TokenizerModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     _default_semantic_model_config_kwargs = {
         "mask_time_prob": 0.0,
@@ -77,7 +28,7 @@ class HiggsAudioV2TokenizerConfig(XcodecConfig):
 
     @property
     def semantic_downsample_factor(self):
-        return int(self.hop_length / (self.sample_rate / self.semantic_sample_rate) / self.downsample_factor)
+        pass
 
 
 @requires(backends=("torchaudio",))
@@ -120,8 +71,6 @@ class HiggsAudioV2TokenizerModel(XcodecModel):
             )
 
         input_values = input_values[:, 0, :]
-        # TODO: there is a diff here with original codebase https://github.com/boson-ai/higgs-audio/blob/f644b62b855ba2b938896436221e01efadcc76ca/boson_multimodal/audio_processing/higgs_audio_v2_tokenizer.py#L173-L174
-        # input_values = F.pad(input_values, (self.pad, self.pad))
         input_values = F.pad(input_values, (160, 160))
         with torch.no_grad():
             outputs = self.semantic_model(input_values, output_hidden_states=True)

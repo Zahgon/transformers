@@ -1,20 +1,4 @@
-# Copyright 2025 Microsoft and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""
-Processor class for Phi4Multimodal
-"""
 
 import re
 
@@ -80,11 +64,9 @@ class Phi4MultimodalProcessor(ProcessorMixin):
         image_inputs = self.image_processor(images, **image_kwargs) if images is not None else {}
         audio_inputs = self.audio_processor(audio, **audio_kwargs) if audio is not None else {}
 
-        # We pop here for images as we don't need it later
         num_img_tokens = image_inputs.pop("num_img_tokens", [])
         audio_embed_sizes = audio_inputs.get("audio_embed_sizes", [])
 
-        # Replace certain special tokens for compatibility
         if isinstance(text, str):
             text = [text]
         elif not isinstance(text, list) and not isinstance(text[0], str):
@@ -93,7 +75,6 @@ class Phi4MultimodalProcessor(ProcessorMixin):
         image_token = self.tokenizer.image_token
         audio_token = self.tokenizer.audio_token
 
-        # Check that the number of special tokens is sound
         concatenated_prompt = "".join(text)
         if concatenated_prompt.count(image_token) != len(num_img_tokens):
             raise ValueError(
@@ -106,7 +87,6 @@ class Phi4MultimodalProcessor(ProcessorMixin):
                 f"Input contains {concatenated_prompt.count(audio_token)} tokens != {len(audio_embed_sizes)} audios"
             )
 
-        # Add appropriate number of image/audio tokens (note that the count of replacement is dynamic)
         image_count_iter = iter(num_img_tokens)
         audio_count_iter = iter(audio_embed_sizes)
         processed_text = [
@@ -120,7 +100,6 @@ class Phi4MultimodalProcessor(ProcessorMixin):
         text_inputs = self.tokenizer(processed_text, **output_kwargs["text_kwargs"])
         self._check_special_mm_tokens(processed_text, text_inputs, modalities=["image"])
 
-        # prepare batch feature
         data = {
             **text_inputs,
             **image_inputs,

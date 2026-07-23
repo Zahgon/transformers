@@ -1,17 +1,3 @@
-# Copyright 2022 Apple Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch MobileNetV2 model."""
 
 import torch
 from torch import nn
@@ -38,7 +24,6 @@ def make_divisible(value: int, divisor: int = 8, min_value: int | None = None) -
     if min_value is None:
         min_value = divisor
     new_value = max(min_value, int(value + divisor / 2) // divisor * divisor)
-    # Make sure that round down does not go down by more than 10%.
     if new_value < 0.9 * value:
         new_value += divisor
     return int(new_value)
@@ -203,8 +188,6 @@ class MobileNetV2Stem(nn.Module):
     def __init__(self, config: MobileNetV2Config, in_channels: int, expanded_channels: int, out_channels: int) -> None:
         super().__init__()
 
-        # The very first layer is a regular 3x3 convolution with stride 2 that expands to 32 channels.
-        # All other expansion layers use the expansion factor to compute the number of output channels.
         self.first_conv = MobileNetV2ConvLayer(
             config,
             in_channels=in_channels,
@@ -266,11 +249,9 @@ class MobileNetV2Model(MobileNetV2PreTrainedModel):
         super().__init__(config)
         self.config = config
 
-        # Output channels for the projection layers
         channels = [16, 24, 24, 32, 32, 32, 64, 64, 64, 64, 96, 96, 96, 160, 160, 160, 320]
         channels = [apply_depth_multiplier(config, x) for x in channels]
 
-        # Strides for the depthwise layers
         strides = [2, 1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1]
 
         self.conv_stem = MobileNetV2Stem(
@@ -285,7 +266,6 @@ class MobileNetV2Model(MobileNetV2PreTrainedModel):
 
         self.layer = nn.ModuleList()
         for i in range(16):
-            # Keep making the feature maps smaller or use dilated convolution?
             if current_stride == config.output_stride:
                 layer_stride = 1
                 layer_dilation = dilation
@@ -319,7 +299,6 @@ class MobileNetV2Model(MobileNetV2PreTrainedModel):
 
         self.pooler = nn.AdaptiveAvgPool2d((1, 1)) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -380,11 +359,9 @@ class MobileNetV2ForImageClassification(MobileNetV2PreTrainedModel):
 
         last_hidden_size = self.mobilenet_v2.conv_1x1.convolution.out_channels
 
-        # Classifier head
         self.dropout = nn.Dropout(config.classifier_dropout_prob, inplace=True)
         self.classifier = nn.Linear(last_hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -426,10 +403,6 @@ class MobileNetV2ForImageClassification(MobileNetV2PreTrainedModel):
 
 
 class MobileNetV2DeepLabV3Plus(nn.Module):
-    """
-    The neural network from the paper "Encoder-Decoder with Atrous Separable Convolution for Semantic Image
-    Segmentation" https://huggingface.co/papers/1802.02611
-    """
 
     def __init__(self, config: MobileNetV2Config) -> None:
         super().__init__()
@@ -513,7 +486,6 @@ class MobileNetV2ForSemanticSegmentation(MobileNetV2PreTrainedModel):
         self.mobilenet_v2 = MobileNetV2Model(config, add_pooling_layer=False)
         self.segmentation_head = MobileNetV2DeepLabV3Plus(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -573,7 +545,6 @@ class MobileNetV2ForSemanticSegmentation(MobileNetV2PreTrainedModel):
 
         loss = None
         if labels is not None:
-            # upsample logits to the images' original size
             upsampled_logits = nn.functional.interpolate(
                 logits, size=labels.shape[-2:], mode="bilinear", align_corners=False
             )

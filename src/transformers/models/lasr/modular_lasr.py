@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team and Google LLC. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import itertools
 from collections.abc import Callable
@@ -60,7 +47,6 @@ class LasrTokenizer(T5Tokenizer, TokenizersBackend):
     ):
         self._extra_ids = extra_ids
 
-        # Handle extra_ids and additional_special_tokens
         if additional_special_tokens is not None:
             extra_tokens = [x for x in additional_special_tokens if "<extra_id_" in str(x)]
             if len(extra_tokens) < 1:
@@ -75,7 +61,6 @@ class LasrTokenizer(T5Tokenizer, TokenizersBackend):
             extra_tokens = [f"<extra_id_{i}>" for i in range(extra_ids)]
             additional_special_tokens = extra_tokens
 
-        # LASR vocab structure: <pad>=0, </s>=1, <unk>=2, then regular vocab, then extra_ids in reverse
         if vocab is not None:
             self._vocab_scores = vocab
         else:
@@ -136,7 +121,6 @@ class LasrTokenizer(T5Tokenizer, TokenizersBackend):
         if group_tokens:
             token_ids = [token_group[0] for token_group in itertools.groupby(token_ids)]
 
-        # for CTC we filter out the blank token, which is the pad token
         token_ids = [token for token in token_ids if token != self.pad_token_id]
 
         return TokenizersBackend._decode(
@@ -214,50 +198,12 @@ class LasrProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        feature_extractor_input_names = self.feature_extractor.model_input_names
-        return feature_extractor_input_names + ["labels"]
+        pass
 
 
 @auto_docstring(checkpoint="google/medasr")
 @strict
 class LasrEncoderConfig(ParakeetEncoderConfig):
-    r"""
-    convolution_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use bias in convolutions of the conformer's convolution module.
-    conv_kernel_size (`int`, *optional*, defaults to 32):
-        The kernel size of the convolution layers in the Conformer block.
-    subsampling_conv_channels (`int`, *optional*, defaults to 256):
-        The number of channels in the subsampling convolution layers.
-    subsampling_conv_kernel_size (`int`, *optional*, defaults to 5):
-        The kernel size of the subsampling convolution layers.
-    subsampling_conv_stride (`int`, *optional*, defaults to 2):
-        The stride of the subsampling convolution layers.
-    dropout_positions (`float`, *optional*, defaults to 0.0):
-        The dropout ratio for the positions in the input sequence.
-    feed_forward_residual_weights (`tuple[float, float]`, *optional*, defaults to `[1.5, 0.5]`):
-        The residual weights for the feed forward layers.
-    conv_residual_weights (`tuple[float, float]`, *optional*, defaults to `[2.0, 1.0]`):
-        The residual weights for the convolution layers.
-    batch_norm_momentum (`float`, *optional*, defaults to 0.01):
-        The momentum for the batch normalization layers
-
-    Example:
-    ```python
-    >>> from transformers import LasrEncoderModel, LasrEncoderConfig
-
-    >>> # Initializing a `LasrEncoder` configuration
-    >>> configuration = LasrEncoderConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = LasrEncoderModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-
-    This configuration class is based on the LasrEncoder architecture from Google Health AI. You can find more details
-    and pre-trained models at [google/medasr](https://huggingface.co/google/medasr).
-    """
 
     hidden_size: int = 512
     num_hidden_layers: int = 17
@@ -281,35 +227,13 @@ class LasrEncoderConfig(ParakeetEncoderConfig):
 @auto_docstring(checkpoint="google/medasr")
 @strict
 class LasrCTCConfig(ParakeetCTCConfig):
-    r"""
-    ctc_loss_reduction (`str`, *optional*, defaults to `"mean"`):
-        Specifies the reduction to apply to the output of `torch.nn.CTCLoss`. Only relevant when training an
-        instance of [`LasrForCTC`].
-    ctc_zero_infinity (`bool`, *optional*, defaults to `True`):
-        Whether to zero infinite losses and the associated gradients of `torch.nn.CTCLoss`. Infinite losses mainly
-        occur when the inputs are too short to be aligned to the targets. Only relevant when training an instance
-        of [`LasrForCTC`].
-
-    Example:
-    ```python
-    >>> from transformers import LasrForCTC, LasrCTCConfig
-    >>> # Initializing a Lasr configuration
-    >>> configuration = LasrCTCConfig()
-    >>> # Initializing a model from the configuration
-    >>> model = LasrForCTC(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    This configuration class is based on the Lasr CTC architecture from Google Health AI. You can find more details
-    and pre-trained models at [google/medasr](https://huggingface.co/google/medasr).
-    """
 
     vocab_size: int = 512
     pad_token_id: int = 0
 
     @property
     def inputs_to_logits_ratio(self):
-        return self.encoder_config.subsampling_conv_stride**2
+        pass
 
 
 class LasrEncoderSubsampling(nn.Module):
@@ -442,7 +366,6 @@ class LasrEncoderBlock(ParakeetEncoderBlock):
 
 
 class LasrPreTrainedModel(ParakeetPreTrainedModel):
-    # padding is incompatible with flex attention as the resulting mask cannot be used to apply padding
     _supports_flex_attn = False
 
     def _init_weights(self, module):
@@ -546,7 +469,6 @@ class LasrEncoder(LasrPreTrainedModel):
         )
 
         for encoder_layer in self.layers:
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])

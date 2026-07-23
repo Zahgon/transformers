@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert UniSpeechSat checkpoint."""
 
 import argparse
 
@@ -110,7 +96,6 @@ def recursively_load_weights(fairseq_model, hf_model):
                 mapped_key = "unispeech_sat." + mapped_key if mapped_key not in TOP_LEVEL_KEYS else mapped_key
                 if key in name or key.split("w2v_model.")[-1] == name.split(".")[0]:
                     if "layer_norm_for_extract" in name and (".".join(name.split(".")[:-1]) != key):
-                        # special case since naming is very similar
                         continue
                     is_used = True
                     if "*" in mapped_key:
@@ -123,7 +108,6 @@ def recursively_load_weights(fairseq_model, hf_model):
                     elif "bias" in name:
                         weight_type = "bias"
                     elif "weight" in name:
-                        # TODO: don't match quantizer.weight_proj
                         weight_type = "weight"
                     else:
                         weight_type = None
@@ -183,29 +167,7 @@ def load_conv_layer(full_name, value, feature_extractor, unused_weights, use_gro
 def convert_unispeech_sat_checkpoint(
     checkpoint_path, pytorch_dump_folder_path, config_path=None, dict_path=None, is_finetuned=True
 ):
-    """
-    Copy/paste/tweak model's weights to transformers design.
-    """
-    if config_path is not None:
-        config = UniSpeechSatConfig.from_pretrained(config_path)
-    else:
-        config = UniSpeechSatConfig()
-
-    dict_path = ""
-
-    if is_finetuned:
-        hf_wav2vec = UniSpeechSatForCTC(config)
-    else:
-        hf_wav2vec = UniSpeechSatForPreTraining(config)
-
-    model, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task(
-        [checkpoint_path], arg_overrides={"data": "/".join(dict_path.split("/")[:-1])}
-    )
-    model = model[0].eval()
-
-    recursively_load_weights(model, hf_wav2vec)
-
-    hf_wav2vec.save_pretrained(pytorch_dump_folder_path)
+    pass
 
 
 if __name__ == "__main__":

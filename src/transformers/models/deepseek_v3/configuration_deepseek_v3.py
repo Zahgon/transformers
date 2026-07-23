@@ -1,19 +1,4 @@
-# Copyright 2025 bzantium and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on the DeepSeekV3 implementations from the DeepSeek AI team. (https://huggingface.co/deepseek-ai/DeepSeek-V3)
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""DeepSeekV3 model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -25,30 +10,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="bzantium/tiny-deepseek-v3")
 @strict
 class DeepseekV3Config(PreTrainedConfig):
-    r"""
-    n_group (`int`, *optional*, defaults to 8):
-        Number of groups for routed experts.
-    first_k_dense_replace (`int`, *optional*, defaults to 3):
-        Number of dense layers in shallow layers(embed->dense->dense->...->dense->moe->moe...->lm_head).
-                                                        \--k dense layers--/
-    rope_interleave (`bool`, *optional*, defaults to `True`):
-        Whether to interleave the rotary position embeddings.
-    num_mtp_layers (`int`, *optional*, defaults to 1):
-        Number of Multi-Token Prediction (MTP) modules available to append after the base transformer model. When `0`,
-        the model behaves as a standard decoder. When `>0`, each extra module can predict one additional future token at inference
-        time (speculative decoding via `generate(..., use_mtp=True)`).
-
-    Example:
-
-    ```python
-    >>> from transformers import DeepseekV3Model, DeepseekV3Config
-
-    >>> # Initializing a Deepseek-V3 style configuration
-    >>> configuration = DeepseekV3Config()
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "deepseek_v3"
     keys_to_ignore_at_inference = ["past_key_values"]

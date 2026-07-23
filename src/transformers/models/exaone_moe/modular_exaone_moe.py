@@ -1,18 +1,3 @@
-# Copyright 2026 The LG AI Research and HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""LG AI Research EXAONE Lab"""
 
 import torch
 from huggingface_hub.dataclasses import strict
@@ -44,40 +29,6 @@ from ..qwen2_moe.modeling_qwen2_moe import Qwen2MoeMLP
 @auto_docstring(checkpoint="LGAI-EXAONE/K-EXAONE-236B-A23B")
 @strict
 class ExaoneMoeConfig(Exaone4Config):
-    r"""
-    sliding_window_pattern (`str`, *optional*, defaults to 4):
-        The pattern to use for sliding window attention. Can be one of:
-            - `None`: No sliding window attention is used
-            - `int`: Every `sliding_window` layers, use global attention, else use local attention.
-            - `str`: A sequence of "L" (local attention) and "G" (global attention) characters that defines the
-                attention pattern. The pattern starts from layer 0 and repeats every `sliding_window` layers. The
-                final layer always uses global attention regardless of the pattern.
-        For instance, sliding_window_pattern="LLLG" same as sliding_window=4, which means:
-            - Layer 0, 1, 2: local attention,
-            - Layer 3: global attention,
-            ...(repeated)
-    mlp_layer_types (`list`, *optional*):
-        MLP pattern for each layer. Prioritized over `first_k_dense_replace`.
-    first_k_dense_replace (`int`, *optional*, defaults to 1):
-        Number of dense layers in shallow layers(embed->dense->dense->...->dense->moe->moe...->lm_head).
-                                                    \--k dense layers--/
-    n_group (`int`, *optional*, defaults to 1):
-        Number of groups for routed experts.
-
-    Example:
-
-    ```python
-    >>> from transformers import ExaoneMoeModel, ExaoneMoeConfig
-
-    >>> # Initializing a EXAONE configuration
-    >>> configuration = ExaoneMoeConfig()
-
-    >>> # Initializing a model from configuration
-    >>> model = ExaoneMoeModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     base_model_ep_plan = {
         "layers.*.mlp.gate": "ep_router",

@@ -1,17 +1,3 @@
-# Copyright 2025 NVIDIA CORPORATION and the HuggingFace Inc. team. All rights
-# reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -67,16 +53,6 @@ class AudioFlamingo3ModelOutputWithPast(VoxtralModelOutputWithPast):
 )
 @dataclass
 class AudioFlamingo3CausalLMOutputWithPast(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head.
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance.
-    audio_hidden_states (`torch.FloatTensor`, *optional*):
-        Hidden states of the audio encoder after projection.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -92,9 +68,6 @@ class AudioFlamingo3CausalLMOutputWithPast(ModelOutput):
     """
 )
 class AudioFlamingo3Encoder(Qwen2AudioEncoder):
-    """
-    AudioFlamingo3 encoder: Whisper encoder, average pool (time/2), then LayerNorm.
-    """
 
     _can_record_outputs = {
         "hidden_states": AudioFlamingo3EncoderLayer,
@@ -126,12 +99,10 @@ class AudioFlamingo3Encoder(Qwen2AudioEncoder):
         input_features_lengths = (input_features_lengths - 1) // 2 + 1  # conv2 downsampling
         input_features_mask = torch.arange(seq_len, device=input_features.device) < input_features_lengths[:, None]
 
-        # Conv front-end
         inputs_embeds = nn.functional.gelu(self.conv1(input_features))
         inputs_embeds = nn.functional.gelu(self.conv2(inputs_embeds))
         inputs_embeds = inputs_embeds.permute(0, 2, 1)
 
-        # Add positions, dropout
         hidden_states = inputs_embeds + self.embed_positions.weight
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
@@ -141,13 +112,11 @@ class AudioFlamingo3Encoder(Qwen2AudioEncoder):
             attention_mask=input_features_mask,
         )
 
-        # Transformer stack
         for layer in self.layers:
             drop = self.training and torch.rand([]) < self.layerdrop
             if not drop:
                 hidden_states = layer(hidden_states, attention_mask)
 
-        # AvgPool (time/2) + LayerNorm
         hidden_states = hidden_states.permute(0, 2, 1)
         hidden_states = self.avg_pooler(hidden_states).permute(0, 2, 1)
         hidden_states = self.layer_norm(hidden_states)
@@ -158,10 +127,6 @@ class AudioFlamingo3Encoder(Qwen2AudioEncoder):
 
 
 class AudioFlamingo3MultiModalProjector(VoxtralMultiModalProjector):
-    """
-    Audio adaptor (small MLP) that projects AudioFlamingo3Encoder features
-    to the LLM embedding space so they can replace `<sound>` tokens.
-    """
 
     def __init__(self, config: AudioFlamingo3Config):
         super().__init__()
@@ -210,7 +175,6 @@ class AudioFlamingo3Model(VoxtralModel):
         )
         audio_embeds = self.multi_modal_projector(audio_output.last_hidden_state)
 
-        # Mask according to the audio tower output lengths, accounting for both conv downsampling and final avg pooling
         input_lengths = input_features_mask.sum(-1).to(torch.long)
         _, post_lengths = self.audio_tower._get_feat_extract_output_lengths(input_lengths)
         valid_mask = torch.arange(audio_embeds.shape[1], device=post_lengths.device)[None, :] < post_lengths[:, None]
@@ -243,7 +207,6 @@ class AudioFlamingo3Model(VoxtralModel):
         if input_features is not None and input_ids is not None:
             audio_embeds = self.get_audio_features(input_features, input_features_mask, return_dict=True).pooler_output
 
-            # replace text-audio token placeholders with audio embeddings
             special_audio_mask = self.get_placeholder_mask(
                 input_ids, inputs_embeds=inputs_embeds, audio_features=audio_embeds
             )

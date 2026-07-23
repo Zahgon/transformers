@@ -1,17 +1,3 @@
-# Copyright 2025 Meta Platforms, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""ConvNeXT model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,20 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="facebook/dinov3-convnext-tiny-pretrain-lvd1689m")
 @strict
 class DINOv3ConvNextConfig(BackboneConfigMixin, PreTrainedConfig):
-    r"""
-    Example:
-    ```python
-    >>> from transformers import DINOv3ConvNextConfig, DINOv3ConvNextModel
-
-    >>> # Initializing a DINOv3ConvNext (tiny variant) style configuration
-    >>> config = DINOv3ConvNextConfig()
-
-    >>> # Initializing a model (with random weights)
-    >>> model = DINOv3ConvNextModel(config)
-
-    >>> # Accessing the model config
-    >>> config = model.config
-    ```"""
 
     model_type = "dinov3_convnext"
 
@@ -63,7 +35,7 @@ class DINOv3ConvNextConfig(BackboneConfigMixin, PreTrainedConfig):
 
     @property
     def num_stages(self) -> int:
-        return len(self.hidden_sizes)
+        pass
 
 
 __all__ = ["DINOv3ConvNextConfig"]

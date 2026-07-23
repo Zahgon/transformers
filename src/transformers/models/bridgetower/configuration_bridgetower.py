@@ -1,17 +1,3 @@
-# Copyright 2023 The Intel Labs Team Authors, The Microsoft Research Team Authors and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License=, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing=, software
-# distributed under the License is distributed on an "AS IS" BASIS=,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND=, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""BridgeTower model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -25,25 +11,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="BridgeTower/bridgetower-base")
 @strict
 class BridgeTowerVisionConfig(PreTrainedConfig):
-    r"""
-    stop_gradient (`bool`, *optional*, defaults to `False`):
-        Whether to stop gradient for training.
-    share_layernorm (`bool`, *optional*, defaults to `True`):
-        Whether LayerNorm layers are shared.
-    remove_last_layer (`bool`, *optional*, defaults to `False`):
-        Whether to remove the last layer from the vision encoder.
-
-    Example:
-
-    ```python
-    >>> from transformers import BridgeTowerVisionConfig
-
-    >>> # Initializing a BridgeTower BridgeTower/bridgetower-base style configuration for the vision model
-    >>> configuration = BridgeTowerVisionConfig()
-
-    >>> # Accessing the configuration
-    >>> configuration
-    ```"""
 
     model_type = "bridgetower_vision_model"
     base_config_key = "vision_config"
@@ -63,18 +30,6 @@ class BridgeTowerVisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="BridgeTower/bridgetower-base")
 @strict
 class BridgeTowerTextConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import BridgeTowerTextConfig
-
-    >>> # Initializing a BridgeTower BridgeTower/bridgetower-base style configuration for the text model
-    >>> configuration = BridgeTowerTextConfig()
-
-    >>> # Accessing the configuration
-    >>> configuration
-    ```"""
 
     model_type = "bridgetower_text_model"
     base_config_key = "text_config"
@@ -102,30 +57,6 @@ class BridgeTowerTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="BridgeTower/bridgetower-base")
 @strict
 class BridgeTowerConfig(PreTrainedConfig):
-    r"""
-    share_cross_modal_transformer_layers (`bool`, *optional*, defaults to `True`):
-        Whether cross modal transformer layers are shared.
-    share_link_tower_layers (`bool`, *optional*, defaults to `False`):
-        Whether the bride/link tower layers are shared.
-    link_tower_type (`str`, *optional*, defaults to `"add"`):
-        Type of the bridge/link layer.
-    init_layernorm_from_vision_encoder (`bool`, *optional*, defaults to `False`):
-        Whether to init LayerNorm from the vision encoder.
-
-    Example:
-
-    ```python
-    >>> from transformers import BridgeTowerModel, BridgeTowerConfig
-
-    >>> # Initializing a BridgeTower BridgeTower/bridgetower-base style configuration
-    >>> configuration = BridgeTowerConfig()
-
-    >>> # Initializing a model from the BridgeTower/bridgetower-base style configuration
-    >>> model = BridgeTowerModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "bridgetower"
     sub_configs = {"text_config": BridgeTowerTextConfig, "vision_config": BridgeTowerVisionConfig}
@@ -145,7 +76,6 @@ class BridgeTowerConfig(PreTrainedConfig):
     vision_config: dict | PreTrainedConfig | None = None
 
     def __post_init__(self, **kwargs):
-        # TODO: remove this once the Hub files are updated.
         _ = kwargs.pop("text_config_dict", None)
         _ = kwargs.pop("vision_config_dict", None)
 

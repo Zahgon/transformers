@@ -1,17 +1,3 @@
-# Copyright 2024 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -49,19 +35,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="google/gemma-7b")
 @strict
 class GemmaConfig(PreTrainedConfig):
-    r"""
-    use_bidirectional_attention (`bool`, *optional*):
-        If True, the model will attend to all text tokens instead of using a causal mask.
-
-    ```python
-    >>> from transformers import GemmaModel, GemmaConfig
-    >>> # Initializing a Gemma gemma-7b style configuration
-    >>> configuration = GemmaConfig()
-    >>> # Initializing a model from the gemma-7b style configuration
-    >>> model = GemmaModel(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "gemma"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -103,9 +76,6 @@ class GemmaConfig(PreTrainedConfig):
 
 
 class GemmaTextScaledWordEmbedding(nn.Embedding):
-    """
-    This module overrides nn.Embeddings' forward by multiplying with embeddings scale.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int, embed_scale: float = 1.0):
         super().__init__(num_embeddings, embedding_dim, padding_idx)
@@ -127,13 +97,11 @@ class GemmaRMSNorm(nn.Module):
 
     def forward(self, x):
         output = self._norm(x.float())
-        # Llama does x.to(float16) * w whilst Gemma is (x * w).to(float16)
-        # See https://github.com/huggingface/transformers/pull/29402
         output = output * (1.0 + self.weight.float())
         return output.type_as(x)
 
     def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.eps}"
+        pass
 
 
 class GemmaMLP(LlamaMLP):
@@ -149,7 +117,6 @@ class GemmaRotaryEmbedding(LlamaRotaryEmbedding):
 
 
 class GemmaAttention(LlamaAttention):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: GemmaConfig, layer_idx: int):
         super().__init__()
@@ -160,7 +127,6 @@ class GemmaPreTrainedModel(LlamaPreTrainedModel):
     @torch.no_grad()
     def _init_weights(self, module):
         PreTrainedModel._init_weights(self, module)
-        # We initialize with 0s to be 1 centered as the RMSNorm here does (1 + weight)
         if "RMSNorm" in module.__class__.__name__:
             init.zeros_(module.weight)
         elif isinstance(module, GemmaTextScaledWordEmbedding):
@@ -170,7 +136,6 @@ class GemmaPreTrainedModel(LlamaPreTrainedModel):
 class GemmaModel(LlamaModel):
     def __init__(self, config: GemmaConfig):
         super().__init__(config)
-        # Gemma3 downcasts the below to bfloat16, causing sqrt(3072)=55.4256 to become 55.5. See https://github.com/huggingface/transformers/pull/29402
         self.embed_tokens = GemmaTextScaledWordEmbedding(
             config.vocab_size, config.hidden_size, self.padding_idx, embed_scale=self.config.hidden_size**0.5
         )
@@ -207,7 +172,6 @@ class GemmaModel(LlamaModel):
             position_ids=position_ids,
         )
 
-        # embed positions
         hidden_states = inputs_embeds
         position_embeddings = self.rotary_emb(hidden_states, position_ids=position_ids)
 

@@ -1,18 +1,3 @@
-# Copyright 2022 Meta and The HuggingFace Inc. team. All rights reserved.
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ESM model."""
 
 import math
 from collections.abc import Callable
@@ -104,10 +89,6 @@ def average_product_correct(x):
 
 
 class EsmRotaryEmbedding(nn.Module):
-    """
-    Rotary position embeddings.
-    Implementation based on [ModernBERT's RotaryEmbedding](https://github.com/huggingface/transformers/blob/aad13b87ed59f2afcfaebc985f403301887a35fc/src/transformers/models/modernbert/modeling_modernbert.py#L94).
-    """
 
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
@@ -146,7 +127,6 @@ class EsmRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
@@ -172,7 +152,6 @@ class EsmRotaryEmbedding(nn.Module):
 
 
 class EsmContactPredictionHead(nn.Module):
-    """Performs symmetrization, apc, and computes a logistic regression on the output features"""
 
     def __init__(
         self,
@@ -187,17 +166,14 @@ class EsmContactPredictionHead(nn.Module):
         self.activation = nn.Sigmoid()
 
     def forward(self, tokens, attentions):
-        # remove eos token attentions
         eos_mask = tokens.ne(self.eos_idx).to(attentions)
         eos_mask = eos_mask.unsqueeze(1) * eos_mask.unsqueeze(2)
         attentions = attentions * eos_mask[:, None, None, :, :]
         attentions = attentions[..., :-1, :-1]
-        # remove cls token attentions
         attentions = attentions[..., 1:, 1:]
         batch_size, layers, heads, seqlen, _ = attentions.size()
         attentions = attentions.view(batch_size, layers * heads, seqlen, seqlen)
 
-        # features: batch x channels x tokens x tokens (symmetric)
         attentions = attentions.to(
             self.regression.weight.device
         )  # attentions always float32, may need to convert to float16
@@ -207,9 +183,6 @@ class EsmContactPredictionHead(nn.Module):
 
 
 class EsmEmbeddings(nn.Module):
-    """
-    Same as BertEmbeddings with a tiny tweak for positional embeddings indexing.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -220,7 +193,6 @@ class EsmEmbeddings(nn.Module):
         else:
             self.layer_norm = None
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.position_embedding_type = getattr(config, "position_embedding_type", "absolute")
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
@@ -243,7 +215,6 @@ class EsmEmbeddings(nn.Module):
     ):
         if position_ids is None:
             if input_ids is not None:
-                # Create the position ids from the input token ids. Any padded tokens remain padded.
                 position_ids = create_position_ids_from_input_ids(input_ids, self.padding_idx)
             else:
                 position_ids = self.create_position_ids_from_inputs_embeds(inputs_embeds)
@@ -251,17 +222,8 @@ class EsmEmbeddings(nn.Module):
         if inputs_embeds is None:
             inputs_embeds = self.word_embeddings(input_ids)
 
-        # Note that if we want to support ESM-1 (not 1b!) in future then we need to support an
-        # embedding_scale factor here.
         embeddings = inputs_embeds
 
-        # Matt: ESM has the option to handle masking in MLM in a slightly unusual way. If the token_dropout
-        # flag is False then it is handled in the same was as BERT/RoBERTa. If it is set to True, however,
-        # masked tokens are treated as if they were selected for input dropout and zeroed out.
-        # This "mask-dropout" is compensated for when masked tokens are not present, by scaling embeddings by
-        # a factor of (fraction of unmasked tokens during training) / (fraction of unmasked tokens in sample).
-        # This is analogous to the way that dropout layers scale down outputs during evaluation when not
-        # actually dropping out values (or, equivalently, scale up their un-dropped outputs in training).
         if self.token_dropout and input_ids is not None:
             embeddings = embeddings.masked_fill((input_ids == self.mask_token_id).unsqueeze(-1), 0.0)
             mask_ratio_train = 0.15 * 0.8  # Hardcoded as the ratio used in all ESM model training runs
@@ -279,8 +241,6 @@ class EsmEmbeddings(nn.Module):
             embeddings = self.layer_norm(embeddings)
         if attention_mask is not None:
             embeddings = (embeddings * attention_mask.unsqueeze(-1)).to(embeddings.dtype)
-        # Matt: I think this line was copied incorrectly from BERT, disabling it for now.
-        # embeddings = self.dropout(embeddings)
         return embeddings
 
     def create_position_ids_from_inputs_embeds(self, inputs_embeds):
@@ -301,7 +261,6 @@ class EsmEmbeddings(nn.Module):
         return position_ids.unsqueeze(0).expand(input_shape)
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -315,7 +274,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -380,10 +338,6 @@ class EsmSelfAttention(nn.Module):
         key_layer = self.key(current_states).view(hidden_shape).transpose(1, 2)
         value_layer = self.value(current_states).view(hidden_shape).transpose(1, 2)
 
-        # Matt: Our BERT model (which this code was derived from) scales attention logits down by sqrt(head_dim).
-        # ESM scales the query down by the same factor instead. Modulo numerical stability these are equivalent,
-        # but not when rotary embeddings get involved. Therefore, we scale the query here to match the original
-        # ESM code and fix rotary embeddings.
         query_layer = query_layer * self.attention_head_size**-0.5
 
         if self.position_embedding_type == "rotary":
@@ -568,7 +522,6 @@ class EsmEncoder(nn.Module):
         return BaseModelOutputWithCrossAttentions(last_hidden_state=hidden_states)
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler
 class EsmPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -576,8 +529,6 @@ class EsmPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -618,24 +569,11 @@ class EsmPreTrainedModel(PreTrainedModel):
             init.copy_(getattr(module, "inv_freq"), curr_inv_freq)
 
     def get_output_embeddings(self):
-        # NOTE: get_output_embeddings() must return None to prevent accidental weight tying.
-        # See e.g. https://github.com/huggingface/transformers/pull/39339#discussion_r2219126400
         return None
 
 
 @auto_docstring
 class EsmModel(EsmPreTrainedModel):
-    """
-
-    The model can behave as an encoder (with only self-attention) as well as a decoder, in which case a layer of
-    cross-attention is added between the self-attention layers, following the architecture described in [Attention is
-    all you need](https://huggingface.co/papers/1706.03762) by Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit,
-    Llion Jones, Aidan N. Gomez, Lukasz Kaiser and Illia Polosukhin.
-
-    To behave as an decoder the model needs to be initialized with the `is_decoder` argument of the configuration set
-    to `True`. To be used in a Seq2Seq model, the model needs to initialized with both `is_decoder` argument and
-    `add_cross_attention` set to `True`; an `encoder_hidden_states` is then expected as an input to the forward pass.
-    """
 
     def __init__(self, config, add_pooling_layer=True):
         r"""
@@ -661,30 +599,10 @@ class EsmModel(EsmPreTrainedModel):
         )
 
         self._register_load_state_dict_pre_hook(self.load_hook)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def load_hook(self, state_dict, prefix, *args):
-        """Remap per-layer rotary inv_freq keys from old checkpoints to the new model-level location.
-
-        Old checkpoints stored inv_freq per attention layer at:
-            {prefix}encoder.layer.{i}.attention.self.rotary_embeddings.inv_freq
-        New code stores a single shared inv_freq at:
-            {prefix}rotary_embeddings.inv_freq
-        The old checkpoint values must be preserved (not recomputed) because they may
-        have been saved in float16, matching the precision used during training.
-        """
-        new_key = f"{prefix}rotary_embeddings.inv_freq"
-        if new_key not in state_dict:
-            old_keys = sorted(
-                k
-                for k in list(state_dict.keys())
-                if k.startswith(prefix) and k.endswith(".attention.self.rotary_embeddings.inv_freq")
-            )
-            if old_keys:
-                state_dict[new_key] = state_dict[old_keys[0]]
-            for k in old_keys:
-                del state_dict[k]
+        pass
 
     def get_input_embeddings(self):
         return self.embeddings.word_embeddings
@@ -727,8 +645,6 @@ class EsmModel(EsmPreTrainedModel):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
         if inputs_embeds is None:
-            # Important, attention_mask must be passed to the embedding class
-            # This effects how the token_dropout is calculated
             inputs_embeds = self.embeddings(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -767,7 +683,6 @@ class EsmModel(EsmPreTrainedModel):
             pooler_output=pooled_output,
         )
 
-    # Copied from transformers.models.bert.modeling_bert.BertModel._create_attention_masks
     def _create_attention_masks(
         self,
         attention_mask,
@@ -801,15 +716,7 @@ class EsmModel(EsmPreTrainedModel):
         return attention_mask, encoder_attention_mask
 
     def predict_contacts(self, tokens, attention_mask):
-        attns = self(tokens, attention_mask=attention_mask, return_dict=True, output_attentions=True).attentions
-        attns = torch.stack(attns, dim=1)  # Matches the original model layout
-        # In the original model, attentions for padding tokens are completely zeroed out.
-        # This makes no difference most of the time because the other tokens won't attend to them,
-        # but it does for the contact prediction task, which takes attentions as input,
-        # so we have to mimic that here.
-        attns *= attention_mask.unsqueeze(1).unsqueeze(2).unsqueeze(3)
-        attns *= attention_mask.unsqueeze(1).unsqueeze(2).unsqueeze(4)
-        return self.contact_head(tokens, attns)
+        pass
 
 
 @auto_docstring
@@ -883,11 +790,10 @@ class EsmForMaskedLM(EsmPreTrainedModel):
         )
 
     def predict_contacts(self, tokens, attention_mask):
-        return self.esm.predict_contacts(tokens, attention_mask=attention_mask)
+        pass
 
 
 class EsmLMHead(nn.Module):
-    """ESM Head for masked language modeling."""
 
     def __init__(self, config):
         super().__init__()
@@ -902,7 +808,6 @@ class EsmLMHead(nn.Module):
         x = gelu(x)
         x = self.layer_norm(x)
 
-        # project back to size of vocabulary with bias
         x = self.decoder(x) + self.bias
         return x
 
@@ -1042,7 +947,6 @@ class EsmForTokenClassification(EsmPreTrainedModel):
 
 
 class EsmClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config):
         super().__init__()
@@ -1070,7 +974,6 @@ def create_position_ids_from_input_ids(input_ids, padding_idx):
 
     Returns: torch.Tensor
     """
-    # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
     mask = input_ids.ne(padding_idx).int()
     incremental_indices = torch.cumsum(mask, dim=1).type_as(mask) * mask
     return incremental_indices.long() + padding_idx

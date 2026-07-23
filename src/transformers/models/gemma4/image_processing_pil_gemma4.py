@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 
@@ -53,11 +40,9 @@ def get_aspect_ratio_preserving_size(
     ideal_width = factor * width
     side_mult = pooling_kernel_size * patch_size
 
-    # Round down to nearest multiple of side_mult
     target_height = int(math.floor(ideal_height / side_mult)) * side_mult
     target_width = int(math.floor(ideal_width / side_mult)) * side_mult
 
-    # Handle edge cases where one or both dimensions round to 0
     if target_height == 0 and target_width == 0:
         raise ValueError(
             "Attempting to resize to a 0 x 0 image. Resized height should be divisible by "
@@ -87,7 +72,6 @@ def get_aspect_ratio_preserving_size(
     return target_height, target_width
 
 
-# Copied from transformers.models.siglip2.image_processing_pil_siglip2.convert_image_to_patches
 def convert_image_to_patches(image: np.ndarray, patch_size: int) -> np.ndarray:
     """
     Convert 3D array image of shape (num_channels, image_height, image_width) into 2D array of patches of shape
@@ -102,7 +86,6 @@ def convert_image_to_patches(image: np.ndarray, patch_size: int) -> np.ndarray:
     return patched_image
 
 
-# Adopted from Siglip2 (mask -> position ids)
 def pad_along_first_dim(image: np.ndarray, positions: np.ndarray, target_length: int) -> tuple[np.ndarray, np.ndarray]:
     """
     Pad the image along the first dimension.
@@ -118,15 +101,6 @@ def pad_along_first_dim(image: np.ndarray, positions: np.ndarray, target_length:
 
 
 class Gemma4ImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    patch_size (`int`, *optional*):
-        Size of each image patch in pixels.
-    max_soft_tokens (`int`, *optional*):
-        Maximum number of soft (vision) tokens per image.
-        Must be one of {70, 140, 280, 560, 1120}.
-    pooling_kernel_size (`int`, *optional*):
-        Spatial pooling kernel size applied after patchification.
-    """
 
     patch_size: int
     max_soft_tokens: int
@@ -157,10 +131,6 @@ class Gemma4ImageProcessorPil(PilBackend):
             raise ValueError(f"`max_soft_tokens` must be one of {_SUPPORTED_SOFT_TOKENS}, got {self.max_soft_tokens}.")
 
     def _validate_preprocess_kwargs(self, **kwargs):
-        # Gemma4 uses aspect_ratio_preserving_resize driven by patch_size,
-        # max_soft_tokens, and pooling_kernel_size — not the standard `size`
-        # parameter. Temporarily disable do_resize so the base validation
-        # doesn't require `size` to be set.
         kwargs["do_resize"] = False
         super()._validate_preprocess_kwargs(**kwargs)
 
@@ -217,18 +187,13 @@ class Gemma4ImageProcessorPil(PilBackend):
         if max_soft_tokens not in _SUPPORTED_SOFT_TOKENS:
             raise ValueError(f"`max_soft_tokens` must be one of {_SUPPORTED_SOFT_TOKENS}, got {max_soft_tokens}.")
 
-        # Compute max_patches from max_soft_tokens and pooling_kernel_size
         max_patches = max_soft_tokens * pooling_kernel_size**2
 
-        # Process each image individually: resize, rescale/normalize, patchify, pad.
-        # Images have different aspect ratios and thus different resized dimensions,
-        # so patchification and padding must happen per-image before stacking.
         pixel_values = []
         position_ids = []
         num_soft_tokens_per_image = []
 
         for image in images:
-            # Step 1: Aspect-ratio-preserving resize
             if do_resize:
                 image = self.aspect_ratio_preserving_resize(
                     image=image,
@@ -238,21 +203,15 @@ class Gemma4ImageProcessorPil(PilBackend):
                     resample=resample,
                 )
 
-            # Step 2: Rescale pixel values from [0, 255] to [0, 1]
             if do_rescale:
                 image = self.rescale(image=image, scale=rescale_factor)
 
-            # Step 3: Identity normalization because Gemma4 was trained with pixels in [0, 1]
             if do_normalize:
                 image = self.normalize(image=image, mean=image_mean, std=image_std)
 
-            # Step 4: Patchify the image
-            # image is (C, H, W) numpy array; add batch dimension for reshape
-            # (num_channels, height, width) -> (num_patches, patch_size * patch_size * num_channels)
             patches = convert_image_to_patches(image, patch_size)
             num_soft_tokens_per_image.append(patches.shape[0] // pooling_kernel_size**2)
 
-            # Step 5: Compute position IDs
             patch_height = image.shape[-2] // patch_size
             patch_width = image.shape[-1] // patch_size
             grid_x, grid_y = np.meshgrid(np.arange(patch_width), np.arange(patch_height), indexing="xy")
@@ -263,7 +222,6 @@ class Gemma4ImageProcessorPil(PilBackend):
             pixel_values.append(patches)
             position_ids.append(positions)
 
-        # Stack into batch arrays and convert to tensors
         pixel_values = np.stack(pixel_values, axis=0)  # (batch, max_patches, patch_pixels)
         position_ids = np.stack(position_ids, axis=0)  # (batch, max_patches, 2)
 

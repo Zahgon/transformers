@@ -1,17 +1,3 @@
-# Copyright 2022 Meta and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""ESM model configuration"""
 
 from typing import Union
 
@@ -27,39 +13,6 @@ logger = logging.get_logger(__name__)
 
 @strict
 class StructureModuleConfig(PreTrainedConfig):
-    """
-    Args:
-        sequence_dim:
-            Single representation channel dimension
-        pairwise_dim:
-            Pair representation channel dimension
-        ipa_dim:
-            IPA hidden channel dimension
-        resnet_dim:
-            Angle resnet (Alg. 23 lines 11-14) hidden channel dimension
-        num_heads_ipa:
-            Number of IPA heads
-        num_qk_points:
-            Number of query/key points to generate during IPA
-        num_v_points:
-            Number of value points to generate during IPA
-        dropout_rate:
-            Dropout rate used throughout the layer
-        num_blocks:
-            Number of structure module blocks
-        num_transition_layers:
-            Number of layers in the single representation transition (Alg. 23 lines 8-9)
-        num_resnet_blocks:
-            Number of blocks in the angle resnet
-        num_angles:
-            Number of angles to generate in the angle resnet
-        trans_scale_factor:
-            Scale of single representation transition hidden dimension
-        epsilon:
-            Small number used in angle resnet normalization
-        inf:
-            Large number used for attention masking
-    """
 
     sequence_dim: int | None = 384
     pairwise_dim: int | None = 128
@@ -103,30 +56,7 @@ class TrunkConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        if self.sequence_state_dim % self.sequence_state_dim != 0:
-            raise ValueError(
-                "`sequence_state_dim` should be a round multiple of `sequence_state_dim`, got"
-                f" {self.sequence_state_dim} and {self.sequence_state_dim}."
-            )
-        if self.pairwise_state_dim % self.pairwise_state_dim != 0:
-            raise ValueError(
-                "`pairwise_state_dim` should be a round multiple of `pairwise_state_dim`, got"
-                f" {self.pairwise_state_dim} and {self.pairwise_state_dim}."
-            )
-
-        sequence_num_heads = self.sequence_state_dim // self.sequence_head_width
-        pairwise_num_heads = self.pairwise_state_dim // self.pairwise_head_width
-
-        if self.sequence_state_dim != sequence_num_heads * self.sequence_head_width:
-            raise ValueError(
-                "`sequence_state_dim` should be equal to `sequence_num_heads * sequence_head_width, got"
-                f" {self.sequence_state_dim} != {sequence_num_heads} * {self.sequence_head_width}."
-            )
-        if self.pairwise_state_dim != pairwise_num_heads * self.pairwise_head_width:
-            raise ValueError(
-                "`pairwise_state_dim` should be equal to `pairwise_num_heads * pairwise_head_width, got"
-                f" {self.pairwise_state_dim} != {pairwise_num_heads} * {self.pairwise_head_width}."
-            )
+        pass
 
 
 @strict
@@ -155,39 +85,6 @@ class EsmFoldConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/esm-1b")
 @strict
 class EsmConfig(PreTrainedConfig):
-    r"""
-    mask_token_id (`int`, *optional*):
-        The index of the mask token in the vocabulary. This must be included in the config because of the
-        "mask-dropout" scaling trick, which will scale the inputs depending on the number of masked tokens.
-    rope_theta (`float`, defaults to 10000.0):
-        The base period of the RoPE embeddings. Only used when `position_embedding_type` is set to `"rotary"`.
-    position_embedding_type (`str`, *optional*, defaults to `"absolute"`):
-        Type of position embedding. Choose either `"absolute"` or "rotary"`.
-    emb_layer_norm_before (`bool`, *optional*):
-        Whether to apply layer normalization after embeddings but before the main stem of the network.
-    token_dropout (`bool`, defaults to `False`):
-        When this is enabled, masked tokens are treated as if they had been dropped out by input dropout.
-    is_folding_model (`bool`, defaults to `False`):
-        When this is enabled, ESMFold model will be initialized.
-    esmfold_config (`dict`, *optional*):
-        Configuration to initiate the ESMFold module.
-    vocab_list (`list`, *optional*):
-        List of the vocabulary items.
-
-    Examples:
-
-    ```python
-    >>> from transformers import EsmModel, EsmConfig
-
-    >>> # Initializing a ESM facebook/esm-1b style configuration
-    >>> configuration = EsmConfig(vocab_size=33)
-
-    >>> # Initializing a model from the configuration
-    >>> model = EsmModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "esm"
     sub_configs = {"esmfold_config": EsmFoldConfig}

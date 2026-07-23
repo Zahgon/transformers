@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch UnivNetModel model."""
 
 from dataclasses import dataclass
 
@@ -35,26 +21,12 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class UnivNetModelOutput(ModelOutput):
-    r"""
-    waveforms (`torch.FloatTensor` of shape `(batch_size, sequence_length)`):
-        Batched 1D (mono-channel) output audio waveforms.
-    waveform_lengths (`torch.FloatTensor` of shape `(batch_size,)`):
-        The batched length in samples of each unpadded waveform in `waveforms`.
-    """
 
     waveforms: torch.FloatTensor | None = None
     waveform_lengths: torch.FloatTensor | None = None
 
 
 class UnivNetKernelPredictorResidualBlock(nn.Module):
-    """
-    Implementation of the residual block for the kernel predictor network inside each location variable convolution
-    block (LVCBlock).
-
-    Parameters:
-        config: (`UnivNetConfig`):
-            Config for the `UnivNetModel` model.
-    """
 
     def __init__(
         self,
@@ -73,7 +45,6 @@ class UnivNetKernelPredictorResidualBlock(nn.Module):
         self.conv2 = nn.Conv1d(self.channels, self.channels, self.kernel_size, padding=padding, bias=True)
 
     def forward(self, hidden_states: torch.FloatTensor):
-        # hidden_states should have shape (batch_size, channels, seq_length)
         residual = hidden_states
         hidden_states = self.dropout(hidden_states)
         hidden_states = self.conv1(hidden_states)
@@ -96,21 +67,6 @@ class UnivNetKernelPredictorResidualBlock(nn.Module):
 
 
 class UnivNetKernelPredictor(nn.Module):
-    """
-    Implementation of the kernel predictor network which supplies the kernel and bias for the location variable
-    convolutional layers (LVCs) in each UnivNet LVCBlock.
-
-    Based on the KernelPredictor implementation in
-    [maum-ai/univnet](https://github.com/maum-ai/univnet/blob/9bb2b54838bb6d7ce767131cc7b8b61198bc7558/model/lvcnet.py#L7).
-
-    Parameters:
-        config: (`UnivNetConfig`):
-            Config for the `UnivNetModel` model.
-        conv_kernel_size (`int`, *optional*, defaults to 3):
-            The kernel size for the location variable convolutional layer kernels (convolutional weight tensor).
-        conv_layers (`int`, *optional*, defaults to 4):
-            The number of location variable convolutional layers to output kernels and biases for.
-    """
 
     def __init__(
         self,
@@ -178,7 +134,6 @@ class UnivNetKernelPredictor(nn.Module):
         kernel_hidden_states = self.kernel_conv(hidden_states)
         bias_hidden_states = self.bias_conv(hidden_states)
 
-        # Reshape kernels and biases to appropriate shape
         kernels = kernel_hidden_states.view(
             batch_size,
             self.conv_layers,
@@ -216,17 +171,6 @@ class UnivNetKernelPredictor(nn.Module):
 
 
 class UnivNetLvcResidualBlock(nn.Module):
-    """
-    Implementation of the location variable convolution (LVC) residual block for the UnivNet residual network.
-
-    Parameters:
-        config: (`UnivNetConfig`):
-            Config for the `UnivNetModel` model.
-        kernel_size (`int`):
-            The kernel size for the dilated 1D convolutional layer.
-        dilation (`int`):
-            The dilation for the dilated 1D convolutional layer.
-    """
 
     def __init__(
         self,
@@ -256,16 +200,13 @@ class UnivNetLvcResidualBlock(nn.Module):
         hidden_states = self.conv(hidden_states)
         hidden_states = nn.functional.leaky_relu(hidden_states, self.leaky_relu_slope)
         hidden_states = self.location_variable_convolution(hidden_states, kernel, bias, hop_size=hop_size)
-        # Gated activation unit
         hidden_states = torch.sigmoid(hidden_states[:, : self.hidden_channels, :]) * torch.tanh(
             hidden_states[:, self.hidden_channels :, :]
         )
-        # Skip connection
         hidden_states = residual + hidden_states
 
         return hidden_states
 
-    # Based on https://github.com/maum-ai/univnet/blob/9bb2b54838bb6d7ce767131cc7b8b61198bc7558/model/lvcnet.py#L171
     def location_variable_convolution(
         self,
         hidden_states: torch.FloatTensor,
@@ -306,22 +247,16 @@ class UnivNetLvcResidualBlock(nn.Module):
 
         padding = dilation * int((kernel_size - 1) / 2)
 
-        # (batch, in_channels, in_length + 2*padding)
         hidden_states = nn.functional.pad(hidden_states, (padding, padding), "constant", 0)
-        # (batch, in_channels, kernel_length, hop_size + 2*padding)
         hidden_states = hidden_states.unfold(2, hop_size + 2 * padding, hop_size)
 
         if hop_size < dilation:
             hidden_states = nn.functional.pad(hidden_states, (0, dilation), "constant", 0)
-        # (batch, in_channels, kernel_length, (hop_size + 2*padding)/dilation, dilation)
         hidden_states = hidden_states.unfold(3, dilation, dilation)
         hidden_states = hidden_states[:, :, :, :, :hop_size]
-        # (batch, in_channels, kernel_length, dilation, (hop_size + 2*padding)/dilation)
         hidden_states = hidden_states.transpose(3, 4)
-        # (batch, in_channels, kernel_length, dilation, _, kernel_size)
         hidden_states = hidden_states.unfold(4, kernel_size, 1)
 
-        # Apply local convolution kernel to hidden_states.
         output_hidden_states = torch.einsum("bildsk,biokl->bolsd", hidden_states, kernel)
 
         bias = bias.unsqueeze(-1).unsqueeze(-1)
@@ -342,22 +277,6 @@ class UnivNetLvcResidualBlock(nn.Module):
 
 
 class UnivNetLvcBlock(nn.Module):
-    """
-    Implementation of the location variable convolution (LVC) residual block of the UnivNet residual block. Includes a
-    `UnivNetKernelPredictor` inside to predict the kernels and biases of the LVC layers.
-
-    Based on LVCBlock in
-    [maum-ai/univnet](https://github.com/maum-ai/univnet/blob/9bb2b54838bb6d7ce767131cc7b8b61198bc7558/model/lvcnet.py#L98)
-
-    Parameters:
-        config (`UnivNetConfig`):
-            Config for the `UnivNetModel` model.
-        layer_id (`int`):
-            An integer corresponding to the index of the current LVC resnet block layer. This should be between 0 and
-            `len(config.resblock_stride_sizes) - 1)` inclusive.
-        lvc_hop_size (`int`, *optional*, defaults to 256):
-            The hop size for the location variable convolutional layers.
-    """
 
     def __init__(
         self,
@@ -390,8 +309,6 @@ class UnivNetLvcBlock(nn.Module):
         )
 
     def forward(self, hidden_states: torch.FloatTensor, spectrogram: torch.FloatTensor):
-        # hidden_states: (batch_size, hidden_channels, seq_length)
-        # spectrogram: (batch_size, cond_channels, cond_length)
         hidden_states = nn.functional.leaky_relu(hidden_states, self.leaky_relu_slope)
         hidden_states = self.convt_pre(hidden_states)
 
@@ -442,7 +359,6 @@ class UnivNetModel(PreTrainedModel):
             padding_mode="reflect",
         )
 
-        # Initialize location-variable convolution ResNet Blocks.
         num_layers = len(config.resblock_stride_sizes)
         hop_length = 1
         hop_lengths = []
@@ -463,7 +379,6 @@ class UnivNetModel(PreTrainedModel):
 
         self.conv_post = nn.Conv1d(config.model_hidden_channels, 1, 7, padding=3, padding_mode="reflect")
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -517,7 +432,6 @@ class UnivNetModel(PreTrainedModel):
         """
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # Resolve batch sizes for noise_sequence and spectrogram
         spectrogram_batched = input_features.dim() == 3
         if not spectrogram_batched:
             input_features = input_features.unsqueeze(0)
@@ -528,7 +442,6 @@ class UnivNetModel(PreTrainedModel):
             if not noise_sequence_batched:
                 noise_sequence = noise_sequence.unsqueeze(0)
         else:
-            # Randomly generate noise_sequence
             noise_sequence_shape = (spectrogram_batch_size, spectrogram_length, self.config.model_in_channels)
             noise_sequence = torch.randn(
                 noise_sequence_shape, generator=generator, dtype=input_features.dtype, device=input_features.device
@@ -536,10 +449,8 @@ class UnivNetModel(PreTrainedModel):
         noise_sequence_batch_size = noise_sequence.shape[0]
 
         if spectrogram_batch_size > 1 and noise_sequence_batch_size == 1:
-            # Repeat noise_sequence spectrogram_batch_size times
             noise_sequence = noise_sequence.repeat(spectrogram_batch_size, 1, 1)
         elif noise_sequence_batch_size > 1 and spectrogram_batch_size == 1:
-            # Repeat spectrogram noise_sequence_batch_size times
             input_features = input_features.repeat(noise_sequence_batch_size, 1, 1)
 
         if noise_sequence_batch_size != spectrogram_batch_size:
@@ -558,7 +469,6 @@ class UnivNetModel(PreTrainedModel):
                     f" `input_features` is {spectrogram_batch_size}, but the two are expected to be equal."
                 )
 
-        # Change shapes to have channels before sequence lengths
         hidden_states = noise_sequence.transpose(2, 1)
         input_features = input_features.transpose(2, 1)
 
@@ -571,14 +481,10 @@ class UnivNetModel(PreTrainedModel):
         hidden_states = self.conv_post(hidden_states)
         hidden_states = torch.tanh(hidden_states)
 
-        # Remove sequence length dimension since this collapses to 1
-        # NOTE: keep waveforms batched even if there's only one
         waveform = hidden_states.squeeze(1)
 
-        # Get sequence lengths for UnivNetFeatureExtractor.batch_decode.
         waveform_lengths = None
         if padding_mask is not None:
-            # Padding is always contiguous and added on the right
             waveform_lengths = torch.sum(padding_mask, dim=1)
 
         if not return_dict:

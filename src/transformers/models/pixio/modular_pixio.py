@@ -1,17 +1,3 @@
-# Copyright 2025 Meta AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Pixio model."""
 
 import torch
 from huggingface_hub.dataclasses import strict
@@ -33,30 +19,6 @@ from ..vit.modeling_vit import ViTAttention, ViTLayer, ViTPatchEmbeddings, ViTPr
 @auto_docstring(checkpoint="facebook/pixio-huge")
 @strict
 class PixioConfig(Dinov2Config):
-    r"""
-    apply_layernorm (`bool`, *optional*, defaults to `True`):
-        Whether to apply layer normalization to the feature maps in case the model is used as backbone.
-    reshape_hidden_states (`bool`, *optional*, defaults to `True`):
-        Whether to reshape the feature maps to 4D tensors of shape `(batch_size, hidden_size, height, width)` in
-        case the model is used as backbone. If `False`, the feature maps will be 3D tensors of shape `(batch_size,
-        seq_len, hidden_size)`.
-    n_cls_tokens (`int`, *optional*, defaults to 8):
-        Number of class tokens in the Transformer encoder.
-
-    Example:
-
-    ```python
-    >>> from transformers import PixioConfig, PixioModel
-
-    >>> # Initializing a Pixio pixio-huge style configuration
-    >>> configuration = PixioConfig()
-
-    >>> # Initializing a model (with random weights) from the pixio-huge style configuration
-    >>> model = PixioModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "pixio"
 
@@ -77,9 +39,6 @@ class PixioPatchEmbeddings(ViTPatchEmbeddings):
 
 
 class PixioEmbeddings(nn.Module):
-    """
-    Construct the CLS tokens, position and patch embeddings.
-    """
 
     def __init__(self, config: PixioConfig) -> None:
         super().__init__()

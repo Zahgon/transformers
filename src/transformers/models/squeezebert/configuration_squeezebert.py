@@ -1,17 +1,3 @@
-# Copyright 2020 The SqueezeBert authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""SqueezeBERT model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,35 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="squeezebert/squeezebert-uncased")
 @strict
 class SqueezeBertConfig(PreTrainedConfig):
-    r"""
-    q_groups (`int`, *optional*, defaults to 4):
-        The number of groups in Q layer.
-    k_groups (`int`, *optional*, defaults to 4):
-        The number of groups in K layer.
-    v_groups (`int`, *optional*, defaults to 4):
-        The number of groups in V layer.
-    post_attention_groups (`int`, *optional*, defaults to 1):
-        The number of groups in the first feed forward network layer.
-    intermediate_groups (`int`, *optional*, defaults to 4):
-        The number of groups in the second feed forward network layer.
-    output_groups (`int`, *optional*, defaults to 4):
-        The number of groups in the third feed forward network layer.
-
-    Examples:
-
-    ```python
-    >>> from transformers import SqueezeBertConfig, SqueezeBertModel
-
-    >>> # Initializing a SqueezeBERT configuration
-    >>> configuration = SqueezeBertConfig()
-
-    >>> # Initializing a model (with random weights) from the configuration above
-    >>> model = SqueezeBertModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "squeezebert"
 

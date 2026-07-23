@@ -1,17 +1,3 @@
-# Copyright 2022 The Salesforce authors, The Open AI Team Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for CodeGen."""
 
 import re
 from typing import TYPE_CHECKING, Union
@@ -35,56 +21,6 @@ VOCAB_FILES_NAMES = {"vocab_file": "vocab.json", "merges_file": "merges.txt"}
 
 
 class CodeGenTokenizer(TokenizersBackend):
-    """
-    Construct a CodeGen tokenizer (backed by HuggingFace's *tokenizers* library). Based on byte-level
-    Byte-Pair-Encoding.
-
-    This tokenizer has been trained to treat spaces like parts of the tokens (a bit like sentencepiece) so a word will
-    be encoded differently whether it is at the beginning of the sentence (without space) or not:
-
-    ```python
-    >>> from transformers import CodeGenTokenizer
-
-    >>> tokenizer = CodeGenTokenizer.from_pretrained("Salesforce/codegen-350M-mono")
-    >>> tokenizer("Hello world")["input_ids"]
-    [15496, 995]
-
-    >>> tokenizer(" Hello world")["input_ids"]
-    [18435, 995]
-    ```
-
-    You can get around that behavior by passing `add_prefix_space=True` when instantiating this tokenizer, but since
-    the model was not pretrained this way, it might yield a decrease in performance.
-
-    <Tip>
-
-    When used with `is_split_into_words=True`, this tokenizer needs to be instantiated with `add_prefix_space=True`.
-
-    </Tip>
-
-    This tokenizer inherits from [`TokenizersBackend`] which contains most of the main methods. Users should
-    refer to this superclass for more information regarding those methods.
-
-    Args:
-        vocab (`str` or `dict[str, int]`, *optional*):
-            Custom vocabulary dictionary. If not provided, vocabulary is loaded from `vocab_file`.
-        merges (`str` or `list[str]`, *optional*):
-            Custom merges list. If not provided, merges are loaded from `merges_file`.
-        unk_token (`str`, *optional*, defaults to `"<|endoftext|>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        bos_token (`str`, *optional*, defaults to `"<|endoftext|>"`):
-            The beginning of sequence token.
-        eos_token (`str`, *optional*, defaults to `"<|endoftext|>"`):
-            The end of sequence token.
-        pad_token (`str`, *optional*):
-            The token used for padding, for example when batching sequences of different lengths.
-        add_prefix_space (`bool`, *optional*, defaults to `False`):
-            Whether or not to add an initial space to the input. This allows to treat the leading word just as any
-            other word. (CodeGen tokenizer detect beginning of words by the preceding space).
-        return_token_type_ids (`bool`, *optional*, defaults to `False`):
-            Whether to return token type IDs.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]

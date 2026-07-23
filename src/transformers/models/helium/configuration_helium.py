@@ -1,17 +1,3 @@
-# Copyright 2024 The Kyutai and HuggingFace Inc. teams. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -24,18 +10,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="kyutai/helium-1-preview")
 @strict
 class HeliumConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import HeliumModel, HeliumConfig
-    >>> # Initializing a Helium 2b style configuration
-    >>> configuration = HeliumConfig()
-    >>> # Initializing a model from the Helium 2b style configuration
-    >>> model = HeliumModel(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "helium"
     keys_to_ignore_at_inference = ["past_key_values"]

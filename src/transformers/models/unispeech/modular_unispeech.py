@@ -1,17 +1,3 @@
-# Copyright 2021 The Fairseq Authors and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch UniSpeech model."""
 
 import math
 from dataclasses import dataclass
@@ -47,19 +33,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class UniSpeechForPreTrainingOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when model is in train mode, `torch.FloatTensor` of shape `(1,)`):
-        Total loss as the sum of the contrastive loss (L_m) and the diversity loss (L_d) as stated in the [official
-        paper](https://huggingface.co/papers/2006.11477).
-    projected_states (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.proj_codevector_dim)`):
-        Hidden-states of the model projected to *config.proj_codevector_dim* that can be used to predict the masked
-        projected quantized states.
-    projected_quantized_states (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.proj_codevector_dim)`):
-        Quantized extracted feature vectors projected to *config.proj_codevector_dim* representing the positive
-        target vectors for contrastive loss.
-    codevector_perplexity (`torch.FloatTensor` of shape `(1,)`):
-        The perplexity of the codevector distribution, used to measure the diversity of the codebook.
-    """
 
     loss: torch.FloatTensor | None = None
     projected_states: torch.FloatTensor | None = None
@@ -99,24 +72,19 @@ class UniSpeechGumbelVectorQuantizer(Wav2Vec2GumbelVectorQuantizer):
     def forward(self, hidden_states):
         batch_size, sequence_length, hidden_size = hidden_states.shape
 
-        # project to codevector dim
         hidden_states = self.weight_proj(hidden_states)
         hidden_states = hidden_states.view(batch_size * sequence_length * self.num_groups, -1)
 
         if self.training:
-            # sample code vector probs via gumbel in differentiateable way
             codevector_probs = nn.functional.gumbel_softmax(
                 hidden_states.float(), tau=self.temperature, hard=True
             ).type_as(hidden_states)
 
-            # compute perplexity
             codevector_soft_dist = torch.softmax(
                 hidden_states.view(batch_size * sequence_length, self.num_groups, -1).float(), dim=-1
             )
             perplexity = self._compute_perplexity(codevector_soft_dist)
         else:
-            # take argmax in non-differentiable way
-            # comptute hard codevector distribution (one hot)
             codevector_idx = hidden_states.argmax(dim=-1)
             codevector_probs = hidden_states.new_zeros(*hidden_states.shape).scatter_(
                 -1, codevector_idx.view(-1, 1), 1.0
@@ -126,7 +94,6 @@ class UniSpeechGumbelVectorQuantizer(Wav2Vec2GumbelVectorQuantizer):
             perplexity = self._compute_perplexity(codevector_probs)
 
         codevector_probs = codevector_probs.view(batch_size * sequence_length, -1)
-        # use probs to retrieve codevectors
         codevectors_per_group = codevector_probs.unsqueeze(-1) * self.codevectors
         codevectors = codevectors_per_group.view(batch_size * sequence_length, self.num_groups, self.num_vars, -1)
         codevectors = codevectors.sum(-2).view(batch_size, sequence_length, -1)
@@ -149,7 +116,6 @@ class UniSpeechPreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         """Initialize the weights"""
         super()._init_weights(module)
-        # gumbel softmax requires special init
         if isinstance(module, UniSpeechGumbelVectorQuantizer):
             init.normal_(module.weight_proj.weight, mean=0.0, std=1)
             init.zeros_(module.weight_proj.bias)
@@ -178,8 +144,6 @@ class UniSpeechPreTrainedModel(PreTrainedModel):
         """
 
         def _conv_out_length(input_length, kernel_size, stride):
-            # 1D convolutional layer output length formula taken
-            # from https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html
             return torch.div(input_length - kernel_size, stride, rounding_mode="floor") + 1
 
         for kernel_size, stride in zip(self.config.conv_kernel, self.config.conv_stride):
@@ -188,8 +152,6 @@ class UniSpeechPreTrainedModel(PreTrainedModel):
         return input_lengths
 
     def _get_feature_vector_attention_mask(self, feature_vector_length: int, attention_mask: torch.LongTensor):
-        # Effectively attention_mask.sum(-1), but not inplace to be able to run
-        # on inference mode.
         non_padded_lengths = attention_mask.cumsum(dim=-1)[:, -1]
         output_lengths = self._get_feat_extract_output_lengths(non_padded_lengths).to(torch.long)
         batch_size = attention_mask.shape[0]
@@ -197,7 +159,6 @@ class UniSpeechPreTrainedModel(PreTrainedModel):
         attention_mask = torch.zeros(
             (batch_size, feature_vector_length), dtype=attention_mask.dtype, device=attention_mask.device
         )
-        # these two operations makes sure that all values before the output lengths idxs are attended to
         attention_mask[(torch.arange(attention_mask.shape[0], device=attention_mask.device), output_lengths - 1)] = 1
         attention_mask = attention_mask.flip([-1]).cumsum(-1).flip([-1]).bool()
         return attention_mask
@@ -221,7 +182,6 @@ class UniSpeechModel(UniSpeechPreTrainedModel, Wav2Vec2Model):
         else:
             self.encoder = UniSpeechEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def freeze_feature_encoder(self):
@@ -252,7 +212,6 @@ class UniSpeechModel(UniSpeechPreTrainedModel, Wav2Vec2Model):
         extract_features = extract_features.transpose(1, 2)
 
         if attention_mask is not None:
-            # compute reduced attention_mask corresponding to feature vectors
             attention_mask = self._get_feature_vector_attention_mask(extract_features.shape[1], attention_mask)
 
         hidden_states, extract_features = self.feature_projection(extract_features)
@@ -299,21 +258,13 @@ class UniSpeechForPreTraining(UniSpeechPreTrainedModel):
         self.ctc_proj = nn.Linear(config.hidden_size, config.num_ctc_classes)
         self.dropout = nn.Dropout(config.final_dropout)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def set_gumbel_temperature(self, temperature: int):
-        """
-        Set the Gumbel softmax temperature to a given value. Only necessary for training
-        """
-        self.quantizer.temperature = temperature
+        pass
 
     def freeze_feature_encoder(self):
-        """
-        Calling this function will disable the gradient computation for the feature encoder so that its parameter will
-        not be updated during training.
-        """
-        self.unispeech.feature_extractor._freeze_parameters()
+        pass
 
     @staticmethod
     def compute_contrastive_logits(
@@ -331,7 +282,6 @@ class UniSpeechForPreTraining(UniSpeechPreTrainedModel):
         logits = torch.cosine_similarity(predicted_features.float(), target_features.float(), dim=-1)
         logits = logits.type_as(target_features)
 
-        # apply temperature
         logits = logits / temperature
         return logits
 
@@ -368,11 +318,9 @@ class UniSpeechForPreTraining(UniSpeechPreTrainedModel):
         )
         transformer_features = outputs[0]
 
-        # quantize all (unmasked) extracted features and project to final vq dim
         extract_features = self.dropout_features(outputs[1])
         quantized_features, codevector_perplexity = self.quantizer(extract_features)
 
-        # project quantized features twice
         quantized_features = self.project_q(quantized_features.to(self.project_q.weight.dtype))
         quantized_features = self.project_hid(quantized_features)
 
@@ -387,11 +335,9 @@ class UniSpeechForPreTraining(UniSpeechPreTrainedModel):
             quantized_features.masked_fill(~sampled_replace_matrix, 0.0)
         )
 
-        # project to ctc units
         logits = self.dropout(logits)
         logits = self.ctc_proj(logits)
 
-        # TODO(PVP) - add negative sampling & loss computation
         loss = None
         if not return_dict:
             if loss is not None:

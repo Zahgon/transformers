@@ -1,21 +1,3 @@
-# Copyright 2026 OpenBMB and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Video processor for MiniCPM-V 4.6.
-
-MiniCPM-V treats video as a sequence of images: frames are extracted and
-optionally sub-second frames are stacked into composite images.
-"""
 
 import math
 from functools import partial
@@ -48,27 +30,6 @@ def ensure_divide(length: int, divisor: int) -> int:
 
 
 class MiniCPMV4_6VideoProcessorKwargs(VideosKwargs, total=False):
-    r"""
-    max_num_frames (`int`, *optional*, defaults to 128):
-        Maximum number of main frames to sample per video.
-    stack_frames (`int`, *optional*, defaults to 1):
-        Sub-frames per second to stack.  ``1`` disables stacking.
-    max_slice_nums (`int`, *optional*, defaults to 9):
-        Maximum number of slices when splitting a high-resolution image.
-    scale_resolution (`int`, *optional*, defaults to 448):
-        Target resolution for individual slices.
-    patch_size (`int`, *optional*, defaults to 14):
-        Spatial patch size of the vision encoder.
-    slice_mode (`bool`, *optional*, defaults to `True`):
-        Whether to split images into multiple slices for higher resolution.
-    downsample_mode (`str`, *optional*, defaults to `"16x"`):
-        Visual token downsampling mode. `"16x"` applies full merge; `"4x"` keeps
-        4x more tokens.
-    use_image_id (`bool`, *optional*, defaults to `True`):
-        Whether to prepend an image-id tag (``<image_id>N</image_id>``) before
-        each image placeholder. Consumed by the Processor for placeholder
-        generation, not by the image processing pipeline itself.
-    """
 
     max_num_frames: int
     stack_frames: int
@@ -108,68 +69,13 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
         super().__init__(**kwargs)
 
     def _validate_preprocess_kwargs(self, **kwargs):
-        # Drop `do_resize`, model resizes based on auto-inferred size at run-time
         kwargs.pop("do_resize")
         super()._validate_preprocess_kwargs(**kwargs)
 
     def sample_frames(
         self, metadata: VideoMetadata, max_num_frames: int | None = None, stack_frames: int | None = None, **kwargs
     ):
-        """
-        Args:
-            metadata (`VideoMetadata`):
-                Metadata of the video containing information about total duration, fps and total number of frames.
-            max_num_frames (`int`, *optional*):
-                The maximum number of frames that can be sampled.
-            stack_frames (`int`, *optional*):
-                Sub-frames per second to stack. Value of `1` disables stacking.
-        Returns:
-            np.ndarray:
-                Indices to sample video frames.
-        """
-        if metadata is None or metadata.duration is None or metadata.fps is None:
-            raise ValueError(
-                "MiniCPMV4_6 requires complete video metadata with `duration` and `fps` to sample frames. "
-                "Please pass a complete `VideoMetadata` object or set `do_sample_frames=False`."
-            )
-
-        max_num_frames = max_num_frames if max_num_frames is not None else self.max_num_frames
-        stack_frames = stack_frames if stack_frames is not None else self.stack_frames
-        total_num_frames, avg_fps = metadata.total_num_frames, metadata.fps
-        duration = metadata.duration
-
-        num_seconds = math.ceil(duration)
-
-        is_video_long = duration > max_num_frames
-        if is_video_long:
-            timestamps = [round(i * 0.1, 1) for i in range(int(duration / 0.1))]
-            main_indices = [min(int(ts * avg_fps), total_num_frames - 1) for ts in timestamps]
-            # Sample frames to keep the total length at `max_num_frames`
-            if len(main_indices) > max_num_frames:
-                sampling_idxs = np.linspace(0, len(main_indices) - 1, max_num_frames, dtype=int)
-                main_indices = [main_indices[i] for i in sampling_idxs]
-        else:
-            main_indices = [int(i * avg_fps) for i in range(num_seconds)]
-
-        indices_total = main_indices
-
-        if stack_frames and stack_frames > 1:
-            sub_timestamps = []
-            for sec in range(num_seconds):
-                for j in range(1, stack_frames):
-                    timestamp = sec + j / stack_frames
-                    if timestamp < duration:
-                        sub_timestamps.append(timestamp)
-            sub_indices = [min(int(timestamp * avg_fps), total_num_frames - 1) for timestamp in sub_timestamps]
-
-            max_num_frames_stack = max_num_frames * (stack_frames - 1)
-            if len(sub_indices) > max_num_frames_stack:
-                # Sample frames to keep the total length at `max_num_frames`
-                sampling_idxs = np.linspace(0, len(sub_indices) - 1, max_num_frames_stack, dtype=int)
-                sub_indices = [sub_indices[i] for i in sampling_idxs]
-            indices_total += sub_indices
-
-        return indices_total
+        pass
 
     def concat_frames_as_image(self, video: torch.Tensor) -> torch.Tensor:
         """
@@ -201,7 +107,6 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
         else:
             rows, cols = 1, num_frames
 
-        # Create a big canvas to fit in all time-frames
         canvas_width = cols * width + (cols - 1) * line_width
         canvas_height = rows * height + (rows - 1) * line_width
         canvas = torch.zeros((1, channels, canvas_height, canvas_width), dtype=torch.uint8)
@@ -227,7 +132,6 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
             aspect_ratio = width / height
             height = int(scale_resolution / math.sqrt(aspect_ratio))
             width = int(height * aspect_ratio)
-        # factor 4 = two successive 2×2 spatial merges (ViT insert merger + downsample MLP)
         best_height = ensure_divide(height, patch_size * 4)
         best_width = ensure_divide(width, patch_size * 4)
         return best_height, best_width
@@ -284,7 +188,6 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
         "Reshape ``[B, T, C, H, W]`` into NaViT patchified format ``[B, T, C, patch_size, H*W/patch_size]``."
         batch, time, num_channels, height, width = videos.shape
 
-        # merge B and T so unfold sees 4D (B*T, C, H, W)
         videos = videos.reshape(batch * time, num_channels, height, width)
         patches = torch.nn.functional.unfold(videos, (patch_size, patch_size), stride=(patch_size, patch_size))
 
@@ -307,11 +210,8 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
             valid_processor_keys=list(self.valid_kwargs.__annotations__.keys()) + ["return_tensors"],
         )
 
-        # Perform type validation on received kwargs
         validate_typed_dict(self.valid_kwargs, kwargs)
 
-        # Set default kwargs from self. This ensures that if a kwarg is not provided
-        # by the user, it gets its default value from the instance, or is set to None.
         for kwarg_name in self.valid_kwargs.__annotations__:
             kwargs.setdefault(kwarg_name, getattr(self, kwarg_name, None))
 
@@ -336,11 +236,9 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
         kwargs = self._standardize_kwargs(**kwargs)
         self._validate_preprocess_kwargs(**kwargs)
 
-        # Pop kwargs that are not needed in _preprocess
         kwargs.pop("data_format")
         return_metadata = kwargs.pop("return_metadata")
 
-        # Diff from base class, pass on `video_metadata` to infer subframes vs main frames
         preprocessed_videos = self._preprocess(videos=videos, video_metadata=video_metadata, **kwargs)
         if return_metadata:
             preprocessed_videos["video_metadata"] = video_metadata
@@ -362,13 +260,11 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
         if slice_mode:
             best_grid = self.get_sliced_grid(video_size, max_slice_nums, scale_resolution)
 
-        # Always resize the source
         new_height, new_width = self.find_best_resize(
             video_size, scale_resolution, patch_size, allow_upscale=(best_grid is None)
         )
         source_videos = self.resize(video, size=SizeDict(height=new_height, width=new_width), resample=resample)
 
-        # Collect all patches: [source, *slices]
         patches = [source_videos]
         if best_grid is not None:
             refine_height, refine_width = self.get_refine_size(
@@ -383,23 +279,17 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
             refine_videos = divide_to_patches(refine_videos, (patch_height, patch_width))
             patches.extend(refine_videos)
 
-        # Reorder from `all_sources+all_patches` to represent each video as `source+patch`
         patches_grouped_by_batch = [
             [patches[patch][batch] for patch in range(len(patches))] for batch in range(len(video))
         ]
 
-        # MiniCPM needs to process each video as a single frame instead of processing all together
-        # So each video is represented as `source-frame, patch-frame, patch-frame, [...], source-frame, patch-frame, [...]`
         interleaved_frames = []
         for sublist in patches_grouped_by_batch:
-            # Split all tensors into frames: each becomes T x (1, 3, H, W)
             all_frames = [patch.unsqueeze(1).unbind(0) for patch in sublist]
-            # Interleave: for each timestep, yield source then all patch frames
             interleaved_frames.append([frame for t in zip(*all_frames) for frame in t])
 
         grid = best_grid if best_grid is not None else (0, 0)
         num_patches = (grid[0] * grid[1]) + 1
-        # Expand by batch size per each video
         num_patches = [[num_patches] * num_frames] * len(video)
         grids = [[grid] * num_frames] * len(video)
         return interleaved_frames, grids, num_patches
@@ -425,10 +315,6 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
         return_tensors: str | TensorType | None = None,
         **kwargs,
     ) -> BatchFeature:
-        # Stage 1 — Build an ordered list of visual units.
-        # Each unit is a [1, C, H, W] tensor representing either a single main
-        # frame or a per-second composite of sub-frames.  When stack_frames > 1
-        # the units are interleaved: [main_0, comp_0, main_1, comp_1, …]
         visual_units: list[torch.Tensor] = []
         num_frames_per_video: list[int] = []
         for video, metadata in zip(videos, video_metadata):
@@ -439,7 +325,6 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
                 duration = metadata.duration
                 num_seconds = math.ceil(duration)
 
-                # Reconstruct sub_timestamps (same logic as sample_frames)
                 sub_timestamps: list[float] = []
                 for sec in range(num_seconds):
                     for j in range(1, stack_frames):
@@ -447,7 +332,6 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
                         if timestamp < duration:
                             sub_timestamps.append(timestamp)
 
-                # Apply the same downsampling that sample_frames would have applied
                 max_num_frames_stack = max_num_frames * (stack_frames - 1)
                 if len(sub_timestamps) > max_num_frames_stack:
                     sampling_idxs = np.linspace(0, len(sub_timestamps) - 1, max_num_frames_stack, dtype=int)
@@ -459,7 +343,6 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
                 else:
                     main_video, sub_video = video, video[:0]
 
-                # Group sub-frames by second (matching _group_stacked_by_second)
                 composites_by_sec: list[torch.Tensor | None] = []
                 cursor = 0
                 for sec in range(num_seconds):
@@ -471,7 +354,6 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
                     else:
                         composites_by_sec.append(None)
 
-                # Interleave: pair i-th main frame with i-th second's composite
                 for i in range(len(main_video)):
                     visual_units.append(main_video[i : i + 1])
                     if i < len(composites_by_sec) and composites_by_sec[i] is not None:
@@ -481,7 +363,6 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
                     visual_units.append(video[i : i + 1])
             num_frames_per_video.append(len(visual_units) - units_before)
 
-        # Stage 2 — Resize, split, normalise and reshape each unit independently.
         grouped_videos, grouped_videos_index = group_videos_by_shape(videos)
         resized_videos_grouped = {}
         videos_grids = {}
@@ -505,19 +386,15 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
             videos_grids[shape] = grids
             processed_num_patches_per_frame[shape] = num_patches
 
-        # Regroup back and flatten list
         resized_videos = reorder_videos(resized_videos_grouped, grouped_videos_index)
         resized_videos = [patch for patch_list in resized_videos for patch in patch_list]
         videos_grids = reorder_videos(videos_grids, grouped_videos_index)
         num_patches_per_frame = reorder_videos(processed_num_patches_per_frame, grouped_videos_index)
 
-        # Group videos by size for further processing
-        # Needed in case do_resize is False, or resize returns videos with different sizes
         grouped_videos, grouped_videos_index = group_videos_by_shape(resized_videos)
         processed_videos_grouped = {}
         processed_video_sizes = {}
         for shape, stacked_videos in grouped_videos.items():
-            # Fused rescale and normalize
             stacked_videos = self.rescale_and_normalize(
                 stacked_videos, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -531,7 +408,6 @@ class MiniCPMV4_6VideoProcessor(BaseVideoProcessor):
         processed_videos = reorder_videos(processed_videos_grouped, grouped_videos_index)
         video_sizes = reorder_videos(processed_video_sizes, grouped_videos_index)
 
-        # Stage 3 — Flatten into NaViT-packed format.
         pixel_values = torch.cat(processed_videos, dim=-1).unsqueeze(0)
         target_sizes = torch.tensor(video_sizes, dtype=torch.int32).reshape(-1, 2)
         videos_grids = torch.tensor(videos_grids, dtype=torch.int32).reshape(-1, 2)

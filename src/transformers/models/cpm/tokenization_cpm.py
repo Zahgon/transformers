@@ -1,17 +1,3 @@
-# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes."""
 
 import os
 import unicodedata
@@ -32,7 +18,6 @@ VOCAB_FILES_NAMES = {"vocab_file": "spiece.model"}
 
 @requires(backends=("sentencepiece",))
 class CpmTokenizer(PreTrainedTokenizer):
-    """Runs pre-tokenization with Jieba-RS segmentation tool. It is used in CPM models."""
 
     vocab_files_names = VOCAB_FILES_NAMES
 
@@ -114,7 +99,6 @@ class CpmTokenizer(PreTrainedTokenizer):
             sp_model (`SentencePieceProcessor`):
                 The *SentencePiece* processor that is used for every conversion (string, tokens and IDs).
         """
-        # Mask token behave like a normal word, i.e. include the space before it
         mask_token = AddedToken(mask_token, lstrip=True, rstrip=False) if isinstance(mask_token, str) else mask_token
 
         self.sp_model_kwargs = {} if sp_model_kwargs is None else sp_model_kwargs
@@ -157,7 +141,7 @@ class CpmTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        return len(self.sp_model)
+        pass
 
     def get_vocab(self):
         vocab = {self.convert_ids_to_tokens(i): i for i in range(self.vocab_size)}
@@ -172,7 +156,6 @@ class CpmTokenizer(PreTrainedTokenizer):
     def __setstate__(self, d):
         self.__dict__ = d
 
-        # for backward compatibility
         if not hasattr(self, "sp_model_kwargs"):
             self.sp_model_kwargs = {}
 

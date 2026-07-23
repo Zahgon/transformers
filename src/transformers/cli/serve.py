@@ -1,19 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-CLI entry point for `transformers serve`.
-"""
 
 import asyncio
 import enum
@@ -42,7 +26,6 @@ class Serve:
     def __init__(
         self,
         force_model: Annotated[str | None, typer.Argument(help="Model to preload and use for all requests.")] = None,
-        # Model options
         continuous_batching: Annotated[
             bool,
             typer.Option(help="Enable continuous batching with paged attention. Configure with --cb-* flags."),
@@ -79,7 +62,6 @@ class Serve:
         model_timeout: Annotated[
             int, typer.Option(help="Seconds before idle model is unloaded. Ignored when force_model is set.")
         ] = 300,
-        # Continuous batching tuning
         cb_block_size: Annotated[
             int | None, typer.Option(help="KV cache block size in tokens for continuous batching.")
         ] = None,
@@ -95,7 +77,6 @@ class Serve:
         cb_use_cuda_graph: Annotated[
             bool | None, typer.Option(help="Enable CUDA graphs for continuous batching.")
         ] = None,
-        # Server options
         host: Annotated[str, typer.Option(help="Server listen address.")] = "localhost",
         port: Annotated[int, typer.Option(help="Server listen port.")] = 8000,
         enable_cors: Annotated[bool, typer.Option(help="Enable permissive CORS.")] = False,
@@ -118,11 +99,9 @@ class Serve:
         from .serving.transcription import TranscriptionHandler
         from .serving.utils import GenerationState
 
-        # Seed
         if default_seed is not None:
             set_torch_seed(default_seed)
 
-        # Logging
         transformers_logger = logging.get_logger("transformers")
         transformers_logger.setLevel(logging.log_levels[log_level.lower()])
 
@@ -206,24 +185,16 @@ class Serve:
 
     def start_server(self):
         def _run():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.server.serve())
+            pass
 
         self._thread = threading.Thread(target=_run, name="uvicorn-thread", daemon=False)
         self._thread.start()
 
     def reset_loaded_models(self):
-        """Clear all loaded models from memory."""
-        self._model_manager.shutdown()
+        pass
 
     def kill_server(self):
-        self._generation_state.shutdown()
-        self._model_manager.shutdown()
-        if not self._thread or not self._thread.is_alive():
-            return
-        self.server.should_exit = True
-        self._thread.join(timeout=2)
+        pass
 
 
 Serve.__doc__ = """

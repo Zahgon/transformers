@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert GLPN checkpoints."""
 
 import argparse
 from collections import OrderedDict
@@ -37,13 +23,11 @@ def rename_keys(state_dict):
         if key.startswith("module.decoder"):
             key = key.replace("module.decoder", "decoder.stages")
         if "patch_embed" in key:
-            # replace for example patch_embed1 by patch_embeddings.0
             idx = key[key.find("patch_embed") + len("patch_embed")]
             key = key.replace(f"patch_embed{idx}", f"patch_embeddings.{int(idx) - 1}")
         if "norm" in key:
             key = key.replace("norm", "layer_norm")
         if "glpn.encoder.layer_norm" in key:
-            # replace for example layer_norm1 by layer_norm.0
             idx = key[key.find("glpn.encoder.layer_norm") + len("glpn.encoder.layer_norm")]
             key = key.replace(f"layer_norm{idx}", f"layer_norm.{int(idx) - 1}")
         if "layer_norm1" in key:
@@ -51,7 +35,6 @@ def rename_keys(state_dict):
         if "layer_norm2" in key:
             key = key.replace("layer_norm2", "layer_norm_2")
         if "block" in key:
-            # replace for example block1 by block.0
             idx = key[key.find("block") + len("block")]
             key = key.replace(f"block{idx}", f"block.{int(idx) - 1}")
         if "attn.q" in key:
@@ -70,7 +53,6 @@ def rename_keys(state_dict):
             key = key.replace("linear_fuse.conv", "linear_fuse")
             key = key.replace("linear_fuse.bn", "batch_norm")
         if "linear_c" in key:
-            # replace for example linear_c4 by linear_c.3
             idx = key[key.find("linear_c") + len("linear_c")]
             key = key.replace(f"linear_c{idx}", f"linear_c.{int(idx) - 1}")
         if "bot_conv" in key:
@@ -95,24 +77,9 @@ def rename_keys(state_dict):
 
 
 def read_in_k_v(state_dict, config):
-    # for each of the encoder blocks:
-    for i in range(config.num_encoder_blocks):
-        for j in range(config.depths[i]):
-            # read in weights + bias of keys and values (which is a single matrix in the original implementation)
-            kv_weight = state_dict.pop(f"glpn.encoder.block.{i}.{j}.attention.self.kv.weight")
-            kv_bias = state_dict.pop(f"glpn.encoder.block.{i}.{j}.attention.self.kv.bias")
-            # next, add keys and values (in that order) to the state dict
-            state_dict[f"glpn.encoder.block.{i}.{j}.attention.self.key.weight"] = kv_weight[
-                : config.hidden_sizes[i], :
-            ]
-            state_dict[f"glpn.encoder.block.{i}.{j}.attention.self.key.bias"] = kv_bias[: config.hidden_sizes[i]]
-            state_dict[f"glpn.encoder.block.{i}.{j}.attention.self.value.weight"] = kv_weight[
-                config.hidden_sizes[i] :, :
-            ]
-            state_dict[f"glpn.encoder.block.{i}.{j}.attention.self.value.bias"] = kv_bias[config.hidden_sizes[i] :]
+    pass
 
 
-# We will verify our results on a COCO image
 def prepare_img():
     url = "http://images.cocodataset.org/val2017/000000039769.jpg"
     with httpx.stream("GET", url) as response:
@@ -123,64 +90,7 @@ def prepare_img():
 
 @torch.no_grad()
 def convert_glpn_checkpoint(checkpoint_path, pytorch_dump_folder_path, push_to_hub=False, model_name=None):
-    """
-    Copy/paste/tweak model's weights to our GLPN structure.
-    """
-
-    # load GLPN configuration (Segformer-B4 size)
-    config = GLPNConfig(hidden_sizes=[64, 128, 320, 512], decoder_hidden_size=64, depths=[3, 8, 27, 3])
-
-    # load image processor (only resize + rescale)
-    image_processor = GLPNImageProcessor()
-
-    # prepare image
-    image = prepare_img()
-    pixel_values = image_processor(images=image, return_tensors="pt").pixel_values
-
-    logger.info("Converting model...")
-
-    # load original state dict
-    state_dict = torch.load(checkpoint_path, map_location=torch.device("cpu"), weights_only=True)
-
-    # rename keys
-    state_dict = rename_keys(state_dict)
-
-    # key and value matrices need special treatment
-    read_in_k_v(state_dict, config)
-
-    # create HuggingFace model and load state dict
-    model = GLPNForDepthEstimation(config)
-    model.load_state_dict(state_dict)
-    model.eval()
-
-    # forward pass
-    outputs = model(pixel_values)
-    predicted_depth = outputs.predicted_depth
-
-    # verify output
-    if model_name is not None:
-        if "nyu" in model_name:
-            expected_slice = torch.tensor(
-                [[4.4147, 4.0873, 4.0673], [3.7890, 3.2881, 3.1525], [3.7674, 3.5423, 3.4913]]
-            )
-        elif "kitti" in model_name:
-            expected_slice = torch.tensor(
-                [[3.4291, 2.7865, 2.5151], [3.2841, 2.7021, 2.3502], [3.1147, 2.4625, 2.2481]]
-            )
-        else:
-            raise ValueError(f"Unknown model name: {model_name}")
-
-        expected_shape = torch.Size([1, 480, 640])
-
-        assert predicted_depth.shape == expected_shape
-        assert torch.allclose(predicted_depth[0, :3, :3], expected_slice, atol=1e-4)
-        print("Looks ok!")
-
-    # finally, push to hub if required
-    if push_to_hub:
-        logger.info("Pushing model and image processor to the hub...")
-        model.push_to_hub(repo_id=f"nielsr/{model_name}")
-        image_processor.push_to_hub(repo_id=f"nielsr/{model_name}")
+    pass
 
 
 if __name__ == "__main__":

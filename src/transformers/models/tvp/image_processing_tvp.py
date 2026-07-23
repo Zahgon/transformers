@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for TVP."""
 
 import torch
 from torchvision.transforms.v2 import functional as tvF
@@ -32,14 +18,6 @@ from ...utils import TensorType, auto_docstring
 
 
 class TvpImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    do_flip_channel_order (`bool`, *optional*, defaults to `self.do_flip_channel_order`):
-        Whether to flip the channel order of the image from RGB to BGR.
-    constant_values (`float` or `List[float]`, *optional*, defaults to `self.constant_values`):
-        Value used to fill the padding area when `pad_mode` is `'constant'`.
-    pad_mode (`str`, *optional*, defaults to `self.pad_mode`):
-        Padding mode to use — `'constant'`, `'edge'`, `'reflect'`, or `'symmetric'`.
-    """
 
     do_flip_channel_order: bool
     constant_values: float | list[float] | None
@@ -125,12 +103,9 @@ class TvpImageProcessor(TorchvisionBackend):
             `torch.Tensor`: The resized image.
         """
 
-        # Handle longest_edge case (TVP-specific)
         if size.longest_edge:
-            # Get current dimensions
             current_height, current_width = image.shape[-2:]
 
-            # Calculate new dimensions maintaining aspect ratio
             if current_height >= current_width:
                 ratio = current_width * 1.0 / current_height
                 new_height = size.longest_edge
@@ -144,7 +119,6 @@ class TvpImageProcessor(TorchvisionBackend):
                 image, SizeDict(height=new_height, width=new_width), resample=resample, antialias=antialias
             )
 
-        # Use base class resize method for other cases
         return super().resize(image, size, resample=resample, antialias=antialias, **kwargs)
 
     def _flip_channel_order(self, frames: "torch.Tensor") -> "torch.Tensor":
@@ -160,7 +134,6 @@ class TvpImageProcessor(TorchvisionBackend):
         - Channel 1: Green
         - Channel 2: Red (originally Blue)
         """
-        # Assuming frames are in channels_first format (..., C, H, W)
         frames = frames.flip(-3)
 
         return frames
@@ -198,25 +171,20 @@ class TvpImageProcessor(TorchvisionBackend):
         )
         processed_images_grouped = {}
         for shape, stacked_frames in grouped_images.items():
-            # Resize if needed
             if do_resize:
                 stacked_frames = self.resize(stacked_frames, size, resample)
 
-            # Center crop if needed
             if do_center_crop:
                 stacked_frames = self.center_crop(stacked_frames, crop_size)
 
-            # Rescale and normalize using fused method for consistency
             stacked_frames = self.rescale_and_normalize(
                 stacked_frames, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
 
-            # Pad if needed
             if do_pad:
                 stacked_frames = self.pad(stacked_frames, pad_size, fill_value=constant_values, pad_mode=pad_mode)
                 stacked_frames = torch.stack(stacked_frames, dim=0)
 
-            # Flip channel order if needed (RGB to BGR)
             if do_flip_channel_order:
                 stacked_frames = self._flip_channel_order(stacked_frames)
 

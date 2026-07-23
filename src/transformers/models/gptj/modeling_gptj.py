@@ -1,17 +1,3 @@
-# Copyright 2021 The EleutherAI and HuggingFace Teams. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch GPT-J model."""
 
 import math
 
@@ -51,7 +37,7 @@ def create_sinusoidal_positions(num_pos: int, dim: int) -> torch.Tensor:
 
 
 def get_embed_positions(embed_positions, position_ids):
-    return embed_positions.to(position_ids.device).repeat(position_ids.shape[0], 1, 1)
+    pass
 
 
 def rotate_every_two(x: torch.Tensor) -> torch.Tensor:
@@ -140,7 +126,6 @@ class GPTJAttention(nn.Module):
         value,
         attention_mask=None,
     ):
-        # Keep the attention weights computation in fp32 to avoid overflow issues
         query = query.to(torch.float32)
         key = key.to(torch.float32)
 
@@ -215,7 +200,6 @@ class GPTJAttention(nn.Module):
         if layer_past is not None:
             key, value = layer_past.update(key, value, self.layer_idx)
 
-        # compute self-attention: V x Softmax(QK^T)
         attn_output, attn_weights = self._attn(query, key, value, attention_mask)
 
         attn_output = self._merge_heads(attn_output, self.num_attention_heads, self.head_dim)
@@ -226,18 +210,10 @@ class GPTJAttention(nn.Module):
 
 
 class GPTJFlashAttention2(GPTJAttention):
-    """
-    GPTJ flash attention module. This module inherits from `GPTJAttention` as the weights of the module stays
-    untouched. The only required change would be on the forward pass where it needs to correctly call the public API of
-    flash attention and deal with padding tokens in case the input contains any of them.
-    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # TODO: Should be removed once Flash Attention for RoCm is bumped to 2.1.
-        # flash_attn<2.1 generates top-left aligned causal mask, while what is needed here is bottom-right alignment, that was made default for flash_attn>=2.1. This attribute is used to handle this difference. Reference: https://github.com/Dao-AILab/flash-attention/releases/tag/v2.1.0.
-        # Beware that with flash_attn<2.1, using q_seqlen != k_seqlen (except for the case q_seqlen == 1) produces a wrong mask (top-left).
         self._flash_attn_uses_top_left_mask = flash_attn_supports_top_left_mask()
 
     def forward(
@@ -284,36 +260,22 @@ class GPTJFlashAttention2(GPTJAttention):
             key = apply_rotary_pos_emb(key, sin, cos)
             query = apply_rotary_pos_emb(query, sin, cos)
 
-        # tanspose to have the desired shape
-        # before transpose: batch_size x seq_length x num_attention_heads x head_dim
-        # after transpose: batch_size x num_attention_heads x seq_length x head_dim
         key = key.permute(0, 2, 1, 3)
         query = query.permute(0, 2, 1, 3)
-        # value: batch_size x num_attention_heads x seq_length x head_dim
 
         if layer_past is not None:
             key, value = layer_past.update(key, value, self.layer_idx)
 
-        # The Flash attention requires the input to have the shape
-        # batch_size x seq_length x head_dim x hidden_dim
-        # therefore we need to keep the original shape for query and key, and reshape value
-        # to have the correct shape.
         key = key.permute(0, 2, 1, 3).contiguous()
         query = query.permute(0, 2, 1, 3).contiguous()
         value = value.permute(0, 2, 1, 3).contiguous()
 
-        # In PEFT, usually we cast the layer norms in float32 for training stability reasons
-        # therefore the input hidden states gets silently casted in float32. Hence, we need
-        # cast them back in the correct dtype just to be sure everything works as expected.
-        # This might slowdown training & inference so it is recommended to not cast the LayerNorms
-        # in fp32. (LlamaRMSNorm handles it correctly)
 
         input_dtype = query.dtype
         device_type = query.device.type if query.device.type != "mps" else "cpu"
         if input_dtype == torch.float32:
             if torch.is_autocast_enabled(device_type):
                 target_dtype = torch.get_autocast_dtype(device_type)
-            # Handle the case where the model is quantized
             elif hasattr(self.config, "_is_quantized"):
                 target_dtype = self.config.dtype
             else:
@@ -333,7 +295,6 @@ class GPTJFlashAttention2(GPTJAttention):
 
         query_length = query.shape[1]
 
-        # Compute attention
         attn_weights = _flash_attention_forward(
             query,
             key,
@@ -345,7 +306,6 @@ class GPTJFlashAttention2(GPTJAttention):
             use_top_left_mask=self._flash_attn_uses_top_left_mask,
         )
 
-        # Reshape outputs
         attn_output = attn_weights.reshape(
             attn_weights.shape[0], attn_weights.shape[1], attn_weights.shape[2] * attn_weights.shape[3]
         )
@@ -443,7 +403,6 @@ class GPTJModel(GPTJPreTrainedModel):
 
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -542,7 +501,6 @@ class GPTJModel(GPTJPreTrainedModel):
         hidden_states = self.ln_f(hidden_states)
 
         hidden_states = hidden_states.view(output_shape)
-        # Add last hidden state
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -572,7 +530,6 @@ class GPTJForCausalLM(GPTJPreTrainedModel, GenerationMixin):
         self.transformer = GPTJModel(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -618,7 +575,6 @@ class GPTJForCausalLM(GPTJPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = transformer_outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -660,7 +616,6 @@ class GPTJForSequenceClassification(GPTJPreTrainedModel):
         self.transformer = GPTJModel(config)
         self.score = nn.Linear(config.n_embd, self.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -716,7 +671,6 @@ class GPTJForSequenceClassification(GPTJPreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)
@@ -773,7 +727,6 @@ class GPTJForQuestionAnswering(GPTJPreTrainedModel):
         self.transformer = GPTJModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -819,12 +772,10 @@ class GPTJForQuestionAnswering(GPTJPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1).to(start_logits.device)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1).to(end_logits.device)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

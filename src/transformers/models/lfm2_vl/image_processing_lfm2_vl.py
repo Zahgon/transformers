@@ -1,16 +1,3 @@
-# Copyright 2025 the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import math
 from functools import lru_cache
 
@@ -69,11 +56,9 @@ def find_closest_aspect_ratio(
         target_aspect_ratio = ratio[0] / ratio[1]
         ratio_diff = abs(aspect_ratio - target_aspect_ratio)
 
-        # update best ratio if we found a closer match
         if ratio_diff < best_ratio_diff:
             best_ratio_diff = ratio_diff
             best_ratio = ratio
-        # if equally close, prefer the ratio that better matches the original image area
         elif ratio_diff == best_ratio_diff:
             target_area = image_size * image_size * ratio[0] * ratio[1]
             if area > 0.5 * target_area:
@@ -82,7 +67,6 @@ def find_closest_aspect_ratio(
     return best_ratio
 
 
-# copied from Siglip2ImageProcessor
 @lru_cache(maxsize=256)
 def get_image_size_for_max_num_patches(
     image_height: int, image_width: int, patch_size: int, max_num_patches: int, eps: float = 1e-5
@@ -112,7 +96,6 @@ def get_image_size_for_max_num_patches(
         scaled_size = max(patch_size, scaled_size)  # ensure at least 1 patch
         return int(scaled_size)
 
-    # Binary search for optimal scale
     scale_min, scale_max = eps / 10, 100.0
     while (scale_max - scale_min) >= eps:
         scale = (scale_min + scale_max) / 2
@@ -164,41 +147,6 @@ def pad_along_first_dim(
 
 
 class Lfm2VlImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    downsample_factor (`int`, *optional*, defaults to `2`):
-        The downsampling factor for images used when resizing the image.
-    do_image_splitting (`bool`, *optional*, defaults to `True`):
-        Whether to split large images into a grid of smaller tiles. When enabled, images exceeding the maximum token
-        limit are divided into multiple tiles based on `min_tiles` and `max_tiles` constraints.
-    min_tiles (`int`, *optional*, defaults to `2`):
-        Minimum number of tiles (width × height) to use when splitting an image into a grid. The grid configuration
-        is chosen to maintain the original aspect ratio while staying within the `min_tiles` and `max_tiles` range.
-    max_tiles (`int`, *optional*, defaults to `10`):
-        Maximum number of tiles (width × height) to use when splitting an image into a grid. The grid configuration
-        is chosen to maintain the original aspect ratio while staying within the `min_tiles` and `max_tiles` range.
-    use_thumbnail (`bool`, *optional*, defaults to `True`):
-        Whether to include a thumbnail version of the image when splitting into tiles. The thumbnail provides a
-        low-resolution overview of the entire image and is added as an additional patch when the grid has more than
-        one tile.
-    min_image_tokens (`int`, *optional*, defaults to `64`):
-        Minimum number of image tokens (patches) to generate for an image. Images smaller than this threshold will
-        be upscaled to meet the minimum token requirement.
-    max_image_tokens (`int`, *optional*, defaults to `256`):
-        Maximum number of image tokens (patches) allowed for a single image. Images exceeding this limit will be
-        split into multiple tiles or downscaled accordingly.
-    encoder_patch_size (`int`, *optional*, defaults to `16`):
-        The patch size used by the vision encoder. Images are divided into patches of this size, and both height
-        and width must be divisible by this value (after accounting for the downsampling factor).
-    tile_size (`int`, *optional*, defaults to `512`):
-        The size of each tile when splitting large images into a grid. Each tile will be resized to this dimension
-        before being processed into patches.
-    max_pixels_tolerance (`float`, *optional*, defaults to `2.0`):
-        Tolerance factor for determining if an image is too large. An image is considered too large if its pixel
-        count exceeds `max_image_tokens * encoder_patch_size^2 * downsample_factor^2 * max_pixels_tolerance`.
-    return_row_col_info (`bool`, *optional*, defaults to `False`):
-        Whether to return row and column information for each image in the batch. When enabled, the output includes
-        `image_rows`, `image_cols`, and `image_sizes` fields indicating the grid layout and dimensions of processed images.
-    """
 
     downsample_factor: int
     do_image_splitting: bool
@@ -271,7 +219,6 @@ class Lfm2VlImageProcessor(TorchvisionBackend):
         aspect_ratio = width / height
         target_ratios = self._target_ratios(min_tiles, max_tiles)
 
-        # find best matching grid configuration
         grid_width, grid_height = find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height, tile_size)
 
         target_width = tile_size * grid_width
@@ -306,12 +253,8 @@ class Lfm2VlImageProcessor(TorchvisionBackend):
             image, SizeDict(height=target_height, width=target_width), resample=resample, antialias=antialias
         )
 
-        # split the image into patches
         processed_images = split_to_tiles(resized_image, num_tiles_height=grid_height, num_tiles_width=grid_width)
 
-        # Re-order processed images to a nested image structure, so it can be reordered back correctly
-        # Note that the images can't be stacked because the thumbnail image is of bigger size than patches
-        # Each image in sublist will be of shape (1, C, H, W)
         processed_images = list(processed_images)
 
         if use_thumbnail and grid_width * grid_height != 1:
@@ -327,7 +270,6 @@ class Lfm2VlImageProcessor(TorchvisionBackend):
 
         return processed_images, grid_width, grid_height
 
-    # Adapted from Qwen-VL with minor differences
     def smart_resize(
         self,
         height: int,
@@ -413,7 +355,6 @@ class Lfm2VlImageProcessor(TorchvisionBackend):
             encoder_patch_size=encoder_patch_size,
         )
 
-        # Big image will be cropped into patches and small images are just resized
         if is_image_large and do_image_splitting:
             images, num_cols, num_rows = self.crop_image_to_patches(
                 images,
@@ -427,7 +368,6 @@ class Lfm2VlImageProcessor(TorchvisionBackend):
         else:
             num_rows = num_cols = 1
             images = super().resize(images, SizeDict(height=new_height, width=new_width), resample=resample)
-            # Make a list and treat it as single crop per image so it can be re-grouped back correctly
             images = [[image] for image in images]
 
         num_rows = [num_rows] * batch_size
@@ -520,7 +460,6 @@ class Lfm2VlImageProcessor(TorchvisionBackend):
         processed_images_grouped = {}
         processed_masks, processed_spatial_shapes = {}, {}
         for shape, stacked_images in grouped_images.items():
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )

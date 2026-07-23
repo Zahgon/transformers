@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert Wav2Vec2Bert BERT checkpoint."""
 
 import argparse
 
@@ -88,7 +74,6 @@ def _convert_model(
             if old_layer_name in new_key:
                 new_key = new_key.replace(old_layer_name, new_layer_name)
 
-        # must do it by hand
         if ".layer_norm" in new_key and new_key.split(".layer_norm")[0][-1].isnumeric():
             new_key = new_key.replace("layer_norm", "final_layer_norm")
 
@@ -127,61 +112,7 @@ def convert_wav2vec2_bert_checkpoint(
     config_path=None,
     repo_id=None,
 ):
-    """
-    Copy/paste/tweak model's weights to transformers design.
-    """
-    if config_path is not None:
-        config = Wav2Vec2BertConfig.from_pretrained(config_path, hidden_act="swish")
-    else:
-        config = Wav2Vec2BertConfig(apply_spec_augment=False)
-
-    hf_wav2vec = Wav2Vec2BertModel(config)
-
-    model = load_conformer_shaw_model(checkpoint_path, dtype=torch.float32)
-    model.eval()
-
-    hf_wav2vec = _convert_model(model, hf_wav2vec, wav2vec_convert_list)
-
-    hf_wav2vec.save_pretrained(pytorch_dump_folder_path)
-
-    if repo_id:
-        hf_wav2vec.push_to_hub(repo_id, create_pr=True)
-
-    # save feature extractor
-    fe = SeamlessM4TFeatureExtractor(padding_value=1)
-    fe.save_pretrained(pytorch_dump_folder_path)
-
-    if repo_id:
-        fe.push_to_hub(repo_id, create_pr=True)
-
-    if args.audio_path:
-        waveform, sample_rate = torchaudio.load(args.audio_path)
-        waveform = torchaudio.functional.resample(waveform, sample_rate, fe.sampling_rate)
-
-        fbank_converter = WaveformToFbankConverter(
-            num_mel_bins=80,
-            waveform_scale=2**15,
-            channel_last=True,
-            standardize=True,
-            dtype=torch.float32,
-        )
-        collater = Collater(pad_value=1)
-
-        decoded_audio = {"waveform": waveform.T, "sample_rate": fe.sampling_rate, "format": -1}
-        src = collater(fbank_converter(decoded_audio))["fbank"]
-        seqs, padding_mask = get_seqs_and_padding_mask(src)
-
-        with torch.inference_mode():
-            seqs, padding_mask = model.encoder_frontend(seqs, padding_mask)
-            original_output, padding_mask = model.encoder(seqs, padding_mask)
-
-        hf_wav2vec.eval()
-
-        inputs = fe(waveform, return_tensors="pt", padding=True)
-        with torch.no_grad():
-            outputs = hf_wav2vec(**inputs)
-
-        torch.testing.assert_close(original_output, outputs.last_hidden_state, rtol=5e-3, atol=5e-3)
+    pass
 
 
 if __name__ == "__main__":

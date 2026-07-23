@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for SAM."""
 
 import math
 from collections.abc import Iterable
@@ -45,13 +31,6 @@ if is_vision_available():
 
 
 class SamImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    mask_size (`dict[str, int]`, *optional*):
-        The size `{"longest_edge": int}` to resize the segmentation maps to.
-    mask_pad_size (`dict[str, int]`, *optional*):
-        The size `{"height": int, "width": int}` to pad the segmentation maps to. Must be larger than any segmentation
-        map size provided for preprocessing.
-    """
 
     mask_size: dict[str, int]
     mask_pad_size: dict[str, int]
@@ -220,7 +199,6 @@ class SamImageProcessor(TorchvisionBackend):
         disable_grouping: bool | None,
         **kwargs,
     ) -> tuple[list["torch.Tensor"], list[tuple[int, int]]]:
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -230,14 +208,11 @@ class SamImageProcessor(TorchvisionBackend):
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
         reshaped_input_sizes = [image.shape[-2:] for image in resized_images]
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_center_crop:
                 stacked_images = self.center_crop(stacked_images, crop_size)
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -293,7 +268,6 @@ class SamImageProcessor(TorchvisionBackend):
             device = torch.device("cpu")
         crop_boxes = crop_boxes.to(device)
         points_per_crop = points_per_crop.to(device)
-        # cropped_images stays as torch.Tensor
         input_labels = input_labels.to(device)
 
         return crop_boxes, points_per_crop, cropped_images, input_labels
@@ -350,7 +324,6 @@ class SamImageProcessor(TorchvisionBackend):
         if pred_iou_thresh > 0.0:
             keep_mask = keep_mask & (iou_scores > pred_iou_thresh)
 
-        # compute stability score
         if stability_score_thresh > 0.0:
             stability_scores = _compute_stability_score(masks, mask_threshold, stability_score_offset)
             keep_mask = keep_mask & (stability_scores > stability_score_thresh)
@@ -358,7 +331,6 @@ class SamImageProcessor(TorchvisionBackend):
         scores = iou_scores[keep_mask]
         masks = masks[keep_mask]
 
-        # binarize masks
         masks = masks > mask_threshold
         converted_boxes = _batched_mask_to_box(masks)
 
@@ -371,7 +343,6 @@ class SamImageProcessor(TorchvisionBackend):
         converted_boxes = converted_boxes[keep_mask]
 
         masks = _pad_masks(masks, cropped_box_image, original_height, original_width)
-        # conversion to rle is necessary to run non-maximum suppression
         masks = _mask_to_rle(masks)
 
         return masks, scores, converted_boxes
@@ -447,8 +418,6 @@ class SamImageProcessor(TorchvisionBackend):
 
 
 def _compute_stability_score(masks: "torch.Tensor", mask_threshold: float, stability_score_offset: int):
-    # One mask is always contained inside the other.
-    # Save memory by preventing unnecessary cast to torch.int64
     intersections = (
         (masks > (mask_threshold + stability_score_offset)).sum(-1, dtype=torch.int16).sum(-1, dtype=torch.int32)
     )
@@ -472,36 +441,29 @@ def _batched_mask_to_box(masks: "torch.Tensor"):
     Args:
         - masks (`torch.Tensor` of shape `(batch, nb_mask, height, width)`)
     """
-    # torch.max below raises an error on empty inputs, just skip in this case
 
     if torch.numel(masks) == 0:
         return torch.zeros(*masks.shape[:-2], 4, device=masks.device)
 
-    # Normalize shape to Cxheightxwidth
     shape = masks.shape
     height, width = shape[-2:]
 
-    # Get top and bottom edges
     in_height, _ = torch.max(masks, dim=-1)
     in_height_coords = in_height * torch.arange(height, device=in_height.device)[None, :]
     bottom_edges, _ = torch.max(in_height_coords, dim=-1)
     in_height_coords = in_height_coords + height * (~in_height)
     top_edges, _ = torch.min(in_height_coords, dim=-1)
 
-    # Get left and right edges
     in_width, _ = torch.max(masks, dim=-2)
     in_width_coords = in_width * torch.arange(width, device=in_width.device)[None, :]
     right_edges, _ = torch.max(in_width_coords, dim=-1)
     in_width_coords = in_width_coords + width * (~in_width)
     left_edges, _ = torch.min(in_width_coords, dim=-1)
 
-    # If the mask is empty the right edge will be to the left of the left edge.
-    # Replace these boxes with [0, 0, 0, 0]
     empty_filter = (right_edges < left_edges) | (bottom_edges < top_edges)
     out = torch.stack([left_edges, top_edges, right_edges, bottom_edges], dim=-1)
     out = out * (~empty_filter).unsqueeze(-1)
 
-    # Return to original shape
     out = out.reshape(*shape[:-2], 4)
     return out
 
@@ -513,7 +475,6 @@ def _is_box_near_crop_edge(boxes, crop_box, orig_box, atol=20.0):
 
     left, top, _, _ = crop_box
     offset = torch.tensor([[left, top, left, top]], device=boxes.device)
-    # Check if boxes has a channel dimension
     if len(boxes.shape) == 3:
         offset = offset.unsqueeze(1)
     boxes = (boxes + offset).float()
@@ -528,7 +489,6 @@ def _pad_masks(masks, crop_box: list[int], orig_height: int, orig_width: int):
     left, top, right, bottom = crop_box
     if left == 0 and top == 0 and right == orig_width and bottom == orig_height:
         return masks
-    # Coordinate transform masks
     pad_x, pad_y = orig_width - (right - left), orig_height - (bottom - top)
     pad = (left, pad_x - left, top, pad_y - top)
     return torch.nn.functional.pad(masks, pad, value=0)
@@ -600,7 +560,6 @@ def _generate_per_layer_crops(crop_n_layers, overlap_ratio, original_size):
     im_height, im_width = original_size
     short_side = min(im_height, im_width)
 
-    # Original image
     crop_boxes.append([0, 0, im_width, im_height])
     layer_idxs.append(0)
     for i_layer in range(crop_n_layers):
@@ -731,21 +690,16 @@ def _mask_to_rle(input_mask: "torch.Tensor"):
     """
     Encodes masks the run-length encoding (RLE), in the format expected by pycoco tools.
     """
-    # Put in fortran order and flatten height and width
     batch_size, height, width = input_mask.shape
     input_mask = input_mask.permute(0, 2, 1).flatten(1)
 
-    # Compute change indices
     diff = input_mask[:, 1:] ^ input_mask[:, :-1]
     change_indices = diff.nonzero()
 
-    # Encode run length
     out = []
     for i in range(batch_size):
         cur_idxs = change_indices[change_indices[:, 0] == i, 1] + 1
         if len(cur_idxs) == 0:
-            # No changes => either all 0 or all 1
-            # If the entire mask is 0, RLE is [height*width] or if the entire mask is 1, RLE is [0, height*width].
             if input_mask[i, 0] == 0:
                 out.append({"size": [height, width], "counts": [height * width]})
             else:

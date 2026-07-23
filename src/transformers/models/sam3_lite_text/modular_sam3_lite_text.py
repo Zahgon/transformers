@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -67,15 +54,6 @@ class Sam3LiteTextMaskDecoderConfig(Sam3MaskDecoderConfig):
 @auto_docstring(checkpoint="yonigozlan/sam3-litetext-s0")
 @strict
 class Sam3LiteTextTextConfig(PreTrainedConfig):
-    r"""
-    use_repmixer_blocks (`bool`, *optional*, defaults to `True`):
-        Whether to use RepMixer blocks (MobileCLIP-style) for the first and last encoder layers.
-        When `False`, all layers are standard Transformer encoder layers.
-    layer_scale_init_value (`float`, *optional*, defaults to `1e-5`):
-        Initial value for the learnable layer-scale parameters in RepMixer blocks (residual branches).
-    repmixer_kernel_size (`int`, *optional*, defaults to `11`):
-        Kernel size for depthwise convolutions in RepMixer blocks (token mixer and convolutional feed-forward path).
-    """
 
     model_type = "sam3_lite_text_text_model"
 
@@ -97,30 +75,6 @@ class Sam3LiteTextTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="yonigozlan/sam3-litetext-s0")
 @strict
 class Sam3LiteTextConfig(PreTrainedConfig):
-    r"""
-    geometry_encoder_config (`dict` or `Sam3LiteTextGeometryEncoderConfig`, *optional*):
-        Configuration for the geometry encoder.
-    detr_encoder_config (`dict` or `Sam3LiteTextDETREncoderConfig`, *optional*):
-        Configuration for the DETR encoder.
-    detr_decoder_config (`dict` or `Sam3LiteTextDETRDecoderConfig`, *optional*):
-        Configuration for the DETR decoder.
-    mask_decoder_config (`dict` or `Sam3LiteTextMaskDecoderConfig`, *optional*):
-        Configuration for the mask decoder.
-
-    Example:
-    ```python
-    >>> from transformers import Sam3LiteTextConfig, Sam3LiteTextModel
-
-    >>> # Initializing a SAM3_LITE_TEXT configuration
-    >>> configuration = Sam3LiteTextConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = Sam3LiteTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "sam3_lite_text"
     sub_configs = {
@@ -176,31 +130,19 @@ class Sam3LiteTextConfig(PreTrainedConfig):
 
     @property
     def image_size(self):
-        """Image size for the SAM3_LITE_TEXT model."""
-        return self.vision_config.image_size
+        pass
 
     @image_size.setter
     def image_size(self, value):
-        """Set the image size and propagate to vision config."""
-        self.vision_config.image_size = value
+        pass
 
 
 @dataclass
 class Sam3LiteTextTextEncoderOutput(BaseModelOutputWithPooling):
-    r"""
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Full sequence of hidden states from the text encoder.
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, projection_dim)`):
-        EOT-pooled output projected to `projection_dim` via the internal CLIP-style projection.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*):
-        Tuple of hidden states at each layer, returned when `output_hidden_states=True`.
-    attentions (`tuple(torch.FloatTensor)`, *optional*):
-        Tuple of attention weights at each transformer layer, returned when `output_attentions=True`.
-    """
+    pass
 
 
 class Sam3LiteTextTextPositionEmbedding(nn.Module):
-    """Learnable positional embedding with bilinear interpolation for variable sequence lengths."""
 
     def __init__(self, max_position_embeddings: int, hidden_size: int):
         super().__init__()
@@ -218,7 +160,6 @@ class Sam3LiteTextTextPositionEmbedding(nn.Module):
 
 
 class Sam3LiteTextMobileOneBlock(nn.Module):
-    """Depthwise conv branch with batch norm on the skip path and after the conv (MobileOne-style)."""
 
     def __init__(self, hidden_size: int, kernel_size: int = 3):
         super().__init__()
@@ -242,7 +183,6 @@ class Sam3LiteTextMobileOneBlock(nn.Module):
 
 
 class Sam3LiteTextConvMLP(SiglipMLP):
-    """Pointwise MLP using 1×1 convolutions, compatible with 4-D (B, C, H, W) feature maps."""
 
     def __init__(self, config: Sam3LiteTextTextConfig):
         nn.Module.__init__(self)
@@ -252,7 +192,6 @@ class Sam3LiteTextConvMLP(SiglipMLP):
 
 
 class Sam3LiteTextConvolutionalFeedForward(nn.Module):
-    """Convolutional feed-forward network: depthwise conv + two pointwise projections."""
 
     def __init__(self, config: Sam3LiteTextTextConfig):
         super().__init__()
@@ -273,7 +212,6 @@ class Sam3LiteTextConvolutionalFeedForward(nn.Module):
 
 
 class Sam3LiteTextLayerScaledResidual(nn.Module):
-    """Common layer-scale residual pattern shared by the RepMixer and feed-forward branches."""
 
     def __init__(self, hidden_size: int, layer_scale_init_value: float):
         super().__init__()
@@ -284,7 +222,6 @@ class Sam3LiteTextLayerScaledResidual(nn.Module):
 
 
 class Sam3LiteTextRepMixer(Sam3LiteTextLayerScaledResidual):
-    """Re-parameterisable depthwise-conv token mixer operating on 1D sequence data."""
 
     def __init__(self, config: Sam3LiteTextTextConfig):
         super().__init__(config.hidden_size, config.layer_scale_init_value)
@@ -298,7 +235,6 @@ class Sam3LiteTextRepMixer(Sam3LiteTextLayerScaledResidual):
 
 
 class Sam3LiteTextRepMixerBlock(Sam3LiteTextLayerScaledResidual):
-    """Token-mixing RepMixer plus a convolutional feed-forward path, each with layer scale."""
 
     def __init__(self, config: Sam3LiteTextTextConfig):
         super().__init__(config.hidden_size, config.layer_scale_init_value)
@@ -333,7 +269,6 @@ class Sam3LiteTextTextEncoderLayer(SiglipEncoderLayer):
 
 
 class Sam3LiteTextTextEmbeddings(nn.Module):
-    """Token embedding + interpolatable positional embedding for the text encoder."""
 
     def __init__(self, config: Sam3LiteTextTextConfig):
         super().__init__()
@@ -419,7 +354,6 @@ class Sam3LiteTextTextModel(Sam3LiteTextPreTrainedModel):
 
 
 class Sam3LiteTextModel(Sam3Model):
-    # DETR components create float masks from features, so flash/flex attention cannot be dispatched safely.
     _supports_flash_attn = False
     _supports_flex_attn = False
 

@@ -1,30 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Vision utility functions for pre-computing very dynamic and
-data-dependent tensors that can break model graph capturing.
-
-All functions are standalone (no model weights) and compute tensors from
-`grid_thw` + config scalars. They are used by vision encoders and can be
-precomputed before `torch.compile` / `torch.export` tracing since they
-use untraceable ops (`repeat_interleave`, `.tolist()`, `nonzero()`, loops).
-
-Each `get_*` accepts an optional `kwargs` dict; if it contains the
-precomputed tensor under the natural key (`"cu_seqlens"`, `"position_ids"`,
-…), the function pops and returns it instead of computing. Vision encoders
-write `x = get_vision_x(..., kwargs=kwargs)` and the matching key is
-removed from the caller's kwargs as a side-effect of the pop.
-"""
 
 from __future__ import annotations
 

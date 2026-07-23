@@ -1,17 +1,3 @@
-# Copyright 2021 ASAPP Inc. and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SEW model."""
 
 import math
 
@@ -116,7 +102,6 @@ class SEWUpsampling(nn.Module):
         hidden_states = self.activation(hidden_states)
 
         if self.squeeze_factor > 1:
-            # transform embedding channels to sequence length
             bsz, src_len, src_embed_dim = hidden_states.size()
             tgt_len = src_len * self.squeeze_factor
             tgt_embed_dim = src_embed_dim // self.squeeze_factor
@@ -168,16 +153,10 @@ class SEWEncoder(nn.Module):
         if attention_mask is not None:
             expand_attention_mask = attention_mask.unsqueeze(-1).repeat(1, 1, hidden_states.shape[2])
             if is_flash_attention_requested(self.config):
-                # make sure padded tokens output 0
                 hidden_states[~expand_attention_mask] = 0.0
-                # 2d mask is passed through the layers
                 attention_mask = attention_mask if (attention_mask is not None and 0 in attention_mask) else None
             else:
-                # make sure padded tokens output 0
                 hidden_states[~expand_attention_mask] = 0.0
-                # Pool the attention mask to match the pooled hidden_states shape.
-                # max_pool1d avoids torch.arange(max_encoder_length) which bakes
-                # the sequence length as a constant during ONNX export.
                 attention_mask = (
                     nn.functional.max_pool1d(
                         attention_mask.float().unsqueeze(1),
@@ -188,8 +167,6 @@ class SEWEncoder(nn.Module):
                     .long()
                 )
 
-                # extend attention_mask — keep {batch,1,1,seq} so the key-seq dimension
-                # stays symbolic during ONNX export (no square seq×seq materialization).
                 attention_mask = 1.0 - attention_mask[:, None, None, :].to(dtype=hidden_states.dtype)
                 attention_mask = attention_mask * torch.finfo(hidden_states.dtype).min
 
@@ -211,12 +188,10 @@ class SEWEncoder(nn.Module):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             dropout_probability = torch.rand([])
 
             skip_the_layer = self.training and dropout_probability < self.config.layerdrop
             if not skip_the_layer or synced_gpus:
-                # under fsdp or deepspeed zero3 all gpus must run in sync
                 layer_outputs = layer(
                     hidden_states, attention_mask=attention_mask, output_attentions=output_attentions
                 )
@@ -285,8 +260,6 @@ class SEWPreTrainedModel(PreTrainedModel):
         """
 
         def _conv_out_length(input_length, kernel_size, stride):
-            # 1D convolutional layer output length formula taken
-            # from https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html
             return torch.div(input_length - kernel_size, stride, rounding_mode="floor") + 1
 
         for kernel_size, stride in zip(self.config.conv_kernel, self.config.conv_stride):
@@ -296,9 +269,6 @@ class SEWPreTrainedModel(PreTrainedModel):
 
     def _get_feature_vector_attention_mask(self, feature_vector_length: int, attention_mask: torch.LongTensor):
         output_lengths = self._get_feat_extract_output_lengths(attention_mask.sum(-1)).to(torch.long)
-        # Build the feature mask via arange broadcast comparison.  This keeps feature_vector_length
-        # as a symbolic SymInt in torch.export / torch.onnx.export (ONNX Range op), avoiding the
-        # data-dependent scatter + cumsum pattern that bakes the length as a constant.
         attention_ids = torch.arange(feature_vector_length, device=attention_mask.device)
         return attention_ids.unsqueeze(0) < output_lengths.unsqueeze(1)
 
@@ -321,10 +291,8 @@ class SEWModel(SEWPreTrainedModel):
 
         self.encoder = SEWEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.wav2vec2.modeling_wav2vec2.Wav2Vec2Model._mask_hidden_states
     def _mask_hidden_states(
         self,
         hidden_states: torch.FloatTensor,
@@ -336,15 +304,12 @@ class SEWModel(SEWPreTrainedModel):
         [SpecAugment](https://huggingface.co/papers/1904.08779).
         """
 
-        # `config.apply_spec_augment` can set masking to False
         if not getattr(self.config, "apply_spec_augment", True):
             return hidden_states
 
-        # generate indices & apply SpecAugment along time axis
         batch_size, sequence_length, hidden_size = hidden_states.size()
 
         if mask_time_indices is not None:
-            # apply SpecAugment along time axis with given mask_time_indices
             hidden_states[mask_time_indices] = self.masked_spec_embed.to(hidden_states.dtype)
         elif self.config.mask_time_prob > 0 and self.training:
             mask_time_indices = _compute_mask_indices(
@@ -358,7 +323,6 @@ class SEWModel(SEWPreTrainedModel):
             hidden_states[mask_time_indices] = self.masked_spec_embed.to(hidden_states.dtype)
 
         if self.config.mask_feature_prob > 0 and self.training:
-            # generate indices & apply SpecAugment along feature axis
             mask_feature_indices = _compute_mask_indices(
                 (batch_size, hidden_size),
                 mask_prob=self.config.mask_feature_prob,
@@ -402,7 +366,6 @@ class SEWModel(SEWPreTrainedModel):
         hidden_states = self.feature_dropout(extract_features)
 
         if attention_mask is not None:
-            # compute reduced attention_mask corresponding to feature vectors
             attention_mask = self._get_feature_vector_attention_mask(hidden_states.shape[1], attention_mask)
 
         hidden_states = self._mask_hidden_states(hidden_states, mask_time_indices=mask_time_indices)

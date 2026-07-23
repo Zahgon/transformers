@@ -1,21 +1,4 @@
-# Copyright 2019-present, the HuggingFace Inc. team, The Google AI Language Team and Facebook, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""
-PyTorch DistilBERT model adapted in part from Facebook, Inc XLM model (https://github.com/facebookresearch/XLM) and in
-part from HuggingFace PyTorch version of Google AI Bert model (https://github.com/google-research/bert)
-"""
 
 from collections.abc import Callable
 
@@ -56,7 +39,6 @@ from .configuration_distilbert import DistilBertConfig
 logger = logging.get_logger(__name__)
 
 
-# UTILS AND BUILDING BLOCKS OF THE ARCHITECTURE #
 
 
 def create_sinusoidal_embeddings(n_pos: int, dim: int, out: torch.Tensor):
@@ -103,9 +85,6 @@ class Embeddings(nn.Module):
         seq_length = inputs_embeds.size(1)
 
         if position_ids is None:
-            # Setting the position-ids to the registered buffer in constructor, it helps
-            # when tracing the model without passing position-ids, solves
-            # issues similar to issue #5664
             if hasattr(self, "position_ids"):
                 position_ids = self.position_ids[:, :seq_length]
             else:
@@ -120,7 +99,6 @@ class Embeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -134,7 +112,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -159,9 +136,7 @@ class DistilBertSelfAttention(nn.Module):
         self.attention_head_size = self.dim // self.n_heads
         self.scaling = self.attention_head_size**-0.5
 
-        # Have an even number of multi heads that divide the dimensions
         if self.dim % self.n_heads != 0:
-            # Raise value errors for even multi-head attention nodes
             raise ValueError(f"self.n_heads: {self.n_heads} must divide self.dim: {self.dim} evenly")
 
         self.q_lin = nn.Linear(in_features=config.dim, out_features=config.dim)
@@ -181,7 +156,6 @@ class DistilBertSelfAttention(nn.Module):
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.attention_head_size)
 
-        # get all proj
         query_layer = self.q_lin(hidden_states).view(*hidden_shape).transpose(1, 2)
         key_layer = self.k_lin(hidden_states).view(*hidden_shape).transpose(1, 2)
         value_layer = self.v_lin(hidden_states).view(*hidden_shape).transpose(1, 2)
@@ -219,18 +193,13 @@ class FFN(nn.Module):
         return apply_chunking_to_forward(self.ff_chunk, self.chunk_size_feed_forward, self.seq_len_dim, input)
 
     def ff_chunk(self, input: torch.Tensor) -> torch.Tensor:
-        x = self.lin1(input)
-        x = self.activation(x)
-        x = self.lin2(x)
-        x = self.dropout(x)
-        return x
+        pass
 
 
 class TransformerBlock(GradientCheckpointingLayer):
     def __init__(self, config: PreTrainedConfig):
         super().__init__()
 
-        # Have an even number of Configure multi-heads
         if config.dim % config.n_heads != 0:
             raise ValueError(f"config.n_heads {config.n_heads} must divide config.dim {config.dim} evenly")
 
@@ -246,7 +215,6 @@ class TransformerBlock(GradientCheckpointingLayer):
         attention_mask: torch.Tensor | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple[torch.Tensor, ...]:
-        # Self-Attention
         attention_output, _ = self.attention(
             hidden_states,
             attention_mask=attention_mask,
@@ -254,7 +222,6 @@ class TransformerBlock(GradientCheckpointingLayer):
         )
         attention_output = self.sa_layer_norm(attention_output + hidden_states)
 
-        # Feed Forward Network
         ffn_output = self.ffn(attention_output)
         ffn_output = self.output_layer_norm(ffn_output + attention_output)
 
@@ -284,7 +251,6 @@ class Transformer(nn.Module):
         return BaseModelOutput(last_hidden_state=hidden_states)
 
 
-# INTERFACE FOR ENCODER AND TASK SPECIFIC MODEL #
 @auto_docstring
 class DistilBertPreTrainedModel(PreTrainedModel):
     config: DistilBertConfig
@@ -324,56 +290,13 @@ class DistilBertModel(DistilBertPreTrainedModel):
         self.embeddings = Embeddings(config)  # Embeddings
         self.transformer = Transformer(config)  # Encoder
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings
-        """
-        return self.embeddings.position_embeddings
+        pass
 
     def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings of the model if `new_num_position_embeddings != config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embedding matrix. If position embeddings are learned, increasing the size
-                will add newly initialized vectors at the end, whereas reducing the size will remove vectors from the
-                end. If position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the
-                size will add correct vectors at the end following the position encoding algorithm, whereas reducing
-                the size will remove vectors from the end.
-        """
-        num_position_embeds_diff = new_num_position_embeddings - self.config.max_position_embeddings
-
-        # no resizing needs to be done if the length stays the same
-        if num_position_embeds_diff == 0:
-            return
-
-        logger.info(f"Setting `config.max_position_embeddings={new_num_position_embeddings}`...")
-        self.config.max_position_embeddings = new_num_position_embeddings
-
-        old_position_embeddings_weight = self.embeddings.position_embeddings.weight.clone()
-
-        self.embeddings.position_embeddings = nn.Embedding(self.config.max_position_embeddings, self.config.dim)
-
-        if self.config.sinusoidal_pos_embds:
-            create_sinusoidal_embeddings(
-                n_pos=self.config.max_position_embeddings, dim=self.config.dim, out=self.position_embeddings.weight
-            )
-        else:
-            with torch.no_grad():
-                if num_position_embeds_diff > 0:
-                    self.embeddings.position_embeddings.weight[:-num_position_embeds_diff] = nn.Parameter(
-                        old_position_embeddings_weight
-                    )
-                else:
-                    self.embeddings.position_embeddings.weight = nn.Parameter(
-                        old_position_embeddings_weight[:num_position_embeds_diff]
-                    )
-        # move position_embeddings to correct device
-        self.embeddings.position_embeddings.to(self.device)
+        pass
 
     def get_input_embeddings(self) -> nn.Embedding:
         return self.embeddings.word_embeddings
@@ -441,30 +364,15 @@ class DistilBertForMaskedLM(DistilBertPreTrainedModel):
         self.vocab_layer_norm = nn.LayerNorm(config.dim, eps=1e-12)
         self.vocab_projector = nn.Linear(config.dim, config.vocab_size)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
         self.mlm_loss_fct = nn.CrossEntropyLoss()
 
     def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings
-        """
-        return self.distilbert.get_position_embeddings()
+        pass
 
     def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings of the model if `new_num_position_embeddings != config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embedding matrix. If position embeddings are learned, increasing the size
-                will add newly initialized vectors at the end, whereas reducing the size will remove vectors from the
-                end. If position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the
-                size will add correct vectors at the end following the position encoding algorithm, whereas reducing
-                the size will remove vectors from the end.
-        """
-        self.distilbert.resize_position_embeddings(new_num_position_embeddings)
+        pass
 
     def get_output_embeddings(self) -> nn.Module:
         return self.vocab_projector
@@ -543,28 +451,13 @@ class DistilBertForSequenceClassification(DistilBertPreTrainedModel):
         self.classifier = nn.Linear(config.dim, config.num_labels)
         self.dropout = nn.Dropout(config.seq_classif_dropout)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings
-        """
-        return self.distilbert.get_position_embeddings()
+        pass
 
     def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings of the model if `new_num_position_embeddings != config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embedding matrix. If position embeddings are learned, increasing the size
-                will add newly initialized vectors at the end, whereas reducing the size will remove vectors from the
-                end. If position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the
-                size will add correct vectors at the end following the position encoding algorithm, whereas reducing
-                the size will remove vectors from the end.
-        """
-        self.distilbert.resize_position_embeddings(new_num_position_embeddings)
+        pass
 
     @can_return_tuple
     @auto_docstring
@@ -641,28 +534,13 @@ class DistilBertForQuestionAnswering(DistilBertPreTrainedModel):
 
         self.dropout = nn.Dropout(config.qa_dropout)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings
-        """
-        return self.distilbert.get_position_embeddings()
+        pass
 
     def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings of the model if `new_num_position_embeddings != config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embedding matrix. If position embeddings are learned, increasing the size
-                will add newly initialized vectors at the end, whereas reducing the size will remove vectors from the
-                end. If position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the
-                size will add correct vectors at the end following the position encoding algorithm, whereas reducing
-                the size will remove vectors from the end.
-        """
-        self.distilbert.resize_position_embeddings(new_num_position_embeddings)
+        pass
 
     @can_return_tuple
     @auto_docstring
@@ -707,12 +585,10 @@ class DistilBertForQuestionAnswering(DistilBertPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)
@@ -741,28 +617,13 @@ class DistilBertForTokenClassification(DistilBertPreTrainedModel):
         self.dropout = nn.Dropout(config.dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings
-        """
-        return self.distilbert.get_position_embeddings()
+        pass
 
     def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings of the model if `new_num_position_embeddings != config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embedding matrix. If position embeddings are learned, increasing the size
-                will add newly initialized vectors at the end, whereas reducing the size will remove vectors from the
-                end. If position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the
-                size will add correct vectors at the end following the position encoding algorithm, whereas reducing
-                the size will remove vectors from the end.
-        """
-        self.distilbert.resize_position_embeddings(new_num_position_embeddings)
+        pass
 
     @can_return_tuple
     @auto_docstring
@@ -816,28 +677,13 @@ class DistilBertForMultipleChoice(DistilBertPreTrainedModel):
         self.classifier = nn.Linear(config.dim, 1)
         self.dropout = nn.Dropout(config.seq_classif_dropout)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings
-        """
-        return self.distilbert.get_position_embeddings()
+        pass
 
     def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings of the model if `new_num_position_embeddings != config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`)
-                The number of new position embeddings. If position embeddings are learned, increasing the size will add
-                newly initialized vectors at the end, whereas reducing the size will remove vectors from the end. If
-                position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the size will
-                add correct vectors at the end following the position encoding algorithm, whereas reducing the size
-                will remove vectors from the end.
-        """
-        self.distilbert.resize_position_embeddings(new_num_position_embeddings)
+        pass
 
     @can_return_tuple
     @auto_docstring

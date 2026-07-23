@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert Wav2Vec2 checkpoint."""
 
 import argparse
 
@@ -93,49 +79,7 @@ def set_recursively(hf_pointer, key, value, full_name, weight_type):
 
 
 def recursively_load_weights_wav2vec2(fairseq_model, hf_model):
-    unused_weights = []
-    fairseq_dict = fairseq_model.state_dict()
-
-    feature_extractor = hf_model.feature_extractor
-    adapter = hf_model.adapter
-
-    for name, value in fairseq_dict.items():
-        is_used = False
-        if "conv_layers" in name:
-            load_conv_layer(
-                name,
-                value,
-                feature_extractor,
-                unused_weights,
-                hf_model.config.feat_extract_norm == "group",
-            )
-            is_used = True
-        elif any(x in name for x in ["adaptor", "w2v_encoder.proj.", "w2v_proj_ln."]):
-            load_adapter(name, value, adapter, unused_weights)
-            is_used = True
-        else:
-            for key, mapped_key in MAPPING.items():
-                if key in name or key.split("w2v_model.")[-1] == name.split(".")[0]:
-                    is_used = True
-                    if "*" in mapped_key:
-                        layer_index = name.split(key)[0].split(".")[-2]
-                        mapped_key = mapped_key.replace("*", layer_index)
-                    if "weight_g" in name:
-                        weight_type = "weight_g"
-                    elif "weight_v" in name:
-                        weight_type = "weight_v"
-                    elif "bias" in name:
-                        weight_type = "bias"
-                    elif "weight" in name:
-                        weight_type = "weight"
-                    else:
-                        weight_type = None
-                    set_recursively(hf_model, mapped_key, value, name, weight_type)
-                continue
-        if not is_used:
-            unused_weights.append(name)
-
-    logger.warning(f"Unused weights: {unused_weights}")
+    pass
 
 
 def load_conv_layer(full_name, value, feature_extractor, unused_weights, use_group_norm):
@@ -189,7 +133,6 @@ def load_adapter(full_name, value, adapter, unused_weights):
 
     if "adaptor" not in full_name:
         if "proj_ln" in full_name:
-            # has to be layer norm
             if "bias" in name:
                 assert value.shape == adapter.proj_layer_norm.bias.data.shape, (
                     f"{full_name} has size {value.shape}, but {adapter.proj_layer_norm.bias.data.shape} was found."
@@ -202,7 +145,6 @@ def load_adapter(full_name, value, adapter, unused_weights):
                 )
                 adapter.proj_layer_norm.weight.data = value
         else:
-            # has to be projection layer
             if "bias" in name:
                 assert value.shape == adapter.proj.bias.data.shape, (
                     f"{full_name} has size {value.shape}, but {adapter.proj.bias.data.shape} was found."
@@ -233,10 +175,7 @@ def load_adapter(full_name, value, adapter, unused_weights):
 
 
 def make_linear_from_emb(emb):
-    vocab_size, emb_size = emb.weight.shape
-    lin_layer = nn.Linear(vocab_size, emb_size, bias=False)
-    lin_layer.weight.data = emb.weight.data
-    return lin_layer
+    pass
 
 
 @torch.no_grad()
@@ -253,67 +192,7 @@ def convert_wav2vec2_checkpoint(
     decoder_start_token_id,
     encoder_output_dim,
 ):
-    """
-    Copy/paste/tweak model's weights to transformers design.
-    """
-    # load configs
-    encoder_config = Wav2Vec2Config.from_pretrained(
-        encoder_config_path,
-        add_adapter=True,
-        adapter_stride=adapter_stride,
-        adapter_kernel_size=adapter_kernel_size,
-        token_token=True,
-        output_hidden_size=encoder_output_dim,
-    )
-    decoder_config = MBartConfig.from_pretrained(decoder_config_path)
-
-    # load model
-    model, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task(
-        [checkpoint_path],
-        arg_overrides={
-            "config_yaml": config_yaml_path,
-            "data": "/".join(dict_path.split("/")[:-1]),
-            "w2v_path": checkpoint_path,
-            "load_pretrained_decoder_from": None,
-        },
-    )
-    model = model[0].eval()
-
-    # load feature extractor
-    feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(encoder_config_path, token_token=True)
-
-    # set weights for wav2vec2 encoder
-    hf_encoder = Wav2Vec2Model(encoder_config)
-
-    recursively_load_weights_wav2vec2(model.encoder, hf_encoder)
-
-    # load decoder weights
-    hf_decoder = MBartForCausalLM(decoder_config)
-    missing_keys, unexpected_keys = hf_decoder.model.decoder.load_state_dict(model.decoder.state_dict(), strict=False)
-    logger.warning(f"The following keys are missing when loading the decoder weights: {missing_keys}")
-    logger.warning(f"The following keys are unexpected when loading the decoder weights: {unexpected_keys}")
-
-    hf_wav2vec = SpeechEncoderDecoderModel(encoder=hf_encoder, decoder=hf_decoder)
-    hf_wav2vec.config.tie_word_embeddings = False
-
-    tokenizer = MBart50Tokenizer(dict_path)
-    tokenizer.save_pretrained(pytorch_dump_folder_path)
-
-    config = hf_wav2vec.config.to_dict()
-    config["pad_token_id"] = tokenizer.pad_token_id
-    config["bos_token_id"] = tokenizer.bos_token_id
-    config["eos_token_id"] = tokenizer.eos_token_id
-    config["tokenizer_class"] = "mbart50"
-    config["feature_extractor_type"] = "wav2vec2"
-
-    config["decoder_start_token_id"] = tokenizer.eos_token_id
-    config["forced_bos_token_id"] = 250004
-    config["forced_eos_token_id"] = tokenizer.eos_token_id
-
-    hf_wav2vec.config = SpeechEncoderDecoderConfig.from_dict(config)
-
-    hf_wav2vec.save_pretrained(pytorch_dump_folder_path)
-    feature_extractor.save_pretrained(pytorch_dump_folder_path)
+    pass
 
 
 if __name__ == "__main__":

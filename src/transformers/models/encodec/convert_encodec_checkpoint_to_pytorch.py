@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert EnCodec checkpoints."""
 
 import argparse
 
@@ -25,10 +11,6 @@ from transformers import (
 )
 
 
-# checkpoints downloaded from:
-# https://dl.fbaipublicfiles.com/encodec/v0/encodec_24khz-d7cc33bc.th
-# https://huggingface.co/facebook/musicgen-small/resolve/main/compression_state_dict.bin
-# https://dl.fbaipublicfiles.com/encodec/v0/encodec_48khz-7e698e3e.th
 
 
 logging.set_verbosity_info()
@@ -226,7 +208,6 @@ def recursively_load_weights(orig_dict, hf_model, model_name):
                     key = suffix
 
             if key in name:
-                # HACK otherwise .embed gets initialized with .embed_avg too
                 if key.endswith("embed") and name.endswith("embed_avg"):
                     continue
 
@@ -326,7 +307,6 @@ def convert_checkpoint(
 
     original_checkpoint = torch.load(checkpoint_path, weights_only=True)
     if "best_state" in original_checkpoint:
-        # we might have a training state saved, in which case discard the yaml results and just retain the weights
         original_checkpoint = original_checkpoint["best_state"]
     recursively_load_weights(original_checkpoint, model, model_name)
     model.save_pretrained(pytorch_dump_folder_path)

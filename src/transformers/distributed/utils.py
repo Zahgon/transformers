@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from __future__ import annotations
 
 import os
@@ -37,9 +24,7 @@ def _is_torch_distributed_initialized() -> bool:
 
 
 def _get_torch_distributed_rank() -> int:
-    if not _is_torch_distributed_initialized():
-        return 0
-    return torch.distributed.get_rank()
+    pass
 
 
 def _get_torch_distributed_world_size() -> int:
@@ -70,9 +55,6 @@ def _ensure_torch_distributed(device_type: str):
             }
             backend = backend_map.get(device_type)
 
-            # Bind the accelerator before init so the process group is created with a
-            # device_id, otherwise collectives like barrier() warn (and may spin up an
-            # extra NCCL comm) about the missing device binding.
             device_id = None
             if device_type != "cpu":
                 getattr(torch, device_type).set_device(local_rank)
@@ -88,19 +70,7 @@ def _ensure_torch_distributed(device_type: str):
 
 
 def _distributed_barrier():
-    """Barrier bound to the current accelerator device.
-
-    Passing `device_ids` is required when the process group was initialized without a
-    `device_id`; with it, the call is a no-op compared to plain `barrier()`. Safe to call
-    when torch.distributed has not been initialized — returns immediately.
-    """
-    if not _is_torch_distributed_initialized():
-        return
-    device_type = torch._C._get_accelerator().type
-    if device_type != "cpu":
-        torch.distributed.barrier(device_ids=[getattr(torch, device_type).current_device()])
-    else:
-        torch.distributed.barrier()
+    pass
 
 
 def initialize_fully_sharded_data_parallelism(distributed_config: DistributedConfig):
@@ -130,9 +100,7 @@ def initialize_fully_sharded_data_parallelism(distributed_config: DistributedCon
         dims.append(fsdp_size)
         names.append("fsdp")
 
-    # Build the N-dimensional device mesh
     mesh = torch.distributed.init_device_mesh(device_type, tuple(dims), mesh_dim_names=tuple(names))
-    # If N > 1, create a flattened sub-mesh so all-reduces across the world mesh ae done in one collective
     if len(dims) > 1:
         mesh._flatten("_".join(names))
 

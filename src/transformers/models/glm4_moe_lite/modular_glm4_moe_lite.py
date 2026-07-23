@@ -1,16 +1,3 @@
-# Copyright 2025 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch.nn as nn
@@ -37,25 +24,6 @@ from ..glm4_moe.modeling_glm4_moe import (
 @auto_docstring(checkpoint="zai-org/GLM-4.5")
 @strict
 class Glm4MoeLiteConfig(PreTrainedConfig):
-    r"""
-    n_group (`int`, *optional*, defaults to 1):
-        Number of groups for routed experts.
-    rope_interleave (`bool`, *optional*, defaults to `True`):
-        Whether to interleave the rotary position embeddings.
-    mlp_layer_types (`list`, *optional*):
-        MLP (Moe vs Dense) pattern for each layer.
-
-    Example:
-
-    ```python
-    >>> from transformers import Glm4MoeLiteModel, Glm4MoeLiteConfig
-
-    >>> # Initializing a Deepseek-V3 style configuration
-    >>> configuration = Glm4MoeLiteConfig()
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "glm4_moe_lite"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -123,7 +91,6 @@ class Glm4MoeLiteConfig(PreTrainedConfig):
     attention_dropout: float | int = 0.0
 
     def __post_init__(self, **kwargs):
-        # Default to MoE from the second layer and on
         if self.mlp_layer_types is None:
             self.mlp_layer_types = ["dense"] + ["sparse"] * (self.num_hidden_layers - 1)
         self.qk_head_dim = self.qk_nope_head_dim + self.qk_rope_head_dim

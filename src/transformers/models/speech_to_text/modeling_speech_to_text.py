@@ -1,17 +1,3 @@
-# Copyright 2021 The Fairseq Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Speech2Text model."""
 
 import math
 from collections.abc import Callable
@@ -48,7 +34,6 @@ from .configuration_speech_to_text import Speech2TextConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.bart.modeling_bart.shift_tokens_right
 def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
     """
     Shift input ids one token to the right.
@@ -59,17 +44,12 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("self.model.config.pad_token_id has to be defined.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
 
 
 class Conv1dSubsampler(nn.Module):
-    """
-    Convolutional subsampler: a stack of 1D convolution (along temporal dimension) followed by non-linear activation
-    via gated linear units (https://huggingface.co/papers/1911.08460)
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -101,7 +81,6 @@ class Conv1dSubsampler(nn.Module):
 
 
 class Speech2TextSinusoidalPositionalEmbedding(nn.Module):
-    """This module produces sinusoidal positional embeddings of any length."""
 
     def __init__(self, num_positions: int, embedding_dim: int, padding_idx: int | None = None):
         super().__init__()
@@ -114,7 +93,6 @@ class Speech2TextSinusoidalPositionalEmbedding(nn.Module):
     def make_weights(self, num_embeddings: int, embedding_dim: int, padding_idx: int | None = None):
         emb_weights = self.get_embedding(num_embeddings, embedding_dim, padding_idx)
         if hasattr(self, "weights"):
-            # in forward put the weights on the correct dtype and device of the param
             emb_weights = emb_weights.to(dtype=self.weights.dtype, device=self.weights.device)
 
         self.register_buffer("weights", emb_weights, persistent=False)
@@ -131,7 +109,6 @@ class Speech2TextSinusoidalPositionalEmbedding(nn.Module):
         emb = torch.arange(num_embeddings, dtype=torch.int64).float().unsqueeze(1) * emb.unsqueeze(0)
         emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_embeddings, -1)
         if embedding_dim % 2 == 1:
-            # zero pad
             emb = torch.cat([emb, torch.zeros(num_embeddings, 1)], dim=1)
         if padding_idx is not None:
             emb[padding_idx, :] = 0
@@ -140,12 +117,10 @@ class Speech2TextSinusoidalPositionalEmbedding(nn.Module):
     @torch.no_grad()
     def forward(self, input_ids: torch.Tensor, past_key_values_length: int = 0):
         bsz, seq_len = input_ids.size()
-        # Create the position ids from the input token ids. Any padded tokens remain padded.
         position_ids = self.create_position_ids_from_input_ids(input_ids, self.padding_idx, past_key_values_length).to(
             input_ids.device
         )
 
-        # expand embeddings if needed
         max_pos = self.padding_idx + 1 + seq_len
         if max_pos > self.weights.size(0):
             self.make_weights(max_pos + self.offset, self.embedding_dim, self.padding_idx)
@@ -163,13 +138,11 @@ class Speech2TextSinusoidalPositionalEmbedding(nn.Module):
             x: torch.Tensor x:
         Returns: torch.Tensor
         """
-        # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
         mask = input_ids.ne(padding_idx).int()
         incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
         return incremental_indices.long() + padding_idx
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -183,7 +156,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -198,9 +170,7 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.musicgen.modeling_musicgen.MusicgenAttention with Musicgen->Speech2Text
 class Speech2TextAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -242,22 +212,16 @@ class Speech2TextAttention(nn.Module):
         past_key_values: Cache | None = None,
         attention_mask: torch.Tensor | None = None,
         output_attentions: bool | None = False,
-        # TODO: we need a refactor so that the different attention modules can get their specific kwargs
-        # ATM, we have mixed things encoder, decoder, and encoder-decoder attn
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        # get query proj
         query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         is_updated = False
@@ -265,7 +229,6 @@ class Speech2TextAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_layer from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -274,7 +237,6 @@ class Speech2TextAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -283,9 +245,7 @@ class Speech2TextAttention(nn.Module):
             value_states = self.v_proj(current_states).view(kv_shape).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all key/value_states to cache to be re-used for fast auto-regressive generation
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -311,7 +271,6 @@ class Speech2TextAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.mbart.modeling_mbart.MBartEncoderLayer with MBart->Speech2Text, MBART->SPEECH_TO_TEXT
 class Speech2TextEncoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: Speech2TextConfig):
         super().__init__()
@@ -368,8 +327,6 @@ class Speech2TextEncoderLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-# copied from transformers.models.mbart.modeling_mbart.MBartDecoderLayer with MBart->Speech2Text, MBART->SPEECH_TO_TEXT
-# TODO: change copy when applying cache class
 class Speech2TextDecoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: Speech2TextConfig, layer_idx=None):
         super().__init__()
@@ -402,7 +359,6 @@ class Speech2TextDecoderLayer(GradientCheckpointingLayer):
         self.fc2 = nn.Linear(config.decoder_ffn_dim, self.embed_dim)
         self.final_layer_norm = nn.LayerNorm(self.embed_dim)
 
-    # Copied from transformers.models.musicgen.modeling_musicgen.MusicgenDecoderLayer.forward
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -427,7 +383,6 @@ class Speech2TextDecoderLayer(GradientCheckpointingLayer):
         residual = hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states,
             past_key_values=past_key_values,
@@ -437,7 +392,6 @@ class Speech2TextDecoderLayer(GradientCheckpointingLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
 
-        # Cross-Attention Block
         if encoder_hidden_states is not None:
             residual = hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
@@ -452,7 +406,6 @@ class Speech2TextDecoderLayer(GradientCheckpointingLayer):
             hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
             hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.activation_fn(self.fc1(hidden_states))
@@ -471,8 +424,6 @@ class Speech2TextPreTrainedModel(PreTrainedModel):
     main_input_name = "input_features"
     input_modalities = ("text", "audio")
     supports_gradient_checkpointing = True
-    # TODO: tests would need a rewrite to check for correct implementation
-    # Current tests always assume certain inputs to be passed
     _supports_flash_attn = False
     _supports_sdpa = False
     _supports_flex_attn = False
@@ -495,8 +446,6 @@ class Speech2TextPreTrainedModel(PreTrainedModel):
         return input_lengths
 
     def _get_feature_vector_attention_mask(self, feature_vector_length, attention_mask):
-        # generate creates 3D attention mask, because of the shape of input_features
-        # convert it to 2D if that's the case
         if len(attention_mask.shape) > 2:
             attention_mask = attention_mask[:, :, -1]
 
@@ -506,22 +455,12 @@ class Speech2TextPreTrainedModel(PreTrainedModel):
             (bsz, feature_vector_length), dtype=attention_mask.dtype, device=attention_mask.device
         )
 
-        # these two operations makes sure that all values
-        # before the output lengths indices are attended to
         attention_mask[(torch.arange(bsz, device=attention_mask.device), subsampled_lengths - 1)] = 1
         attention_mask = attention_mask.flip([-1]).cumsum(-1).flip([-1]).long()
         return attention_mask
 
 
 class Speech2TextEncoder(Speech2TextPreTrainedModel):
-    """
-    Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a
-    [`Speech2TextEncoderLayer`].
-
-    Args:
-        config: Speech2TextConfig
-        embed_tokens (nn.Embedding): output embedding
-    """
 
     _no_split_modules = ["Speech2TextEncoderLayer"]
     _can_record_outputs = {
@@ -551,7 +490,6 @@ class Speech2TextEncoder(Speech2TextPreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -566,7 +504,6 @@ class Speech2TextEncoder(Speech2TextPreTrainedModel):
         inputs_embeds = self.conv(input_features)
         inputs_embeds = self.embed_scale * inputs_embeds
 
-        # subsample attention mask if necessary
         if attention_mask is not None:
             attention_mask = self._get_feature_vector_attention_mask(inputs_embeds.shape[1], attention_mask)
             padding_mask = attention_mask.ne(1).long()
@@ -585,7 +522,6 @@ class Speech2TextEncoder(Speech2TextPreTrainedModel):
         )
 
         for idx, encoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -607,13 +543,6 @@ class Speech2TextEncoder(Speech2TextPreTrainedModel):
 
 
 class Speech2TextDecoder(Speech2TextPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a [`Speech2TextDecoderLayer`]
-
-    Args:
-        config: Speech2TextConfig
-        embed_tokens (nn.Embedding): output embedding
-    """
 
     _can_record_outputs = {
         "hidden_states": Speech2TextDecoderLayer,
@@ -644,7 +573,6 @@ class Speech2TextDecoder(Speech2TextPreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -685,14 +613,12 @@ class Speech2TextDecoder(Speech2TextPreTrainedModel):
             encoder_hidden_states=encoder_hidden_states,
         )
 
-        # embed positions
         positions = self.embed_positions(input_ids, past_key_values_length=past_key_values_length)
 
         hidden_states = inputs_embeds + positions
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if self.training:
                 dropout_probability = torch.rand([])
                 if dropout_probability < self.layerdrop:
@@ -724,7 +650,6 @@ class Speech2TextModel(Speech2TextPreTrainedModel):
         self.encoder = Speech2TextEncoder(config)
         self.decoder = Speech2TextDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -794,7 +719,6 @@ class Speech2TextModel(Speech2TextPreTrainedModel):
                 attention_mask=attention_mask,
                 **kwargs,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput
         elif not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -802,7 +726,6 @@ class Speech2TextModel(Speech2TextPreTrainedModel):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        # downsample encoder attention mask
         if attention_mask is not None:
             encoder_attention_mask = self._get_feature_vector_attention_mask(
                 encoder_outputs[0].shape[1], attention_mask
@@ -810,7 +733,6 @@ class Speech2TextModel(Speech2TextPreTrainedModel):
         else:
             encoder_attention_mask = None
 
-        # decoder outputs consists of (dec_features, past_key_values, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -849,7 +771,6 @@ class Speech2TextForConditionalGeneration(Speech2TextPreTrainedModel, Generation
         self.model = Speech2TextModel(config)
         self.lm_head = nn.Linear(config.d_model, self.config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults

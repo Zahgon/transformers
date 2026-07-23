@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Gemma3."""
 
 import itertools
 import math
@@ -37,16 +23,6 @@ from ...utils import (
 
 
 class Gemma3ImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    do_pan_and_scan (`bool`, *optional*):
-        Whether to apply `pan_and_scan` to images.
-    pan_and_scan_min_crop_size (`int`, *optional*):
-        Minimum size of each crop in pan and scan.
-    pan_and_scan_max_num_crops (`int`, *optional*):
-        Maximum number of crops per image in pan and scan.
-    pan_and_scan_min_ratio_to_activate (`float`, *optional*):
-        Minimum aspect ratio to activate pan and scan.
-    """
 
     do_pan_and_scan: bool
     pan_and_scan_min_crop_size: int
@@ -102,32 +78,24 @@ class Gemma3ImageProcessor(TorchvisionBackend):
         """
         height, width = images.shape[-2:]
 
-        # Square or landscape image.
         if width >= height:
-            # Only apply PaS if the image is sufficiently exaggerated
             if width / height < pan_and_scan_min_ratio_to_activate:
                 return []
 
-            # Select ideal number of crops close to the image aspect ratio and such that crop_size > min_crop_size.
             num_crops_w = int(math.floor(width / height + 0.5))  # Half round up rounding.
             num_crops_w = min(int(math.floor(width / pan_and_scan_min_crop_size)), num_crops_w)
 
-            # Make sure the number of crops is in range [2, pan_and_scan_max_num_crops].
             num_crops_w = max(2, num_crops_w)
             num_crops_w = min(pan_and_scan_max_num_crops, num_crops_w)
             num_crops_h = 1
 
-        # Portrait image.
         else:
-            # Only apply PaS if the image is sufficiently exaggerated
             if height / width < pan_and_scan_min_ratio_to_activate:
                 return []
 
-            # Select ideal number of crops close to the image aspect ratio and such that crop_size > min_crop_size.
             num_crops_h = int(math.floor(height / width + 0.5))
             num_crops_h = min(int(math.floor(height / pan_and_scan_min_crop_size)), num_crops_h)
 
-            # Make sure the number of crops is in range [2, pan_and_scan_max_num_crops].
             num_crops_h = max(2, num_crops_h)
             num_crops_h = min(pan_and_scan_max_num_crops, num_crops_h)
             num_crops_w = 1
@@ -135,7 +103,6 @@ class Gemma3ImageProcessor(TorchvisionBackend):
         crop_size_w = int(math.ceil(width / num_crops_w))
         crop_size_h = int(math.ceil(height / num_crops_h))
 
-        # Don't apply PaS if crop size is too small.
         if min(crop_size_w, crop_size_h) < pan_and_scan_min_crop_size:
             return []
 
@@ -183,7 +150,6 @@ class Gemma3ImageProcessor(TorchvisionBackend):
         pan_and_scan_min_ratio_to_activate: float | None = None,
         **kwargs,
     ) -> BatchFeature:
-        # Group images by size for batched processing
         processed_images_grouped = {}
         num_crops_grouped = {}
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
@@ -196,9 +162,7 @@ class Gemma3ImageProcessor(TorchvisionBackend):
                     pan_and_scan_max_num_crops=pan_and_scan_max_num_crops,
                     pan_and_scan_min_ratio_to_activate=pan_and_scan_min_ratio_to_activate,
                 )
-                # Add the thumbnails to the image patches
                 stacked_images = [stacked_images] + pas_images
-                # Group images by size for batched resizing (this will typically group thumbnails together and cropped patches together)
                 processed_image_patches_grouped = {}
                 grouped_image_patches, grouped_image_patches_index = group_images_by_shape(
                     stacked_images, disable_grouping=disable_grouping
@@ -211,7 +175,6 @@ class Gemma3ImageProcessor(TorchvisionBackend):
                     )
                     processed_image_patches_grouped[shape] = stacked_image_patches
                 processed_image_patches = reorder_images(processed_image_patches_grouped, grouped_image_patches_index)
-                # Transpose to have the thumbnails with their corresponding patches
                 stacked_images = torch.stack(processed_image_patches, dim=0).transpose(0, 1).contiguous()
             else:
                 num_crops = [0 for _ in stacked_images]
@@ -225,17 +188,13 @@ class Gemma3ImageProcessor(TorchvisionBackend):
             num_crops_grouped[shape_images] = num_crops
             processed_images_grouped[shape_images] = stacked_images
         resized_images = reorder_images(processed_images_grouped, grouped_images_index)
-        # If pan and scan is enabled, we need to flatten the list of images
         if do_pan_and_scan:
             resized_images = [image for images_list in resized_images for image in images_list]
         num_crops = reorder_images(num_crops_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )

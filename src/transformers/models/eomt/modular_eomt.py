@@ -1,17 +1,3 @@
-# Copyright 2025 Mobile Perception Systems Lab at TU/e and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch EoMT model."""
 
 import math
 from dataclasses import dataclass
@@ -52,46 +38,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="tue-mps/coco_panoptic_eomt_large_640")
 @strict
 class EomtConfig(ViTConfig):
-    r"""
-    layerscale_value (`float`, *optional*, defaults to 1.0):
-        Initial value for the LayerScale parameter.
-    num_upscale_blocks (`int`, *optional*, defaults to 2):
-        Number of upsampling blocks used in the decoder or segmentation head.
-    use_swiglu_ffn (`bool`, *optional*, defaults to `False`):
-        Whether to use the SwiGLU feedforward neural network.
-    num_blocks (`int`, *optional*, defaults to 4):
-        Number of feature blocks or stages in the architecture.
-    no_object_weight (`float`, *optional*, defaults to 0.1):
-        Loss weight for the 'no object' class in panoptic/instance segmentation.
-    class_weight (`float`, *optional*, defaults to 2.0):
-        Loss weight for classification targets.
-    mask_weight (`float`, *optional*, defaults to 5.0):
-        Loss weight for mask prediction.
-    train_num_points (`int`, *optional*, defaults to 12544):
-        Number of points to sample for mask loss computation during training.
-    oversample_ratio (`float`, *optional*, defaults to 3.0):
-        Oversampling ratio used in point sampling for mask training.
-    importance_sample_ratio (`float`, *optional*, defaults to 0.75):
-        Ratio of points to sample based on importance during training.
-    num_queries (`int`, *optional*, defaults to 200):
-        Number of object queries in the Transformer.
-    num_register_tokens (`int`, *optional*, defaults to 4):
-        Number of learnable register tokens added to the transformer input.
-
-    Example:
-
-    ```python
-    >>> from transformers import EomtConfig, EomtForUniversalSegmentation
-
-    >>> # Initialize configuration
-    >>> config = EomtConfig()
-
-    >>> # Initialize model
-    >>> model = EomtForUniversalSegmentation(config)
-
-    >>> # Access config
-    >>> config = model.config
-    ```"""
 
     model_type = "eomt"
 
@@ -145,26 +91,6 @@ class EomtConfig(ViTConfig):
 )
 @dataclass
 class EomtForUniversalSegmentationOutput(ModelOutput):
-    r"""
-    loss (`torch.Tensor`, *optional*):
-        The computed loss, returned when labels are present.
-    class_queries_logits (`torch.FloatTensor`):
-        A tensor of shape `(batch_size, num_queries, num_labels + 1)` representing the proposed classes for each
-        query. Note the `+ 1` is needed because we incorporate the null class.
-    masks_queries_logits (`torch.FloatTensor`):
-        A tensor of shape `(batch_size, num_queries, height, width)` representing the proposed masks for each
-        query.
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
-        Last hidden states (final feature map) of the last layer.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, sequence_length, hidden_size)`. Hidden-states all layers of the model.
-    attentions (`tuple(tuple(torch.FloatTensor))`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `tuple(torch.FloatTensor)` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Self and Cross Attentions weights from transformer decoder.
-    patch_offsets (`list[torch.Tensor]`, *optional*):
-        list of tuples indicating the image index and start and end positions of patches for semantic segmentation.
-    """
 
     loss: torch.FloatTensor | None = None
     class_queries_logits: torch.FloatTensor | None = None
@@ -237,15 +163,12 @@ class EomtLayer(Dinov2Layer):
         self_attention_output, _ = self.attention(hidden_states_norm, attention_mask)
         self_attention_output = self.layer_scale1(self_attention_output)
 
-        # first residual connection
         hidden_states = self.drop_path(self_attention_output) + hidden_states
 
-        # in Eomt, layernorm is also applied after self-attention
         layer_output = self.norm2(hidden_states)
         layer_output = self.mlp(layer_output)
         layer_output = self.layer_scale2(layer_output)
 
-        # second residual connection
         layer_output = self.drop_path(layer_output) + hidden_states
 
         return layer_output
@@ -318,10 +241,6 @@ class EomtMaskHead(nn.Module):
 
 @auto_docstring
 class EomtPreTrainedModel(PreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
 
     config: EomtConfig
     base_model_prefix = "eomt"
@@ -347,7 +266,6 @@ class EomtPreTrainedModel(PreTrainedModel):
                 init.uniform_(module.bias, -bound, bound)
         elif isinstance(module, nn.Embedding):
             init.normal_(module.weight, mean=0.0, std=1)
-            # Here we need the check explicitly, as we slice the weight in the `zeros_` call, so it looses the flag
             if module.padding_idx is not None and not getattr(module.weight, "_is_hf_initialized", False):
                 init.zeros_(module.weight[module.padding_idx])
         elif isinstance(module, EomtLayerScale):
@@ -424,10 +342,8 @@ class EomtForUniversalSegmentation(Mask2FormerForUniversalSegmentation):
     @staticmethod
     def _disable_attention_mask(attn_mask, prob, num_query_tokens, encoder_start_tokens, device):
         if prob < 1:
-            # Generate random queries to disable based on the probs
             random_queries = torch.rand(attn_mask.shape[0], num_query_tokens, device=device) > prob
 
-            # Disable attention to the query tokens, considering the prefix tokens
             attn_mask[:, :num_query_tokens, encoder_start_tokens:][random_queries] = 1
 
         return attn_mask
@@ -491,10 +407,8 @@ class EomtForUniversalSegmentation(Mask2FormerForUniversalSegmentation):
                 num_query_tokens = self.config.num_queries
                 encoder_start_tokens = num_query_tokens + self.embeddings.num_prefix_tokens
 
-                # Set attention mask for queries to focus on encoder tokens based on interpolated logits
                 attention_mask[:, :num_query_tokens, encoder_start_tokens:] = interpolated_logits > 0
 
-                # Disable attention mask for random query tokens.
                 attention_mask = self._disable_attention_mask(
                     attention_mask,
                     prob=self.attn_mask_probs[idx - self.num_hidden_layers + self.config.num_blocks],
@@ -503,7 +417,6 @@ class EomtForUniversalSegmentation(Mask2FormerForUniversalSegmentation):
                     device=attention_mask.device,
                 )
 
-                # Expand attention mask to 4d mask.
                 attention_mask = attention_mask[:, None, ...].expand(-1, self.config.num_attention_heads, -1, -1)
                 attention_mask = attention_mask.float().masked_fill(~attention_mask, -1e9)
 

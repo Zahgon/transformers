@@ -1,17 +1,3 @@
-# Copyright 2024 IDEA Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch DAB-DETR model."""
 
 import math
 from dataclasses import dataclass
@@ -37,7 +23,6 @@ from .configuration_dab_detr import DabDetrConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.conditional_detr.modeling_conditional_detr.encode_sinusoidal_position_embedding
 def encode_sinusoidal_position_embedding(
     pos_tensor: torch.Tensor,
     num_pos_feats: int = 128,
@@ -83,15 +68,7 @@ def encode_sinusoidal_position_embedding(
     """
 )
 @dataclass
-# Copied from transformers.models.conditional_detr.modeling_conditional_detr.ConditionalDetrDecoderOutput with ConditionalDetr->DabDetr,Conditional DETR->DAB-DETR,2 (anchor points)->4 (anchor points)
 class DabDetrDecoderOutput(BaseModelOutputWithCrossAttentions):
-    r"""
-    intermediate_hidden_states (`torch.FloatTensor` of shape `(config.decoder_layers, batch_size, num_queries, hidden_size)`, *optional*, returned when `config.auxiliary_loss=True`):
-        Intermediate decoder activations, i.e. the output of each decoder layer, each of them gone through a
-        layernorm.
-    reference_points (`torch.FloatTensor` of shape `(config.decoder_layers, batch_size, num_queries, 2 (anchor points))`):
-        Reference points (reference points of each layer of the decoder).
-    """
 
     intermediate_hidden_states: torch.FloatTensor | None = None
     reference_points: tuple[torch.FloatTensor] | None = None
@@ -106,15 +83,7 @@ class DabDetrDecoderOutput(BaseModelOutputWithCrossAttentions):
     """
 )
 @dataclass
-# Copied from transformers.models.conditional_detr.modeling_conditional_detr.ConditionalDetrModelOutput with ConditionalDetr->DabDetr,Conditional DETR->DAB-DETR,2 (anchor points)->4 (anchor points)
 class DabDetrModelOutput(Seq2SeqModelOutput):
-    r"""
-    intermediate_hidden_states (`torch.FloatTensor` of shape `(config.decoder_layers, batch_size, sequence_length, hidden_size)`, *optional*, returned when `config.auxiliary_loss=True`):
-        Intermediate decoder activations, i.e. the output of each decoder layer, each of them gone through a
-        layernorm.
-    reference_points (`torch.FloatTensor` of shape `(config.decoder_layers, batch_size, num_queries, 2 (anchor points))`):
-        Reference points (reference points of each layer of the decoder).
-    """
 
     intermediate_hidden_states: torch.FloatTensor | None = None
     reference_points: tuple[torch.FloatTensor] | None = None
@@ -126,29 +95,7 @@ class DabDetrModelOutput(Seq2SeqModelOutput):
     """
 )
 @dataclass
-# Copied from transformers.models.detr.modeling_detr.DetrObjectDetectionOutput with Detr->DabDetr
 class DabDetrObjectDetectionOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` are provided)):
-        Total loss as a linear combination of a negative log-likelihood (cross-entropy) for class prediction and a
-        bounding box loss. The latter is defined as a linear combination of the L1 loss and the generalized
-        scale-invariant IoU loss.
-    loss_dict (`Dict`, *optional*):
-        A dictionary containing the individual losses. Useful for logging.
-    logits (`torch.FloatTensor` of shape `(batch_size, num_queries, num_classes + 1)`):
-        Classification logits (including no-object) for all queries.
-    pred_boxes (`torch.FloatTensor` of shape `(batch_size, num_queries, 4)`):
-        Normalized boxes coordinates for all queries, represented as (center_x, center_y, width, height). These
-        values are normalized in [0, 1], relative to the size of each individual image in the batch (disregarding
-        possible padding). You can use [`~DabDetrImageProcessor.post_process_object_detection`] to retrieve the
-        unnormalized bounding boxes.
-    auxiliary_outputs (`list[Dict]`, *optional*):
-        Optional, only returned when auxiliary losses are activated (i.e. `config.auxiliary_loss` is set to `True`)
-        and labels are provided. It is a list of dictionaries containing the two above keys (`logits` and
-        `pred_boxes`) for each decoder layer.
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
-        Sequence of hidden-states at the output of the last layer of the decoder of the model.
-    """
 
     loss: torch.FloatTensor | None = None
     loss_dict: dict | None = None
@@ -164,14 +111,7 @@ class DabDetrObjectDetectionOutput(ModelOutput):
     encoder_attentions: tuple[torch.FloatTensor] | None = None
 
 
-# Copied from transformers.models.detr.modeling_detr.DetrFrozenBatchNorm2d with Detr->DabDetr
 class DabDetrFrozenBatchNorm2d(nn.Module):
-    """
-    BatchNorm2d where the batch statistics and the affine parameters are fixed.
-
-    Copy-paste from torchvision.misc.ops with added eps before rqsrt, without which any other models than
-    torchvision.models.resnet[18,34,50,101] produce nans.
-    """
 
     def __init__(self, n):
         super().__init__()
@@ -192,8 +132,6 @@ class DabDetrFrozenBatchNorm2d(nn.Module):
         )
 
     def forward(self, x):
-        # move reshapes to the beginning
-        # to make it user-friendly
         weight = self.weight.reshape(1, -1, 1, 1)
         bias = self.bias.reshape(1, -1, 1, 1)
         running_var = self.running_var.reshape(1, -1, 1, 1)
@@ -204,7 +142,6 @@ class DabDetrFrozenBatchNorm2d(nn.Module):
         return x * scale + bias
 
 
-# Copied from transformers.models.detr.modeling_detr.replace_batch_norm with Detr->DabDetr
 def replace_batch_norm(model):
     r"""
     Recursively replace all `torch.nn.BatchNorm2d` with `DabDetrFrozenBatchNorm2d`.
@@ -229,14 +166,7 @@ def replace_batch_norm(model):
             replace_batch_norm(module)
 
 
-# Modified from transformers.models.detr.modeling_detr.DetrConvEncoder with Detr->DabDetr
 class DabDetrConvEncoder(nn.Module):
-    """
-    Convolutional backbone, using either the AutoBackbone API or one from the timm library.
-
-    nn.BatchNorm2d layers are replaced by DabDetrFrozenBatchNorm2d as defined above.
-
-    """
 
     def __init__(self, config: DabDetrConfig):
         super().__init__()
@@ -244,29 +174,22 @@ class DabDetrConvEncoder(nn.Module):
         self.config = config
         backbone = load_backbone(config)
 
-        # replace batch norm by frozen batch norm
         with torch.no_grad():
             replace_batch_norm(backbone)
         self.model = backbone
         self.intermediate_channel_sizes = self.model.channels
 
     def forward(self, pixel_values: torch.Tensor, pixel_mask: torch.Tensor):
-        # send pixel_values through the model to get list of feature maps
         features = self.model(pixel_values).feature_maps
 
         out = []
         for feature_map in features:
-            # downsample pixel_mask to match shape of corresponding feature_map
             mask = nn.functional.interpolate(pixel_mask[None].float(), size=feature_map.shape[-2:]).to(torch.bool)[0]
             out.append((feature_map, mask))
         return out
 
 
-# TODO: use modular - Copied from transformers.models.detr.modeling_detr.DetrConvModel with Detr->DabDetr
 class DabDetrConvModel(nn.Module):
-    """
-    This module adds 2D position embeddings to all intermediate feature maps of the convolutional encoder.
-    """
 
     def __init__(self, conv_encoder, position_embedding):
         super().__init__()
@@ -274,7 +197,6 @@ class DabDetrConvModel(nn.Module):
         self.position_embedding = position_embedding
 
     def forward(self, pixel_values, pixel_mask):
-        # send pixel_values and pixel_mask through backbone to get list of (feature_map, pixel_mask) tuples
         out = self.conv_encoder(pixel_values, pixel_mask)
         pos = []
         for feature_map, mask in out:
@@ -284,12 +206,7 @@ class DabDetrConvModel(nn.Module):
         return out, pos
 
 
-# Modified from transformers.models.conditional_detr.modeling_conditional_detr.ConditionalDetrSinePositionEmbedding with ConditionalDetr->DabDetr
 class DabDetrSinePositionEmbedding(nn.Module):
-    """
-    This is a more standard version of the position embedding, very similar to the one used by the Attention is all you
-    need paper, generalized to work on images.
-    """
 
     def __init__(self, config: DabDetrConfig):
         super().__init__()
@@ -310,17 +227,13 @@ class DabDetrSinePositionEmbedding(nn.Module):
         y_embed = y_embed / (y_embed[:, -1:, :] + 1e-6) * self.scale
         x_embed = x_embed / (x_embed[:, :, -1:] + 1e-6) * self.scale
 
-        # We use float32 to ensure reproducibility of the original implementation
         dim_tx = torch.arange(self.embedding_dim, dtype=torch.float32, device=pixel_values.device)
-        # Modifying dim_tx in place to avoid extra memory allocation -> dim_tx = self.temperature_width ** (2 * (dim_tx // 2) / self.embedding_dim)
         dim_tx //= 2
         dim_tx.mul_(2 / self.embedding_dim)
         dim_tx.copy_(self.temperature_width**dim_tx)
         pos_x = x_embed[:, :, :, None] / dim_tx
 
-        # We use float32 to ensure reproducibility of the original implementation
         dim_ty = torch.arange(self.embedding_dim, dtype=torch.float32, device=pixel_values.device)
-        # Modifying dim_ty in place to avoid extra memory allocation -> dim_ty = self.temperature_height ** (2 * (dim_ty // 2) / self.embedding_dim)
         dim_ty //= 2
         dim_ty.mul_(2 / self.embedding_dim)
         dim_ty.copy_(self.temperature_height**dim_ty)
@@ -339,13 +252,7 @@ def inverse_sigmoid(x, eps=1e-5):
     return torch.log(x1 / x2)
 
 
-# Modified from transformers.models.detr.modeling_detr.DetrAttention
 class DetrAttention(nn.Module):
-    """
-    Multi-headed attention from 'Attention Is All You Need' paper.
-
-    Here, we add position embeddings to the queries and keys (as explained in the DETR paper).
-    """
 
     def __init__(
         self,
@@ -379,7 +286,6 @@ class DetrAttention(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         """Input shape: Batch x Time x Channel"""
         batch_size, q_len, embed_dim = hidden_states.size()
-        # add position embeddings to the hidden states before projecting to queries and keys
         if object_queries is not None:
             hidden_states_original = hidden_states
             hidden_states = hidden_states + object_queries
@@ -417,14 +323,7 @@ class DetrAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Modified from transformers.models.conditional_detr.modeling_conditional_detr.ConditionalDetrAttention with ConditionalDetr->DABDETR,Conditional DETR->DabDetr
 class DabDetrAttention(nn.Module):
-    """
-    Cross-Attention used in DAB-DETR 'DAB-DETR for Fast Training Convergence' paper.
-
-    The key q_proj, k_proj, v_proj are defined outside the attention. This attention allows the dim of q, k to be
-    different to v.
-    """
 
     def __init__(self, config: DabDetrConfig, bias: bool = True, is_cross: bool = False):
         super().__init__()
@@ -439,7 +338,6 @@ class DabDetrAttention(nn.Module):
                 f"embed_dim must be divisible by num_heads (got `embed_dim`: {self.embed_dim} and `attention_heads`:"
                 f" {self.attention_heads})."
             )
-        # head dimension of values
         self.values_head_dim = self.output_dim // self.attention_heads
         if self.values_head_dim * self.attention_heads != self.output_dim:
             raise ValueError(
@@ -460,7 +358,6 @@ class DabDetrAttention(nn.Module):
 
         batch_size, q_len, _ = hidden_states.size()
 
-        # scaling query and refactor key-, value states
         query_states = hidden_states * self.scaling
         query_states = query_states.view(batch_size, -1, self.attention_heads, self.attention_head_dim).transpose(1, 2)
         key_states = key_states.view(batch_size, -1, self.attention_heads, self.attention_head_dim).transpose(1, 2)
@@ -577,8 +474,6 @@ class DabDetrDecoderLayerCrossAttention(nn.Module):
 
         key_pos = self.cross_attn_key_pos_proj(object_queries)
 
-        # For the first decoder layer, we add the positional embedding predicted from
-        # the object query (the positional embedding) into the original query (key) in DETR.
         if self.is_first or self.keep_query_pos:
             query_pos = self.cross_attn_query_pos_proj(query_position_embeddings)
             query = query_content + query_pos
@@ -601,7 +496,6 @@ class DabDetrDecoderLayerCrossAttention(nn.Module):
         )
         key = torch.cat([key, key_pos], dim=3).view(batch_size, height_width, n_model * 2)
 
-        # Cross-Attention Block
         cross_attn_weights = None
         if encoder_hidden_states is not None:
             residual = hidden_states
@@ -645,7 +539,6 @@ class DabDetrDecoderLayerFFN(nn.Module):
         return hidden_states
 
 
-# Modified from transformers.models.detr.modeling_detr.DetrEncoderLayer with DetrEncoderLayer->DabDetrEncoderLayer,DetrConfig->DabDetrConfig
 class DabDetrEncoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: DabDetrConfig):
         super().__init__()
@@ -707,7 +600,6 @@ class DabDetrEncoderLayer(GradientCheckpointingLayer):
         return outputs
 
 
-# Modified from transformers.models.conditional_detr.modeling_conditional_detr.ConditionalDetrDecoderLayer with ConditionalDetr->DabDetr
 class DabDetrDecoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: DabDetrConfig, is_first: bool = False):
         super().__init__()
@@ -775,15 +667,7 @@ class DabDetrDecoderLayer(GradientCheckpointingLayer):
         return outputs
 
 
-# Modified from transformers.models.detr.modeling_detr.DetrMLPPredictionHead with DetrMLPPredictionHead->DabDetrMLP
 class DabDetrMLP(nn.Module):
-    """
-    Very simple multi-layer perceptron (MLP, also called FFN), used to predict the normalized center coordinates,
-    height and width of a bounding box w.r.t. an image.
-
-    Copied from https://github.com/facebookresearch/detr/blob/master/models/detr.py
-
-    """
 
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
         super().__init__()
@@ -797,7 +681,6 @@ class DabDetrMLP(nn.Module):
         return input_tensor
 
 
-# Modified from transformers.models.detr.modeling_detr.DetrPreTrainedModel with Detr->DabDetr
 @auto_docstring
 class DabDetrPreTrainedModel(PreTrainedModel):
     config: DabDetrConfig
@@ -820,7 +703,6 @@ class DabDetrPreTrainedModel(PreTrainedModel):
             init.constant_(module.bbox_predictor.layers[-1].weight, 0)
             init.constant_(module.bbox_predictor.layers[-1].bias, 0)
 
-            # init prior_prob setting for focal loss
             prior_prob = self.config.initializer_bias_prior_prob or 1 / (self.config.num_labels + 1)
             bias_value = -math.log((1 - prior_prob) / prior_prob)
             init.constant_(module.class_embed.bias, bias_value)
@@ -828,21 +710,7 @@ class DabDetrPreTrainedModel(PreTrainedModel):
             module.reset_parameters()
 
 
-# Modified from transformers.models.detr.modeling_detr.DetrEncoder with Detr->DabDetr,DETR->ConditionalDETR
 class DabDetrEncoder(DabDetrPreTrainedModel):
-    """
-    Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a
-    [`DabDetrEncoderLayer`].
-
-    The encoder updates the flattened feature map through multiple self-attention layers.
-
-    Small tweak for DAB-DETR:
-
-    - object_queries are added to the forward pass.
-
-    Args:
-        config: DabDetrConfig
-    """
 
     def __init__(self, config: DabDetrConfig):
         super().__init__(config)
@@ -853,7 +721,6 @@ class DabDetrEncoder(DabDetrPreTrainedModel):
         self.norm = nn.LayerNorm(config.hidden_size) if config.normalize_before else None
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -911,9 +778,7 @@ class DabDetrEncoder(DabDetrPreTrainedModel):
         for encoder_layer in self.layers:
             if output_hidden_states:
                 encoder_states = encoder_states + (hidden_states,)
-            # pos scaler
             pos_scales = self.query_scale(hidden_states)
-            # we add object_queries * pos_scaler as extra input to the encoder_layer
             scaled_object_queries = object_queries * pos_scales
 
             layer_outputs = encoder_layer(
@@ -941,21 +806,7 @@ class DabDetrEncoder(DabDetrPreTrainedModel):
         )
 
 
-# Modified from transformers.models.conditional_detr.modeling_conditional_detr.ConditionalDetrDecoder with ConditionalDetr->DabDetr,Conditional DETR->DAB-DETR
 class DabDetrDecoder(DabDetrPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a [`DabDetrDecoderLayer`].
-
-    The decoder updates the query embeddings through multiple self-attention and cross-attention layers.
-
-    Some small tweaks for DAB-DETR:
-
-    - object_queries and query_position_embeddings are added to the forward pass.
-    - if self.config.auxiliary_loss is set to True, also returns a stack of activations from all decoding layers.
-
-    Args:
-        config: DabDetrConfig
-    """
 
     def __init__(self, config: DabDetrConfig):
         super().__init__(config)
@@ -967,11 +818,9 @@ class DabDetrDecoder(DabDetrPreTrainedModel):
         self.layers = nn.ModuleList(
             [DabDetrDecoderLayer(config, is_first=(layer_id == 0)) for layer_id in range(config.decoder_layers)]
         )
-        # in DAB-DETR, the decoder uses layernorm after the last decoder layer output
         self.hidden_size = config.hidden_size
         self.layernorm = nn.LayerNorm(self.hidden_size)
 
-        # Default cond-elewise
         self.query_scale = DabDetrMLP(self.hidden_size, self.hidden_size, self.hidden_size, 2)
 
         self.ref_point_head = DabDetrMLP(
@@ -980,10 +829,8 @@ class DabDetrDecoder(DabDetrPreTrainedModel):
 
         self.bbox_embed = None
 
-        # Default decoder_modulate_hw_attn is True
         self.ref_anchor_head = DabDetrMLP(self.hidden_size, self.hidden_size, 2, 2)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -1030,7 +877,6 @@ class DabDetrDecoder(DabDetrPreTrainedModel):
         if inputs_embeds is not None:
             hidden_states = inputs_embeds
 
-        # decoder layers
         all_hidden_states = () if output_hidden_states else None
         all_self_attns = () if output_attentions else None
         all_cross_attentions = () if (output_attentions and encoder_hidden_states is not None) else None
@@ -1039,7 +885,6 @@ class DabDetrDecoder(DabDetrPreTrainedModel):
         reference_points = query_position_embeddings.sigmoid()
         ref_points = [reference_points]
 
-        # expand encoder attention mask
         if encoder_hidden_states is not None and memory_key_padding_mask is not None:
             memory_key_padding_mask = create_bidirectional_mask(
                 config=self.config,
@@ -1056,13 +901,10 @@ class DabDetrDecoder(DabDetrPreTrainedModel):
             query_sine_embed = encode_sinusoidal_position_embedding(obj_center, num_pos_feats=self.hidden_size // 2)
             query_pos = self.ref_point_head(query_sine_embed)
 
-            # For the first decoder layer, we do not apply transformation over p_s
             pos_transformation = 1 if layer_id == 0 else self.query_scale(hidden_states)
 
-            # apply transformation
             query_sine_embed = query_sine_embed[..., : self.hidden_size] * pos_transformation
 
-            # modulated Height Width attentions
             reference_anchor_size = self.ref_anchor_head(hidden_states).sigmoid()  # nq, bs, 2
             query_sine_embed[..., self.hidden_size // 2 :] *= (
                 reference_anchor_size[..., 0] / obj_center[..., 2]
@@ -1082,7 +924,6 @@ class DabDetrDecoder(DabDetrPreTrainedModel):
                 output_attentions=output_attentions,
             )
 
-            # iter update
             hidden_states = layer_outputs[0]
 
             if self.bbox_embed is not None:
@@ -1102,7 +943,6 @@ class DabDetrDecoder(DabDetrPreTrainedModel):
                 if encoder_hidden_states is not None:
                     all_cross_attentions += (layer_outputs[2],)
 
-        # Layer normalization on hidden states
         hidden_states = self.layernorm(hidden_states)
 
         if output_hidden_states:
@@ -1146,7 +986,6 @@ class DabDetrModel(DabDetrPreTrainedModel):
 
         self.auxiliary_loss = config.auxiliary_loss
 
-        # Create backbone + positional encoding
         self.backbone = DabDetrConvEncoder(config)
         object_queries = DabDetrSinePositionEmbedding(config)
 
@@ -1159,7 +998,6 @@ class DabDetrModel(DabDetrPreTrainedModel):
             )
             self.query_refpoint_embeddings.weight.data[:, :2].requires_grad = False
 
-        # Create projection layer
         self.input_projection = nn.Conv2d(
             self.backbone.intermediate_channel_sizes[-1], config.hidden_size, kernel_size=1
         )
@@ -1168,7 +1006,6 @@ class DabDetrModel(DabDetrPreTrainedModel):
         self.encoder = DabDetrEncoder(config)
         self.decoder = DabDetrDecoder(config)
 
-        # decoder related variables
         self.hidden_size = config.hidden_size
         self.num_queries = config.num_queries
 
@@ -1181,16 +1018,13 @@ class DabDetrModel(DabDetrPreTrainedModel):
 
         self.aux_loss = config.auxiliary_loss
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def freeze_backbone(self):
-        for name, param in self.backbone.conv_encoder.model.named_parameters():
-            param.requires_grad_(False)
+        pass
 
     def unfreeze_backbone(self):
-        for name, param in self.backbone.conv_encoder.model.named_parameters():
-            param.requires_grad_(True)
+        pass
 
     @auto_docstring
     def forward(
@@ -1255,12 +1089,8 @@ class DabDetrModel(DabDetrPreTrainedModel):
         if pixel_mask is None:
             pixel_mask = torch.ones(((batch_size, height, width)), device=device)
 
-        # First, sent pixel_values + pixel_mask through Backbone to obtain the features
-        # pixel_values should be of shape (batch_size, num_channels, height, width)
-        # pixel_mask should be of shape (batch_size, height, width)
         features, object_queries_list = self.backbone(pixel_values, pixel_mask)
 
-        # get final feature map and downsampled mask
         feature_map, mask = features[-1]
 
         if mask is None:
@@ -1268,18 +1098,12 @@ class DabDetrModel(DabDetrPreTrainedModel):
 
         flattened_mask = mask.flatten(1)
 
-        # Second, apply 1x1 convolution to reduce the channel dimension to hidden_size (256 by default)
         projected_feature_map = self.input_projection(feature_map)
 
-        # Third, flatten the feature map + object_queries of shape NxCxHxW to HWxNxC, and permute it to NxHWxC
-        # In other words, turn their shape into ( sequence_length, batch_size, hidden_size)
         flattened_features = projected_feature_map.flatten(2).transpose(1, 2)
         object_queries = object_queries_list[-1].flatten(2).transpose(1, 2)
         reference_position_embeddings = self.query_refpoint_embeddings.weight.unsqueeze(0).repeat(batch_size, 1, 1)
 
-        # Fourth, sent flattened_features + flattened_mask + object_queries through encoder
-        # flattened_features is a Tensor of shape (height*width, batch_size, hidden_size)
-        # flattened_mask is a Tensor of shape (batch_size, height*width)
         if encoder_outputs is None:
             encoder_outputs = self.encoder(
                 inputs_embeds=flattened_features,
@@ -1289,7 +1113,6 @@ class DabDetrModel(DabDetrPreTrainedModel):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -1297,7 +1120,6 @@ class DabDetrModel(DabDetrPreTrainedModel):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        # Fifth, sent query embeddings + object_queries through the decoder (which is conditioned on the encoder output)
         num_queries = reference_position_embeddings.shape[1]
         if self.num_patterns == 0:
             queries = torch.zeros(batch_size, num_queries, self.hidden_size, device=device)
@@ -1312,7 +1134,6 @@ class DabDetrModel(DabDetrPreTrainedModel):
                 1, self.num_patterns, 1
             )  # bs, n_q*n_pat,  hidden_size
 
-        # decoder outputs consists of (dec_features, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
             inputs_embeds=queries,
             query_position_embeddings=reference_position_embeddings,
@@ -1325,14 +1146,10 @@ class DabDetrModel(DabDetrPreTrainedModel):
         )
 
         if not return_dict:
-            # last_hidden_state
             output = (decoder_outputs[0],)
             reference_points = decoder_outputs[-1]
             intermediate_hidden_states = decoder_outputs[-2]
 
-            # it has to follow the order of DABDETRModelOutput that is based on ModelOutput
-            # If we only use one of the variables then the indexing will change.
-            # E.g: if we return everything then 'decoder_attentions' is decoder_outputs[2], if we only use output_attentions then its decoder_outputs[1]
             if output_hidden_states and output_attentions:
                 output += (
                     decoder_outputs[1],
@@ -1343,14 +1160,12 @@ class DabDetrModel(DabDetrPreTrainedModel):
                     encoder_outputs[2],
                 )
             elif output_hidden_states:
-                # decoder_hidden_states, encoder_last_hidden_state, encoder_hidden_states
                 output += (
                     decoder_outputs[1],
                     encoder_outputs[0],
                     encoder_outputs[1],
                 )
             elif output_attentions:
-                # decoder_self_attention, decoder_cross_attention, encoder_attentions
                 output += (
                     decoder_outputs[1],
                     decoder_outputs[2],
@@ -1377,9 +1192,7 @@ class DabDetrModel(DabDetrPreTrainedModel):
         )
 
 
-# TODO: use modular - Copied from transformers.models.detr.modeling_detr.DetrMHAttentionMap with Detr->DabDetr
 class DabDetrMHAttentionMap(nn.Module):
-    """This is a 2D attention module, which only returns the attention softmax (no multiplication by value)"""
 
     def __init__(self, query_dim, hidden_dim, num_heads, dropout=0.0, bias=True, std=None):
         super().__init__()
@@ -1413,7 +1226,6 @@ class DabDetrMHAttentionMap(nn.Module):
     """
 )
 class DabDetrForObjectDetection(DabDetrPreTrainedModel):
-    # When using clones, all layers > 0 will be clones, but layer 0 *is* required
     _tied_weights_keys = {"model.decoder.bbox_embed": "bbox_predictor"}
 
     def __init__(self, config: DabDetrConfig):
@@ -1422,24 +1234,18 @@ class DabDetrForObjectDetection(DabDetrPreTrainedModel):
         self.config = config
         self.auxiliary_loss = config.auxiliary_loss
         self.query_dim = config.query_dim
-        # DAB-DETR encoder-decoder model
         self.model = DabDetrModel(config)
 
-        # Object detection heads
         self.class_embed = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Default bbox_embed_diff_each_layer is False
         self.bbox_predictor = DabDetrMLP(config.hidden_size, config.hidden_size, 4, 3)
 
-        # Default iter_update is True
         self.model.decoder.bbox_embed = self.bbox_predictor
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # taken from https://github.com/Atten4Vis/conditionalDETR/blob/master/models/dab_detr.py
     def _set_aux_loss(self, outputs_class, outputs_coord):
-        return [{"logits": a, "pred_boxes": b} for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
+        pass
 
     @auto_docstring
     def forward(
@@ -1512,7 +1318,6 @@ class DabDetrForObjectDetection(DabDetrPreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # First, sent images through DAB_DETR base model to obtain encoder + decoder outputs
         model_outputs = self.model(
             pixel_values,
             pixel_mask=pixel_mask,
@@ -1528,7 +1333,6 @@ class DabDetrForObjectDetection(DabDetrPreTrainedModel):
         reference_points = model_outputs.reference_points if return_dict else model_outputs[-1]
         intermediate_hidden_states = model_outputs.intermediate_hidden_states if return_dict else model_outputs[-2]
 
-        # class logits + predicted bounding boxes
         logits = self.class_embed(intermediate_hidden_states[-1])
 
         reference_before_sigmoid = inverse_sigmoid(reference_points)
@@ -1552,7 +1356,6 @@ class DabDetrForObjectDetection(DabDetrPreTrainedModel):
                 output = (logits, pred_boxes) + auxiliary_outputs + model_outputs
             else:
                 output = (logits, pred_boxes) + model_outputs
-            # Since DabDetrObjectDetectionOutput doesn't have reference points + intermedieate_hidden_states we cut down.
             return ((loss, loss_dict) + output) if loss is not None else output[:-2]
 
         return DabDetrObjectDetectionOutput(

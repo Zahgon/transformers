@@ -1,17 +1,3 @@
-# Copyright (c) 2025 Baidu, Inc. and HuggingFace Inc. team. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Ernie 4.5 model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,29 +9,10 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="baidu/ERNIE-4.5-0.3B-PT")
 @strict
 class Ernie4_5Config(PreTrainedConfig):
-    r"""
-    use_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use a bias in any of the projections including mlp and attention for example.
-
-    Example:
-
-    ```python
-    >>> from transformers import Ernie4_5Model, Ernie4_5Config
-
-    >>> # Initializing a Ernie4_5 0.3B style configuration
-    >>> configuration = Ernie4_5Config()
-
-    >>> # Initializing a model from the 0.3B style configuration
-    >>> model = Ernie4_5Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "ernie4_5"
     keys_to_ignore_at_inference = ["past_key_values"]
     default_theta = 500000.0
-    # Default tensor parallel plan for base model `Ernie4_5Model`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",

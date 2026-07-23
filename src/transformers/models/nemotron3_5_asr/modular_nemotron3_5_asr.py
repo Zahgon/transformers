@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -217,16 +204,7 @@ class Nemotron3_5AsrProcessor(NemotronAsrStreamingProcessor):
         )
 
     def _resolve_prompt_ids(self, language: "str | list[str]", batch_size: int) -> "torch.LongTensor":
-        if isinstance(language, str):
-            language = [language] * batch_size
-        if len(language) != batch_size:
-            raise ValueError(f"Received {len(language)} `language` entries for {batch_size} audio input(s).")
-        prompt_ids = []
-        for lang in language:
-            if lang not in self.prompt_dictionary:
-                raise ValueError(f"Unknown `language={lang!r}`. Supported values: {sorted(self.prompt_dictionary)}.")
-            prompt_ids.append(self.prompt_dictionary[lang])
-        return torch.tensor(prompt_ids, dtype=torch.long)
+        pass
 
     @auto_docstring
     def __call__(
@@ -287,7 +265,6 @@ class Nemotron3_5AsrProcessor(NemotronAsrStreamingProcessor):
             )
 
         if audio is not None:
-            # `center=True` for the first/offline chunk, `center=False` for subsequent streaming chunks.
             inputs = self.feature_extractor(audio, center=bool(is_first_audio_chunk), **output_kwargs["audio_kwargs"])
         if text is not None:
             encodings = self.tokenizer(text, **output_kwargs["text_kwargs"])
@@ -299,8 +276,6 @@ class Nemotron3_5AsrProcessor(NemotronAsrStreamingProcessor):
             return inputs
 
         inputs["labels"] = encodings["input_ids"]
-        # Prepend the blank token to labels to form decoder_input_ids: the RNN-T decoder expects
-        # [blank, label_0, ..., label_{U-1}] as input.
         if isinstance(text, str):
             text = [text]
         decoder_text = [self.blank_token + t for t in text]
@@ -310,20 +285,11 @@ class Nemotron3_5AsrProcessor(NemotronAsrStreamingProcessor):
 
     @property
     def model_input_names(self):
-        feature_extractor_input_names = self.feature_extractor.model_input_names
-        return feature_extractor_input_names + ["labels", "decoder_input_ids", "prompt_ids"]
+        pass
 
 
 @dataclass
 class Nemotron3_5AsrRNNTOutput(BaseModelOutputWithPooling):
-    """
-    encoder_past_key_values (`Cache`, *optional*):
-        Updated encoder attention K/V sliding-window cache, returned when encoding audio with `use_cache=True`
-        (cache-aware streaming). Pass it to the next chunk's forward.
-    padding_cache (`NemotronAsrStreamingEncoderCausalConvPaddingCache`, *optional*):
-        Updated unified streaming conv cache (subsampling Conv2d + conformer depthwise Conv1d), returned when
-        encoding audio with `use_cache=True`. Pass it to the next chunk's forward.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None

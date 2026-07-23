@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -31,10 +18,6 @@ from .configuration_gemma4_assistant import Gemma4AssistantConfig
 @auto_docstring
 @dataclass
 class Gemma4AssistantOutput(BaseModelOutput):
-    r"""
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    """
 
     logits: torch.FloatTensor | None = None
 
@@ -63,20 +46,16 @@ class Gemma4AssistantMaskedEmbedder(nn.Module):
         token_ordering = self.token_ordering.long()
         canonical_positions_per_cluster = token_ordering.view(self.num_centroids, self.vocab_size_per_centroid)
 
-        # For selected top-K clusters, get canonical positions
         selected_canonical = canonical_positions_per_cluster[top_k_indices]  # [B, L, top_k, K]
 
-        # Gather embeddings from lm_head at these canonical positions
         selected_flat = selected_canonical.reshape(-1)  # [B*L*top_k*K]
         selected_embeddings = lm_head_weight[selected_flat].view(
             batch, seq_len, self.centroid_intermediate_top_k * self.vocab_size_per_centroid, self.hidden_size
         )
 
-        # Compute dot products: [B, L, 1, D] @ [B, L, D, top_k*K] -> [B, L, top_k*K]
         selected_logits = (hidden_states.unsqueeze(-2) @ selected_embeddings.transpose(-1, -2)).squeeze(-2)
         mask_value = selected_logits.min().item() - 1.0
 
-        # Scatter logits directly to canonical positions in the output
         output = torch.full(
             (batch, seq_len, self.vocab_size),
             fill_value=mask_value,
@@ -127,7 +106,6 @@ class Gemma4AssistantForCausalLM(Gemma4AssistantPreTrainedModel, GenerationMixin
 
         self.masked_embedding = Gemma4AssistantMaskedEmbedder(config) if self.config.use_ordered_embeddings else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -166,7 +144,6 @@ class Gemma4AssistantForCausalLM(Gemma4AssistantPreTrainedModel, GenerationMixin
         if inputs_embeds is None or shared_kv_states is None:
             raise ValueError("inputs_embeds and shared_kv_states cannot be None.")
 
-        # Main and assistant model can be split in Multi-GPU settings; we ensure device consistency
         source_device = inputs_embeds.device
         target_device = self.pre_projection.weight.device
 
@@ -212,17 +189,13 @@ class Gemma4AssistantForCausalLM(Gemma4AssistantPreTrainedModel, GenerationMixin
                 - To account for position invariant padding, we also flip the base attention mask before initial creation
         """
         config = self.config.get_text_config()
-        # (bsz, num_heads, seq_len, head_dim) -> (bsz, seq_len, head_dim)
         encoder_states_full_attn = shared_kv_states["full_attention"][0][:, 0]
         encoder_states_swa_attn = shared_kv_states["sliding_attention"][0][:, 0]
 
         sliding_attention_mask = attention_mask
         if attention_mask is not None:
-            # Adjust for full mask --> cut mask only for valid kv states
             attention_mask = attention_mask[:, : encoder_states_full_attn.shape[1]]
 
-            # 1. Take the last x entries to account for any potential SWA cutoff (from the main model)
-            # 2. Flip the mask here to stay position invariant (along the original kv); see the flip at the end
             sliding_attention_mask = attention_mask[:, -encoder_states_swa_attn.shape[1] :].flip(dims=(1,))
 
         full_attention_mask = create_bidirectional_mask(
@@ -239,7 +212,6 @@ class Gemma4AssistantForCausalLM(Gemma4AssistantPreTrainedModel, GenerationMixin
         )
 
         if swa_mask is not None:
-            # Reverse the future token perspective to a past tokens perspective by flipping the construct (kv == -1)
             swa_mask = swa_mask.flip(dims=(-1,))
 
         return {"full_attention": full_attention_mask, "sliding_attention": swa_mask}

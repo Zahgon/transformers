@@ -1,17 +1,3 @@
-# Copyright 2025 IBM and the HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections.abc import Callable
 
 import torch
@@ -48,9 +34,6 @@ logger = logging.get_logger(__name__)
 
 
 class GraniteMoeHybridAttention(GraniteMoeSharedAttention):
-    """Hybrid variant that handles ``position_embeddings is None`` — granitemoe-hybrid configs can
-    opt out of RoPE via ``position_embedding_type=None``, in which case the model passes ``None``
-    instead of a ``(cos, sin)`` tuple."""
 
     def forward(
         self,
@@ -119,7 +102,6 @@ class GraniteMoeHybridDecoderLayer(GraniteMoeSharedDecoderLayer):
     def __init__(self, config: GraniteMoeHybridConfig, layer_idx: int):
         super().__init__(config, layer_idx)
         self.shared_mlp = GraniteMoeHybridMLP(config)
-        # Either attention or mamba will be initialized, depending on the layer type.
         self.self_attn = None
         self.mamba = None
 
@@ -129,10 +111,8 @@ class GraniteMoeHybridDecoderLayer(GraniteMoeSharedDecoderLayer):
             self.self_attn = GraniteMoeHybridAttention(config, layer_idx)
         self.block_type = config.layers_block_type[layer_idx]
 
-        # Allow non-MoE (dense)
         self.block_sparse_moe = GraniteMoeHybridMoE(config) if config.num_local_experts > 0 else None
 
-        # Accept 0 experts: skip MoE if num_local_experts == 0
         self.has_experts = getattr(config, "num_local_experts", 0) > 0
 
     @auto_docstring
@@ -234,20 +214,17 @@ class GraniteMoeHybridModel(GraniteMoeSharedModel):
             position_ids = position_ids.unsqueeze(0)
 
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
                 "attention_mask": attention_mask,
                 "past_key_values": past_key_values,
             }
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
                 "linear_attention": create_recurrent_attention_mask(**mask_kwargs),
             }
 
-        # embed positions
         hidden_states = inputs_embeds
         position_embeddings = None
         if self.rotary_emb is not None:
@@ -276,7 +253,6 @@ class GraniteMoeHybridForCausalLM(GraniteMoeSharedForCausalLM):
     def __init__(self, config: GraniteMoeHybridConfig):
         super().__init__(config)
         self.model = GraniteMoeHybridModel(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(self, **super_kwargs):

@@ -1,18 +1,3 @@
-# Copyright 2018 The OpenAI Team Authors and HuggingFace Inc. team.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch OpenAI GPT model."""
 
 import math
 from collections.abc import Callable
@@ -68,12 +53,10 @@ class Attention(nn.Module):
         w = torch.matmul(q, k)
         if self.scale:
             w = w / math.sqrt(v.size(-1))
-        # XD: self.b may be larger than w, so we need to crop it
         b = self.bias[:, :, : w.size(-2), : w.size(-1)]
         w = w * b + -1e4 * (1 - b)
 
         if attention_mask is not None:
-            # Apply the attention mask
             w = w + attention_mask
 
         w = nn.functional.softmax(w, dim=-1)
@@ -155,41 +138,13 @@ class Block(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.xlm.modeling_xlm.XLMSequenceSummary with XLM->OpenAIGPT
 class OpenAIGPTSequenceSummary(nn.Module):
-    r"""
-    Compute a single vector summary of a sequence hidden states.
-
-    Args:
-        config ([`OpenAIGPTConfig`]):
-            The config used by the model. Relevant arguments in the config class of the model are (refer to the actual
-            config class of your model for the default values it uses):
-
-            - **summary_type** (`str`) -- The method to use to make this summary. Accepted values are:
-
-                - `"last"` -- Take the last token hidden state (like XLNet)
-                - `"first"` -- Take the first token hidden state (like Bert)
-                - `"mean"` -- Take the mean of all tokens hidden states
-                - `"cls_index"` -- Supply a Tensor of classification token position (GPT/GPT-2)
-                - `"attn"` -- Not implemented now, use multi-head attention
-
-            - **summary_use_proj** (`bool`) -- Add a projection after the vector extraction.
-            - **summary_proj_to_labels** (`bool`) -- If `True`, the projection outputs to `config.num_labels` classes
-              (otherwise to `config.hidden_size`).
-            - **summary_activation** (`Optional[str]`) -- Set to `"tanh"` to add a tanh activation to the output,
-              another string or `None` will add no activation.
-            - **summary_first_dropout** (`float`) -- Optional dropout probability before the projection and activation.
-            - **summary_last_dropout** (`float`)-- Optional dropout probability after the projection and activation.
-    """
 
     def __init__(self, config: OpenAIGPTConfig):
         super().__init__()
 
         self.summary_type = getattr(config, "summary_type", "last")
         if self.summary_type == "attn":
-            # We should use a standard multi-head attention module with absolute positional embedding for that.
-            # Cf. https://github.com/zihangdai/xlnet/blob/master/modeling.py#L253-L276
-            # We can probably just use the multi-head attention module of PyTorch >=1.1.0
             raise NotImplementedError
 
         self.summary = nn.Identity()
@@ -242,7 +197,6 @@ class OpenAIGPTSequenceSummary(nn.Module):
             else:
                 cls_index = cls_index.unsqueeze(-1).unsqueeze(-1)
                 cls_index = cls_index.expand((-1,) * (cls_index.dim() - 1) + (hidden_states.size(-1),))
-            # shape of cls_index: (bsz, XX, 1, hidden_size) where XX are optional leading dim of hidden_states
             output = hidden_states.gather(-2, cls_index).squeeze(-2)  # shape (bsz, XX, hidden_size)
         elif self.summary_type == "attn":
             raise NotImplementedError
@@ -278,16 +232,6 @@ class OpenAIGPTPreTrainedModel(PreTrainedModel):
 )
 @dataclass
 class OpenAIGPTDoubleHeadsModelOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss.
-    mc_loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `mc_labels` is provided):
-        Multiple choice classification loss.
-    logits (`torch.FloatTensor` of shape `(batch_size, num_choices, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    mc_logits (`torch.FloatTensor` of shape `(batch_size, num_choices)`):
-        Prediction scores of the multiple choice classification head (scores for each choice before SoftMax).
-    """
 
     loss: torch.FloatTensor | None = None
     mc_loss: torch.FloatTensor | None = None
@@ -308,7 +252,6 @@ class OpenAIGPTModel(OpenAIGPTPreTrainedModel):
         self.h = nn.ModuleList([Block(config.n_positions, config, scale=True) for _ in range(config.n_layer)])
 
         self.register_buffer("position_ids", torch.arange(config.n_positions), persistent=False)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -348,23 +291,11 @@ class OpenAIGPTModel(OpenAIGPTPreTrainedModel):
             raise ValueError("You have to specify either input_ids or inputs_embeds")
 
         if position_ids is None:
-            # Code is different from when we had a single embedding matrix  from position and token embeddings
             position_ids = self.position_ids[None, : input_shape[-1]]
 
-        # Attention mask.
         if attention_mask is not None:
-            # We create a 3D attention mask from a 2D tensor mask.
-            # Sizes are [batch_size, 1, 1, to_seq_length]
-            # So we can broadcast to [batch_size, num_heads, from_seq_length, to_seq_length]
-            # this attention mask is more simple than the triangular masking of causal attention
-            # used in OpenAI GPT, we just need to prepare the broadcast dimension here.
             attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
 
-            # Since attention_mask is 1.0 for positions we want to attend and 0.0 for
-            # masked positions, this operation will create a tensor which is 0.0 for
-            # positions we want to attend and the dtype's smallest value for masked positions.
-            # Since we are adding it to the raw scores before the softmax, this is
-            # effectively the same as removing these entirely.
             attention_mask = attention_mask.to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
             attention_mask = (1.0 - attention_mask) * torch.finfo(self.dtype).min
 
@@ -393,7 +324,6 @@ class OpenAIGPTModel(OpenAIGPTPreTrainedModel):
                 all_attentions = all_attentions + (outputs[1],)
 
         hidden_states = hidden_states.view(*output_shape)
-        # Add last layer
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -421,7 +351,6 @@ class OpenAIGPTLMHeadModel(OpenAIGPTPreTrainedModel, GenerationMixin):
         self.transformer = OpenAIGPTModel(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -459,7 +388,6 @@ class OpenAIGPTLMHeadModel(OpenAIGPTPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = transformer_outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -479,10 +407,8 @@ class OpenAIGPTLMHeadModel(OpenAIGPTPreTrainedModel, GenerationMixin):
         )
 
     def prepare_inputs_for_generation(self, input_ids: torch.LongTensor, **kwargs) -> dict[str, Any]:
-        # Overwritten -- old model with reduced inputs
         model_inputs = {"input_ids": input_ids}
 
-        # Forward ALL kwargs that are uninitialized (e.g. `use_cache`).
         for key, value in kwargs.items():
             if key not in model_inputs:
                 model_inputs[key] = value
@@ -509,7 +435,6 @@ class OpenAIGPTDoubleHeadsModel(OpenAIGPTPreTrainedModel):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.multiple_choice_head = OpenAIGPTSequenceSummary(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -622,7 +547,6 @@ class OpenAIGPTForSequenceClassification(OpenAIGPTPreTrainedModel):
         self.transformer = OpenAIGPTModel(config)
         self.score = nn.Linear(config.n_embd, self.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -666,13 +590,11 @@ class OpenAIGPTForSequenceClassification(OpenAIGPTPreTrainedModel):
         else:
             batch_size, sequence_length = inputs_embeds.shape[:2]
 
-        # Ensure the batch size is > 1 if there is no padding.
         if self.config.pad_token_id is None and batch_size != 1:
             raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)

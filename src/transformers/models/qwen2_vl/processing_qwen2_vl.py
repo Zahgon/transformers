@@ -1,24 +1,3 @@
-# Copyright 2024 The Qwen team, Alibaba Group and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for Qwen2-VL.
-"""
 
 from ...processing_utils import MultiModalData, ProcessingKwargs, ProcessorMixin
 from ...utils import auto_docstring, logging
@@ -56,52 +35,13 @@ class Qwen2VLProcessor(ProcessorMixin):
         super().__init__(image_processor, tokenizer, video_processor, chat_template=chat_template)
 
     def replace_image_token(self, image_inputs: dict, image_idx: int) -> str:
-        merge_length = self.image_processor.merge_size**2
-        num_image_tokens = image_inputs["image_grid_thw"][image_idx].prod() // merge_length
-        return self.image_token * num_image_tokens
+        pass
 
     def replace_video_token(self, video_inputs: dict, video_idx: int) -> str:
-        merge_length = self.video_processor.merge_size**2
-        num_video_tokens = video_inputs["video_grid_thw"][video_idx].prod() // merge_length
-        return self.video_token * num_video_tokens
+        pass
 
     def _get_num_multimodal_tokens(self, image_sizes=None, video_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-        Args:
-            image_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (height, width) per each image.
-            video_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (num_frames, height, width) per each video.
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-
-        vision_data = {}
-        if image_sizes is not None:
-            images_kwargs = Qwen2VLProcessorKwargs._defaults.get("images_kwargs", {})
-            images_kwargs.update(kwargs)
-            merge_size = images_kwargs.get("merge_size", None) or self.image_processor.merge_size
-
-            num_image_patches = [
-                self.image_processor.get_number_of_image_patches(*image_size, images_kwargs)
-                for image_size in image_sizes
-            ]
-            num_image_tokens = [(num_patches // merge_size**2) for num_patches in num_image_patches]
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-
-        if video_sizes is not None:
-            videos_kwargs = Qwen2VLProcessorKwargs._defaults.get("videos_kwargs", {})
-            videos_kwargs.update(kwargs)
-            num_video_patches = [
-                self.video_processor.get_number_of_video_patches(*video_size, videos_kwargs)
-                for video_size in video_sizes
-            ]
-            num_video_tokens = [(num_patches // merge_size**2) for num_patches in num_video_patches]
-            vision_data["num_video_tokens"] = num_video_tokens
-
-        return MultiModalData(**vision_data)
+        pass
 
     def post_process_image_text_to_text(
         self, generated_outputs, skip_special_tokens=True, clean_up_tokenization_spaces=False, **kwargs
@@ -132,7 +72,7 @@ class Qwen2VLProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        return super().model_input_names + ["mm_token_type_ids"]
+        pass
 
 
 __all__ = ["Qwen2VLProcessor"]

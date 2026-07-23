@@ -1,16 +1,3 @@
-# Copyright 2025 Baidu Inc and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import warnings
 
 import torch
@@ -41,102 +28,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="PekingU/rtdetr_r18vd")
 @strict
 class RTDetrV2Config(PreTrainedConfig):
-    r"""
-    initializer_bias_prior_prob (`float`, *optional*):
-        The prior probability used by the bias initializer to initialize biases for `enc_score_head` and `class_embed`.
-        If `None`, `prior_prob` computed as `prior_prob = 1 / (num_labels + 1)` while initializing model weights.
-    freeze_backbone_batch_norms (`bool`, *optional*, defaults to `True`):
-        Whether to freeze the batch normalization layers in the backbone.
-    encoder_in_channels (`list`, *optional*, defaults to `[512, 1024, 2048]`):
-        Multi level features input for encoder.
-    feat_strides (`list[int]`, *optional*, defaults to `[8, 16, 32]`):
-        Strides used in each feature map.
-    encode_proj_layers (`list[int]`, *optional*, defaults to `[2]`):
-        Indexes of the projected layers to be used in the encoder.
-    positional_encoding_temperature (`int`, *optional*, defaults to 10000):
-        The temperature parameter used to create the positional encodings.
-    encoder_activation_function (`str`, *optional*, defaults to `"gelu"`):
-        The non-linear activation function (function or string) in the encoder and pooler. If string, `"gelu"`,
-        `"relu"`, `"silu"` and `"gelu_new"` are supported.
-    activation_function (`str`, *optional*, defaults to `"silu"`):
-        The non-linear activation function (function or string) in the general layer. If string, `"gelu"`,
-        `"relu"`, `"silu"` and `"gelu_new"` are supported.
-    eval_size (`tuple[int, int]`, *optional*):
-        Height and width used to compute the effective height and width of the position embeddings after taking
-        into account the stride.
-    normalize_before (`bool`, *optional*, defaults to `False`):
-        Determine whether to apply layer normalization in the transformer encoder layer before self-attention and
-        feed-forward modules.
-    hidden_expansion (`float`, *optional*, defaults to 1.0):
-        Expansion ratio to enlarge the dimension size of RepVGGBlock and CSPRepLayer.
-    num_queries (`int`, *optional*, defaults to 300):
-        Number of object queries.
-    decoder_in_channels (`list`, *optional*, defaults to `[256, 256, 256]`):
-        Multi level features dimension for decoder
-    num_feature_levels (`int`, *optional*, defaults to 3):
-        The number of input feature levels.
-    decoder_n_points (`int`, *optional*, defaults to 4):
-        The number of sampled keys in each feature level for each attention head in the decoder.
-    decoder_activation_function (`str`, *optional*, defaults to `"relu"`):
-        The non-linear activation function (function or string) in the decoder. If string, `"gelu"`,
-        `"relu"`, `"silu"` and `"gelu_new"` are supported.
-    num_denoising (`int`, *optional*, defaults to 100):
-        The total number of denoising tasks or queries to be used for contrastive denoising.
-    label_noise_ratio (`float`, *optional*, defaults to 0.5):
-        The fraction of denoising labels to which random noise should be added.
-    box_noise_scale (`float`, *optional*, defaults to 1.0):
-        Scale or magnitude of noise to be added to the bounding boxes.
-    learn_initial_query (`bool`, *optional*, defaults to `False`):
-        Indicates whether the initial query embeddings for the decoder should be learned during training
-    anchor_image_size (`tuple[int, int]`, *optional*):
-        Height and width of the input image used during evaluation to generate the bounding box anchors. If None, automatic generate anchor is applied.
-    with_box_refine (`bool`, *optional*, defaults to `True`):
-        Whether to apply iterative bounding box refinement, where each decoder layer refines the bounding boxes
-        based on the predictions from the previous layer.
-    matcher_alpha (`float`, *optional*, defaults to 0.25):
-        Parameter alpha used by the Hungarian Matcher.
-    matcher_gamma (`float`, *optional*, defaults to 2.0):
-        Parameter gamma used by the Hungarian Matcher.
-    matcher_class_cost (`float`, *optional*, defaults to 2.0):
-        The relative weight of the class loss used by the Hungarian Matcher.
-    matcher_bbox_cost (`float`, *optional*, defaults to 5.0):
-        The relative weight of the bounding box loss used by the Hungarian Matcher.
-    matcher_giou_cost (`float`, *optional*, defaults to 2.0):
-        The relative weight of the giou loss of used by the Hungarian Matcher.
-    use_focal_loss (`bool`, *optional*, defaults to `True`):
-        Parameter informing if focal loss should be used.
-    focal_loss_alpha (`float`, *optional*, defaults to 0.75):
-        Parameter alpha used to compute the focal loss.
-    focal_loss_gamma (`float`, *optional*, defaults to 2.0):
-        Parameter gamma used to compute the focal loss.
-    weight_loss_vfl (`float`, *optional*, defaults to 1.0):
-        Relative weight of the varifocal loss in the object detection loss.
-    weight_loss_bbox (`float`, *optional*, defaults to 5.0):
-        Relative weight of the L1 bounding box loss in the object detection loss.
-    weight_loss_giou (`float`, *optional*, defaults to 2.0):
-        Relative weight of the generalized IoU loss in the object detection loss.
-    decoder_n_levels (`int`, *optional*, defaults to 3):
-        The number of feature levels used by the decoder.
-    decoder_offset_scale (`float`, *optional*, defaults to 0.5):
-        Scaling factor applied to the attention offsets in the decoder.
-    decoder_method (`str`, *optional*, defaults to `"default"`):
-        The method to use for the decoder: `"default"` or `"discrete"`.
-
-    Examples:
-
-    ```python
-    >>> from transformers import RTDetrV2Config, RTDetrV2Model
-
-    >>> # Initializing a RT-DETR configuration
-    >>> configuration = RTDetrV2Config()
-
-    >>> # Initializing a model (with random weights) from the configuration
-    >>> model = RTDetrV2Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "rt_detr_v2"
     sub_configs = {"backbone_config": AutoConfig}
@@ -227,7 +118,6 @@ def multi_scale_deformable_attention_v2(
         .flatten(0, 1)
         .split([height * width for height, width in value_spatial_shapes], dim=-1)
     )
-    # sampling_offsets [8, 480, 8, 12, 2]
     if method == "default":
         sampling_grids = 2 * sampling_locations - 1
     elif method == "discrete":
@@ -236,16 +126,8 @@ def multi_scale_deformable_attention_v2(
     sampling_grids = sampling_grids.split(num_points_list, dim=-2)
     sampling_value_list = []
     for level_id, (height, width) in enumerate(value_spatial_shapes):
-        # batch_size, height*width, num_heads, hidden_dim
-        # -> batch_size, height*width, num_heads*hidden_dim
-        # -> batch_size, num_heads*hidden_dim, height*width
-        # -> batch_size*num_heads, hidden_dim, height, width
         value_l_ = value_list[level_id].reshape(batch_size * num_heads, hidden_dim, height, width)
-        # batch_size, num_queries, num_heads, num_points, 2
-        # -> batch_size, num_heads, num_queries, num_points, 2
-        # -> batch_size*num_heads, num_queries, num_points, 2
         sampling_grid_l_ = sampling_grids[level_id]
-        # batch_size*num_heads, hidden_dim, num_queries, num_points
         if method == "default":
             sampling_value_l_ = nn.functional.grid_sample(
                 value_l_, sampling_grid_l_, mode="bilinear", padding_mode="zeros", align_corners=False
@@ -255,11 +137,9 @@ def multi_scale_deformable_attention_v2(
                 torch.int64
             )
 
-            # Separate clamping for x and y coordinates
             sampling_coord_x = sampling_coord[..., 0].clamp(0, width - 1)
             sampling_coord_y = sampling_coord[..., 1].clamp(0, height - 1)
 
-            # Combine the clamped coordinates
             sampling_coord = torch.stack([sampling_coord_x, sampling_coord_y], dim=-1)
             sampling_coord = sampling_coord.reshape(batch_size * num_heads, num_queries * num_points_list[level_id], 2)
             sampling_idx = (
@@ -272,9 +152,6 @@ def multi_scale_deformable_attention_v2(
                 batch_size * num_heads, hidden_dim, num_queries, num_points_list[level_id]
             )
         sampling_value_list.append(sampling_value_l_)
-    # (batch_size, num_queries, num_heads, num_levels, num_points)
-    # -> (batch_size, num_heads, num_queries, num_levels, num_points)
-    # -> (batch_size, num_heads, 1, num_queries, num_levels*num_points)
     attention_weights = attention_weights.permute(0, 2, 1, 3).reshape(
         batch_size * num_heads, 1, num_queries, sum(num_points_list)
     )
@@ -286,12 +163,7 @@ def multi_scale_deformable_attention_v2(
     return output.transpose(1, 2).contiguous()
 
 
-# the main change
 class RTDetrV2MultiscaleDeformableAttention(nn.Module):
-    """
-    RTDetrV2 version of multiscale deformable attention, extending the base implementation
-    with improved offset handling and initialization.
-    """
 
     def __init__(self, config: RTDetrV2Config):
         super().__init__()
@@ -303,7 +175,6 @@ class RTDetrV2MultiscaleDeformableAttention(nn.Module):
                 f"embed_dim (d_model) must be divisible by num_heads, but got {config.d_model} and {num_heads}"
             )
         dim_per_head = config.d_model // num_heads
-        # check if dim_per_head is power of 2
         if not ((dim_per_head & (dim_per_head - 1) == 0) and dim_per_head != 0):
             warnings.warn(
                 "You'd better set embed_dim (d_model) in RTDetrV2MultiscaleDeformableAttention to make the"
@@ -315,7 +186,6 @@ class RTDetrV2MultiscaleDeformableAttention(nn.Module):
 
         self.d_model = config.d_model
 
-        # V2-specific attributes
         self.n_levels = config.decoder_n_levels
         self.n_heads = num_heads
         self.n_points = n_points
@@ -328,7 +198,6 @@ class RTDetrV2MultiscaleDeformableAttention(nn.Module):
         self.offset_scale = config.decoder_offset_scale
         self.method = config.decoder_method
 
-        # Initialize n_points list and scale
         n_points_list = [self.n_points for _ in range(self.n_levels)]
         self.n_points_list = n_points_list
         n_points_scale = [1 / n for n in n_points_list for _ in range(n)]
@@ -347,7 +216,6 @@ class RTDetrV2MultiscaleDeformableAttention(nn.Module):
         level_start_index=None,
         **kwargs: Unpack[TransformersKwargs],
     ):
-        # Process inputs up to sampling locations calculation using parent class logic
         if position_embeddings is not None:
             hidden_states = hidden_states + position_embeddings
 
@@ -363,7 +231,6 @@ class RTDetrV2MultiscaleDeformableAttention(nn.Module):
             value = value.masked_fill(~attention_mask[..., None], float(0))
         value = value.view(batch_size, sequence_length, self.n_heads, self.d_model // self.n_heads)
 
-        # V2-specific sampling offsets shape
         sampling_offsets = self.sampling_offsets(hidden_states).view(
             batch_size, num_queries, self.n_heads, self.n_levels * self.n_points, 2
         )
@@ -373,7 +240,6 @@ class RTDetrV2MultiscaleDeformableAttention(nn.Module):
         )
         attention_weights = F.softmax(attention_weights, -1)
 
-        # V2-specific sampling locations calculation
         if reference_points.shape[-1] == 2:
             offset_normalizer = torch.stack([spatial_shapes[..., 1], spatial_shapes[..., 0]], -1)
             sampling_locations = (
@@ -387,7 +253,6 @@ class RTDetrV2MultiscaleDeformableAttention(nn.Module):
         else:
             raise ValueError(f"Last dim of reference_points must be 2 or 4, but got {reference_points.shape[-1]}")
 
-        # V2-specific attention implementation choice
         output = multi_scale_deformable_attention_v2(
             value, spatial_shapes_list, sampling_locations, attention_weights, self.n_points_list, self.method
         )
@@ -398,9 +263,7 @@ class RTDetrV2MultiscaleDeformableAttention(nn.Module):
 
 class RTDetrV2DecoderLayer(RTDetrDecoderLayer):
     def __init__(self, config: RTDetrV2Config):
-        # initialize parent class
         super().__init__(config)
-        # override only the encoder attention module with v2 version
         self.encoder_attn = RTDetrV2MultiscaleDeformableAttention(config)
 
 
@@ -421,7 +284,6 @@ class RTDetrV2Decoder(RTDetrDecoder):
 class RTDetrV2Model(RTDetrModel):
     def __init__(self, config: RTDetrV2Config):
         super().__init__(config)
-        # decoder
         self.decoder = RTDetrV2Decoder(config)
 
 
@@ -439,7 +301,6 @@ class RTDetrV2ForObjectDetection(RTDetrForObjectDetection, RTDetrV2PreTrainedMod
 
     def __init__(self, config: RTDetrV2Config):
         RTDetrV2PreTrainedModel.__init__(self, config)
-        # RTDETR encoder-decoder model
         self.model = RTDetrV2Model(config)
         self.class_embed = nn.ModuleList(
             [torch.nn.Linear(config.d_model, config.num_labels) for _ in range(config.decoder_layers)]
@@ -453,7 +314,6 @@ class RTDetrV2ForObjectDetection(RTDetrForObjectDetection, RTDetrV2PreTrainedMod
         self.model.decoder.class_embed = self.class_embed
         self.model.decoder.bbox_embed = self.bbox_embed
 
-        # Initialize weights and apply final processing
         self.post_init()
 
 

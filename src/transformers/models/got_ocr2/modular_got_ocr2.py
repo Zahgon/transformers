@@ -1,16 +1,3 @@
-# Copyright 2024 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -47,20 +34,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="facebook/sam-vit-huge")
 @strict
 class GotOcr2VisionConfig(PreTrainedConfig):
-    r"""
-    output_channels (`int`, *optional*, defaults to 256):
-        Dimensionality of the output channels in the Patch Encoder.
-    use_abs_pos (`bool`, *optional*, defaults to `True`):
-        Whether to use absolute position embedding.
-    use_rel_pos (`bool`, *optional*, defaults to `True`):
-        Whether to use relative position embedding.
-    window_size (`int`, *optional*, defaults to 14):
-        Window size for relative position.
-    global_attn_indexes (`list[int]`, *optional*, defaults to `[2, 5, 8, 11]`):
-        The indexes of the global attention layers.
-    mlp_dim (`int`, *optional*, defaults to 3072):
-        The dimensionality of the MLP layer in the Transformer encoder.
-    """
 
     base_config_key = "vision_config"
     hidden_size: int = 768
@@ -85,21 +58,6 @@ class GotOcr2VisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/sam-vit-huge")
 @strict
 class GotOcr2Config(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import GotOcr2ForConditionalGeneration, GotOcr2Config
-
-    >>> # Initializing a GotOcr2 style configuration
-    >>> configuration = GotOcr2Config()
-
-    >>> # Initializing a model from the Qwen2-VL-7B style configuration
-    >>> model = GotOcr2ForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "got_ocr2"
     attribute_map = {
@@ -353,7 +311,6 @@ class GotOcr2ForConditionalGeneration(LlavaForConditionalGeneration):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

@@ -1,18 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-# Modifications Copyright (C) 2025, Advanced Micro Devices, Inc. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Auto exporter factory for HuggingFace exporters."""
 
 from __future__ import annotations
 
@@ -40,10 +25,6 @@ logger = logging.get_logger(__name__)
 
 
 class AutoExportConfig:
-    """
-    The Auto-HF export config class that takes care of automatically dispatching to the correct
-    export config given an export config stored in a dictionary.
-    """
 
     @classmethod
     def from_dict(cls, export_config_dict: dict):
@@ -52,7 +33,6 @@ class AutoExportConfig:
         if export_format is None:
             raise ValueError("export_config_dict must contain key 'export_format' set to exporter name")
 
-        # Allow passing an ExportFormat enum value or a plain string
         if isinstance(export_format, ExportFormat):
             name = export_format.value
         else:
@@ -68,14 +48,9 @@ class AutoExportConfig:
 
 
 class AutoHfExporter:
-    """
-    The Auto-HF expoerter class that takes care of automatically instantiating to the correct
-    `HfExporter` given the `ExportConfig`.
-    """
 
     @classmethod
     def from_config(cls, export_config: ExportConfigMixin | dict, **kwargs) -> HfExporter:
-        # Normalize to a dict so ``supports_export_format`` can act as the single gate.
         export_config_dict = export_config.to_dict() if isinstance(export_config, ExportConfigMixin) else export_config
         if not cls.supports_export_format(export_config_dict):
             raise ValueError(
@@ -159,27 +134,17 @@ class AutoHfExporter:
 
 def register_exporter(name: str):
     def register_exporter_fn(cls):
-        if name in AUTO_EXPORTER_MAPPING:
-            logger.warning(f"Exporter '{name}' is already registered and will be overwritten.")
-        if not issubclass(cls, HfExporter):
-            raise TypeError("Exporter must extend HfExporter")
-        AUTO_EXPORTER_MAPPING[name] = cls
-        return cls
+        pass
 
     return register_exporter_fn
 
 
 def register_export_config(name: str):
     def register_export_config_fn(cls):
-        if name in AUTO_EXPORT_CONFIG_MAPPING:
-            logger.warning(f"Export config '{name}' is already registered and will be overwritten.")
-        if not issubclass(cls, ExportConfigMixin):
-            raise TypeError("Export config must extend ExportConfigMixin")
-        AUTO_EXPORT_CONFIG_MAPPING[name] = cls
-        return cls
+        pass
 
     return register_export_config_fn
 
 
 def get_hf_exporter(export_config) -> HfExporter:
-    return AutoHfExporter.from_config(export_config)
+    pass

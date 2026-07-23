@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Transformers Xcodec model."""
 
 import math
 from dataclasses import dataclass
@@ -37,13 +23,6 @@ from .configuration_xcodec import XcodecConfig
 
 @dataclass
 class XcodecOutput(ModelOutput):
-    """
-    Args:
-        audio_codes (`torch.LongTensor`  of shape `(batch_size, num_quantizers, codes_length)`, *optional*):
-            Discrete code indices computed using `model.encode`.
-        audio_values (`torch.FloatTensor` of shape `(batch_size, channels, num_samples)`, *optional*)
-            Decoded audio values obtained using the decoder part of Xcodec.
-    """
 
     audio_codes: torch.LongTensor | None = None
     audio_values: torch.FloatTensor | None = None
@@ -51,28 +30,17 @@ class XcodecOutput(ModelOutput):
 
 @dataclass
 class XcodecEncoderOutput(ModelOutput):
-    """
-    Args:
-        audio_codes (`torch.LongTensor`  of shape `(batch_size, num_quantizers, codes_length)`, *optional*):
-            Discrete code indices computed using `model.encode`.
-    """
 
     audio_codes: torch.LongTensor | None = None
 
 
 @dataclass
 class XcodecDecoderOutput(ModelOutput):
-    """
-    Args:
-        audio_values (`torch.FloatTensor`  of shape `(batch_size, channels, num_samples)`, *optional*):
-            Decoded audio values obtained using the decoder part of Xcodec.
-    """
 
     audio_values: torch.FloatTensor | None = None
 
 
 class XcodecResidualUnit(nn.Module):
-    """Residual block for SemanticEncoder and SemanticDecoder used in Xcodec."""
 
     def __init__(self, config: XcodecConfig, in_channels: int, out_channels: int, dilation: int):
         super().__init__()
@@ -105,7 +73,6 @@ class XcodecSemanticEncoderBlock(nn.Module):
             [XcodecResidualUnit(config, in_channels, in_channels, dilation) for dilation in config.block_dilations]
         )
 
-        # special case: stride=1, do not use kernel=2
         kernel = 3 if stride == 1 else (2 * stride)
         padding = (kernel - 1) // 2
         self.conv = nn.Conv1d(in_channels, out_channels, kernel_size=kernel, stride=stride, padding=padding, bias=True)
@@ -219,7 +186,6 @@ class SemanticDecoder(nn.Module):
 
 
 class XcodecEuclideanCodebook(nn.Module):
-    """Codebook with Euclidean distance."""
 
     def __init__(self, config):
         super().__init__()
@@ -230,7 +196,6 @@ class XcodecEuclideanCodebook(nn.Module):
         self.register_buffer("embed", embed)
         self.register_buffer("embed_avg", embed.clone())
 
-    # Copied from transformers.models.encodec.modeling_encodec.EncodecEuclideanCodebook.quantize
     def quantize(self, hidden_states):
         embed = self.embed.t()
         scaled_states = hidden_states.pow(2).sum(1, keepdim=True)
@@ -251,21 +216,16 @@ class XcodecEuclideanCodebook(nn.Module):
 
 
 class XcodecVectorQuantization(nn.Module):
-    """
-    Vector quantization implementation. Currently supports only euclidean distance.
-    """
 
     def __init__(self, config: XcodecConfig):
         super().__init__()
         self.codebook = XcodecEuclideanCodebook(config)
 
-    # Copied from transformers.models.encodec.modeling_encodec.EncodecVectorQuantization.encode
     def encode(self, hidden_states):
         hidden_states = hidden_states.permute(0, 2, 1)
         embed_in = self.codebook.encode(hidden_states)
         return embed_in
 
-    # Copied from transformers.models.encodec.modeling_encodec.EncodecVectorQuantization.decode
     def decode(self, embed_ind):
         quantize = self.codebook.decode(embed_ind)
         quantize = quantize.permute(0, 2, 1)
@@ -273,9 +233,6 @@ class XcodecVectorQuantization(nn.Module):
 
 
 class XcodecResidualVectorQuantization(nn.Module):
-    """
-    Residual vector quantization implementation. Follows Algorithm 1 in https://huggingface.co/papers/2107.03312
-    """
 
     def __init__(self, config: XcodecConfig):
         super().__init__()
@@ -324,10 +281,6 @@ class XcodecResidualVectorQuantization(nn.Module):
 
 @auto_docstring
 class XcodecPreTrainedModel(PreTrainedAudioTokenizerBase):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
 
     config_class = XcodecConfig
     base_model_prefix = "xcodec"
@@ -357,8 +310,6 @@ class XcodecPreTrainedModel(PreTrainedAudioTokenizerBase):
         elif isinstance(module, nn.Embedding):
             init.normal_(module.weight, mean=0.0, std=0.02)
         elif isinstance(module, XcodecModel):
-            # The conv1d are not handled correctly, as `self.acoustic_encoder/decoder` are initialized from a PreTrainedModel,
-            # but then only the submodules are used (which are not PreTrainedModels...) -> here we reinit them as in DacModel
             for submodule in module.acoustic_encoder.modules():
                 if isinstance(submodule, nn.Conv1d):
                     init.trunc_normal_(submodule.weight, std=0.02)
@@ -418,7 +369,6 @@ class XcodecPreTrainedModel(PreTrainedAudioTokenizerBase):
             if isinstance(module, nn.Conv1d):
                 params_list.append(module)
 
-            # Recursively check all child modules
             for child in module.children():
                 params_list.extend(get_conv1d_layers_recursive(child))
 
@@ -459,7 +409,6 @@ class XcodecModel(XcodecPreTrainedModel):
         self.fc2 = nn.Linear(config.hidden_size, config.acoustic_model_config.hidden_size)
         self.quantizer = XcodecResidualVectorQuantization(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @staticmethod
@@ -521,8 +470,6 @@ class XcodecModel(XcodecPreTrainedModel):
         e_semantic_input = self._extract_semantic_features(input_values).detach()
         e_semantic = self.encoder_semantic(e_semantic_input.transpose(1, 2))
 
-        # original codebase infer to get the output length, but we can directly infer it
-        # from the model and know whether we should pad
         if self._get_conv1d_output_lengths(input_values.shape[2], self.acoustic_encoder) != e_semantic.shape[2]:
             e_acoustic = self.acoustic_encoder(F.pad(input_values, (self.pad, self.pad)))
         else:

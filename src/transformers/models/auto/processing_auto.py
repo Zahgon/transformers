@@ -1,24 +1,9 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""AutoProcessor class."""
 
 import importlib
 import json
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
-# Build the list of all feature extractors
 from ...configuration_utils import PreTrainedConfig
 from ...dynamic_module_utils import get_class_from_dynamic_module, resolve_trust_remote_code
 from ...feature_extraction_utils import FeatureExtractionMixin
@@ -43,8 +28,6 @@ from .video_processing_auto import AutoVideoProcessor
 
 logger = logging.get_logger(__name__)
 if TYPE_CHECKING:
-    # This significantly improves completion suggestion performance when
-    # the transformers package is used with Microsoft's Pylance language server.
     PROCESSOR_MAPPING_NAMES: OrderedDict[str, str | None] = OrderedDict()
 else:
     MISSING_PROCESSOR_MAPPING_NAMES = OrderedDict(
@@ -102,8 +85,6 @@ def processor_class_from_name(class_name: str):
         if getattr(processor, "__name__", None) == class_name:
             return processor
 
-    # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
-    # init and we return the proper dummy to get an appropriate error message.
     main_module = importlib.import_module("transformers")
     if hasattr(main_module, class_name):
         return getattr(main_module, class_name)
@@ -112,12 +93,6 @@ def processor_class_from_name(class_name: str):
 
 
 class AutoProcessor:
-    r"""
-    This is a generic processor class that will be instantiated as one of the processor classes of the library when
-    created with the [`AutoProcessor.from_pretrained`] class method.
-
-    This class cannot be instantiated directly using `__init__()` (throws an error).
-    """
 
     def __init__(self):
         raise OSError(
@@ -198,8 +173,6 @@ class AutoProcessor:
         processor_class = None
         processor_auto_map = None
 
-        # First, let's see if we have a processor or preprocessor config.
-        # Filter the kwargs for `cached_file`.
         _hub_valid_kwargs = (
             "cache_dir",
             "force_download",
@@ -212,7 +185,6 @@ class AutoProcessor:
             "user_agent",
         )
         cached_file_kwargs = {key: kwargs[key] for key in _hub_valid_kwargs if key in kwargs}
-        # We don't want to raise
         cached_file_kwargs.update(
             {
                 "_raise_exceptions_for_gated_repo": False,
@@ -221,7 +193,6 @@ class AutoProcessor:
             }
         )
 
-        # Let's start by checking whether the processor class is saved in a processor config
         processor_config_file = cached_file(pretrained_model_name_or_path, PROCESSOR_NAME, **cached_file_kwargs)
         if processor_config_file is not None:
             config_dict, _ = ProcessorMixin.get_processor_dict(pretrained_model_name_or_path, **kwargs)
@@ -230,7 +201,6 @@ class AutoProcessor:
                 processor_auto_map = config_dict["auto_map"]["AutoProcessor"]
 
         if processor_class is None:
-            # If not found, let's check whether the processor class is saved in an image processor config
             preprocessor_config_file = cached_file(
                 pretrained_model_name_or_path, FEATURE_EXTRACTOR_NAME, **cached_file_kwargs
             )
@@ -240,7 +210,6 @@ class AutoProcessor:
                 if "AutoProcessor" in config_dict.get("auto_map", {}):
                     processor_auto_map = config_dict["auto_map"]["AutoProcessor"]
 
-            # Saved as video processor
             if preprocessor_config_file is None:
                 preprocessor_config_file = cached_file(
                     pretrained_model_name_or_path, VIDEO_PROCESSOR_NAME, **cached_file_kwargs
@@ -252,7 +221,6 @@ class AutoProcessor:
                     processor_class = config_dict.get("processor_class", None)
                     if "AutoProcessor" in config_dict.get("auto_map", {}):
                         processor_auto_map = config_dict["auto_map"]["AutoProcessor"]
-            # Saved as feature extractor
             if preprocessor_config_file is None:
                 preprocessor_config_file = cached_file(
                     pretrained_model_name_or_path, FEATURE_EXTRACTOR_NAME, **cached_file_kwargs
@@ -266,7 +234,6 @@ class AutoProcessor:
                         processor_auto_map = config_dict["auto_map"]["AutoProcessor"]
 
         if processor_class is None:
-            # Next, let's check whether the processor class is saved in a tokenizer
             tokenizer_config_file = cached_file(
                 pretrained_model_name_or_path, TOKENIZER_CONFIG_FILE, **cached_file_kwargs
             )
@@ -279,11 +246,6 @@ class AutoProcessor:
                     processor_auto_map = config_dict["auto_map"]["AutoProcessor"]
 
         if processor_class is None:
-            # Last resort: try loading the model config to get processor_class.
-            # This handles cases where processor info is only in config.json (not in any
-            # preprocessor/tokenizer config files). AutoConfig.from_pretrained may raise
-            # ValueError if the model_type is unrecognized or the config is invalid -
-            # we catch and ignore this to allow fallback to AutoTokenizer/AutoImageProcessor.
             try:
                 if not isinstance(config, PreTrainedConfig):
                     config = AutoConfig.from_pretrained(
@@ -294,8 +256,6 @@ class AutoProcessor:
                 if hasattr(config, "auto_map") and "AutoProcessor" in config.auto_map:
                     processor_auto_map = config.auto_map["AutoProcessor"]
             except ValueError:
-                # Config loading failed (unrecognized model_type, invalid config, etc.)
-                # Continue to fallback logic below (AutoTokenizer, AutoImageProcessor, etc.)
                 pass
 
         if processor_class is not None:
@@ -328,12 +288,9 @@ class AutoProcessor:
             return processor_class.from_pretrained(
                 pretrained_model_name_or_path, trust_remote_code=trust_remote_code, **kwargs
             )
-        # Last try: we use the PROCESSOR_MAPPING.
         elif type(config) in PROCESSOR_MAPPING:
             return PROCESSOR_MAPPING[type(config)].from_pretrained(pretrained_model_name_or_path, **kwargs)
 
-        # At this stage, there doesn't seem to be a `Processor` class available for this model.
-        # Let's try the commonly available classes
         for klass in (AutoTokenizer, AutoImageProcessor, AutoVideoProcessor, AutoFeatureExtractor):
             try:
                 return klass.from_pretrained(

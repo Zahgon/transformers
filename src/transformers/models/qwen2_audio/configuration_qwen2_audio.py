@@ -1,16 +1,3 @@
-# Copyright 2024 Microsoft Research & University of Wisconsin-Madison and the HuggingFace Inc. team. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Qwen2Audio model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,24 +9,6 @@ from ..auto import CONFIG_MAPPING, AutoConfig
 @auto_docstring(checkpoint="Qwen/Qwen2-Audio-7B")
 @strict
 class Qwen2AudioEncoderConfig(PreTrainedConfig):
-    r"""
-    max_source_positions (`int`, *optional*, defaults to 1500):
-        The maximum sequence length of log-mel filter-bank features that this model might ever be used with.
-
-    Example:
-
-    ```python
-    >>> from transformers import Qwen2AudioEncoderConfig, Qwen2AudioEncoder
-
-    >>> # Initializing a Qwen2AudioEncoderConfig
-    >>> configuration = Qwen2AudioEncoderConfig()
-
-    >>> # Initializing a Qwen2AudioEncoder (with random weights)
-    >>> model = Qwen2AudioEncoder(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qwen2_audio_encoder"
     attribute_map = {
@@ -67,27 +36,6 @@ class Qwen2AudioEncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Qwen/Qwen2-Audio-7B")
 @strict
 class Qwen2AudioConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Qwen2AudioForConditionalGeneration, Qwen2AudioConfig, Qwen2AudioEncoderConfig, Qwen2Config
-
-    >>> # Initializing a Qwen2AudioEncoder config
-    >>> audio_config = Qwen2AudioEncoderConfig()
-
-    >>> # Initializing a Qwen2 config
-    >>> text_config = Qwen2Config()
-
-    >>> # Initializing a Qwen2Audio configuration
-    >>> configuration = Qwen2AudioConfig(audio_config, text_config)
-
-    >>> # Initializing a model from the qwen2-audio style configuration
-    >>> model = Qwen2AudioForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qwen2_audio"
     attribute_map = {

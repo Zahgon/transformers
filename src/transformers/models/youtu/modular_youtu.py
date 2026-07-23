@@ -1,21 +1,3 @@
-# Copyright 2026 the Tencent and HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -44,19 +26,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="tencent/Youtu-LLM-2B")
 @strict
 class YoutuConfig(DeepseekV3Config):
-    r"""
-    rope_interleave (`bool`, *optional*, defaults to `True`):
-        Whether to interleave the rotary position embeddings.
-    embedding_initializer_range (`float`, *optional*):
-        The standard deviation of the truncated_normal_initializer for initializing all embedding matrices.
-
-    ```python
-    >>> from transformers import YoutuModel, YoutuConfig
-    >>> # Initializing a Youtu-LLM-2B style configuration
-    >>> configuration = YoutuConfig()
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "youtu"
     base_model_tp_plan = {
@@ -80,7 +49,6 @@ class YoutuConfig(DeepseekV3Config):
     eos_token_id: int | list[int] | None = 128001
     tie_word_embeddings: bool = True
 
-    # remove unused attribute
     n_shared_experts = AttributeError()
     n_routed_experts = AttributeError()
     routed_scaling_factor = AttributeError()

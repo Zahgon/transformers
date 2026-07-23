@@ -1,18 +1,3 @@
-# Copyright 2026 The LG AI Research and HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch EXAONE 4.5 model."""
 
 from collections.abc import Callable
 
@@ -52,14 +37,6 @@ from ..qwen2_vl.processing_qwen2_vl import Qwen2VLProcessor
 @auto_docstring(checkpoint="LGAI-EXAONE/EXAONE-4.5-33B")
 @strict
 class Exaone4_5_VisionConfig(Qwen2_5_VLVisionConfig):
-    r"""
-    window_size (`int`, *optional*, defaults to 11):
-        Size of windows.
-    out_hidden_size (`int`, *optional*, defaults to 3584):
-        The output hidden size of the vision model.
-    fullatt_block_indexes (`int`, *optional*, defaults to `[7, 15, 23, 31]`):
-        Indices of layers with full attention
-    """
 
     model_type = "exaone4_5_vision"
     base_config_key = "vision_config"
@@ -89,7 +66,6 @@ class Exaone4_5_Config(PreTrainedConfig):
 
         if isinstance(self.text_config, dict):
             self.text_config["model_type"] = self.text_config.get("model_type", "exaone4")
-            # BC: EXAONE 4.5 first released with the text model type as `exaone4_5_text`, now changed to `exaone4`
             if self.text_config["model_type"] == "exaone4_5_text":
                 self.text_config["model_type"] = "exaone4"
             self.text_config = CONFIG_MAPPING[self.text_config["model_type"]](**self.text_config)
@@ -285,7 +261,6 @@ class Exaone4_5_Model(Exaone4_5_PreTrainedModel, Qwen2_5_VLModel):
             )
             inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
 
-        # Differ from Qwen: EXAONE 4.5 vision encoder uses 2D rotary positional embeddings (2D-RoPE)
         if position_ids is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
@@ -319,12 +294,6 @@ class Exaone4_5_Model(Exaone4_5_PreTrainedModel, Qwen2_5_VLModel):
 
 
 class Exaone4_5_ForConditionalGeneration(Exaone4_5_PreTrainedModel, Qwen2_5_VLForConditionalGeneration):
-    """
-    Main EXAONE 4.5 conditional generation class.
-
-    Note: Unlike Qwen2VL, the EXAONE 4.5 vision encoder uses 2D rotary positional embeddings (2D-RoPE)
-    and adopts a Grouped Query Attention (GQA) structure throughout the multimodal stack.
-    """
 
     def _get_image_nums_and_video_nums(
         self,
@@ -477,7 +446,6 @@ class Exaone4_5_ForConditionalGeneration(Exaone4_5_PreTrainedModel, Qwen2_5_VLFo
             is_first_iteration=is_first_iteration,
             **kwargs,
         )
-        # Force recomputation of 2D-RoPE and ignore rope_deltas
         model_inputs["position_ids"] = None
         if not is_first_iteration and use_cache:
             model_inputs["pixel_values"] = None
@@ -501,7 +469,7 @@ class Exaone4_5_ProcessorKwargs(ProcessingKwargs, total=False):
 class Exaone4_5_Processor(Qwen2VLProcessor):
     @property
     def model_input_names(self):
-        return super().model_input_names
+        pass
 
 
 __all__ = [

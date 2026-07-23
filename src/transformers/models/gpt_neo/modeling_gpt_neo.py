@@ -1,17 +1,3 @@
-# Copyright 2021 The Eleuther AI and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch GPT Neo model."""
 
 import torch
 from torch import nn
@@ -58,9 +44,6 @@ class GPTNeoSelfAttention(nn.Module):
             1, 1, max_positions, max_positions
         )
 
-        # local causal self attention is a sliding window where each token can only attend to the previous
-        # window_size tokens. This is implemented by updating the causal mask such that for each token
-        # all other tokens are masked except the previous window_size tokens.
         self.attention_type = attention_type
         if attention_type == "local":
             bias = torch.bitwise_xor(bias, torch.tril(bias, -config.window_size))
@@ -103,18 +86,14 @@ class GPTNeoSelfAttention(nn.Module):
         return tensor.view(new_shape)
 
     def _attn(self, query, key, value, attention_mask=None):
-        # Keep the attention weights computation in fp32 to avoid overflow issues
         query = query.to(torch.float32)
         key = key.to(torch.float32)
 
         attn_weights = torch.matmul(query, key.transpose(-1, -2))
 
-        # Apply sliding window masking for local attention layers
         query_length, key_length = query.size(-2), key.size(-2)
         causal_mask = self.bias[:, :, key_length - query_length : key_length, :key_length]
         mask_value = torch.finfo(attn_weights.dtype).min
-        # Need to be a tensor, otherwise we get error: `RuntimeError: expected scalar type float but found double`.
-        # Need to be on the same device, otherwise `RuntimeError: ..., x and y to be on the same device`
         mask_value = torch.tensor(mask_value, dtype=attn_weights.dtype, device=attn_weights.device)
         attn_weights = torch.where(causal_mask, attn_weights, mask_value)
 
@@ -159,18 +138,10 @@ class GPTNeoSelfAttention(nn.Module):
 
 
 class GPTNeoFlashAttention2(GPTNeoSelfAttention):
-    """
-    GPTNeo flash attention module. This module inherits from `GPTNeoSelfAttention` as the weights of the module stays
-    untouched. The only required change would be on the forward pass where it needs to correctly call the public API of
-    flash attention and deal with padding tokens in case the input contains any of them.
-    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # TODO: Should be removed once Flash Attention for RoCm is bumped to 2.1.
-        # flash_attn<2.1 generates top-left aligned causal mask, while what is needed here is bottom-right alignment, that was made default for flash_attn>=2.1. This attribute is used to handle this difference. Reference: https://github.com/Dao-AILab/flash-attention/releases/tag/v2.1.0.
-        # Beware that with flash_attn<2.1, using q_seqlen != k_seqlen (except for the case q_seqlen == 1) produces a wrong mask (top-left).
         self._flash_attn_uses_top_left_mask = flash_attn_supports_top_left_mask()
 
     def forward(
@@ -198,25 +169,17 @@ class GPTNeoFlashAttention2(GPTNeoSelfAttention):
         query_length = query.shape[2]
         tgt_len = key.shape[2]
 
-        # Flash attention requires the input to have the shape
-        # batch_size x seq_length x head_dim x hidden_dim
         query = query.transpose(1, 2).view(bsz, query_length, self.num_heads, self.head_dim)
         key = key.transpose(1, 2).view(bsz, tgt_len, self.num_heads, self.head_dim)
         value = value.transpose(1, 2).view(bsz, tgt_len, self.num_heads, self.head_dim)
 
         attn_dropout = self.config.attention_dropout if self.training else 0.0
 
-        # In PEFT, usually we cast the layer norms in float32 for training stability reasons
-        # therefore the input hidden states gets silently casted in float32. Hence, we need
-        # cast them back in the correct dtype just to be sure everything works as expected.
-        # This might slowdown training & inference so it is recommended to not cast the LayerNorms
-        # in fp32. (LlamaRMSNorm handles it correctly)
 
         device_type = query.device.type if query.device.type != "mps" else "cpu"
         if query.dtype == torch.float32:
             if torch.is_autocast_enabled(device_type):
                 target_dtype = torch.get_autocast_dtype(device_type)
-            # Handle the case where the model is quantized
             elif hasattr(self.config, "_is_quantized"):
                 target_dtype = self.config.dtype
             else:
@@ -338,13 +301,11 @@ class GPTNeoBlock(GradientCheckpointingLayer):
             output_attentions=output_attentions,
         )
 
-        # residual connection
         hidden_states = attn_output + residual
 
         residual = hidden_states
         hidden_states = self.ln_2(hidden_states)
         feed_forward_hidden_states = self.mlp(hidden_states)
-        # residual connection
         hidden_states = residual + feed_forward_hidden_states
 
         return hidden_states, attn_weights
@@ -385,7 +346,6 @@ class GPTNeoModel(GPTNeoPreTrainedModel):
         self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -492,7 +452,6 @@ class GPTNeoModel(GPTNeoPreTrainedModel):
         hidden_states = self.ln_f(hidden_states)
 
         hidden_states = hidden_states.view(output_shape)
-        # Add last hidden state
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -523,7 +482,6 @@ class GPTNeoForCausalLM(GPTNeoPreTrainedModel, GenerationMixin):
         self.transformer = GPTNeoModel(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -578,7 +536,6 @@ class GPTNeoForCausalLM(GPTNeoPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = transformer_outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -620,7 +577,6 @@ class GPTNeoForSequenceClassification(GPTNeoPreTrainedModel):
         self.transformer = GPTNeoModel(config)
         self.score = nn.Linear(config.hidden_size, self.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -684,7 +640,6 @@ class GPTNeoForSequenceClassification(GPTNeoPreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)
@@ -742,7 +697,6 @@ class GPTNeoForTokenClassification(GPTNeoPreTrainedModel):
         self.dropout = nn.Dropout(config.classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -824,7 +778,6 @@ class GPTNeoForQuestionAnswering(GPTNeoPreTrainedModel):
         self.transformer = GPTNeoModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -878,12 +831,10 @@ class GPTNeoForQuestionAnswering(GPTNeoPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

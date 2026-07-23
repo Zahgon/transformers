@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Feature extractor class for EnCodec."""
 
 import numpy as np
 
@@ -24,28 +10,6 @@ logger = logging.get_logger(__name__)
 
 
 class EncodecFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs an EnCodec feature extractor.
-
-    This feature extractor inherits from [`~feature_extraction_sequence_utils.SequenceFeatureExtractor`] which contains
-    most of the main methods. Users should refer to this superclass for more information regarding those methods.
-
-    Instantiating a feature extractor with the defaults will yield a similar configuration to that of the
-    [facebook/encodec_24khz](https://huggingface.co/facebook/encodec_24khz) architecture.
-
-    Args:
-        feature_size (`int`, *optional*, defaults to 1):
-            The feature dimension of the extracted features. Use 1 for mono, 2 for stereo.
-        sampling_rate (`int`, *optional*, defaults to 24000):
-            The sampling rate at which the audio waveform should be digitalized expressed in hertz (Hz).
-        padding_value (`float`, *optional*, defaults to 0.0):
-            The value that is used to fill the padding values.
-        chunk_length_s (`float`, *optional*):
-            If defined the audio is pre-processed into chunks of lengths `chunk_length_s` and then encoded.
-        overlap (`float`, *optional*):
-            Defines the overlap between each chunk. It is used to compute the `chunk_stride` using the following
-            formulae : `int((1.0 - self.overlap) * self.chunk_length)`.
-    """
 
     model_input_names = ["input_values", "padding_mask"]
 
@@ -62,21 +26,13 @@ class EncodecFeatureExtractor(SequenceFeatureExtractor):
         self.chunk_length_s = chunk_length_s
         self.overlap = overlap
 
-    # This is a property because you might want to change the chunk_length_s on the fly
     @property
     def chunk_length(self) -> int | None:
-        if self.chunk_length_s is None:
-            return None
-        else:
-            return int(self.chunk_length_s * self.sampling_rate)
+        pass
 
-    # This is a property because you might want to change the chunk_length_s on the fly
     @property
     def chunk_stride(self) -> int | None:
-        if self.chunk_length_s is None or self.overlap is None:
-            return None
-        else:
-            return max(1, int((1.0 - self.overlap) * self.chunk_length))
+        pass
 
     def __call__(
         self,
@@ -135,7 +91,6 @@ class EncodecFeatureExtractor(SequenceFeatureExtractor):
         if padding and truncation:
             raise ValueError("Both padding and truncation were set. Make sure you only set one.")
         elif padding is None:
-            # by default let's pad the inputs
             padding = True
 
         is_batched = bool(
@@ -149,11 +104,9 @@ class EncodecFeatureExtractor(SequenceFeatureExtractor):
         elif isinstance(raw_audio, np.ndarray) and raw_audio.dtype is np.dtype(np.float64):
             raw_audio = raw_audio.astype(np.float32)
 
-        # always return batch
         if not is_batched:
             raw_audio = [np.asarray(raw_audio).T]
 
-        # verify inputs are valid
         for idx, example in enumerate(raw_audio):
             if example.ndim > 2:
                 raise ValueError(f"Expected input shape (channels, length) but got shape {example.shape}")
@@ -177,7 +130,6 @@ class EncodecFeatureExtractor(SequenceFeatureExtractor):
             else:
                 padded_inputs = input_values
 
-        # normal padding on batch
         if padded_inputs is None:
             padded_inputs = self.pad(
                 input_values,

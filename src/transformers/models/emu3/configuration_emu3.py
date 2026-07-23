@@ -1,17 +1,3 @@
-# Copyright 2024 HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -24,35 +10,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="Emu3-community/Emu3-Chat-hf")
 @strict
 class Emu3VQVAEConfig(PreTrainedConfig):
-    r"""
-    embed_dim (`int`, *optional*, defaults to 4):
-        Dimension of the quantized vector in codebook.
-    out_channels (`int`, *optional*, defaults to 3):
-        Output channel of decoder.
-    temporal_downsample_factor (`int`, *optional*, defaults to 4):
-        Temporal downsample factor.
-    base_channels (`int`, *optional*, defaults to 256):
-        Basic channel number of the intermediate blocks.
-    channel_multiplier (`list[int]`, *optional*, defaults to `[1, 2, 2, 4]`):
-        Channel scaling factor of the intermediate blocks.
-    num_res_blocks (`int`, *optional*, defaults to 2):
-        Residual block number in each stage.
-    attn_resolutions (`list[int]`, *optional*, defaults to `[3]`):
-        Stage indices to apply attention.
-
-    ```python
-    >>> from transformers import Emu3VQVAE, Emu3VQVAEConfig
-
-    >>> # Initializing a video VQ model of Emu3 configuration
-    >>> configuration = Emu3VQVAEConfig()
-
-    >>> # Initializing a model from the Emu3 VQ model style configuration
-    >>> model = Emu3VQVAE(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "emu3_vqgan"
     base_config_key = "vq_config"
@@ -76,21 +33,6 @@ class Emu3VQVAEConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Emu3-community/Emu3-Chat-hf")
 @strict
 class Emu3TextConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Emu3Model, Emu3Config
-
-    >>> # Initializing a Emu3-community/Emu3-Chat-hf style configuration
-    >>> configuration = Emu3Config()
-
-    >>> # Initializing a model from the Emu3-community/Emu3-Chat-hf style configuration
-    >>> model = Emu3Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "emu3_text_model"
     base_config_key = "text_config"
@@ -121,10 +63,6 @@ class Emu3TextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Emu3-community/Emu3-Chat-hf")
 @strict
 class Emu3Config(PreTrainedConfig):
-    r"""
-    vocabulary_map (`dict`, *optional*):
-        A dictionary containing the vocabulary map from the tokenizer. Used to obtain tokens from the image inputs.
-    """
 
     model_type = "emu3"
     keys_to_ignore_at_inference = ["past_key_values"]

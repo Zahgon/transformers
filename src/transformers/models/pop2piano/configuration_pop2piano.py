@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Pop2Piano model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,18 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="sweetcocoa/pop2piano")
 @strict
 class Pop2PianoConfig(PreTrainedConfig):
-    r"""
-    composer_vocab_size (`int`, *optional*, defaults to 21):
-        Denotes the number of composers.
-    relative_attention_num_buckets (`int`, *optional*, defaults to 32):
-        The number of buckets to use for each attention layer.
-    relative_attention_max_distance (`int`, *optional*, defaults to 128):
-        The maximum distance of the longer sequences for the bucket separation.
-    feed_forward_proj (`string`, *optional*, defaults to `"gated-gelu"`):
-        Type of feed forward layer to be used. Should be one of `"relu"` or `"gated-gelu"`.
-    dense_act_fn (`string`, *optional*, defaults to `"relu"`):
-        Type of Activation Function to be used in `Pop2PianoDenseActDense` and in `Pop2PianoDenseGatedActDense`.
-    """
 
     model_type = "pop2piano"
     keys_to_ignore_at_inference = ["past_key_values"]

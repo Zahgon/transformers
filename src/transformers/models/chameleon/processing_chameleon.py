@@ -1,19 +1,3 @@
-# Copyright 2024 Meta Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for Chameleon.
-"""
 
 from ...feature_extraction_utils import BatchFeature
 from ...image_utils import ImageInput
@@ -29,12 +13,6 @@ from ...utils import auto_docstring
 
 
 class ChameleonTextKwargs(TextKwargs, total=False):
-    """
-    return_for_text_completion (`bool`, *optional*, defaults to `False`):
-        Whether the processed text is intended for text completion tasks. When `True`, the processor does not
-        append the separator token (`sep_token`) to the end of the prompt, which is typically used for chat
-        mode. When `False`, the separator token is appended for proper chat formatting.
-    """
 
     return_for_text_completion: bool
 
@@ -79,7 +57,7 @@ class ChameleonProcessor(ProcessorMixin):
 
     @property
     def image_token_ids(self) -> list[int]:
-        return [self.image_token_id, self.image_start_token_id, self.image_end_token_id]
+        pass
 
     @auto_docstring
     def __call__(
@@ -101,37 +79,15 @@ class ChameleonProcessor(ProcessorMixin):
         if isinstance(text, str):
             text = [text]
 
-        # special Chameleon treatment to add sep for chat mode
         text = [f"{sample}{self.tokenizer.sep_token}" for sample in text]
         model_inputs = super().__call__(images=images, text=text, **kwargs)
         return model_inputs
 
     def replace_image_token(self, image_inputs: dict, image_idx: int) -> str:
-        one_img_tokens = self.image_start_token + (self.image_token * self.image_seq_length) + self.image_end_token
-        return one_img_tokens
+        pass
 
     def _get_num_multimodal_tokens(self, image_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-
-        Args:
-            image_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (height, width) per each image.
-
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-
-        vision_data = {}
-        if image_sizes is not None:
-            # add 2 for BOI and EOI tokens
-            num_image_tokens = [self.image_seq_length + 2] * len(image_sizes)
-            num_image_patches = [1] * len(image_sizes)
-
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-
-        return MultiModalData(**vision_data)
+        pass
 
 
 __all__ = ["ChameleonProcessor"]

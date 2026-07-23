@@ -10,46 +10,11 @@ if is_torch_available():
 logger = logging.get_logger(__name__)
 
 
-# the weights are ternary so can be represented with 2 bits, and they are packed in uint8 tensors, hence the number of values per item is 4
 VALUES_PER_ITEM = 4
 
 
 def pack_weights(quantized_weights: torch.Tensor) -> torch.Tensor:
-    """
-    Packs a tensor of quantized weights into a compact format using 2 bits per value.
-
-    Parameters:
-    -----------
-    quantized_weights : torch.Tensor
-        A tensor containing ternary quantized weights with values in {-1, 0, 1}. These values are adjusted to
-        {0, 1, 2} before being packed.
-
-    Returns:
-    --------
-    torch.Tensor
-        A packed tensor where each element stores 4 quantized values (each using 2 bits) in an 8-bit format.
-    """
-
-    original_shape = quantized_weights.shape
-
-    row_dim = (original_shape[0] + VALUES_PER_ITEM - 1) // VALUES_PER_ITEM
-
-    if len(original_shape) == 1:
-        packed_tensor_shape = (row_dim,)
-    else:
-        packed_tensor_shape = (row_dim, *original_shape[1:])
-
-    quantized_weights += 1
-    packed = torch.zeros(packed_tensor_shape, device=quantized_weights.device, dtype=torch.uint8)
-    unpacked = quantized_weights.to(torch.uint8)
-
-    it = min(VALUES_PER_ITEM, (original_shape[0] // row_dim) + 1)
-    for i in range(it):
-        start = i * row_dim
-        end = min(start + row_dim, original_shape[0])
-        packed[: (end - start)] |= unpacked[start:end] << 2 * i
-
-    return packed
+    pass
 
 
 @torch.compile
@@ -157,7 +122,6 @@ class BitLinear(nn.Module):
         else:
             self.bias = None
 
-        # Optional RMSNorm (applied on the activations before quantization).
         self.rms_norm = None
         if use_rms_norm:
             from ..models.llama.modeling_llama import LlamaRMSNorm
@@ -194,7 +158,6 @@ class BitLinear(nn.Module):
         return out
 
     def forward(self, input):
-        # Apply RMSNorm on the input if requested.
         if self.rms_norm is not None:
             input = self.rms_norm(input)
 
@@ -209,12 +172,6 @@ class BitLinear(nn.Module):
 
 
 class WeightQuant(torch.autograd.Function):
-    """
-    Implements a custom autograd function for weight quantization.
-    This performs ternary quantization (-1, 0, 1) based on scaling by the
-    mean absolute value of the weights. It uses the Straight-Through Estimator
-    (STE) for the backward pass.
-    """
 
     @staticmethod
     @torch.compile
@@ -227,17 +184,10 @@ class WeightQuant(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        grad_input = grad_output.clone()
-        return grad_input
+        pass
 
 
 class ActQuant(torch.autograd.Function):
-    """
-    Implements a custom autograd function for activation quantization.
-    This performs symmetric 8-bit quantization (to the range [-128, 127])
-    based on the maximum absolute value along the last dimension (per-token/row scaling).
-    It uses the Straight-Through Estimator (STE) for the backward pass.
-    """
 
     @staticmethod
     @torch.compile
@@ -250,8 +200,7 @@ class ActQuant(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        grad_input = grad_output.clone()
-        return grad_input
+        pass
 
 
 class AutoBitLinear(nn.Linear):
@@ -268,7 +217,6 @@ class AutoBitLinear(nn.Linear):
     ):
         super().__init__(in_features, out_features, bias)
         self.online_quant = online_quant
-        # Optional RMSNorm
         self.rms_norm = None
         if use_rms_norm:
             from ..models.llama.modeling_llama import LlamaRMSNorm
@@ -292,12 +240,9 @@ class AutoBitLinear(nn.Linear):
         *args,
         **kwargs,
     ):
-        if (prefix + "weight") in state_dict and state_dict[prefix + "weight"].dtype != self.weight.dtype:
-            state_dict[prefix + "weight"] = unpack_weights(state_dict[prefix + "weight"], dtype=self.weight.dtype)
-        return state_dict
+        pass
 
     def forward(self, input):
-        # Optional RMSNorm on activations prior to quantization.
         if self.rms_norm is not None:
             input = self.rms_norm(input)
 
@@ -327,7 +272,6 @@ def replace_with_bitnet_linear(model, modules_to_not_convert: list[str] | None =
     """
 
     has_been_replaced = False
-    # we need this to correctly materialize the weights during quantization
     for module_name, module in model.named_modules():
         if not should_convert_module(module_name, modules_to_not_convert):
             continue
@@ -393,15 +337,10 @@ class BitNetDeserialize:
         if model is not None and full_layer_name is not None:
             module, _ = get_module_from_name(model, full_layer_name)
             if hasattr(module, "out_features") and hasattr(module, "in_features"):
-                # Packed: shape[0] * VALUES_PER_ITEM == out_features
-                # Unpacked: shape[0] == out_features
                 expected_out = module.out_features
                 actual_out = weight.shape[0]
                 if actual_out * VALUES_PER_ITEM == expected_out:
                     needs_unpacking = True
-                    # Unpack into the module's compute dtype, not the packed uint8 dtype,
-                    # otherwise the ternary weights stay uint8 and F.linear fails with a
-                    # dtype mismatch (e.g. BFloat16 != unsigned char).
                     if hasattr(module, "weight_scale"):
                         target_dtype = module.weight_scale.dtype
         if needs_unpacking:

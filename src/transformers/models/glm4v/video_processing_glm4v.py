@@ -1,17 +1,3 @@
-# Copyright 2025 The ZhipuAI Inc. team and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""video processor class for GLM-4.1V."""
 
 import math
 
@@ -99,49 +85,7 @@ class Glm4vVideoProcessor(BaseVideoProcessor):
         fps: int | float | None = None,
         **kwargs,
     ):
-        """
-        Args:
-            metadata (`VideoMetadata`):
-                Metadata of the video containing information about total duration, fps and total number of frames.
-            fps (`int` or `float`, *optional*):
-                Target frames to sample per second. Defaults to `self.fps`.
-        Returns:
-            np.ndarray:
-                Indices to sample video frames.
-        """
-        if metadata is None or getattr(metadata, "fps", None) is None:
-            raise ValueError(
-                "Asked to sample frames per second but no video metadata was provided which is required when sampling in GLM4V. "
-                "Please pass in `VideoMetadata` object or set `do_sample_frames=False`"
-            )
-
-        total_frames = metadata.total_num_frames
-        requested_fps = fps if fps is not None else self.fps
-
-        max_frame_idx = total_frames - 1
-        duration = metadata.duration or round(max_frame_idx / metadata.fps) + 1
-
-        if duration <= self.max_duration:
-            n = int(math.floor(duration * requested_fps))
-            frame_indices = [min(max_frame_idx, int(math.ceil(i * metadata.fps / requested_fps))) for i in range(n)]
-        else:
-            num_samples = int(self.max_duration * requested_fps)
-            if num_samples >= total_frames:
-                frame_indices = list(range(total_frames))
-            else:
-                target_seconds = np.linspace(0, duration, num_samples, endpoint=True)
-                frame_indices = [min(max_frame_idx, int(math.ceil(t * metadata.fps))) for t in target_seconds]
-
-        seen, uniq = set(), []
-        for idx in frame_indices:
-            if idx not in seen:
-                seen.add(idx)
-                uniq.append(idx)
-
-        if len(uniq) & 1:
-            uniq.append(uniq[-1])
-
-        return np.array(uniq)
+        pass
 
     def _preprocess(
         self,
@@ -189,21 +133,17 @@ class Glm4vVideoProcessor(BaseVideoProcessor):
             resized_videos_grouped[shape] = stacked_videos
         resized_videos = reorder_videos(resized_videos_grouped, grouped_videos_index)
 
-        # Group videos by size for further processing
-        # Needed in case do_resize is False, or resize returns videos with different sizes
         grouped_videos, grouped_videos_index = group_videos_by_shape(resized_videos)
         processed_videos_grouped = {}
         processed_grids = {}
         for shape, stacked_videos in grouped_videos.items():
             resized_height, resized_width = get_image_size(stacked_videos[0], channel_dim=ChannelDimension.FIRST)
 
-            # Fused rescale and normalize
             stacked_videos = self.rescale_and_normalize(
                 stacked_videos, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
             patches = stacked_videos
 
-            # Check that videos have `num_frames` divisible by `temporal_patch_size`
             T = patches.shape[1]
             if pad := -T % temporal_patch_size:
                 repeats = patches[:, -1:].expand(-1, pad, -1, -1, -1)

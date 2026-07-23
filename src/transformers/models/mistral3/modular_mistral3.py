@@ -1,17 +1,3 @@
-# Copyright 2025 HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import torch
 from torch import nn
@@ -42,9 +28,6 @@ class Mistral3RMSNorm(MistralRMSNorm):
 
 
 class Mistral3PatchMerger(nn.Module):
-    """
-    Learned merging of spatial_merge_size ** 2 patches
-    """
 
     def __init__(self, config: Mistral3Config):
         super().__init__()
@@ -65,7 +48,6 @@ class Mistral3PatchMerger(nn.Module):
 
         permuted_tensor = []
         for image_index, image_tokens in enumerate(image_features.split(tokens_per_image)):
-            # Reshape image_tokens into a 2D grid
             h, w = image_sizes[image_index]
             image_grid = image_tokens.view(h, w, d).permute(2, 0, 1).unsqueeze(0)
             grid = torch.nn.functional.unfold(
@@ -84,7 +66,6 @@ class Mistral3MultiModalProjector(nn.Module):
         super().__init__()
         self.norm = Mistral3RMSNorm(config.vision_config.hidden_size, eps=config.text_config.rms_norm_eps)
         self.patch_merger = Mistral3PatchMerger(config)
-        # We have hidden_size * the number of vision feature layers
         self.num_feature_layers = (
             1 if isinstance(config.vision_feature_layer, int) else len(config.vision_feature_layer)
         )
@@ -134,7 +115,6 @@ class Mistral3Model(LlavaModel):
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple | BaseModelOutputWithPooling:
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
-        # this is not memory efficient at all (output_hidden_states=True) will save all the hidden states.
         image_outputs = self.vision_tower(
             pixel_values,
             image_sizes=image_sizes,
@@ -142,8 +122,6 @@ class Mistral3Model(LlavaModel):
             return_dict=True,
             **kwargs,
         )
-        # If we have one vision feature layer, return the corresponding hidden states,
-        # otherwise, select the hidden states of each feature layer and concatenate them
         if isinstance(vision_feature_layer, int):
             selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
         else:

@@ -1,16 +1,3 @@
-# Copyright 2025 Microsoft and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from collections.abc import Callable
@@ -67,20 +54,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="microsoft/Phi-4-multimodal-instruct")
 @strict
 class Phi4MultimodalVisionConfig(SiglipVisionConfig):
-    r"""
-    crop_size (`int`, *optional*, defaults to 448):
-        Crop size for the input images.
-    feature_layer (`int`, *optional*, defaults to -2):
-        The index of the layer of the encoder from which to extract image features.
-
-    Example:
-
-    ```python
-    >>> from transformers import Phi4MultimodalVisionConfig
-
-    >>> # Initializing a Phi4MultimodalVisionConfig with microsoft/Phi-4-multimodal-instruct style configuration
-    >>> configuration = Phi4MultimodalVisionConfig()
-    ```"""
 
     model_type = "phi4_multimodal_vision"
 
@@ -98,54 +71,6 @@ class Phi4MultimodalVisionConfig(SiglipVisionConfig):
 @auto_docstring(checkpoint="microsoft/Phi-4-multimodal-instruct")
 @strict
 class Phi4MultimodalAudioConfig(PreTrainedConfig):
-    r"""
-    num_blocks (`int`, *optional*, defaults to 24):
-        Number of hidden layers in the Transformer encoder.
-    activation (`str`, *optional*, defaults to `"swish"`):
-        The non-linear activation function in the MLPs.
-    chunk_size (`int`, *optional*, defaults to -1):
-        The chunk size to create the masks.
-    left_chunk (`int`, *optional*, defaults to 18):
-        The left chunk to create the masks.
-    dropout_rate (`float`, *optional*, defaults to 0.0):
-        The dropout ratio.
-    ext_pw_out_channel (`int`, *optional*, defaults to 1024):
-        Number of out channels in the point-wise conv modules.
-    depthwise_separable_out_channel (`int`, *optional*, defaults to 1024):
-        Number of out channels in the depth-wise separable conv modules.
-    depthwise_multiplier (`int`, *optional*, defaults to 1):
-        Input size multiplier for the depth-wise separable conv modules.
-    kernel_size (`int`, *optional*, defaults to 3):
-        Kernel size for the depth-wise separable conv modules.
-    conv_activation (`str`, *optional*, defaults to `"swish"`):
-        The non-linear activation function in the conv modules.
-    input_size (`int`, *optional*, defaults to 80):
-        Input size for the audio model.
-    conv_glu_type (`str`, *optional*, defaults to `"swish"`):
-        The non-linear activation function in the point-wise conv modules.
-    time_reduction (`int`, *optional*, defaults to 8):
-        Time reduction (subsampling factor).
-    bias_max_distance (`int`, *optional*, defaults to 1000):
-        Max distance for the relative attention bias module.
-    bias_symmetric (`bool`, *optional*, defaults to `False`):
-        Whether the relative attention bias should be symmetric or not.
-    nemo_activation (`str`, *optional*, defaults to `"relu"`):
-        The non-linear activation function in the nemo conv modules.
-    nemo_conv_channels (`int`, *optional*, defaults to 1024):
-        Number of channels in the nemo conv modules.
-    downsample_rate (`int`, *optional*, defaults to 1):
-        Downsample rate for the audio feature extractor.
-    feature_layer (`int`, *optional*, defaults to -2):
-        The index of the layer of the encoder from which to extract audio features.
-
-    Example:
-
-    ```python
-    >>> from transformers import Phi4MultimodalAudioConfig
-
-    >>> # Initializing a Phi4MultimodalAudioConfig with microsoft/Phi-4-multimodal-instruct style configuration
-    >>> configuration = Phi4MultimodalAudioConfig()
-    ```"""
 
     model_type = "phi4_multimodal_audio"
 
@@ -182,33 +107,12 @@ class Phi4MultimodalAudioConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.time_reduction % 2 != 0:
-            raise ValueError("`time_reduction` should be a multiple of 2!")
+        pass
 
 
 @auto_docstring(checkpoint="microsoft/Phi-4-multimodal-instruct")
 @strict
 class Phi4MultimodalConfig(Phi3Config):
-    r"""
-    original_max_position_embeddings (`int`, *optional*, defaults to 4096):
-        The maximum sequence length that this model was trained with. This is used to determine the size of the
-        original RoPE embeddings when using long scaling.
-
-    Example:
-
-    ```python
-    >>> from transformers import Phi4MultimodalModel, Phi4MultimodalConfig
-
-    >>> # Initializing a Phi4Multimodal style configuration
-    >>> configuration = Phi4MultimodalConfig.from_pretrained("microsoft/Phi-4-multimodal-instruct")
-
-    >>> # Initializing a model from the configuration
-    >>> model = Phi4MultimodalModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     sub_configs = {"audio_config": Phi4MultimodalAudioConfig, "vision_config": Phi4MultimodalVisionConfig}
 
@@ -250,16 +154,7 @@ def simple_eager_attention_forward(
     dropout: float | int = 0.0,
     **kwargs: Unpack[TransformersKwargs],
 ):
-    attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) * scaling
-    if attention_mask is not None:
-        attn_weights = attn_weights + attention_mask
-
-    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-    attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
-    attn_output = torch.matmul(attn_weights, value_states)
-    attn_output = attn_output.transpose(1, 2).contiguous()
-
-    return attn_output, attn_weights
+    pass
 
 
 class Phi4MultimodalVisionAttention(nn.Module):
@@ -475,7 +370,6 @@ class Phi4MultimodalVisionModel(Phi4MultimodalVisionPreTrainedModel):
         self.post_layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.head = Phi4MultimodalVisionMultiheadAttentionPoolingHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> nn.Module:
@@ -531,7 +425,6 @@ class Phi4MultimodalVisionModel(Phi4MultimodalVisionPreTrainedModel):
 
 
 class Phi4MultimodalImageEmbedding(nn.Module):
-    """Image embedding."""
 
     def __init__(self, config: Phi4MultimodalConfig):
         super().__init__()
@@ -561,15 +454,12 @@ class Phi4MultimodalImageEmbedding(nn.Module):
         img_feature = img_processor_output.hidden_states[self.layer_idx]
 
         patch_feature = img_feature
-        # reshape to 2D tensor
         width = int(math.sqrt(patch_feature.size(1)))
         patch_feature = patch_feature.view(-1, width, width, patch_feature.size(-1))
-        # convert to NCHW
         patch_feature = patch_feature.permute(0, 3, 1, 2)
         if getattr(self, "img_processor_padding", None) is not None:
             patch_feature = self.img_processor_padding(patch_feature)
         patch_feature = self.image_token_compression(patch_feature)
-        # convert to NHWC
         patch_feature = patch_feature.permute(0, 2, 3, 1)
         patch_feature = patch_feature.view(-1, patch_feature.size(1) * patch_feature.size(2), patch_feature.size(-1))
         return patch_feature
@@ -634,7 +524,6 @@ class Phi4MultimodalImageEmbedding(nn.Module):
 
             sub_img = torch.cat([sub_img, temporary_extensor], dim=2).reshape(1, -1, self.image_dim_out)
 
-            # Merge global and sub
             output_imgs.append(torch.cat([sub_img, self.global_img_feature_extensor, global_img], dim=1))
 
         img_set_tensor = []
@@ -651,8 +540,6 @@ class Phi4MultimodalImageEmbedding(nn.Module):
         with torch.no_grad():
             positions_tuple = torch.nonzero(input_ids == self.config.vision_config.image_token_id, as_tuple=True)
 
-        # Temporarily disable autocast to avoid issue on bf16 tensors
-        # Ref: https://github.com/pytorch/pytorch/issues/132715
         with maybe_autocast(device_type=inputs_embeds.device.type, enabled=False):
             image_embeds = inputs_embeds.index_put(
                 indices=positions_tuple, values=merged_img_set_tensor, accumulate=False
@@ -663,7 +550,6 @@ class Phi4MultimodalImageEmbedding(nn.Module):
         return image_embeds
 
 
-########################################################## AUDIO #############################################
 
 
 class Phi4MultimodalAudioMLP(nn.Module):
@@ -765,8 +651,6 @@ class Phi4MultimodalAudioGluPointWiseConv(nn.Module):
         self.b2 = nn.Parameter(torch.zeros(1, config.ext_pw_out_channel, 1))
 
     def forward(self, hidden_states):
-        # we assume the input always has the #channel (#dim) in the last dimension of the
-        # tensor, so need to switch the dimension first for 1D-Conv case
         hidden_states = hidden_states.permute([0, 2, 1])
         hidden_states = self.ext_pw_conv_1d(hidden_states)
         out = hidden_states[:, 0 : self.output_dim, :] + self.b1
@@ -849,16 +733,13 @@ class Phi4MultimodalAudioNemoConvSubsampling(torch.nn.Module):
                 ]
             )
 
-        # Aggregate the layers
         self.conv = torch.nn.Sequential(*layers)
         self.out = torch.nn.Linear(conv_channels * config.nemo_final_size, config.hidden_size)
 
     def forward(self, hidden_states: torch.Tensor, mask: torch.Tensor | None):
-        # Unsqueeze Channel Axis
         hidden_states = hidden_states.unsqueeze(1)
         hidden_states = self.conv(hidden_states)
 
-        # Flatten Channel and Frequency Axes
         b, _, t, _ = hidden_states.size()
         hidden_states = self.out(hidden_states.transpose(1, 2).reshape(b, t, -1))
 
@@ -885,18 +766,15 @@ class Phi4MultimodalAudioRelativeAttentionBias(nn.Module):
         self.bias_values = nn.Embedding(self.num_buckets, config.num_attention_heads)
 
     def forward(self, x):
-        # instantiate bias compatible with shape of x
         max_pos = x.size(1)
         context_position = torch.arange(max_pos, device=x.device, dtype=torch.long)[:, None]
         memory_position = torch.arange(max_pos, device=x.device, dtype=torch.long)[None, :]
         relative_position = memory_position - context_position
-        # clipping to a maximum distance using ops that play well with ONNX export
         relative_position = relative_position.masked_fill(relative_position < -self.max_distance, -self.max_distance)
         relative_position = relative_position.masked_fill(
             relative_position > self.max_distance - 1, self.max_distance - 1
         )
 
-        # mapping from relative position to index in the bias parameter
         bias_idx = relative_position
         bias_idx = bias_idx.abs() if self.symmetric else bias_idx + self.num_buckets // 2
 
@@ -950,17 +828,11 @@ class Phi4MultimodalAudioModel(Phi4MultimodalAudioPreTrainedModel):
         )
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def _streaming_mask(self, seq_len, batch_size, chunk_size, left_chunk):
-        # Create mask matrix for streaming
-        # S stores start index. if chunksize is 18, s is [0,18,36,....]
         chunk_start_idx = np.arange(0, seq_len, chunk_size)
-        # avoid randomness when run evaluation or decoding
         if self.training and np.random.rand() > 0.5:
-            # Either first or last chunk is not complete.
-            # If only the last one is not complete, EOS is not effective
             chunk_start_idx = seq_len - chunk_start_idx
             chunk_start_idx = chunk_start_idx[::-1]
             chunk_start_idx = chunk_start_idx[:-1]
@@ -1025,9 +897,7 @@ class Phi4MultimodalAudioModel(Phi4MultimodalAudioPreTrainedModel):
         bs, seq_len, _ = hidden_states.shape
         max_seq_len = 500  # maximum position for absolute positional encoding
         if seq_len > max_seq_len:
-            # audio sequence is longer than max_seq_len, unfold it into chunks of max_seq_len
             unfolded = True
-            # the unfold op will drop residual frames, pad it to the multiple of max_seq_len
             if seq_len % max_seq_len > 0:
                 chunk_pad_size = max_seq_len - (seq_len % max_seq_len)
             else:
@@ -1039,7 +909,6 @@ class Phi4MultimodalAudioModel(Phi4MultimodalAudioPreTrainedModel):
             hidden_states = unfold_tensor(hidden_states, max_seq_len)
             masks_unfold = None
             if mask is not None:
-                # revise hs_mask here because the previous calculated hs_mask did not consider extra pad
                 subsampled_pad_mask = mask.squeeze(1)  # [bz, subsampled_unmask_seq_len]
                 extra_padded_subsamlped_pad_mask = F.pad(
                     subsampled_pad_mask, (0, chunk_pad_size), "constant", False
@@ -1062,7 +931,6 @@ class Phi4MultimodalAudioModel(Phi4MultimodalAudioPreTrainedModel):
         if unfolded:
             embed_dim = hidden_states.shape[-1]
             hidden_states = hidden_states.reshape(bs, -1, embed_dim)
-            # if we ever padded before unfolding, we need to remove the padding
             if chunk_pad_size > 0:
                 hidden_states = hidden_states[:, :-chunk_pad_size, :]
 
@@ -1078,7 +946,6 @@ def unfold_tensor(tensor, max_seq_len):
     """
     _, _, D = tensor.shape
     tensor = tensor.transpose(-1, -2)
-    # N x D x 1 x T => N x (D x max_seq_len) x T'
     tensor = F.unfold(tensor[..., None, :], kernel_size=(1, max_seq_len), stride=(1, max_seq_len))
 
     new_bsz, _, slen = tensor.shape
@@ -1168,8 +1035,6 @@ class Phi4MultimodalAudioEmbedding(nn.Module):
             [audio_embeds[i, : audio_embed_sizes[i], :] for i in range(len(audio_embed_sizes))], dim=0
         )
         merged_audio_embeds = merged_audio_embeds.to(dtype=inputs_embeds.dtype, device=inputs_embeds.device)
-        # Temporarily disable autocast to avoid issue on bf16 tensors
-        # Ref: https://github.com/pytorch/pytorch/issues/132715
         with maybe_autocast(device_type=inputs_embeds.device.type, enabled=False):
             audio_embeds = inputs_embeds.index_put(
                 indices=positions_tuple, values=merged_audio_embeds, accumulate=False
@@ -1180,7 +1045,6 @@ class Phi4MultimodalAudioEmbedding(nn.Module):
         return audio_embeds
 
 
-#################################################### TEXT ####################################################
 
 
 class Phi4MultimodalRMSNorm(Phi3RMSNorm):
@@ -1192,7 +1056,6 @@ class Phi4MultimodalDecoderLayer(Phi3DecoderLayer):
 
 
 class Phi4MultimodalFeatureEmbedding(nn.Module):
-    """Image-audio embedding."""
 
     def __init__(self, config: Phi4MultimodalConfig) -> None:
         super().__init__()
@@ -1238,7 +1101,6 @@ class Phi4MultimodalFeatureEmbedding(nn.Module):
                 audio_projection_mode=audio_projection_mode,
             )
 
-        # merge image and audio
         if image_embeds is not None and audio_embeds is not None:
             inputs_embeds = image_embeds * image_position_mask + audio_embeds * non_image_position_mask
         elif image_embeds is not None:
@@ -1277,7 +1139,6 @@ class Phi4MultimodalModel(Phi3Model):
         self.norm = Phi4MultimodalRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -1376,7 +1237,6 @@ class Phi4MultimodalForCausalLM(Phi3ForCausalLM):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1432,7 +1292,6 @@ class Phi4MultimodalForCausalLM(Phi3ForCausalLM):
         'This is an example script .\n Certainly! Below is a sample script that demonstrates a simple task, such as calculating the sum'
         ```"""
 
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs: BaseModelOutputWithPast = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -1450,7 +1309,6 @@ class Phi4MultimodalForCausalLM(Phi3ForCausalLM):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -1483,11 +1341,7 @@ class Phi4MultimodalForCausalLM(Phi3ForCausalLM):
         logits_to_keep=0,
         **kwargs,
     ):
-        # Overwritten -- this model may need to switch between short and long rope, invalidating the cache in the
-        # process
 
-        # When the first time input length reached long and short factor switching point, enforce re-compute cache
-        # It will cause downside of slower at this single token position, however, better than current failure.
         if (
             past_key_values
             and self.config.rope_parameters

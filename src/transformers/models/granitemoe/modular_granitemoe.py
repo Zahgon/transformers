@@ -1,17 +1,3 @@
-# Copyright 2024 IBM and the HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import torch
 import torch.nn.functional as F
@@ -47,13 +33,6 @@ class GraniteMoeRotaryEmbedding(GraniteRotaryEmbedding):
 
 
 class GraniteMoeTopKRouter(nn.Module):
-    """Top-k gating that returns the routing decisions without grouping tokens by expert.
-
-    Returns ``(top_k_index, top_k_weights, router_logits)``; the grouping/scattering used to live
-    here (via ``expert_size.tolist()``, which broke fullgraph compile) and now happens inside the
-    experts forward via ``use_experts_implementation`` so the default ``grouped_mm`` / ``batched_mm``
-    paths can compile cleanly.
-    """
 
     def __init__(self, config: GraniteMoeConfig):
         super().__init__()
@@ -73,7 +52,6 @@ class GraniteMoeExperts(MixtralExperts):
 
 
 class GraniteMoeMoE(nn.Module):
-    """Sparsely-gated mixture-of-experts block: router decides, experts compute."""
 
     def __init__(self, config: GraniteMoeConfig):
         super().__init__()
@@ -199,7 +177,6 @@ class GraniteMoeModel(MixtralModel):
         inputs_embeds = inputs_embeds * self.embedding_multiplier
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
@@ -266,7 +243,6 @@ class GraniteMoeForCausalLM(MixtralForCausalLM):
         output_router_logits = (
             output_router_logits if output_router_logits is not None else self.config.output_router_logits
         )
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -276,7 +252,6 @@ class GraniteMoeForCausalLM(MixtralForCausalLM):
             **kwargs,
         )
 
-        # Only compute necessary logits
         hidden_states = outputs.last_hidden_state
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
@@ -284,7 +259,6 @@ class GraniteMoeForCausalLM(MixtralForCausalLM):
 
         loss = None
         if labels is not None:
-            # Flatten the tokens
             loss = self.loss_function(
                 logits,
                 labels,

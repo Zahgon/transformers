@@ -1,17 +1,3 @@
-# Copyright 2025 Nicolas Boizard, Duarte M. Alves, Hippolyte Gisserot-Boukhlef and the EuroBert team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import torch
 from torch import nn
@@ -31,24 +17,6 @@ from ..llama.modeling_llama import LlamaAttention, LlamaModel, LlamaPreTrainedMo
 @auto_docstring(checkpoint="EuroBERT/EuroBERT-210m")
 @strict
 class EuroBertConfig(LlamaConfig):
-    r"""
-    mask_token_id (`int`, *optional*, defaults to 128002):
-        Mask token id.
-    classifier_pooling (`str`, *optional*, defaults to `"late"`):
-        The pooling strategy to use for the classifier. Can be one of ['bos', 'mean', 'late'].
-
-    ```python
-    >>> from transformers import EuroBertModel, EuroBertConfig
-
-    >>> # Initializing a EuroBert eurobert-base style configuration
-    >>> configuration = EuroBertConfig()
-
-    >>> # Initializing a model from the eurobert-base style configuration
-    >>> model = EuroBertModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "eurobert"
 
@@ -149,7 +117,6 @@ class EuroBertForMaskedLM(EuroBertPreTrainedModel):
         self.model = EuroBertModel(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, config.mlp_bias)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

@@ -1,16 +1,3 @@
-# Copyright 2022 Meta and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import math
 import sys
 from collections.abc import Callable, Sequence
@@ -58,56 +45,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class EsmForProteinFoldingOutput(ModelOutput):
-    r"""
-    frames (`torch.FloatTensor`):
-        Output frames.
-    sidechain_frames (`torch.FloatTensor`):
-        Output sidechain frames.
-    unnormalized_angles (`torch.FloatTensor`):
-        Predicted unnormalized backbone and side chain torsion angles.
-    angles (`torch.FloatTensor`):
-        Predicted backbone and side chain torsion angles.
-    positions (`torch.FloatTensor`):
-        Predicted positions of the backbone and side chain atoms.
-    states (`torch.FloatTensor`):
-        Hidden states from the protein folding trunk.
-    s_s (`torch.FloatTensor`):
-        Per-residue embeddings derived by concatenating the hidden states of each layer of the ESM-2 LM stem.
-    s_z (`torch.FloatTensor`):
-        Pairwise residue embeddings.
-    distogram_logits (`torch.FloatTensor`):
-        Input logits to the distogram used to compute residue distances.
-    lm_logits (`torch.FloatTensor`):
-        Logits output by the ESM-2 protein language model stem.
-    aatype (`torch.FloatTensor`):
-        Input amino acids (AlphaFold2 indices).
-    atom14_atom_exists (`torch.FloatTensor`):
-        Whether each atom exists in the atom14 representation.
-    residx_atom14_to_atom37 (`torch.FloatTensor`):
-        Mapping between atoms in the atom14 and atom37 representations.
-    residx_atom37_to_atom14 (`torch.FloatTensor`):
-        Mapping between atoms in the atom37 and atom14 representations.
-    atom37_atom_exists (`torch.FloatTensor`):
-        Whether each atom exists in the atom37 representation.
-    residue_index (`torch.FloatTensor`):
-        The index of each residue in the protein chain. Unless internal padding tokens are used, this will just be
-        a sequence of integers from 0 to `sequence_length`.
-    lddt_head (`torch.FloatTensor`):
-        Raw outputs from the lddt head used to compute plddt.
-    plddt (`torch.FloatTensor`):
-        Per-residue confidence scores. Regions of low confidence may indicate areas where the model's prediction is
-        uncertain, or where the protein structure is disordered.
-    ptm_logits (`torch.FloatTensor`):
-        Raw logits used for computing ptm.
-    ptm (`torch.FloatTensor`):
-        TM-score output representing the model's high-level confidence in the overall structure.
-    aligned_confidence_probs (`torch.FloatTensor`):
-        Per-residue confidence scores for the aligned structure.
-    predicted_aligned_error (`torch.FloatTensor`):
-        Predicted error between the model's prediction and the ground truth.
-    max_predicted_aligned_error (`torch.FloatTensor`):
-        Per-sample maximum predicted error.
-    """
 
     frames: torch.FloatTensor | None = None
     sidechain_frames: torch.FloatTensor | None = None
@@ -135,7 +72,6 @@ class EsmForProteinFoldingOutput(ModelOutput):
 
 
 def is_fp16_enabled(device_type):
-    # Autocast world
     autocast_dtype = torch.get_autocast_dtype(device_type)
     fp16_enabled = autocast_dtype == torch.float16
     fp16_enabled = fp16_enabled and torch.is_autocast_enabled(device_type)
@@ -150,33 +86,13 @@ def is_deepspeed_initialized():
         try:
             import deepspeed
 
-            # This is not available in all DeepSpeed versions.
             return deepspeed.utils.is_initialized()
         except Exception:
             return False
 
 
 def collate_dense_tensors(samples: list[torch.Tensor], pad_v: float = 0) -> torch.Tensor:
-    """
-    Takes a list of tensors with the following dimensions:
-        [(d_11, ..., d_1K),
-         (d_21, ..., d_2K), ..., (d_N1, ..., d_NK)]
-    and stack + pads them into a single tensor of:
-    (N, max_i=1,N { d_i1 }, ..., max_i=1,N {diK})
-    """
-    if len(samples) == 0:
-        return torch.Tensor()
-    if len({x.dim() for x in samples}) != 1:
-        raise RuntimeError(f"Samples has varying dimensions: {[x.dim() for x in samples]}")
-    (device,) = tuple({x.device for x in samples})  # assumes all on same device
-    max_shape = [max(lst) for lst in zip(*[x.shape for x in samples])]
-    result = torch.empty(len(samples), *max_shape, dtype=samples[0].dtype, device=device)
-    result.fill_(pad_v)
-    for i in range(len(samples)):
-        result_i = result[i]
-        t = samples[i]
-        result_i[tuple(slice(0, k) for k in t.shape)] = t
-    return result
+    pass
 
 
 def flatten_final_dims(t: torch.Tensor, no_dims: int):
@@ -203,11 +119,6 @@ def dict_multimap(fn, dicts):
 
 
 class EsmFoldLinear(nn.Linear):
-    """
-    A Linear layer with built-in nonstandard initializations. Called just like torch.nn.Linear.
-
-    Implements the initializers in 1.11.4, plus some additional ones found in the code.
-    """
 
     def __init__(
         self,
@@ -285,9 +196,6 @@ def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
 
 
 class EsmFoldAttention(nn.Module):
-    """
-    Standard multi-head attention using AlphaFold's default layer initialization. Allows multiple bias vectors.
-    """
 
     def __init__(
         self,
@@ -322,8 +230,6 @@ class EsmFoldAttention(nn.Module):
         self.no_heads = no_heads
         self.gating = gating
 
-        # DISCREPANCY: c_hidden is not the per-head channel dimension, as
-        # stated in the supplement, but the overall channel dimension.
 
         self.linear_q = EsmFoldLinear(self.c_q, self.c_hidden * self.no_heads, bias=False, init="glorot")
         self.linear_k = EsmFoldLinear(self.c_k, self.c_hidden * self.no_heads, bias=False, init="glorot")
@@ -337,17 +243,14 @@ class EsmFoldAttention(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def _prep_qkv(self, q_x: torch.Tensor, kv_x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # [*, Q/K/V, H * C_hidden]
         q = self.linear_q(q_x)
         k = self.linear_k(kv_x)
         v = self.linear_v(kv_x)
 
-        # [*, Q/K, H, C_hidden]
         q = q.view(q.shape[:-1] + (self.no_heads, -1))
         k = k.view(k.shape[:-1] + (self.no_heads, -1))
         v = v.view(v.shape[:-1] + (self.no_heads, -1))
 
-        # [*, H, Q/K, C_hidden]
         q = q.transpose(-2, -3)
         k = k.transpose(-2, -3)
         v = v.transpose(-2, -3)
@@ -360,14 +263,11 @@ class EsmFoldAttention(nn.Module):
         if self.linear_g is not None:
             g = self.sigmoid(self.linear_g(q_x))
 
-            # [*, Q, H, C_hidden]
             g = g.view(g.shape[:-1] + (self.no_heads, -1))
             o = o * g
 
-        # [*, Q, H * C_hidden]
         o = flatten_final_dims(o, 2)
 
-        # [*, Q, C_q]
         o = self.linear_o(o)
 
         return o
@@ -418,17 +318,14 @@ class EsmFoldAttention(nn.Module):
         if biases is None:
             biases = []
 
-        # [*, H, Q/K, C_hidden]
         query, key, value = self._prep_qkv(q_x, kv_x)
         key = permute_final_dims(key, (1, 0))
 
-        # [*, H, Q, K]
         output = torch.matmul(query, key)
         for b in biases:
             output += b
         output = softmax_no_cast(output, -1)
 
-        # [*, H, Q, C_hidden]
         output = torch.matmul(output, value)
         output = output.transpose(-2, -3)
         output = self._wrap_up(output, q_x)
@@ -503,7 +400,6 @@ class EsmFoldTriangleAttention(nn.Module):
             [*, I, J, C_in] output tensor
         """
         if mask is None:
-            # [*, I, J]
             mask = x.new_ones(
                 x.shape[:-1],
             )
@@ -512,16 +408,12 @@ class EsmFoldTriangleAttention(nn.Module):
             x = x.transpose(-2, -3)
             mask = mask.transpose(-1, -2)
 
-        # [*, I, J, C_in]
         x = self.layer_norm(x)
 
-        # [*, I, 1, 1, J]
         mask_bias = (self.inf * (mask - 1))[..., :, None, None, :]
 
-        # [*, H, I, J]
         triangle_bias = permute_final_dims(self.linear(x), (2, 0, 1))
 
-        # [*, 1, H, I, J]
         triangle_bias = triangle_bias.unsqueeze(-4)
 
         biases = [mask_bias, triangle_bias]
@@ -547,9 +439,6 @@ class EsmFoldTriangleAttention(nn.Module):
 
 
 class EsmFoldTriangleMultiplicativeUpdate(nn.Module):
-    """
-    Implements Algorithms 11 and 12.
-    """
 
     def __init__(self, config, _outgoing=True):
         super().__init__()
@@ -579,7 +468,6 @@ class EsmFoldTriangleMultiplicativeUpdate(nn.Module):
             b = permute_final_dims(b, (2, 0, 1))
 
         if _inplace_chunk_size is not None:
-            # To be replaced by torch vmap
             for i in range(0, a.shape[-3], _inplace_chunk_size):
                 a_chunk = a[..., i : i + _inplace_chunk_size, :, :]
                 b_chunk = b[..., i : i + _inplace_chunk_size, :, :]
@@ -671,8 +559,6 @@ class EsmFoldTriangleMultiplicativeUpdate(nn.Module):
                 if need_transpose:
                     p = p.transpose(-1, -2)
             else:
-                # This computation is chunked so as not to exceed our 2.5x
-                # budget with a large intermediate tensor
                 linear_g = self.linear_a_g if a else self.linear_b_g
                 c = linear_g.bias.shape[-1]
                 out_shape = pair.shape[:-3] + (c,) + pair.shape[-3:-1]
@@ -694,9 +580,6 @@ class EsmFoldTriangleMultiplicativeUpdate(nn.Module):
 
             return p
 
-        # We start by fully manifesting a. In addition to the input, this
-        # brings total memory consumption to 2x z (disregarding size of chunks)
-        # [*, N, N, c]
         a = compute_projection(z, mask, True, chunked=True)
 
         if inplace_chunk_size is not None:
@@ -710,31 +593,23 @@ class EsmFoldTriangleMultiplicativeUpdate(nn.Module):
                 return [slice(None) for _ in t.shape]
 
             def slice_tensor(t, start, end, dim):
-                # Slices start:end from the dim dimension of t
                 s = empty_slicer(t)
                 s[dim] = slice(start, end)
                 return t[s]
 
             def flip_z_cache_(z_cache, z):
-                # "Reorient" the z_cache (see below), filling it with quadrants
-                # 3---recovered from the z_cache---and 4---recovered from z---
-                # of the input tensor z.
                 quadrant_3 = slice_tensor(z_cache, half_n, None, row_dim)
                 z_cache = z_cache.transpose(row_dim, col_dim)
 
-                # If n is odd, we need to shrink the z_cache by one row
                 z_cache = z_cache[..., : (n // 2), :, :]
 
-                # Move the 3rd quadrant of z into the
                 first_half_slicer = empty_slicer(z_cache)
                 first_half_slicer[col_dim] = slice(0, half_n)
                 z_cache[first_half_slicer] = quadrant_3
 
-                # Get the fourth quadrant of z
                 quadrant_4 = slice_tensor(z, half_n, None, row_dim)
                 quadrant_4 = slice_tensor(quadrant_4, half_n, None, col_dim)
 
-                # Insert said quadrant into the rotated z-cache
                 quadrant_3_slicer = empty_slicer(z_cache)
                 quadrant_3_slicer[col_dim] = slice(half_n, None)
 
@@ -742,7 +617,6 @@ class EsmFoldTriangleMultiplicativeUpdate(nn.Module):
 
                 return z_cache
 
-            # Initialize the z cache to the left half of z.
             z_cache_shape = list(z.shape)
             z_cache_shape[col_dim] = half_n
             z_cache = z.new_zeros(z_cache_shape)
@@ -751,9 +625,6 @@ class EsmFoldTriangleMultiplicativeUpdate(nn.Module):
             z_cache.copy_(z[z_cache_slicer])
             z_cache_rotated = False
 
-            # We need to reorient the z-cache at the halfway point, and we
-            # don't want a single chunk to straddle that point. We contract one
-            # of the chunks in the middle to address that problem.
             i_range = list(range(0, half_n, inplace_chunk_size))
             initial_offsets = [i_2 - i_1 for i_1, i_2 in zip(i_range, i_range[1:] + [half_n])]
             after_half = list(range(half_n, n, inplace_chunk_size))
@@ -771,9 +642,6 @@ class EsmFoldTriangleMultiplicativeUpdate(nn.Module):
                 if b_chunk_dim == col_dim:
                     z_chunk_b = slice_tensor(z, i, i + offset, col_dim)
                 else:  # b_chunk_dim == row_dim
-                    # In this case, the b-dimension (b_chunk_dim) is partially
-                    # overwritten at the end of each iteration. We need to
-                    # restore the missing component from the z-cache.
                     if not z_cache_rotated:
                         z_chunk_slicer = empty_slicer(z_chunk_b)
                         z_chunk_slicer[col_dim] = slice(0, half_n)
@@ -790,8 +658,6 @@ class EsmFoldTriangleMultiplicativeUpdate(nn.Module):
                 x_chunk = self.layer_norm_out(x_chunk)
                 x_chunk = self.linear_z(x_chunk)
 
-                # The g dimension (col_dim) is parallel to and ahead of the
-                # overwrites in z. We can extract the g chunk normally.
                 z_chunk_g = slice_tensor(z, i, i + offset, col_dim)
                 g_chunk = self.linear_g(self.layer_norm_in(z_chunk_g))
                 g_chunk.sigmoid_()
@@ -799,7 +665,6 @@ class EsmFoldTriangleMultiplicativeUpdate(nn.Module):
 
                 x_chunk *= g_chunk
 
-                # Write the columns into z in-place
                 z_slicer = empty_slicer(z)
                 z_slicer[col_dim] = slice(i, i + offset)
                 if with_add:
@@ -877,12 +742,7 @@ class EsmFoldTriangleMultiplicativeUpdate(nn.Module):
 
 
 class EsmFoldPreTrainedModel(EsmPreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
 
-    # Subclass `EsMPreTrainedModel` to deal with special init
     @torch.no_grad()
     def _init_weights(self, module):
         """Initialize the weights"""
@@ -977,11 +837,9 @@ class EsmFoldSelfAttention(nn.Module):
         q = self.rescale_factor * q
         a = torch.einsum("...qc,...kc->...qk", q, k)
 
-        # Add external attention bias.
         if bias is not None:
             a = a + bias.permute(0, 3, 1, 2)
 
-        # Do not attend to padding tokens.
         if mask is not None:
             mask = mask[:, None, None]
             a = a.masked_fill(mask == False, -np.inf)  # noqa: E712
@@ -999,9 +857,6 @@ class EsmFoldSelfAttention(nn.Module):
 
 
 class EsmFoldDropout(nn.Module):
-    """
-    Implementation of dropout with the ability to share the dropout mask along a particular dimension.
-    """
 
     def __init__(self, r: float, batch_dim: int | list[int]):
         super().__init__()
@@ -1170,19 +1025,15 @@ class EsmFoldTriangularSelfAttentionBlock(nn.Module):
                 f"{pairwise_state.shape[1]} or {pairwise_state.shape[2]}."
             )
 
-        # Update sequence state
         bias = self.pair_to_sequence(pairwise_state)
 
-        # Self attention with bias + mlp.
         y = self.layernorm_1(sequence_state)
         y, _ = self.seq_attention(y, mask=mask, bias=bias)
         sequence_state = sequence_state + self.drop(y)
         sequence_state = self.mlp_seq(sequence_state)
 
-        # Update pairwise state
         pairwise_state = pairwise_state + self.sequence_to_pair(sequence_state)
 
-        # Axial attention with triangular bias.
         tri_mask = mask.unsqueeze(2) * mask.unsqueeze(1) if mask is not None else None
         pairwise_state = pairwise_state + self.row_drop(self.tri_mul_out(pairwise_state, mask=tri_mask))
         pairwise_state = pairwise_state + self.col_drop(self.tri_mul_in(pairwise_state, mask=tri_mask))
@@ -1193,7 +1044,6 @@ class EsmFoldTriangularSelfAttentionBlock(nn.Module):
             self.tri_att_end(pairwise_state, mask=tri_mask, chunk_size=chunk_size)
         )
 
-        # MLP over pairs.
         pairwise_state = self.mlp_pair(pairwise_state)
 
         return sequence_state, pairwise_state
@@ -1201,15 +1051,11 @@ class EsmFoldTriangularSelfAttentionBlock(nn.Module):
 
 class EsmCategoricalMixture:
     def __init__(self, param, bins=50, start=0, end=1):
-        # All tensors are of shape ..., bins.
         self.logits = param
         bins = torch.linspace(start, end, bins + 1, device=self.logits.device, dtype=self.logits.dtype)
         self.v_bins = (bins[:-1] + bins[1:]) / 2
 
     def log_prob(self, true):
-        # Shapes are:
-        #     self.probs: ... x bins
-        #     true      : ...
         true_index = (true.unsqueeze(-1) - self.v_bins[[None] * true.ndim]).abs().argmin(-1)
         nll = self.logits.log_softmax(-1)
         return torch.take_along_dim(nll, true_index.unsqueeze(-1), dim=-1).squeeze(-1)
@@ -1219,30 +1065,11 @@ class EsmCategoricalMixture:
 
 
 def categorical_lddt(logits, bins=50):
-    # Logits are ..., 37, bins.
     return EsmCategoricalMixture(logits, bins=bins).mean()
 
 
 def get_axial_mask(mask):
-    """
-    Helper to convert B x L mask of valid positions to axial mask used in row column attentions.
-
-    Input:
-      mask: B x L tensor of booleans
-
-    Output:
-      mask: B x L x L tensor of booleans
-    """
-
-    if mask is None:
-        return None
-
-    if len(mask.shape) != 2:
-        raise ValueError(f"`mask` should be a 2d-tensor, got {len(mask.shape)} dims.")
-    batch_dim, seq_dim = mask.shape
-    m = mask.unsqueeze(1).expand(batch_dim, seq_dim, seq_dim)
-    m = m.reshape(batch_dim * seq_dim, seq_dim)
-    return m
+    pass
 
 
 class EsmFoldRelativePosition(nn.Module):
@@ -1250,8 +1077,6 @@ class EsmFoldRelativePosition(nn.Module):
         super().__init__()
         self.bins = config.position_bins
 
-        # Note an additional offset is used so that the 0th position
-        # is reserved for masked pairs.
         self.embedding = torch.nn.Embedding(2 * self.bins + 2, config.pairwise_state_dim)
 
     def forward(self, residue_index, mask=None):
@@ -1302,9 +1127,6 @@ class EsmFoldAngleResnetBlock(nn.Module):
 
 
 class EsmFoldAngleResnet(nn.Module):
-    """
-    Implements Algorithm 20, lines 11-14
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -1332,11 +1154,7 @@ class EsmFoldAngleResnet(nn.Module):
         Returns:
             [*, no_angles, 2] predicted angles
         """
-        # NOTE: The ReLU's applied to the inputs are absent from the supplement
-        # pseudocode but present in the source. For maximal compatibility with
-        # the pretrained weights, I'm going with the source.
 
-        # [*, C_hidden]
         s_initial = self.relu(s_initial)
         s_initial = self.linear_initial(s_initial)
         s = self.relu(s)
@@ -1348,10 +1166,8 @@ class EsmFoldAngleResnet(nn.Module):
 
         s = self.relu(s)
 
-        # [*, no_angles * 2]
         s = self.linear_out(s)
 
-        # [*, no_angles, 2]
         s = s.view(s.shape[:-1] + (-1, 2))
 
         unnormalized_s = s
@@ -1367,9 +1183,6 @@ class EsmFoldAngleResnet(nn.Module):
 
 
 class EsmFoldInvariantPointAttention(nn.Module):
-    """
-    Implements Algorithm 22.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -1382,10 +1195,6 @@ class EsmFoldInvariantPointAttention(nn.Module):
         self.num_qk_points = config.num_qk_points
         self.num_v_points = config.num_v_points
 
-        # These linear layers differ from their specifications in the
-        # supplement. There, they lack bias and use Glorot initialization.
-        # Here as in the official source, they have bias and use the default
-        # Lecun initialization.
         hc = config.ipa_dim * config.num_heads_ipa
         self.linear_q = EsmFoldLinear(c_s, hc)
         self.linear_kv = EsmFoldLinear(c_s, 2 * hc)
@@ -1430,59 +1239,39 @@ class EsmFoldInvariantPointAttention(nn.Module):
         """
         z = [z]
 
-        #######################################
-        # Generate scalar and point activations
-        #######################################
-        # [*, N_res, H * C_hidden]
         q = self.linear_q(s)
         kv = self.linear_kv(s)
 
-        # [*, N_res, H, C_hidden]
         q = q.view(q.shape[:-1] + (self.num_heads, -1))
 
-        # [*, N_res, H, 2 * C_hidden]
         kv = kv.view(kv.shape[:-1] + (self.num_heads, -1))
 
-        # [*, N_res, H, C_hidden]
         k, v = torch.split(kv, self.hidden_dim, dim=-1)
 
-        # [*, N_res, H * P_q * 3]
         q_pts = self.linear_q_points(s)
 
-        # This is kind of clunky, but it's how the original does it
-        # [*, N_res, H * P_q, 3]
         q_pts = torch.split(q_pts, q_pts.shape[-1] // 3, dim=-1)
         q_pts = torch.stack(q_pts, dim=-1)
         q_pts = r[..., None].apply(q_pts)
 
-        # [*, N_res, H, P_q, 3]
         q_pts = q_pts.view(q_pts.shape[:-2] + (self.num_heads, self.num_qk_points, 3))
 
-        # [*, N_res, H * (P_q + P_v) * 3]
         kv_pts = self.linear_kv_points(s)
 
-        # [*, N_res, H * (P_q + P_v), 3]
         kv_pts = torch.split(kv_pts, kv_pts.shape[-1] // 3, dim=-1)
         kv_pts = torch.stack(kv_pts, dim=-1)
         kv_pts = r[..., None].apply(kv_pts)
 
-        # [*, N_res, H, (P_q + P_v), 3]
         kv_pts = kv_pts.view(kv_pts.shape[:-2] + (self.num_heads, -1, 3))
 
-        # [*, N_res, H, P_q/P_v, 3]
         k_pts, v_pts = torch.split(kv_pts, [self.num_qk_points, self.num_v_points], dim=-2)
 
-        ##########################
-        # Compute attention scores
-        ##########################
-        # [*, N_res, N_res, H]
         b = self.linear_b(z[0])
 
         if _offload_inference:
             assert sys.getrefcount(z[0]) == 2
             z[0] = z[0].cpu()
 
-        # [*, H, N_res, N_res]
         device_type = q.device.type if q.device.type != "mps" else "cpu"
         if is_fp16_enabled(device_type):
             with maybe_autocast(device_type=device_type, enabled=False):
@@ -1499,64 +1288,47 @@ class EsmFoldInvariantPointAttention(nn.Module):
         a *= math.sqrt(1.0 / (3 * self.hidden_dim))
         a += math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1))
 
-        # [*, N_res, N_res, H, P_q, 3]
         pt_att = q_pts.unsqueeze(-4) - k_pts.unsqueeze(-5)
         pt_att = pt_att**2
 
-        # [*, N_res, N_res, H, P_q]
         pt_att = sum(torch.unbind(pt_att, dim=-1))
         head_weights = self.softplus(self.head_weights).view(*((1,) * len(pt_att.shape[:-2]) + (-1, 1)))
         head_weights = head_weights * math.sqrt(1.0 / (3 * (self.num_qk_points * 9.0 / 2)))
         pt_att = pt_att * head_weights
 
-        # [*, N_res, N_res, H]
         pt_att = torch.sum(pt_att, dim=-1) * (-0.5)
-        # [*, N_res, N_res]
         square_mask = mask.unsqueeze(-1) * mask.unsqueeze(-2)
         square_mask = self.config.inf * (square_mask - 1)
 
-        # [*, H, N_res, N_res]
         pt_att = permute_final_dims(pt_att, (2, 0, 1))
 
         a = a + pt_att
         a = a + square_mask.unsqueeze(-3)
         a = self.softmax(a)
 
-        ################
-        # Compute output
-        ################
-        # [*, N_res, H, C_hidden]
         o = torch.matmul(a, v.transpose(-2, -3).to(dtype=a.dtype)).transpose(-2, -3)
 
-        # [*, N_res, H * C_hidden]
         o = flatten_final_dims(o, 2)
 
-        # [*, H, 3, N_res, P_v]
         o_pt = torch.sum(
             (a[..., None, :, :, None] * permute_final_dims(v_pts, (1, 3, 0, 2))[..., None, :, :]),
             dim=-2,
         )
 
-        # [*, N_res, H, P_v, 3]
         o_pt = permute_final_dims(o_pt, (2, 0, 3, 1))
         o_pt = r[..., None, None].invert_apply(o_pt)
 
-        # [*, N_res, H * P_v]
         o_pt_norm = flatten_final_dims(torch.sqrt(torch.sum(o_pt**2, dim=-1) + self.config.epsilon), 2)
 
-        # [*, N_res, H * P_v, 3]
         o_pt = o_pt.reshape(*o_pt.shape[:-3], -1, 3)
 
         if _offload_inference:
             z[0] = z[0].to(o_pt.device)
 
-        # [*, N_res, H, C_z]
         o_pair = torch.matmul(a.transpose(-2, -3), z[0].to(dtype=a.dtype))
 
-        # [*, N_res, H * C_z]
         o_pair = flatten_final_dims(o_pair, 2)
 
-        # [*, N_res, C_s]
         s = self.linear_out(
             torch.cat((o, *torch.unbind(o_pt, dim=-1), o_pt_norm, o_pair), dim=-1).to(dtype=z[0].dtype)
         )
@@ -1565,9 +1337,6 @@ class EsmFoldInvariantPointAttention(nn.Module):
 
 
 class EsmFoldBackboneUpdate(nn.Module):
-    """
-    Implements part of Algorithm 23.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -1581,7 +1350,6 @@ class EsmFoldBackboneUpdate(nn.Module):
         Returns:
             [*, N_res, 6] update vector
         """
-        # [*, 6]
         update = self.linear(s)
 
         return update
@@ -1638,11 +1406,6 @@ class EsmFoldStructureModule(nn.Module):
         super().__init__()
         self.config = config
 
-        # Buffers to be lazily initialized later
-        # self.default_frames
-        # self.group_idx
-        # self.atom_mask
-        # self.lit_positions
 
         self.layer_norm_s = LayerNorm(config.sequence_dim)
         self.layer_norm_z = LayerNorm(config.pairwise_dim)
@@ -1683,13 +1446,10 @@ class EsmFoldStructureModule(nn.Module):
         s = evoformer_output_dict["single"]
 
         if mask is None:
-            # [*, N]
             mask = s.new_ones(s.shape[:-1])
 
-        # [*, N, C_s]
         s = self.layer_norm_s(s)
 
-        # [*, N, N, C_z]
         z = self.layer_norm_z(evoformer_output_dict["pair"])
 
         z_reference_list = None
@@ -1699,11 +1459,9 @@ class EsmFoldStructureModule(nn.Module):
             z_reference_list = [z]
             z = None
 
-        # [*, N, C_s]
         s_initial = s
         s = self.linear_in(s)
 
-        # [*, N]
         rigids = Rigid.identity(
             s.shape[:-1],
             s.dtype,
@@ -1713,7 +1471,6 @@ class EsmFoldStructureModule(nn.Module):
         )
         outputs = []
         for i in range(self.config.num_blocks):
-            # [*, N, C_s]
             s = s + self.ipa(
                 s,
                 z,
@@ -1726,12 +1483,8 @@ class EsmFoldStructureModule(nn.Module):
             s = self.layer_norm_ipa(s)
             s = self.transition(s)
 
-            # [*, N]
             rigids = rigids.compose_q_update_vec(self.bb_update(s))
 
-            # To hew as closely as possible to AlphaFold, we convert our
-            # quaternion-based transformations to rotation-matrix ones
-            # here
             backb_to_global = Rigid(
                 Rotation(rot_mats=rigids.get_rots().get_rot_mats(), quats=None),
                 rigids.get_trans(),
@@ -1739,7 +1492,6 @@ class EsmFoldStructureModule(nn.Module):
 
             backb_to_global = backb_to_global.scale_translation(self.config.trans_scale_factor)
 
-            # [*, N, 7, 2]
             unnormalized_angles, angles = self.angle_resnet(s, s_initial)
 
             all_frames_to_global = self.torsion_angles_to_frames(backb_to_global, angles, aatype)
@@ -1817,13 +1569,10 @@ class EsmFoldStructureModule(nn.Module):
             )
 
     def torsion_angles_to_frames(self, r, alpha, f):
-        # Lazily initialize the residue constants on the correct device
         self._init_residue_constants(alpha.dtype, alpha.device)
-        # Separated purely to make testing less annoying
         return torsion_angles_to_frames(r, alpha, f, self.default_frames)
 
     def frames_and_literature_positions_to_atom14_pos(self, r, f):  # [*, N, 8]  # [*, N]
-        # Lazily initialize the residue constants on the correct device
         self._init_residue_constants(r.get_rots().dtype, r.get_rots().device)
         return frames_and_literature_positions_to_atom14_pos(
             r,
@@ -1860,11 +1609,7 @@ class EsmFoldingTrunk(nn.Module):
         self.chunk_size = config.chunk_size
 
     def set_chunk_size(self, chunk_size):
-        # This parameter means the axial attention will be computed
-        # in a chunked manner. This should make the memory used more or less O(L) instead of O(L^2).
-        # It's equivalent to running a for loop over chunks of the dimension we're iterative over,
-        # where the chunk_size is the size of the chunks, so 128 would mean to parse 128-length chunks.
-        self.chunk_size = chunk_size
+        pass
 
     def forward(self, seq_feats, pair_feats, true_aa, residx, mask, no_recycles):
         """
@@ -1902,14 +1647,12 @@ class EsmFoldingTrunk(nn.Module):
 
         for recycle_idx in range(no_recycles):
             with ContextManagers([] if recycle_idx == no_recycles - 1 else [torch.no_grad()]):
-                # === Recycling ===
                 recycle_s = self.recycle_s_norm(recycle_s.detach()).to(device)
                 recycle_z = self.recycle_z_norm(recycle_z.detach()).to(device)
                 recycle_z += self.recycle_disto(recycle_bins.detach()).to(device)
 
                 s_s, s_z = trunk_iter(s_s_0 + recycle_s, s_z_0 + recycle_z, residx, mask)
 
-                # === Structure module ===
                 structure = self.structure_module(
                     {"single": self.trunk2sm_s(s_s), "pair": self.trunk2sm_z(s_z)},
                     true_aa,
@@ -1918,7 +1661,6 @@ class EsmFoldingTrunk(nn.Module):
 
                 recycle_s = s_s
                 recycle_z = s_z
-                # Distogram needs the N, CA, C coordinates, and bin constants same as alphafold.
                 recycle_bins = EsmFoldingTrunk.distogram(
                     structure["positions"][-1][:, :, :3],
                     3.375,
@@ -1933,7 +1675,6 @@ class EsmFoldingTrunk(nn.Module):
 
     @staticmethod
     def distogram(coords, min_bin, max_bin, num_bins):
-        # Coords are [... L x 3 x 3], where it's [N, CA, C] x 3 coordinates.
         boundaries = torch.linspace(
             min_bin,
             max_bin,
@@ -1942,7 +1683,6 @@ class EsmFoldingTrunk(nn.Module):
         )
         boundaries = boundaries**2
         N, CA, C = [x.squeeze(-2) for x in coords.chunk(3, dim=-2)]
-        # Infer CB coordinates.
         b = CA - N
         c = C - CA
         a = b.cross(c, dim=-1)
@@ -1952,8 +1692,6 @@ class EsmFoldingTrunk(nn.Module):
         return bins
 
 
-# TODO Add information to the docstring about any methods that convert to PDB format, or otherwise prepare
-#      the outputs for downstream use.
 
 
 @auto_docstring(
@@ -2006,7 +1744,6 @@ class EsmForProteinFolding(EsmPreTrainedModel):
             nn.Linear(c_s, c_s),
         )
 
-        # 0 is padding, N is unknown residues, N + 1 is mask.
         self.n_tokens_embed = residue_constants.restype_num + 3
         self.pad_idx = 0
         self.unk_idx = self.n_tokens_embed - 2
@@ -2036,7 +1773,6 @@ class EsmForProteinFolding(EsmPreTrainedModel):
 
     @staticmethod
     def _af2_to_esm_from_vocab_list(vocab_list: list[str]) -> torch.Tensor:
-        # Remember that t is shifted from residue_constants by 1 (0 is padding).
         esm_reorder = [vocab_list.index("<pad>")] + [vocab_list.index(v) for v in residue_constants.restypes_with_x]
         return torch.tensor(esm_reorder)
 
@@ -2086,7 +1822,6 @@ class EsmForProteinFolding(EsmPreTrainedModel):
         if position_ids is None:
             position_ids = torch.arange(L, device=device).expand_as(input_ids)
 
-        # === ESM ===
         esmaa = self.af2_idx_to_esm_idx(aa, attention_mask)
 
         if masking_pattern is not None:
@@ -2095,16 +1830,8 @@ class EsmForProteinFolding(EsmPreTrainedModel):
             masked_aa = aa
             mlm_targets = None
 
-        # We get sequence and pair representations from whatever version of ESM /
-        # configuration we are using. The sequence representation esm_s is always
-        # present. The pair embedding esm_z may be present depending on the
-        # configuration of the model. If esm_z is not used by the model then it
-        # is returned as None here.
         esm_s = self.compute_language_model_representations(esmaa)
 
-        # Convert esm_s and esm_z, if present, to the precision used by the trunk and
-        # the structure module. These tensors may be a lower precision if, for example,
-        # we're running the language model in fp16 precision.
         esm_s = esm_s.to(self.esm_s_combine.dtype)
 
         if cfg.esm_ablate_sequence:
@@ -2112,7 +1839,6 @@ class EsmForProteinFolding(EsmPreTrainedModel):
 
         esm_s = esm_s.detach()
 
-        # === preprocessing ===
         esm_s = (self.esm_s_combine.softmax(0).unsqueeze(0) @ esm_s).squeeze(2)
         s_s_0 = self.esm_s_mlp(esm_s)
 
@@ -2122,7 +1848,6 @@ class EsmForProteinFolding(EsmPreTrainedModel):
             s_s_0 += self.embedding(masked_aa)
 
         structure: dict = self.trunk(s_s_0, s_z_0, aa, position_ids, attention_mask, no_recycles=num_recycles)
-        # Documenting what we expect:
         structure = {
             k: v
             for k, v in structure.items()
@@ -2139,7 +1864,6 @@ class EsmForProteinFolding(EsmPreTrainedModel):
             ]
         }
 
-        # Add BERT mask for the loss to use, if available.
         if mlm_targets:
             structure["mlm_targets"] = mlm_targets
 
@@ -2152,10 +1876,6 @@ class EsmForProteinFolding(EsmPreTrainedModel):
 
         structure["aatype"] = aa
         make_atom14_masks(structure)
-        # Of course, this doesn't respect the true mask because it doesn't know about it...
-        # We're not going to properly mask change of index tensors:
-        #    "residx_atom14_to_atom37",
-        #    "residx_atom37_to_atom14",
         for k in [
             "atom14_atom_exists",
             "atom37_atom_exists",
@@ -2176,7 +1896,6 @@ class EsmForProteinFolding(EsmPreTrainedModel):
         return EsmForProteinFoldingOutput(**structure)
 
     def af2_idx_to_esm_idx(self, aa, mask):
-        # avoid indexing on different devices
         if self.af2_to_esm.device != aa.device:
             self.af2_to_esm = self.af2_to_esm.to(aa.device)
         aa = (aa + 1).masked_fill(mask != 1, 0)
@@ -2194,12 +1913,8 @@ class EsmForProteinFolding(EsmPreTrainedModel):
         bos = esmaa.new_full((B, 1), bosi)
         eos = esmaa.new_full((B, 1), self.esm_dict_padding_idx)
         esmaa = torch.cat([bos, esmaa, eos], dim=1)
-        # Use the first padding index as eos during inference.
         esmaa[range(B), (esmaa != 1).sum(1)] = eosi
 
-        # _, esm_z, esm_s = self.esm(esmaa, return_pairs=self.config.esmfold_config.use_esm_attn_map)
-        # Because we do not support use_esm_attn_map in the HF port as it is not used in any public models,
-        # esm_z is always None
         esm_hidden_states = self.esm(esmaa, attention_mask=esmaa != 1, output_hidden_states=True)["hidden_states"]
         esm_s = torch.stack(esm_hidden_states, dim=2)
 
@@ -2222,72 +1937,17 @@ class EsmForProteinFolding(EsmPreTrainedModel):
         seqs: str | list[str],
         position_ids=None,
     ):
-        if isinstance(seqs, str):
-            lst = [seqs]
-        else:
-            lst = seqs
-        # Returns the raw outputs of the model given an input sequence.
-        device = next(self.parameters()).device
-        aatype = collate_dense_tensors(
-            [
-                torch.from_numpy(
-                    residue_constants.sequence_to_onehot(
-                        sequence=seq,
-                        mapping=residue_constants.restype_order_with_x,
-                        map_unknown_to_x=True,
-                    )
-                )
-                .to(device)
-                .argmax(dim=1)
-                for seq in lst
-            ]
-        )  # B=1 x L
-        mask = collate_dense_tensors([aatype.new_ones(len(seq)) for seq in lst])
-        position_ids = (
-            torch.arange(aatype.shape[1], device=device).expand(len(lst), -1)
-            if position_ids is None
-            else position_ids.to(device)
-        )
-        if position_ids.ndim == 1:
-            position_ids = position_ids.unsqueeze(0)
-        return self.forward(
-            aatype,
-            mask,
-            position_ids=position_ids,
-        )
+        pass
 
     @staticmethod
     def output_to_pdb(output: dict) -> list[str]:
-        """Returns the pdb (file) string from the model given the model output."""
-        output = {k: v.to("cpu").numpy() for k, v in output.items()}
-        pdbs = []
-        final_atom_positions = atom14_to_atom37(output["positions"][-1], output)
-        final_atom_mask = output["atom37_atom_exists"]
-        for i in range(output["aatype"].shape[0]):
-            aa = output["aatype"][i]
-            pred_pos = final_atom_positions[i]
-            mask = final_atom_mask[i]
-            resid = output["residue_index"][i] + 1
-            pred = OFProtein(
-                aatype=aa,
-                atom_positions=pred_pos,
-                atom_mask=mask,
-                residue_index=resid,
-                b_factors=output["plddt"][i],
-            )
-            pdbs.append(to_pdb(pred))
-        return pdbs
+        pass
 
     def infer_pdb(self, seqs, *args, **kwargs) -> str:
-        """Returns the pdb (file) string from the model given an input sequence."""
-        assert isinstance(seqs, str)
-        output = self.infer(seqs, *args, **kwargs)
-        return self.output_to_pdb(output)[0]
+        pass
 
     def infer_pdbs(self, seqs: list[str], *args, **kwargs) -> list[str]:
-        """Returns the pdb (file) string from the model given an input sequence."""
-        output = self.infer(seqs, *args, **kwargs)
-        return self.output_to_pdb(output)
+        pass
 
 
 __all__ = ["EsmForProteinFolding", "EsmFoldPreTrainedModel"]

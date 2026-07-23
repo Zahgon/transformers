@@ -1,17 +1,3 @@
-# Copyright 2022 Meta Platforms and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Data2VecVision model."""
 
 import collections.abc
 import math
@@ -46,22 +32,11 @@ logger = logging.get_logger(__name__)
     """
 )
 @dataclass
-# Copied from transformers.models.beit.modeling_beit.BeitModelOutputWithPooling with Beit->Data2VecVision
 class Data2VecVisionModelOutputWithPooling(BaseModelOutputWithPooling):
-    r"""
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, hidden_size)`):
-        Average of the last layer hidden states of the patch tokens (excluding the *[CLS]* token) if
-        *config.use_mean_pooling* is set to True. If set to False, then the final hidden state of the *[CLS]* token
-        will be returned.
-    """
+    pass
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitEmbeddings with Beit->Data2VecVision
 class Data2VecVisionEmbeddings(nn.Module):
-    """
-    Construct the CLS token, position and patch embeddings. Optionally, also the mask token.
-
-    """
 
     def __init__(self, config: Data2VecVisionConfig) -> None:
         super().__init__()
@@ -85,7 +60,6 @@ class Data2VecVisionEmbeddings(nn.Module):
             self.position_embeddings = None
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    # Copied from transformers.models.vit.modeling_vit.ViTEmbeddings.interpolate_pos_encoding
     def interpolate_pos_encoding(self, embeddings: torch.Tensor, height: int, width: int) -> torch.Tensor:
         """
         This method allows to interpolate the pre-trained position encodings, to be able to use the model on higher resolution
@@ -99,7 +73,6 @@ class Data2VecVisionEmbeddings(nn.Module):
         num_patches = embeddings.shape[1] - 1
         num_positions = self.position_embeddings.shape[1] - 1
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
@@ -137,7 +110,6 @@ class Data2VecVisionEmbeddings(nn.Module):
 
         if bool_masked_pos is not None:
             mask_tokens = self.mask_token.expand(batch_size, seq_len, -1)
-            # replace the masked visual tokens by mask_tokens
             w = bool_masked_pos.unsqueeze(-1).type_as(mask_tokens)
             embeddings = embeddings * (1 - w) + mask_tokens * w
 
@@ -152,13 +124,7 @@ class Data2VecVisionEmbeddings(nn.Module):
         return embeddings, (patch_height, patch_width)
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitPatchEmbeddings with Beit->Data2VecVision
 class Data2VecVisionPatchEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
-    `hidden_states` (patch embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
-    Transformer.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -191,7 +157,6 @@ class Data2VecVisionPatchEmbeddings(nn.Module):
         return embeddings, (patch_height, patch_width)
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitSelfAttention with Beit->Data2VecVision
 class Data2VecVisionSelfAttention(nn.Module):
     def __init__(self, config: Data2VecVisionConfig, window_size: tuple | None = None) -> None:
         super().__init__()
@@ -230,12 +195,10 @@ class Data2VecVisionSelfAttention(nn.Module):
         key_layer = self.key(hidden_states).view(hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
-        # Add relative position bias if present.
         if self.has_relative_position_bias:
             height, width = resolution
             window_size = (height // self.config.patch_size, width // self.config.patch_size)
@@ -243,15 +206,11 @@ class Data2VecVisionSelfAttention(nn.Module):
                 window_size, interpolate_pos_encoding, dim_size=hidden_states.shape[1]
             )
 
-        # Add shared relative position bias if provided.
         if relative_position_bias is not None:
             attention_scores = attention_scores + relative_position_bias
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -265,7 +224,6 @@ class Data2VecVisionSelfAttention(nn.Module):
         return outputs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitSdpaSelfAttention with Beit->Data2VecVision
 class Data2VecVisionSdpaSelfAttention(Data2VecVisionSelfAttention):
     def forward(
         self,
@@ -294,7 +252,6 @@ class Data2VecVisionSdpaSelfAttention(Data2VecVisionSelfAttention):
                 window_size, interpolate_pos_encoding, dim_size=hidden_states.shape[1]
             )
 
-        # Add shared relative position bias if provided.
         if relative_position_bias is not None:
             if attn_bias is None:
                 attn_bias = relative_position_bias
@@ -317,12 +274,7 @@ class Data2VecVisionSdpaSelfAttention(Data2VecVisionSelfAttention):
         return context_layer, None
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitSelfOutput with Beit->Data2VecVision
 class Data2VecVisionSelfOutput(nn.Module):
-    """
-    The residual connection is defined in Data2VecVisionLayer instead of here (as is the case with other models), due to the
-    layernorm applied before each block.
-    """
 
     def __init__(self, config: Data2VecVisionConfig) -> None:
         super().__init__()
@@ -342,7 +294,6 @@ DATA2VEC_VISION_SELF_ATTENTION_CLASSES = {
 }
 
 
-# Copied from tests.models.beit.modeling_beit.BeitAttention with Beit->Data2VecVision, BEIT->DATA2VEC_VISION
 class Data2VecVisionAttention(nn.Module):
     def __init__(self, config: Data2VecVisionConfig, window_size: tuple | None = None) -> None:
         super().__init__()
@@ -369,7 +320,6 @@ class Data2VecVisionAttention(nn.Module):
         return outputs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitIntermediate with Beit->Data2VecVision
 class Data2VecVisionIntermediate(nn.Module):
     def __init__(self, config: Data2VecVisionConfig) -> None:
         super().__init__()
@@ -386,7 +336,6 @@ class Data2VecVisionIntermediate(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitOutput with Beit->Data2VecVision
 class Data2VecVisionOutput(nn.Module):
     def __init__(self, config: Data2VecVisionConfig) -> None:
         super().__init__()
@@ -400,13 +349,7 @@ class Data2VecVisionOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->Data2VecVisionDropPath
 class Data2VecVisionDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -422,12 +365,10 @@ class Data2VecVisionDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitLayer with Beit->Data2VecVision,BEiT->Data2VecVision
 class Data2VecVisionLayer(GradientCheckpointingLayer):
-    """This corresponds to the Block class in the timm implementation."""
 
     def __init__(
         self, config: Data2VecVisionConfig, window_size: tuple | None = None, drop_path_rate: float = 0.0
@@ -467,14 +408,11 @@ class Data2VecVisionLayer(GradientCheckpointingLayer):
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
 
-        # apply lambda_1 if present
         if self.lambda_1 is not None:
             attention_output = self.lambda_1 * attention_output
 
-        # first residual connection
         hidden_states = self.drop_path(attention_output) + hidden_states
 
-        # in Data2VecVision, layernorm is also applied after self-attention
         layer_output = self.layernorm_after(hidden_states)
 
         layer_output = self.intermediate(layer_output)
@@ -483,7 +421,6 @@ class Data2VecVisionLayer(GradientCheckpointingLayer):
         if self.lambda_2 is not None:
             layer_output = self.lambda_2 * layer_output
 
-        # second residual connection
         layer_output = self.drop_path(layer_output) + hidden_states
 
         outputs = (layer_output,) + outputs
@@ -491,7 +428,6 @@ class Data2VecVisionLayer(GradientCheckpointingLayer):
         return outputs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitRelativePositionBias with Beit->Data2VecVision
 class Data2VecVisionRelativePositionBias(nn.Module):
     def __init__(self, config: Data2VecVisionConfig, window_size: tuple) -> None:
         super().__init__()
@@ -500,7 +436,6 @@ class Data2VecVisionRelativePositionBias(nn.Module):
         self.relative_position_bias_table = nn.Parameter(
             torch.zeros(self.num_relative_distance, config.num_attention_heads)
         )  # 2*Wh-1 * 2*Ww-1, nH
-        # cls to token & token 2 cls & cls to cls
 
     @staticmethod
     @compile_compatible_method_lru_cache(maxsize=10)
@@ -510,8 +445,6 @@ class Data2VecVisionRelativePositionBias(nn.Module):
         as introduced in [MiDaS v3.1](https://huggingface.co/papers/2307.14460).
         """
         num_relative_distance = (2 * window_size[0] - 1) * (2 * window_size[1] - 1) + 3
-        # cls to token & token 2 cls & cls to cls
-        # get pair-wise relative position index for each token inside the window
         window_area = window_size[0] * window_size[1]
         grid = torch.meshgrid(torch.arange(window_size[0]), torch.arange(window_size[1]), indexing="ij")
         coords = torch.stack(grid)  # 2, Wh, Ww
@@ -558,11 +491,9 @@ class Data2VecVisionRelativePositionBias(nn.Module):
         relative_position_index = self.generate_relative_position_index(window_size)
         relative_position_bias = new_relative_position_bias_table[relative_position_index.view(-1)]
 
-        # patch_size*num_patches_height, patch_size*num_patches_width, num_attention_heads
         relative_position_bias = relative_position_bias.view(
             window_size[0] * window_size[1] + 1, window_size[0] * window_size[1] + 1, -1
         )
-        # num_attention_heads, patch_size*num_patches_width, patch_size*num_patches_height
         relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()
 
         if interpolate_pos_encoding:
@@ -576,7 +507,6 @@ class Data2VecVisionRelativePositionBias(nn.Module):
         return relative_position_bias.unsqueeze(0)
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitEncoder with Beit->Data2VecVision
 class Data2VecVisionEncoder(nn.Module):
     def __init__(self, config: Data2VecVisionConfig, window_size: tuple | None = None) -> None:
         super().__init__()
@@ -585,7 +515,6 @@ class Data2VecVisionEncoder(nn.Module):
         if self.has_relative_position_bias:
             self.relative_position_bias = Data2VecVisionRelativePositionBias(config, window_size=window_size)
 
-        # stochastic depth decay rule
         dpr = [x.item() for x in torch.linspace(0, config.drop_path_rate, config.num_hidden_layers, device="cpu")]
         self.layer = nn.ModuleList(
             [
@@ -650,7 +579,6 @@ class Data2VecVisionEncoder(nn.Module):
 
 
 @auto_docstring
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitPreTrainedModel with Beit->Data2VecVision,beit->data2vec_vision
 class Data2VecVisionPreTrainedModel(PreTrainedModel):
     config: Data2VecVisionConfig
     base_model_prefix = "data2vec_vision"
@@ -680,7 +608,6 @@ class Data2VecVisionPreTrainedModel(PreTrainedModel):
 
 
 @auto_docstring
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitModel with BEIT->DATA2VEC_VISION,Beit->Data2VecVision,True->False
 class Data2VecVisionModel(Data2VecVisionPreTrainedModel):
     def __init__(self, config: Data2VecVisionConfig, add_pooling_layer: bool = False) -> None:
         r"""
@@ -698,7 +625,6 @@ class Data2VecVisionModel(Data2VecVisionPreTrainedModel):
         )
         self.pooler = Data2VecVisionPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -752,7 +678,6 @@ class Data2VecVisionModel(Data2VecVisionPreTrainedModel):
         )
 
 
-# Copied from transformers.models.beit.modeling_beit.BeitPooler with Beit->Data2VecVision
 class Data2VecVisionPooler(nn.Module):
     def __init__(self, config: Data2VecVisionConfig) -> None:
         super().__init__()
@@ -761,7 +686,6 @@ class Data2VecVisionPooler(nn.Module):
         )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # Mean pool patch tokens with layernorm, or take the [CLS] token
         return self.layernorm(hidden_states[:, 1:, :].mean(1)) if self.layernorm is not None else hidden_states[:, 0]
 
 
@@ -771,7 +695,6 @@ class Data2VecVisionPooler(nn.Module):
     the final hidden states of the patch tokens) e.g. for ImageNet.
     """
 )
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitForImageClassification with BEIT->DATA2VEC_VISION,Beit->Data2VecVision,beit->data2vec_vision
 class Data2VecVisionForImageClassification(Data2VecVisionPreTrainedModel):
     def __init__(self, config: Data2VecVisionConfig) -> None:
         super().__init__(config)
@@ -779,10 +702,8 @@ class Data2VecVisionForImageClassification(Data2VecVisionPreTrainedModel):
         self.num_labels = config.num_labels
         self.data2vec_vision = Data2VecVisionModel(config, add_pooling_layer=True)
 
-        # Classifier head
         self.classifier = nn.Linear(config.hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -831,7 +752,6 @@ class Data2VecVisionForImageClassification(Data2VecVisionPreTrainedModel):
         )
 
 
-# Copied from transformers.models.beit.modeling_beit.BeitConvLayer with Beit->Data2VecVision
 class Data2VecVisionConvLayer(nn.Module):
     def __init__(
         self,
@@ -866,7 +786,6 @@ class Data2VecVisionConvLayer(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.beit.modeling_beit.BeitPyramidPoolingBlock with Beit->Data2VecVision
 class Data2VecVisionPyramidPoolingBlock(nn.Module):
     def __init__(self, pool_scale: int, in_channels: int, channels: int) -> None:
         super().__init__()
@@ -880,19 +799,7 @@ class Data2VecVisionPyramidPoolingBlock(nn.Module):
         return hidden_state
 
 
-# Copied from transformers.models.beit.modeling_beit.BeitPyramidPoolingModule with Beit->Data2VecVision
 class Data2VecVisionPyramidPoolingModule(nn.Module):
-    """
-    Pyramid Pooling Module (PPM) used in PSPNet.
-
-    Args:
-        pool_scales (tuple[int]): Pooling scales used in Pooling Pyramid
-            Module.
-        in_channels (int): Input channels.
-        channels (int): Channels after modules, before conv_seg.
-
-    Based on OpenMMLab's implementation, found in https://github.com/open-mmlab/mmsegmentation.
-    """
 
     def __init__(self, pool_scales: tuple[int, ...], in_channels: int, channels: int) -> None:
         super().__init__()
@@ -911,14 +818,7 @@ class Data2VecVisionPyramidPoolingModule(nn.Module):
         return [block(hidden_states, size=original_size) for block in self.blocks]
 
 
-# Copied from transformers.models.beit.modeling_beit.BeitUperHead with Beit->Data2VecVision
 class Data2VecVisionUperHead(nn.Module):
-    """
-    Unified Perceptual Parsing for Scene Understanding. This head is the implementation of
-    [UPerNet](https://huggingface.co/papers/1807.10221).
-
-    Based on OpenMMLab's implementation, found in https://github.com/open-mmlab/mmsegmentation.
-    """
 
     def __init__(self, config: Data2VecVisionConfig) -> None:
         super().__init__()
@@ -928,7 +828,6 @@ class Data2VecVisionUperHead(nn.Module):
         self.channels = config.hidden_size
         self.classifier = nn.Conv2d(self.channels, config.num_labels, kernel_size=1)
 
-        # PSP Module
         self.psp_modules = Data2VecVisionPyramidPoolingModule(
             self.pool_scales,
             self.in_channels[-1],
@@ -940,7 +839,6 @@ class Data2VecVisionUperHead(nn.Module):
             kernel_size=3,
             padding=1,
         )
-        # FPN Module
         self.lateral_convs = nn.ModuleList()
         self.fpn_convs = nn.ModuleList()
         for in_channels in self.in_channels[:-1]:  # skip the top layer
@@ -960,14 +858,12 @@ class Data2VecVisionUperHead(nn.Module):
         return self.psp_bottleneck(hidden_state)
 
     def forward(self, encoder_hidden_states: list[torch.Tensor]) -> torch.Tensor:
-        # build laterals
         laterals = []
         for lateral_conv, hidden_state in zip(self.lateral_convs, encoder_hidden_states):
             laterals.append(lateral_conv(hidden_state))
 
         laterals.append(self.psp_forward(encoder_hidden_states))
 
-        # build top-down path
         used_backbone_levels = len(laterals)
         for i in range(used_backbone_levels - 1, 0, -1):
             prev_shape = laterals[i - 1].shape[2:]
@@ -975,11 +871,9 @@ class Data2VecVisionUperHead(nn.Module):
                 laterals[i], size=prev_shape, mode="bilinear", align_corners=False
             )
 
-        # build outputs
         fpn_outs = []
         for i in range(used_backbone_levels - 1):
             fpn_outs.append(self.fpn_convs[i](laterals[i]))
-        # append psp feature
         fpn_outs.append(laterals[-1])
 
         for i in range(used_backbone_levels - 1, 0, -1):
@@ -993,21 +887,7 @@ class Data2VecVisionUperHead(nn.Module):
         return output
 
 
-# Copied from transformers.models.beit.modeling_beit.BeitFCNHead with Beit->Data2VecVision
 class Data2VecVisionFCNHead(nn.Module):
-    """
-    Fully Convolution Networks for Semantic Segmentation. This head is implemented of
-    [FCNNet](https://huggingface.co/papers/1411.4038>).
-
-    Args:
-        config (Data2VecVisionConfig): Configuration.
-        in_channels
-        kernel_size (int): The kernel size for convs in the head. Default: 3.
-        dilation (int): The dilation rate for convs in the head. Default: 1.
-
-
-    Based on OpenMMLab's implementation, found in https://github.com/open-mmlab/mmsegmentation.
-    """
 
     def __init__(
         self,
@@ -1060,7 +940,6 @@ class Data2VecVisionFCNHead(nn.Module):
 
 
 @auto_docstring
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.beit.modeling_beit.BeitForSemanticSegmentation with BEIT->DATA2VEC_VISION,Beit->Data2VecVision,microsoft/beit-base-finetuned-ade-640-640->facebook/data2vec-vision-base,beit->data2vec_vision
 class Data2VecVisionForSemanticSegmentation(Data2VecVisionPreTrainedModel):
     def __init__(self, config: Data2VecVisionConfig) -> None:
         super().__init__(config)
@@ -1068,7 +947,6 @@ class Data2VecVisionForSemanticSegmentation(Data2VecVisionPreTrainedModel):
         self.num_labels = config.num_labels
         self.data2vec_vision = Data2VecVisionModel(config, add_pooling_layer=False)
 
-        # FPNs
         if len(self.config.out_indices) != 4:
             raise ValueError(
                 "Data2VecVisionForSemanticSegmentation requires config.out_indices to be a list of 4 integers, "
@@ -1087,15 +965,12 @@ class Data2VecVisionForSemanticSegmentation(Data2VecVisionPreTrainedModel):
         self.fpn3 = nn.Identity()
         self.fpn4 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        # Semantic segmentation head(s)
         self.decode_head = Data2VecVisionUperHead(config)
         self.auxiliary_head = Data2VecVisionFCNHead(config) if config.use_auxiliary_head else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def compute_loss(self, logits, auxiliary_logits, labels):
-        # upsample logits to the images' original size
         upsampled_logits = nn.functional.interpolate(
             logits, size=labels.shape[-2:], mode="bilinear", align_corners=False
         )
@@ -1103,7 +978,6 @@ class Data2VecVisionForSemanticSegmentation(Data2VecVisionPreTrainedModel):
             upsampled_auxiliary_logits = nn.functional.interpolate(
                 auxiliary_logits, size=labels.shape[-2:], mode="bilinear", align_corners=False
             )
-        # compute weighted loss
         loss_fct = CrossEntropyLoss(ignore_index=self.config.semantic_loss_ignore_index)
         main_loss = loss_fct(upsampled_logits, labels)
         loss = main_loss
@@ -1167,8 +1041,6 @@ class Data2VecVisionForSemanticSegmentation(Data2VecVisionPreTrainedModel):
 
         encoder_hidden_states = outputs.hidden_states if return_dict else outputs[1]
 
-        # only keep certain features, and reshape
-        # note that we do +1 as the encoder_hidden_states also includes the initial embeddings
         features = [feature for idx, feature in enumerate(encoder_hidden_states) if idx + 1 in self.config.out_indices]
         batch_size = pixel_values.shape[0]
         patch_resolution = self.config.image_size // self.config.patch_size
@@ -1176,7 +1048,6 @@ class Data2VecVisionForSemanticSegmentation(Data2VecVisionPreTrainedModel):
             x[:, 1:, :].permute(0, 2, 1).reshape(batch_size, -1, patch_resolution, patch_resolution) for x in features
         ]
 
-        # apply FPNs
         ops = [self.fpn1, self.fpn2, self.fpn3, self.fpn4]
         for i in range(len(features)):
             features[i] = ops[i](features[i])

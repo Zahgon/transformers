@@ -1,16 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections import defaultdict
 from collections.abc import Collection, Iterable
@@ -181,19 +168,15 @@ def to_pil_image(
     if isinstance(image, PIL.Image.Image):
         return image
 
-    # Convert all tensors to numpy arrays before converting to PIL image
     if is_torch_tensor(image):
         image = image.numpy()
     elif not isinstance(image, np.ndarray):
         raise ValueError(f"Input image type not supported: {type(image)}")
 
-    # If the channel has been moved to first dim, we put it back at the end.
     image = to_channel_dimension_format(image, ChannelDimension.LAST, input_data_format)
 
-    # If there is a single channel, we squeeze it, as otherwise PIL can't handle it.
     image = np.squeeze(image, axis=-1) if image.shape[-1] == 1 else image
 
-    # PIL.Image can only store uint8 values so we rescale the image to be between 0 and 255 if needed.
     do_rescale = _rescale_for_pil_conversion(image) if do_rescale is None else do_rescale
 
     if do_rescale:
@@ -242,7 +225,6 @@ def get_size_with_aspect_ratio(image_size, size, max_size=None) -> tuple[int, in
     return (oh, ow)
 
 
-# Logic adapted from torchvision resizing logic: https://github.com/pytorch/vision/blob/511924c1ced4ce0461197e5caa64ce5b9e558aab/torchvision/transforms/functional.py#L366
 def get_resize_output_image_size(
     input_image: np.ndarray,
     size: int | tuple[int, int] | list[int] | tuple[int, ...],
@@ -284,7 +266,6 @@ def get_resize_output_image_size(
         if len(size) == 2:
             return tuple(size)
         elif len(size) == 1:
-            # Perform same logic as if size was an int
             size = size[0]
         else:
             raise ValueError("size must have 1 or 2 elements if it is a list or tuple")
@@ -350,33 +331,23 @@ def resize(
     if not len(size) == 2:
         raise ValueError("size must have 2 elements")
 
-    # For all transformations, we want to keep the same data format as the input image unless otherwise specified.
-    # The resized image from PIL will always have channels last, so find the input format first.
     if input_data_format is None:
         input_data_format = infer_channel_dimension_format(image)
     data_format = input_data_format if data_format is None else data_format
 
-    # To maintain backwards compatibility with the resizing done in previous image feature extractors, we use
-    # the pillow library to resize the image and then convert back to numpy
     do_rescale = False
     if not isinstance(image, PIL.Image.Image):
         do_rescale = _rescale_for_pil_conversion(image)
         image = to_pil_image(image, do_rescale=do_rescale, input_data_format=input_data_format)
     height, width = size
-    # PIL images are in the format (width, height)
     resized_image = image.resize((width, height), resample=resample, reducing_gap=reducing_gap)
 
     if return_numpy:
         resized_image = np.array(resized_image)
-        # If the input image channel dimension was of size 1, then it is dropped when converting to a PIL image
-        # so we need to add it back if necessary.
         resized_image = np.expand_dims(resized_image, axis=-1) if resized_image.ndim == 2 else resized_image
-        # The image is always in channels last format after converting from a PIL image
         resized_image = to_channel_dimension_format(
             resized_image, data_format, input_channel_dim=ChannelDimension.LAST
         )
-        # If an image was rescaled to be in the range [0, 255] before converting to a PIL image, then we need to
-        # rescale it back to the original range.
         resized_image = rescale(resized_image, 1 / 255) if do_rescale else resized_image
     return resized_image
 
@@ -414,8 +385,6 @@ def normalize(
     channel_axis = get_channel_dimension_axis(image, input_data_format=input_data_format)
     num_channels = image.shape[channel_axis]
 
-    # We cast to float32 to avoid errors that can occur when subtracting uint8 values.
-    # We preserve the original dtype if it is a float type to prevent upcasting float16.
     if not np.issubdtype(image.dtype, np.floating):
         image = image.astype(np.float32)
 
@@ -482,33 +451,27 @@ def center_crop(
         input_data_format = infer_channel_dimension_format(image)
     output_data_format = data_format if data_format is not None else input_data_format
 
-    # We perform the crop in (C, H, W) format and then convert to the output format
     image = to_channel_dimension_format(image, ChannelDimension.FIRST, input_data_format)
 
     orig_height, orig_width = get_image_size(image, ChannelDimension.FIRST)
     crop_height, crop_width = size
     crop_height, crop_width = int(crop_height), int(crop_width)
 
-    # In case size is odd, (image_shape[0] + size[0]) // 2 won't give the proper result.
     top = (orig_height - crop_height) // 2
     bottom = top + crop_height
-    # In case size is odd, (image_shape[1] + size[1]) // 2 won't give the proper result.
     left = (orig_width - crop_width) // 2
     right = left + crop_width
 
-    # Check if cropped area is within image boundaries
     if top >= 0 and bottom <= orig_height and left >= 0 and right <= orig_width:
         image = image[..., top:bottom, left:right]
         image = to_channel_dimension_format(image, output_data_format, ChannelDimension.FIRST)
         return image
 
-    # Otherwise, we may need to pad if the image is too small. Oh joy...
     new_height = max(crop_height, orig_height)
     new_width = max(crop_width, orig_width)
     new_shape = image.shape[:-2] + (new_height, new_width)
     new_image = np.zeros_like(image, shape=new_shape)
 
-    # If the image is too small, pad it with zeros
     top_pad = ceil((new_height - orig_height) / 2)
     bottom_pad = top_pad + orig_height
     left_pad = ceil((new_width - orig_width) / 2)
@@ -529,7 +492,6 @@ def center_crop(
 def _center_to_corners_format_torch(bboxes_center: "torch.Tensor") -> "torch.Tensor":
     center_x, center_y, width, height = bboxes_center.unbind(-1)
     bbox_corners = torch.stack(
-        # top left x, top left y, bottom right x, bottom right y
         [(center_x - 0.5 * width), (center_y - 0.5 * height), (center_x + 0.5 * width), (center_y + 0.5 * height)],
         dim=-1,
     )
@@ -539,14 +501,12 @@ def _center_to_corners_format_torch(bboxes_center: "torch.Tensor") -> "torch.Ten
 def _center_to_corners_format_numpy(bboxes_center: np.ndarray) -> np.ndarray:
     center_x, center_y, width, height = bboxes_center.T
     bboxes_corners = np.stack(
-        # top left x, top left y, bottom right x, bottom right y
         [center_x - 0.5 * width, center_y - 0.5 * height, center_x + 0.5 * width, center_y + 0.5 * height],
         axis=-1,
     )
     return bboxes_corners
 
 
-# 2 functions below inspired by https://github.com/facebookresearch/detr/blob/master/util/box_ops.py
 def center_to_corners_format(bboxes_center: TensorType) -> TensorType:
     """
     Converts bounding boxes from center format to corners format.
@@ -556,7 +516,6 @@ def center_to_corners_format(bboxes_center: TensorType) -> TensorType:
     corners format: contains the coordinates for the top-left and bottom-right corners of the box
         (top_left_x, top_left_y, bottom_right_x, bottom_right_y)
     """
-    # Function is used during model forward pass, so we use torch if relevant, without converting to numpy
     if is_torch_tensor(bboxes_center):
         return _center_to_corners_format_torch(bboxes_center)
     elif isinstance(bboxes_center, np.ndarray):
@@ -599,7 +558,6 @@ def corners_to_center_format(bboxes_corners: TensorType) -> TensorType:
     center format: contains the coordinate for the center of the box and its the width, height dimensions
         (center_x, center_y, width, height)
     """
-    # Inverse function accepts different input types so implemented here too
     if is_torch_tensor(bboxes_corners):
         return _corners_to_center_format_torch(bboxes_corners)
     elif isinstance(bboxes_corners, np.ndarray):
@@ -623,9 +581,6 @@ def safe_squeeze(
         return tensor
 
 
-# 2 functions below copied from https://github.com/cocodataset/panopticapi/blob/master/panopticapi/utils.py
-# Copyright (c) 2018, Alexander Kirillov
-# All rights reserved.
 def rgb_to_id(color):
     """
     Converts RGB color to unique ID.
@@ -638,28 +593,10 @@ def rgb_to_id(color):
 
 
 def id_to_rgb(id_map):
-    """
-    Converts unique ID to RGB color.
-    """
-    if isinstance(id_map, np.ndarray):
-        id_map_copy = id_map.copy()
-        rgb_shape = tuple(list(id_map.shape) + [3])
-        rgb_map = np.zeros(rgb_shape, dtype=np.uint8)
-        for i in range(3):
-            rgb_map[..., i] = id_map_copy % 256
-            id_map_copy //= 256
-        return rgb_map
-    color = []
-    for _ in range(3):
-        color.append(id_map % 256)
-        id_map //= 256
-    return color
+    pass
 
 
 class PaddingMode(ExplicitEnum):
-    """
-    Enum class for the different padding modes to use when padding images.
-    """
 
     CONSTANT = "constant"
     REFLECT = "reflect"
@@ -728,10 +665,8 @@ def pad(
         else:
             raise ValueError(f"Unsupported format: {values}")
 
-        # add 0 for channel dimension
         values = ((0, 0), *values) if input_data_format == ChannelDimension.FIRST else (*values, (0, 0))
 
-        # Add additional padding if there's a batch dimension
         values = ((0, 0), *values) if image.ndim == 4 else values
         return values
 
@@ -753,7 +688,6 @@ def pad(
     return image
 
 
-# TODO (Amy): Accept 1/3/4 channel numpy array as input and return np.array as default
 def convert_to_rgb(image: ImageInput) -> ImageInput:
     """
     Converts an image to RGB format. Only converts if the image is of type PIL.Image.Image, otherwise returns the image
@@ -813,7 +747,6 @@ def flip_channel_order(
 
 
 def split_to_tiles(images: "torch.Tensor", num_tiles_height: int, num_tiles_width: int) -> "torch.Tensor":
-    # Split image into number of required tiles (width x height)
     batch_size, num_channels, height, width = images.size()
     images = images.view(
         batch_size,
@@ -823,9 +756,7 @@ def split_to_tiles(images: "torch.Tensor", num_tiles_height: int, num_tiles_widt
         num_tiles_width,
         width // num_tiles_width,
     )
-    # Permute dimensions to reorder the axes
     image = images.permute(0, 2, 4, 1, 3, 5).contiguous()
-    # Reshape into the desired output shape (batch_size * 4, num_channels, width/2, height/2)
     image = image.view(
         batch_size,
         num_tiles_width * num_tiles_height,
@@ -886,25 +817,21 @@ def _group_images_by_shape(nested_images, *paired_inputs, is_nested: bool = Fals
     grouped_images_index = {}
     paired_grouped_values = [defaultdict(list) for _ in paired_inputs]
 
-    # Normalize inputs to consistent nested structure
     normalized_images = [nested_images] if not is_nested else nested_images
     normalized_paired = []
     for paired_input in paired_inputs:
         normalized_paired.append([paired_input] if not is_nested else paired_input)
 
-    # Process each image and group by shape
     for i, (sublist, *paired_sublists) in enumerate(zip(normalized_images, *normalized_paired)):
         for j, (image, *paired_values) in enumerate(zip(sublist, *paired_sublists)):
             key = (i, j) if is_nested else j
             shape = image.shape[1:]
 
-            # Add to grouped structures
             grouped_images[shape].append(image)
             for paired_index, paired_value in enumerate(paired_values):
                 paired_grouped_values[paired_index][shape].append(paired_value)
             grouped_images_index[key] = (shape, len(grouped_images[shape]) - 1)
 
-    # Store structure size for nested inputs to handle empty sublists during reconstruction
     if is_nested:
         grouped_images_index["_num_sublists"] = len(normalized_images)
 
@@ -913,15 +840,12 @@ def _group_images_by_shape(nested_images, *paired_inputs, is_nested: bool = Fals
 
 def _reconstruct_nested_structure(indices, processed_images):
     """Helper function to reconstruct a single level nested structure."""
-    # Get the number of sublists (handles empty sublists like in [[], [image]])
     num_sublists = indices.pop("_num_sublists", None)
 
-    # Group indices by outer index
     nested_indices = defaultdict(list)
     for i, j in indices:
         nested_indices[i].append(j)
 
-    # Determine the number of outer sublists
     if num_sublists is not None:
         max_outer_idx = num_sublists - 1
     elif nested_indices:
@@ -929,7 +853,6 @@ def _reconstruct_nested_structure(indices, processed_images):
     else:
         return []
 
-    # Create the result structure
     result = []
     for i in range(max_outer_idx + 1):
         if i not in nested_indices:
@@ -1011,7 +934,6 @@ def group_images_by_shape(
               the corresponding per-item values and are not stacked
             - A dictionary mapping original indices to (shape, index) tuples
     """
-    # If disable grouping is not explicitly provided, we favor disabling it if the images are on CPU, and enabling it otherwise.
     if disable_grouping is None:
         device = _get_device_from_images(images, is_nested)
         disable_grouping = device == "cpu"
@@ -1030,12 +952,10 @@ def group_images_by_shape(
             grouped_images_index,
         )
 
-    # Handle single level nested structure
     grouped_images, *paired_grouped_values, grouped_images_index = _group_images_by_shape(
         images, *paired_inputs, is_nested=is_nested
     )
 
-    # Stack images with the same shape
     grouped_images = {shape: torch.stack(images_list, dim=0) for shape, images_list in grouped_images.items()}
 
     return grouped_images, *paired_grouped_values, grouped_images_index

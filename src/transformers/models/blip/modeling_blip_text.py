@@ -1,16 +1,3 @@
-# Copyright 2022 The Salesforce Team Authors and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the BSD-3-clause license (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://opensource.org/licenses/BSD-3-Clause
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import math
@@ -42,9 +29,7 @@ from .configuration_blip import BlipTextConfig
 logger = logging.get_logger(__name__)
 
 
-# Adapted from https://github.com/salesforce/BLIP/blob/main/models/med.py#L52
 class BlipTextEmbeddings(nn.Module):
-    """Construct the embeddings from word and position embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -54,7 +39,6 @@ class BlipTextEmbeddings(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -91,7 +75,6 @@ class BlipTextEmbeddings(nn.Module):
         return embeddings
 
 
-# Adapted from https://github.com/salesforce/BLIP/blob/main/models/med.py#L97
 class BlipTextSelfAttention(nn.Module):
     def __init__(self, config, is_cross_attention, layer_idx=None):
         super().__init__()
@@ -118,16 +101,16 @@ class BlipTextSelfAttention(nn.Module):
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
     def save_attn_gradients(self, attn_gradients):
-        self.attn_gradients = attn_gradients
+        pass
 
     def get_attn_gradients(self):
-        return self.attn_gradients
+        pass
 
     def save_attention_map(self, attention_map):
-        self.attention_map = attention_map
+        pass
 
     def get_attention_map(self):
-        return self.attention_map
+        pass
 
     def forward(
         self,
@@ -142,9 +125,6 @@ class BlipTextSelfAttention(nn.Module):
         hidden_shape = (*input_shape, -1, self.attention_head_size)
         query_layer = self.query(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # If this is instantiated as a cross-attention module, the keys
-        # and values come from an encoder; the attention mask needs to be
-        # such that the encoder's padding tokens are not attended to.
         is_cross_attention = encoder_hidden_states is not None
         attention_mask = encoder_attention_mask if is_cross_attention else attention_mask
 
@@ -153,7 +133,6 @@ class BlipTextSelfAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_layer from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -162,7 +141,6 @@ class BlipTextSelfAttention(nn.Module):
 
         current_states = encoder_hidden_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_layer = curr_past_key_values.layers[self.layer_idx].keys
             value_layer = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -172,23 +150,17 @@ class BlipTextSelfAttention(nn.Module):
 
             if past_key_values is not None:
                 key_layer, value_layer = curr_past_key_values.update(key_layer, value_layer, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in BlipTextModel forward() function)
             attention_scores = attention_scores + attention_mask.to(attention_scores.device)
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs_dropped = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs_dropped, value_layer)
@@ -200,7 +172,6 @@ class BlipTextSelfAttention(nn.Module):
         return context_layer, attention_probs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput with Bert -> BlipText
 class BlipTextSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -215,7 +186,6 @@ class BlipTextSelfOutput(nn.Module):
         return hidden_states
 
 
-# Adapted from https://github.com/salesforce/BLIP/blob/main/models/med.py#242
 class BlipTextAttention(nn.Module):
     def __init__(self, config, is_cross_attention=False, layer_idx=None):
         super().__init__()
@@ -240,7 +210,6 @@ class BlipTextAttention(nn.Module):
         return attention_output, attention_probs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert -> BlipText
 class BlipTextIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -256,7 +225,6 @@ class BlipTextIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput with Bert -> BlipText
 class BlipTextOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -319,7 +287,6 @@ class BlipTextLayer(GradientCheckpointingLayer):
         return layer_output
 
 
-# Adapted from https://github.com/salesforce/BLIP/blob/main/models/med.py#L386
 class BlipTextEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -345,8 +312,6 @@ class BlipTextEncoder(nn.Module):
                 use_cache = False
 
         if use_cache:
-            # The model acts as encoder decoder but is not an encoder decoder. So we cast all cache objects to
-            # `EncoderDecoderCache` type assuming that the incoming cache is from `self_attention`
             if isinstance(past_key_values, DynamicCache):
                 past_key_values = EncoderDecoderCache(past_key_values, DynamicCache(config=self.config))
             elif past_key_values is None:
@@ -370,7 +335,6 @@ class BlipTextEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler with Bert->BlipText
 class BlipTextPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -378,15 +342,12 @@ class BlipTextPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPredictionHeadTransform with Bert->BlipText
 class BlipTextPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -404,14 +365,11 @@ class BlipTextPredictionHeadTransform(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertLMPredictionHead with Bert->BlipText
 class BlipTextLMPredictionHead(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.transform = BlipTextPredictionHeadTransform(config)
 
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=True)
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
@@ -421,7 +379,6 @@ class BlipTextLMPredictionHead(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOnlyMLMHead with Bert->BlipText
 class BlipTextOnlyMLMHead(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -432,12 +389,7 @@ class BlipTextOnlyMLMHead(nn.Module):
         return prediction_scores
 
 
-# Adapted from https://github.com/salesforce/BLIP/blob/main/models/med.py#L548
 class BlipTextPreTrainedModel(PreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
 
     config: BlipTextConfig
     base_model_prefix = "bert"
@@ -458,15 +410,7 @@ class BlipTextPreTrainedModel(PreTrainedModel):
             init.copy_(module.position_ids, torch.arange(module.position_ids.shape[-1]).expand((1, -1)))
 
 
-# Adapted from https://github.com/salesforce/BLIP/blob/3a29b7410476bf5f2ba0955827390eb6ea1f4f9d/models/med.py#L571
 class BlipTextModel(BlipTextPreTrainedModel):
-    """
-    The model can behave as an encoder (with only self-attention) as well as a decoder, in which case a layer of
-    cross-attention is added between the self-attention layers, following the architecture described in [Attention is
-    all you need](https://huggingface.co/papers/1706.03762) by Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit,
-    Llion Jones, Aidan N. Gomez, Lukasz Kaiser and Illia Polosukhin. argument and `is_decoder` set to `True`; an
-    `encoder_hidden_states` is then expected as an input to the forward pass.
-    """
 
     def __init__(self, config, add_pooling_layer=True):
         super().__init__(config)
@@ -580,7 +524,6 @@ class BlipTextModel(BlipTextPreTrainedModel):
         )
 
 
-# Adapted from https://github.com/salesforce/BLIP/blob/main/models/med.py#L811
 class BlipTextLMHeadModel(BlipTextPreTrainedModel, GenerationMixin):
     _tied_weights_keys = {
         "cls.predictions.decoder.bias": "cls.predictions.bias",
@@ -666,7 +609,6 @@ class BlipTextLMHeadModel(BlipTextPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         prediction_scores = self.cls(hidden_states[:, slice_indices, :])
 
@@ -675,7 +617,6 @@ class BlipTextLMHeadModel(BlipTextPreTrainedModel, GenerationMixin):
 
         lm_loss = None
         if labels is not None:
-            # we are doing next-token prediction; shift prediction scores and input ids by one
             shifted_prediction_scores = prediction_scores[:, :-1, :].contiguous()
             labels = labels[:, 1:].contiguous().to(shifted_prediction_scores.device)
             loss_fct = CrossEntropyLoss(reduction=reduction, label_smoothing=self.label_smoothing)
@@ -693,7 +634,6 @@ class BlipTextLMHeadModel(BlipTextPreTrainedModel, GenerationMixin):
         )
 
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None, attention_mask=None, **model_kwargs):
-        # Overwrite -- hardcoded key return (`is_decoder=True`)
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,

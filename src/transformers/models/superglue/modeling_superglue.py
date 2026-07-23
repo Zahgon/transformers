@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SuperGlue model."""
 
 import math
 from dataclasses import dataclass
@@ -32,19 +18,7 @@ logger = logging.get_logger(__name__)
 
 
 def concat_pairs(tensor_tuple0: tuple[torch.Tensor], tensor_tuple1: tuple[torch.Tensor]) -> tuple[torch.Tensor]:
-    """
-    Concatenate two tuples of tensors pairwise
-
-    Args:
-        tensor_tuple0 (`tuple[torch.Tensor]`):
-            Tuple of tensors.
-        tensor_tuple1 (`tuple[torch.Tensor]`):
-            Tuple of tensors.
-
-    Returns:
-        (`tuple[torch.Tensor]`): Tuple of concatenated tensors.
-    """
-    return tuple(torch.cat([tensor0, tensor1]) for tensor0, tensor1 in zip(tensor_tuple0, tensor_tuple1))
+    pass
 
 
 def normalize_keypoints(keypoints: torch.Tensor, height: int, width: int) -> torch.Tensor:
@@ -157,25 +131,6 @@ def arange_like(x, dim: int) -> torch.Tensor:
 )
 @dataclass
 class SuperGlueKeypointMatchingOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*):
-        Loss computed during training.
-    matches (`torch.FloatTensor` of shape `(batch_size, 2, num_matches)`):
-        Index of keypoint matched in the other image.
-    matching_scores (`torch.FloatTensor` of shape `(batch_size, 2, num_matches)`):
-        Scores of predicted matches.
-    keypoints (`torch.FloatTensor` of shape `(batch_size, num_keypoints, 2)`):
-        Absolute (x, y) coordinates of predicted keypoints in a given image.
-    mask (`torch.IntTensor` of shape `(batch_size, num_keypoints)`):
-        Mask indicating which values in matches and matching_scores are keypoint matching information.
-    hidden_states (`tuple[torch.FloatTensor, ...]`, *optional*):
-        Tuple of `torch.FloatTensor` (one for the output of each stage) of shape `(batch_size, 2, num_channels,
-        num_keypoints)`, returned when `output_hidden_states=True` is passed or when
-        `config.output_hidden_states=True`)
-    attentions (`tuple[torch.FloatTensor, ...]`, *optional*):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, 2, num_heads, num_keypoints,
-        num_keypoints)`, returned when `output_attentions=True` is passed or when `config.output_attentions=True`)
-    """
 
     loss: torch.FloatTensor | None = None
     matches: torch.FloatTensor | None = None
@@ -207,7 +162,6 @@ class SuperGlueKeypointEncoder(nn.Module):
         super().__init__()
         layer_sizes = config.keypoint_encoder_sizes
         hidden_size = config.hidden_size
-        # 3 here consists of 2 for the (x, y) coordinates and 1 for the score of the keypoint
         encoder_channels = [3] + layer_sizes + [hidden_size]
 
         layers = [
@@ -262,9 +216,6 @@ class SuperGlueSelfAttention(nn.Module):
         encoder_attention_mask: torch.FloatTensor | None = None,
         output_attentions: bool | None = False,
     ) -> tuple[torch.Tensor]:
-        # If this is instantiated as a cross-attention module, the keys
-        # and values come from an encoder; the attention mask needs to be
-        # such that the encoder's padding tokens are not attended to.
         is_cross_attention = encoder_hidden_states is not None
         current_states = encoder_hidden_states if is_cross_attention else hidden_states
         attention_mask = encoder_attention_mask if is_cross_attention else attention_mask
@@ -286,19 +237,14 @@ class SuperGlueSelfAttention(nn.Module):
             .transpose(1, 2)
         )
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in SuperGlueModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -484,22 +430,6 @@ class SuperGluePreTrainedModel(PreTrainedModel):
     """
 )
 class SuperGlueForKeypointMatching(SuperGluePreTrainedModel):
-    """SuperGlue feature matching middle-end
-
-    Given two sets of keypoints and locations, we determine the
-    correspondences by:
-      1. Keypoint Encoding (normalization + visual feature and location fusion)
-      2. Graph Neural Network with multiple self and cross-attention layers
-      3. Final projection layer
-      4. Optimal Transport Layer (a differentiable Hungarian matching algorithm)
-      5. Thresholding matrix based on mutual exclusivity and a match_threshold
-
-    The correspondence ids use -1 to indicate non-matching points.
-
-    Paul-Edouard Sarlin, Daniel DeTone, Tomasz Malisiewicz, and Andrew
-    Rabinovich. SuperGlue: Learning Feature Matching with Graph Neural
-    Networks. In CVPR, 2020. https://huggingface.co/papers/1911.11763
-    """
 
     def __init__(self, config: SuperGlueConfig) -> None:
         super().__init__(config)
@@ -572,20 +502,17 @@ class SuperGlueForKeypointMatching(SuperGluePreTrainedModel):
             )
 
         batch_size, _, num_keypoints, _ = keypoints.shape
-        # (batch_size, 2, num_keypoints, 2) -> (batch_size * 2, num_keypoints, 2)
         keypoints = keypoints.reshape(batch_size * 2, num_keypoints, 2)
         descriptors = descriptors.reshape(batch_size * 2, num_keypoints, self.config.hidden_size)
         scores = scores.reshape(batch_size * 2, num_keypoints)
         mask = mask.reshape(batch_size * 2, num_keypoints) if mask is not None else None
 
-        # Keypoint normalization
         keypoints = normalize_keypoints(keypoints, height, width)
 
         encoded_keypoints = self.keypoint_encoder(keypoints, scores, output_hidden_states=output_hidden_states)
 
         last_hidden_state = encoded_keypoints[0]
 
-        # Keypoint MLP encoder.
         descriptors = descriptors + last_hidden_state
 
         extended_attention_mask = create_bidirectional_mask(
@@ -594,7 +521,6 @@ class SuperGlueForKeypointMatching(SuperGluePreTrainedModel):
             attention_mask=mask,
         )
 
-        # Multi-layer Transformer network.
         gnn_outputs = self.gnn(
             descriptors,
             mask=extended_attention_mask,
@@ -603,15 +529,12 @@ class SuperGlueForKeypointMatching(SuperGluePreTrainedModel):
         )
         descriptors = gnn_outputs[0]
 
-        # Final MLP projection.
         projected_descriptors = self.final_projection(descriptors)
 
-        # (batch_size * 2, num_keypoints, descriptor_dim) -> (batch_size, 2, num_keypoints, descriptor_dim)
         final_descriptors = projected_descriptors.reshape(batch_size, 2, num_keypoints, self.config.hidden_size)
         final_descriptors0 = final_descriptors[:, 0]
         final_descriptors1 = final_descriptors[:, 1]
 
-        # Compute matching descriptor distance.
         scores = final_descriptors0 @ final_descriptors1.transpose(1, 2)
         scores = scores / self.config.hidden_size**0.5
 
@@ -622,10 +545,8 @@ class SuperGlueForKeypointMatching(SuperGluePreTrainedModel):
             mask = torch.logical_and(mask0, mask1)
             scores = scores.masked_fill(mask == 0, torch.finfo(scores.dtype).min)
 
-        # Run the optimal transport.
         scores = log_optimal_transport(scores, self.bin_score, iterations=self.config.sinkhorn_iterations)
 
-        # Get the matches with score above "match_threshold".
         max0 = scores[:, :-1, :-1].max(2)
         max1 = scores[:, :-1, :-1].max(1)
         indices0 = max0.indices

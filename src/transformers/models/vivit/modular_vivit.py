@@ -1,17 +1,3 @@
-# Copyright 2023 Google AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ViViT model - modular file inheriting transformer core from ViT."""
 
 from collections.abc import Iterable
 
@@ -42,13 +28,6 @@ logger = logging.get_logger(__name__)
 
 
 class VivitTubeletEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_frames, num_channels, height, width)` into the initial
-    `hidden_states` (tubelet embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
-    Transformer encoder.
-
-    The seq_length equals (num_frames // tubelet_size[0]) * (height // tubelet_size[1]) * (width // tubelet_size[2]).
-    """
 
     def __init__(self, config: VivitConfig):
         super().__init__()
@@ -67,15 +46,11 @@ class VivitTubeletEmbeddings(nn.Module):
         )
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        # transpose (batch_size, num_channels, num_frames, height, width) for Conv3d
         pixel_values = pixel_values.transpose(1, 2)
         return self.projection(pixel_values).flatten(2).transpose(1, 2)
 
 
 class VivitEmbeddings(ViTEmbeddings):
-    """
-    Construct the CLS token, position and tubelet patch embeddings for video input.
-    """
 
     def __init__(self, config: VivitConfig):
         super().__init__()
@@ -84,13 +59,11 @@ class VivitEmbeddings(ViTEmbeddings):
         self.patch_embeddings = VivitTubeletEmbeddings(config)
         num_patches = self.patch_embeddings.num_patches
         self.position_embeddings = nn.Parameter(torch.zeros(1, num_patches + 1, config.hidden_size))
-        # patch_size is the spatial (height, width) part of the tubelet for pos encoding interpolation
         self.patch_size = config.tubelet_size[1:]
         del self.mask_token
 
     def interpolate_pos_encoding(self, embeddings: torch.Tensor, height: int, width: int) -> torch.Tensor:
         super().interpolate_pos_encoding(embeddings, height, width)
-        # patch_size is a 2-tuple (height, width) for the spatial tubelet dimensions
         new_height = height // self.patch_size[0]  # noqa: F841
         new_width = width // self.patch_size[1]  # noqa: F841
 
@@ -98,7 +71,6 @@ class VivitEmbeddings(ViTEmbeddings):
         batch_size, num_frames, num_channels, height, width = pixel_values.shape
         embeddings = self.patch_embeddings(pixel_values)
 
-        # add the [CLS] token to the embedded patch tokens
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         embeddings = torch.cat((cls_tokens, embeddings), dim=1)
 
@@ -280,10 +252,8 @@ class VivitForVideoClassification(VivitPreTrainedModel):
         self.num_labels = config.num_labels
         self.vivit = VivitModel(config, add_pooling_layer=False)
 
-        # Classifier head
         self.classifier = nn.Linear(config.hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

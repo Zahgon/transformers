@@ -1,20 +1,4 @@
-# Copyright 2021 The I-BERT Authors (Sehoon Kim, Amir Gholami, Zhewei Yao,
-# Michael Mahoney, Kurt Keutzer - UC Berkeley) and The HuggingFace Inc. team.
-# Copyright (c) 20121, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""PyTorch I-BERT model."""
 
 import math
 
@@ -44,9 +28,6 @@ logger = logging.get_logger(__name__)
 
 
 class IBertEmbeddings(nn.Module):
-    """
-    Same as BertEmbeddings with a tiny tweak for positional embeddings indexing.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -68,12 +49,10 @@ class IBertEmbeddings(nn.Module):
             config.type_vocab_size, config.hidden_size, weight_bit=self.embedding_bit, quant_mode=self.quant_mode
         )
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
 
-        # End copy
         self.padding_idx = config.pad_token_id
         self.position_embeddings = QuantEmbedding(
             config.max_position_embeddings,
@@ -83,7 +62,6 @@ class IBertEmbeddings(nn.Module):
             quant_mode=self.quant_mode,
         )
 
-        # Integer-only addition between embeddings
         self.embeddings_act1 = QuantAct(self.embedding_act_bit, quant_mode=self.quant_mode)
         self.embeddings_act2 = QuantAct(self.embedding_act_bit, quant_mode=self.quant_mode)
 
@@ -102,7 +80,6 @@ class IBertEmbeddings(nn.Module):
     ):
         if position_ids is None:
             if input_ids is not None:
-                # Create the position ids from the input token ids. Any padded tokens remain padded.
                 position_ids = create_position_ids_from_input_ids(
                     input_ids, self.padding_idx, past_key_values_length
                 ).to(input_ids.device)
@@ -178,7 +155,6 @@ class IBertSelfAttention(nn.Module):
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        # Q, K, V Linear layers
         self.query = QuantLinear(
             config.hidden_size,
             self.all_head_size,
@@ -207,7 +183,6 @@ class IBertSelfAttention(nn.Module):
             per_channel=True,
         )
 
-        # Requantization (32bit -> 8bit) for Q, K, V activations
         self.query_activation = QuantAct(self.act_bit, quant_mode=self.quant_mode)
         self.key_activation = QuantAct(self.act_bit, quant_mode=self.quant_mode)
         self.value_activation = QuantAct(self.act_bit, quant_mode=self.quant_mode)
@@ -224,12 +199,10 @@ class IBertSelfAttention(nn.Module):
         attention_mask=None,
         output_attentions=False,
     ):
-        # Projection
         mixed_query_layer, mixed_query_layer_scaling_factor = self.query(hidden_states, hidden_states_scaling_factor)
         mixed_key_layer, mixed_key_layer_scaling_factor = self.key(hidden_states, hidden_states_scaling_factor)
         mixed_value_layer, mixed_value_layer_scaling_factor = self.value(hidden_states, hidden_states_scaling_factor)
 
-        # Requantization
         query_layer, query_layer_scaling_factor = self.query_activation(
             mixed_query_layer, mixed_query_layer_scaling_factor
         )
@@ -238,14 +211,12 @@ class IBertSelfAttention(nn.Module):
             mixed_value_layer, mixed_value_layer_scaling_factor
         )
 
-        # Transpose
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.attention_head_size)
         query_layer = query_layer.view(hidden_shape).transpose(1, 2)
         key_layer = key_layer.view(hidden_shape).transpose(1, 2)
         value_layer = value_layer.view(hidden_shape).transpose(1, 2)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         scale = math.sqrt(self.attention_head_size)
         attention_scores = attention_scores / scale
@@ -255,16 +226,12 @@ class IBertSelfAttention(nn.Module):
             attention_scores_scaling_factor = None
 
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in IBertModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs, attention_probs_scaling_factor = self.softmax(
             attention_scores, attention_scores_scaling_factor
         )
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -277,7 +244,6 @@ class IBertSelfAttention(nn.Module):
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
 
-        # requantization: 32-bit -> 8-bit
         context_layer, context_layer_scaling_factor = self.output_activation(
             context_layer, context_layer_scaling_factor
         )
@@ -394,7 +360,6 @@ class IBertIntermediate(nn.Module):
             hidden_states, hidden_states_scaling_factor
         )
 
-        # Requantization: 32bit -> 8-bit
         hidden_states, hidden_states_scaling_factor = self.output_activation(
             hidden_states, hidden_states_scaling_factor
         )
@@ -569,8 +534,6 @@ class IBertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -597,7 +560,6 @@ class IBertPreTrainedModel(PreTrainedModel):
                 init.zeros_(module.bias_integer)
         elif isinstance(module, QuantEmbedding):
             init.normal_(module.weight, mean=0.0, std=self.config.initializer_range)
-            # Here we need the check explicitly, as we slice the weight in the `zeros_` call, so it looses the flag
             if module.padding_idx is not None and not getattr(module.weight, "_is_hf_initialized", False):
                 init.zeros_(module.weight[module.padding_idx])
             if getattr(module, "weight_scaling_factor", None) is not None:
@@ -621,14 +583,6 @@ class IBertPreTrainedModel(PreTrainedModel):
 
 @auto_docstring
 class IBertModel(IBertPreTrainedModel):
-    """
-
-    The model can behave as an encoder (with only self-attention) as well as a decoder, in which case a layer of
-    cross-attention is added between the self-attention layers, following the architecture described in [Attention is
-    all you need](https://huggingface.co/papers/1706.03762) by Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit,
-    Llion Jones, Aidan N. Gomez, Lukasz Kaiser and Illia Polosukhin.
-
-    """
 
     def __init__(self, config, add_pooling_layer=True):
         r"""
@@ -644,7 +598,6 @@ class IBertModel(IBertPreTrainedModel):
 
         self.pooler = IBertPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -739,7 +692,6 @@ class IBertForMaskedLM(IBertPreTrainedModel):
         self.ibert = IBertModel(config, add_pooling_layer=False)
         self.lm_head = IBertLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -802,7 +754,6 @@ class IBertForMaskedLM(IBertPreTrainedModel):
 
 
 class IBertLMHead(nn.Module):
-    """I-BERT Head for masked language modeling."""
 
     def __init__(self, config):
         super().__init__()
@@ -817,7 +768,6 @@ class IBertLMHead(nn.Module):
         x = gelu(x)
         x = self.layer_norm(x)
 
-        # project back to size of vocabulary with bias
         x = self.decoder(x)
 
         return x
@@ -837,7 +787,6 @@ class IBertForSequenceClassification(IBertPreTrainedModel):
         self.ibert = IBertModel(config, add_pooling_layer=False)
         self.classifier = IBertClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -918,7 +867,6 @@ class IBertForMultipleChoice(IBertPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1021,7 +969,6 @@ class IBertForTokenClassification(IBertPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1078,7 +1025,6 @@ class IBertForTokenClassification(IBertPreTrainedModel):
 
 
 class IBertClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config):
         super().__init__()
@@ -1105,7 +1051,6 @@ class IBertForQuestionAnswering(IBertPreTrainedModel):
         self.ibert = IBertModel(config, add_pooling_layer=False)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1145,12 +1090,10 @@ class IBertForQuestionAnswering(IBertPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)
@@ -1184,7 +1127,6 @@ def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_l
 
     Returns: torch.Tensor
     """
-    # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
     mask = input_ids.ne(padding_idx).int()
     incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
     return incremental_indices.long() + padding_idx

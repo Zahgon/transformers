@@ -1,17 +1,3 @@
-# Copyright 2026 The Jina-AI and HuggingFace Inc. teams. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable
 
@@ -56,21 +42,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="jinaai/jina-embeddings-v3-hf")
 @strict
 class JinaEmbeddingsV3Config(XLMRobertaConfig):
-    r"""
-    Examples:
-
-    ```python
-    >>> from transformers import JinaEmbeddingsV3Config, JinaEmbeddingsV3Model
-
-    >>> # Initializing a Jina-Embeddings-V3 jinaai/jina-embeddings-v3-hf style configuration
-    >>> configuration = JinaEmbeddingsV3Config()
-
-    >>> # Initializing a model (with random weights) from the jinaai/jina-embeddings-v3-hf style configuration
-    >>> model = JinaEmbeddingsV3Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "jina_embeddings_v3"
     default_theta = 20000.0
@@ -118,7 +89,6 @@ class JinaEmbeddingsV3Embeddings(XLMRobertaEmbeddings):
 
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
-                # NOTE: We assume either pos ids to have bsz == 1 (broadcastable) or bsz == effective bsz (input_shape[0])
                 buffered_token_type_ids = self.token_type_ids.expand(position_ids.shape[0], -1)
                 buffered_token_type_ids = torch.gather(buffered_token_type_ids, dim=1, index=position_ids)
                 token_type_ids = buffered_token_type_ids.expand(*input_shape)
@@ -249,7 +219,6 @@ class JinaEmbeddingsV3Model(XLMRobertaModel):
         self.layers = nn.ModuleList([JinaEmbeddingsV3Layer(config) for _ in range(config.num_hidden_layers)])
         del self.encoder
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -324,7 +293,6 @@ class JinaEmbeddingsV3ForMaskedLM(XLMRobertaForMaskedLM):
         self.lm_head = JinaEmbeddingsV3LMHead(config)
         self.roberta = JinaEmbeddingsV3Model(config, add_pooling_layer=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -369,7 +337,6 @@ class JinaEmbeddingsV3ForMaskedLM(XLMRobertaForMaskedLM):
 
         masked_lm_loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(prediction_scores.device)
             loss_fct = CrossEntropyLoss()
             masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))

@@ -1,16 +1,3 @@
-# Copyright (C) 2026 THL A29 Limited, a Tencent company and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import itertools
 from collections.abc import Callable
@@ -67,10 +54,6 @@ from ..siglip.modeling_siglip import SiglipEncoderLayer, SiglipMLP
 
 @dataclass
 class HunYuanVLModelOutputWithPast(BaseModelOutputWithPast):
-    r"""
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        Last image features produced by the vision tower and scattered into the language-model token stream.
-    """
 
     image_hidden_states: torch.FloatTensor | None = None
 
@@ -83,31 +66,6 @@ class HunYuanVLModelOutputWithPast(BaseModelOutputWithPast):
 )
 @strict
 class HunYuanVLVisionConfig(PreTrainedConfig):
-    r"""
-    interpolate_mode (`str`, *optional*, defaults to `"bilinear"`):
-        Interpolation mode used when resizing learned patch positional embeddings to match the current image grid.
-    out_hidden_size (`int`, *optional*, defaults to 4096):
-        Output hidden size produced by the vision tower before it is consumed by the text backbone.
-    img_max_token_num (`int`, *optional*, defaults to 4096):
-        Maximum image token count expected by the vision stack.
-    max_image_size (`int`, *optional*, defaults to 2048):
-        Maximum supported image size for the current open-source vision configuration.
-    min_image_size (`int`, *optional*, defaults to 512):
-        Minimum supported image size for the current open-source vision configuration.
-    max_vit_seq_len (`int`, *optional*, defaults to 16384):
-        Maximum sequence length produced by the vision transformer.
-    text_hidden_size (`int`, *optional*, defaults to 3072):
-        Hidden size expected by the text backbone when consuming visual embeddings.
-
-    Example:
-
-    ```python
-    >>> from transformers import HunYuanVLVisionConfig
-    >>>
-    >>> configuration = HunYuanVLVisionConfig()
-    >>> configuration.hidden_size
-    1152
-    ```"""
 
     model_type = "hunyuan_vl_vision"
     base_config_key = "vision_config"
@@ -154,19 +112,6 @@ class HunYuanVLVisionConfig(PreTrainedConfig):
 )
 @strict
 class HunYuanVLTextConfig(HunYuanDenseV1Config):
-    r"""
-    eod_token_id (`int`, *optional*, defaults to 3):
-        Token id representing the end-of-document marker. Inherited from [`HunYuanDenseV1Config`] and re-documented
-        here so the auto-generated docstring stays in sync.
-    rope_parameters (`dict`, *optional*):
-        RoPE configuration inherited from [`HunYuanDenseV1Config`]. When `mrope_section` is present, it partitions
-        half of each attention head across HunYuanVL's multimodal RoPE axes. The expected order is `(width, height,
-        image_index)` for 3-axis multimodal RoPE and `(position, width, height, image_index)` for 4-axis multimodal RoPE. The
-        `image_index` axis is the ordinal of the image/frame in the input sequence; all visual tokens from one image
-        share the same value on that axis.
-    sep_token_id (`int`, *optional*, defaults to 4):
-        Token id used as a separator marker by HunYuan tokenizers.
-    """
 
     model_type = "hunyuan_vl_text"
     base_config_key = "text_config"
@@ -225,8 +170,6 @@ class HunYuanVLTextConfig(HunYuanDenseV1Config):
         rope_parameters["mrope_section"] = section_ints
 
     def __post_init__(self, **kwargs):
-        # Legacy aliases (`pad_id`, `attention_head_dim`, `org_vocab_size`) are normalized onto canonical fields by the
-        # base `__setattr__` via `attribute_map`, so no manual translation is needed here.
         super().__post_init__(**kwargs)
         rope_parameters = getattr(self, "rope_parameters", None)
         head_dim = self.head_dim if self.head_dim is not None else self.hidden_size // self.num_attention_heads
@@ -262,27 +205,6 @@ class HunYuanVLTextConfig(HunYuanDenseV1Config):
 )
 @strict
 class HunYuanVLConfig(Qwen2VLConfig):
-    r"""
-    text_config (`HunYuanVLTextConfig` or `dict`, *optional*):
-        Configuration of the text backbone. When `None`, default values are used.
-    vision_config (`HunYuanVLVisionConfig` or `dict`, *optional*):
-        Configuration of the vision tower. When `None`, default values are used.
-    im_start_id (`int`, *optional*, defaults to 120118):
-        Token id marking the beginning of an image span in multimodal prompts.
-    im_end_id (`int`, *optional*, defaults to 120119):
-        Token id marking the end of an image span in multimodal prompts.
-    im_newline_id (`int`, *optional*, defaults to 120121):
-        Token id used for newline-style separators inserted inside serialized image regions.
-
-    Example:
-
-    ```python
-    >>> from transformers import HunYuanVLConfig, HunYuanVLForConditionalGeneration
-    >>>
-    >>> configuration = HunYuanVLConfig()
-    >>> model = HunYuanVLForConditionalGeneration(configuration)
-    >>> configuration = model.config
-    ```"""
 
     model_type = "hunyuan_vl"
     sub_configs = {"vision_config": HunYuanVLVisionConfig, "text_config": HunYuanVLTextConfig}
@@ -298,10 +220,6 @@ class HunYuanVLConfig(Qwen2VLConfig):
     video_token_id = AttributeError()
 
     def __post_init__(self, **kwargs):
-        # When loading legacy "flat" Tencent checkpoints (where text fields live at the top level instead of inside a
-        # nested `text_config` block) we fold the recognized text-side keys into the text config payload. This keeps
-        # ``HunYuanVLConfig.from_pretrained(...)`` working with both the upstream nested layout and the existing
-        # public OCR checkpoints.
         text_keys = set(self.sub_configs["text_config"].__dataclass_fields__) | {"rope_scaling", "rope_theta"}
         text_kwargs = {key: kwargs.pop(key) for key in list(kwargs) if key in text_keys}
 
@@ -315,27 +233,14 @@ class HunYuanVLConfig(Qwen2VLConfig):
         elif self.text_config is None:
             self.text_config = self.sub_configs["text_config"](**text_kwargs)
 
-        # Keep the vision tower in sync with the consuming text backbone size.
         self.vision_config.text_hidden_size = self.text_config.hidden_size
 
-        # The attr is saved inside `text_config` on most VLMs, use it if available
         kwargs.setdefault("tie_word_embeddings", self.text_config.tie_word_embeddings)
         PreTrainedConfig.__post_init__(self, **kwargs)
 
 
 class HunYuanVLImageProcessorKwargs(Qwen2VLImageProcessorKwargs, total=False):
-    r"""
-    min_pixels (`int`, *optional*, defaults to `512 * 512`):
-        The min pixels of the image to resize the image.
-    max_pixels (`int`, *optional*, defaults to `2048 * 2048`):
-        The max pixels of the image to resize the image.
-    patch_size (`int`, *optional*, defaults to 16):
-        The spatial patch size of the vision encoder.
-    temporal_patch_size (`int`, *optional*, defaults to 1):
-        The temporal patch size of the vision encoder.
-    merge_size (`int`, *optional*, defaults to 2):
-        The merge size of the vision encoder to llm encoder.
-    """
+    pass
 
 
 class HunYuanVLImageProcessor(Qwen2VLImageProcessor):
@@ -347,18 +252,7 @@ class HunYuanVLImageProcessor(Qwen2VLImageProcessor):
     valid_kwargs = HunYuanVLImageProcessorKwargs
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None) -> tuple[int, int]:
-        """Return the `(grid_h, grid_w)` patch counts used by HunYuanVL token accounting."""
-        images_kwargs = images_kwargs or {}
-        min_pixels = images_kwargs["min_pixels"] if "min_pixels" in images_kwargs else self.size["shortest_edge"]
-        max_pixels = images_kwargs["max_pixels"] if "max_pixels" in images_kwargs else self.size["longest_edge"]
-        patch_size = images_kwargs.get("patch_size", self.patch_size)
-        merge_size = images_kwargs.get("merge_size", self.merge_size)
-
-        factor = patch_size * merge_size
-        resized_height, resized_width = smart_resize(
-            height, width, factor, min_pixels=min_pixels, max_pixels=max_pixels
-        )
-        return resized_height // patch_size, resized_width // patch_size
+        pass
 
 
 @requires(backends=("vision", "torchvision"))
@@ -403,9 +297,6 @@ class HunYuanVLImageProcessorPil(Qwen2VLImageProcessorPil):
                 image = self.resize(
                     image,
                     size=SizeDict(height=resized_height, width=resized_width),
-                    # The reference HunyuanOCR processor calls `PIL.Image.resize` without a
-                    # resampling argument, which uses BICUBIC for RGB images. Its config has
-                    # `resample=1` (LANCZOS), but the original implementation never uses it.
                     resample=PILImageResampling.BICUBIC,
                 )
             else:
@@ -459,18 +350,7 @@ class HunYuanVLImageProcessorPil(Qwen2VLImageProcessorPil):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None) -> tuple[int, int]:
-        """Return the `(grid_h, grid_w)` patch counts used by HunYuanVL token accounting."""
-        images_kwargs = images_kwargs or {}
-        min_pixels = images_kwargs["min_pixels"] if "min_pixels" in images_kwargs else self.size["shortest_edge"]
-        max_pixels = images_kwargs["max_pixels"] if "max_pixels" in images_kwargs else self.size["longest_edge"]
-        patch_size = images_kwargs.get("patch_size", self.patch_size)
-        merge_size = images_kwargs.get("merge_size", self.merge_size)
-
-        factor = patch_size * merge_size
-        resized_height, resized_width = smart_resize(
-            height, width, factor, min_pixels=min_pixels, max_pixels=max_pixels
-        )
-        return resized_height // patch_size, resized_width // patch_size
+        pass
 
 
 def apply_multimodal_rotary_pos_emb(q, k, cos, sin, mrope_section, unsqueeze_dim=1):
@@ -512,8 +392,6 @@ class HunYuanVLRotaryEmbedding(HunYuanDenseV1RotaryEmbedding):
         self.mrope_section = rope_parameters.get("mrope_section")
 
     def forward(self, x, position_ids):
-        # In contrast to other models, model has different position ids for the grids
-        # So we expand the inv_freq to shape (3, ...)
         inv_freq_expanded = (
             self.inv_freq[None, None, :, None].float().expand(len(self.mrope_section), position_ids.shape[1], -1, 1)
         )
@@ -551,7 +429,6 @@ class HunYuanVLVisionPatchEmbed(nn.Module):
         self.max_num_patches = (config.max_image_size // self.patch_size) ** 2
         self.num_positions = self.max_num_patches + 1
         self.position_edge = config.max_image_size // self.patch_size
-        # The first token is the cls token; the remaining tokens form the learnable patch positional grid.
         self.position_embedding = nn.Embedding(self.num_positions, self.embed_dim)
 
     def interpolate_pos_encoding(self, embeddings: torch.Tensor, height: int, width: int) -> torch.Tensor:
@@ -681,7 +558,6 @@ class HunYuanVLVisionAttention(MllamaVisionAttention):
         )
 
         if is_flash_attention_requested(self.config):
-            # Flash Attention: Use cu_seqlens for variable length attention
             max_seqlen = get_max_seqlen(cu_seqlens, self.config, kwargs={"max_seqlen": max_seqlen})
             attn_output, attn_weights = attention_interface(
                 self,
@@ -697,7 +573,6 @@ class HunYuanVLVisionAttention(MllamaVisionAttention):
                 **kwargs,
             )
         else:
-            # Other implementations: Process each chunk separately
             lengths = cu_seqlens[1:] - cu_seqlens[:-1]
             splits = [
                 torch.split(tensor, lengths.tolist(), dim=2) for tensor in (query_states, key_states, value_states)
@@ -731,12 +606,6 @@ class HunYuanVLVisionBlock(SiglipEncoderLayer):
 
 
 class HunYuanVLDenseV1Attention(HunYuanDenseV1Attention):
-    """
-    HunYuan dense attention with optional multimodal rotary embeddings.
-
-    When ``rope_parameters['mrope_section']`` is set, queries and keys are rotated with HunYuan's multimodal axes.
-    During decoding all axes carry the same text-only positions, reducing the operation to standard 1D RoPE.
-    """
 
     def __init__(self, config: HunYuanVLTextConfig, layer_idx: int):
         super().__init__(config, layer_idx)
@@ -817,13 +686,6 @@ class HunYuanVLPreTrainedModel(HunYuanDenseV1PreTrainedModel):
 
 
 class HunYuanVLVisionTransformer(HunYuanVLPreTrainedModel):
-    """
-    HunYuanVL vision tower: patch embedding -> transformer blocks -> per-image patch merger.
-
-    Inputs are flat per-patch pixel tensors plus an ``image_grid_thw`` tensor describing the spatial layout of every
-    image in the batch. The output is the concatenation of merged image embeddings, ready to be scattered into the
-    language-model embedding stream.
-    """
 
     config: HunYuanVLVisionConfig
     main_input_name = "pixel_values"
@@ -885,7 +747,6 @@ class HunYuanVLVisionTransformer(HunYuanVLPreTrainedModel):
 
 
 class HunYuanVLTextModel(HunYuanVLPreTrainedModel, HunYuanDenseV1Model):
-    """Dense text backbone used inside [`HunYuanVLModel`]."""
 
     config: HunYuanVLTextConfig
     input_modalities = ("text",)
@@ -920,7 +781,6 @@ class HunYuanVLTextModel(HunYuanVLPreTrainedModel, HunYuanDenseV1Model):
 
         num_mrope_axes = len(self.rotary_emb.mrope_section or [])
 
-        # Expand to 3D with `num_mrope_axes` as first dim, if not yet expanded
         if position_ids is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
@@ -931,7 +791,6 @@ class HunYuanVLTextModel(HunYuanVLPreTrainedModel, HunYuanDenseV1Model):
         if position_ids.ndim == 3 and position_ids.shape[0] == num_mrope_axes + 1:
             text_position_ids = position_ids[0]
         else:
-            # If inputs are not packed (usual 3D positions), do not prepare mask from position_ids
             text_position_ids = None
 
         if num_mrope_axes and position_ids.dim() == 3:
@@ -1406,7 +1265,6 @@ class HunYuanVLForConditionalGeneration(HunYuanVLPreTrainedModel, GenerationMixi
         return model_inputs
 
     def _prepare_position_ids_for_generation(self, inputs_tensor, model_kwargs):
-        # Same as qwen-vl with variable `num_mrope_axes` based on config values
         text_positions = super()._prepare_position_ids_for_generation(inputs_tensor, model_kwargs)
 
         rope_parameters = self.config.text_config.rope_parameters or {}

@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import math
 import sys
 from collections import defaultdict
@@ -19,8 +6,6 @@ from contextlib import contextmanager
 import torch
 
 
-# Record all the torch primitives in advance, so that we can use them without them being modified when we patch torch
-# in context managers
 TORCH_INIT_FUNCTIONS = {
     "uniform_": torch.nn.init.uniform_,
     "normal_": torch.nn.init.normal_,
@@ -74,15 +59,11 @@ def zeros_(tensor: torch.Tensor) -> torch.Tensor:
 
 
 def eye_(tensor: torch.Tensor) -> torch.Tensor:
-    if not getattr(tensor, "_is_hf_initialized", False):
-        return TORCH_INIT_FUNCTIONS["eye_"](tensor)
-    return tensor
+    pass
 
 
 def dirac_(tensor: torch.Tensor, groups: int = 1) -> torch.Tensor:
-    if not getattr(tensor, "_is_hf_initialized", False):
-        return TORCH_INIT_FUNCTIONS["dirac_"](tensor, groups=groups)
-    return tensor
+    pass
 
 
 def xavier_uniform_(tensor: torch.Tensor, gain: float = 1.0, generator: torch.Generator | None = None) -> torch.Tensor:
@@ -92,9 +73,7 @@ def xavier_uniform_(tensor: torch.Tensor, gain: float = 1.0, generator: torch.Ge
 
 
 def xavier_normal_(tensor: torch.Tensor, gain: float = 1.0, generator: torch.Generator | None = None) -> torch.Tensor:
-    if not getattr(tensor, "_is_hf_initialized", False):
-        return TORCH_INIT_FUNCTIONS["xavier_normal_"](tensor, gain=gain, generator=generator)
-    return tensor
+    pass
 
 
 def kaiming_uniform_(
@@ -144,8 +123,6 @@ def orthogonal_(
     generator: torch.Generator | None = None,
 ) -> torch.Tensor:
     if not getattr(tensor, "_is_hf_initialized", False):
-        # The QR decomposition (`geqrf`) used by `torch.nn.init.orthogonal_` is only implemented for
-        # float32/float64, so for lower-precision dtypes we run the init in float32 and copy back
         if tensor.is_floating_point() and torch.finfo(tensor.dtype).bits < 32:
             fp32_tensor = torch.empty_like(tensor, dtype=torch.float32)
             TORCH_INIT_FUNCTIONS["orthogonal_"](fp32_tensor, gain=gain, generator=generator)
@@ -158,9 +135,7 @@ def orthogonal_(
 def sparse_(
     tensor: torch.Tensor, sparsity: float, std: float = 0.01, generator: torch.Generator | None = None
 ) -> torch.Tensor:
-    if not getattr(tensor, "_is_hf_initialized", False):
-        return TORCH_INIT_FUNCTIONS["sparse_"](tensor, sparsity=sparsity, std=std, generator=generator)
-    return tensor
+    pass
 
 
 def copy_(tensor: torch.Tensor, other: torch.Tensor) -> torch.Tensor:
@@ -204,11 +179,6 @@ def default_flax_embed_init_(tensor):
     return tensor
 
 
-# Here, we need to check several modules imported, and hot patch all of them, as sometimes torch does
-# something like `from torch.nn.init import xavier_uniform_` in their internals (e.g in torch.nn.modules.activations,
-# where MultiHeadAttention lives), so the function name is binded at import time and just doing
-# `setattr(torch.nn.init, name, globals()[name])` is thus not enough
-# The following list should be enough for all torch versions we work with
 TORCH_MODULES_TO_PATCH = (
     "torch.nn.init",
     "torch.nn.modules.activation",
@@ -234,7 +204,6 @@ def guard_torch_init_functions():
     """
     originals = defaultdict(dict)
     try:
-        # Replace all torch funcs by the ones in this file
         for module_name in TORCH_MODULES_TO_PATCH:
             if module_name in sys.modules:
                 module = sys.modules[module_name]
@@ -244,7 +213,6 @@ def guard_torch_init_functions():
                         setattr(module, func_name, globals()[func_name])
         yield
     finally:
-        # Set back the original functions on all modules
         for module, functions in originals.items():
             for func_name, func in functions.items():
                 setattr(module, func_name, func)
@@ -264,7 +232,6 @@ def no_init_weights():
 
     originals = defaultdict(dict)
     try:
-        # Replace all torch funcs by empty ones
         for module_name in TORCH_MODULES_TO_PATCH:
             if module_name in sys.modules:
                 module = sys.modules[module_name]
@@ -273,17 +240,14 @@ def no_init_weights():
                         originals[module][func_name] = getattr(module, func_name)
                         setattr(module, func_name, empty_func)
 
-        # Also patch our own `init_weights`
         original_init_weights = PreTrainedModel.init_weights
         PreTrainedModel.init_weights = empty_func
 
         yield
     finally:
-        # Set back the original torch functions on all modules
         for module, functions in originals.items():
             for func_name, func in functions.items():
                 setattr(module, func_name, func)
-        # Set back `init_weights`
         PreTrainedModel.init_weights = original_init_weights
 
 
@@ -305,7 +269,6 @@ def no_tie_weights():
 
         yield
     finally:
-        # Set back the original
         PreTrainedModel.tie_weights = original_tie_weights
 
 
@@ -330,8 +293,7 @@ def meta_device_safe_creation_ops():
     original_linspace = torch.linspace
 
     def _safe_linspace(*args, **kwargs):
-        kwargs.setdefault("device", "cpu")
-        return original_linspace(*args, **kwargs)
+        pass
 
     torch.linspace = _safe_linspace
     try:

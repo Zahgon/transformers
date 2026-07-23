@@ -1,23 +1,4 @@
-# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
 # coding=utf-8
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch XLM RoBERTa xl,xxl model."""
 
 import torch
 import torch.nn as nn
@@ -71,7 +52,6 @@ class XLMRobertaXLEmbeddings(RobertaEmbeddings):
     ) -> torch.Tensor:
         if position_ids is None:
             if input_ids is not None:
-                # Create the position ids from the input token ids. Any padded tokens remain padded.
                 position_ids = self.create_position_ids_from_input_ids(
                     input_ids, self.padding_idx, past_key_values_length
                 )
@@ -85,12 +65,8 @@ class XLMRobertaXLEmbeddings(RobertaEmbeddings):
 
         batch_size, seq_length = input_shape
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
-                # NOTE: We assume either pos ids to have bsz == 1 (broadcastable) or bsz == effective bsz (input_shape[0])
                 buffered_token_type_ids = self.token_type_ids.expand(position_ids.shape[0], -1)
                 buffered_token_type_ids = torch.gather(buffered_token_type_ids, dim=1, index=position_ids)
                 token_type_ids = buffered_token_type_ids.expand(batch_size, seq_length)
@@ -209,7 +185,6 @@ class XLMRobertaXLEncoder(nn.Module):
                 **kwargs,
             )
 
-        # Extra layernorm at the end (causes high fluctuations between different attentions)
         hidden_states = self.LayerNorm(hidden_states)
 
         return BaseModelOutputWithPastAndCrossAttentions(
@@ -228,7 +203,6 @@ class XLMRobertaXLModel(BertModel):
 
 
 class XLMRobertaXLLMHead(nn.Module):
-    """XLM-RoBERTa-XL Head for masked language modeling."""
 
     def __init__(self, config):
         super().__init__()
@@ -243,7 +217,6 @@ class XLMRobertaXLLMHead(nn.Module):
         x = gelu(x)
         x = self.layer_norm(x)
 
-        # project back to size of vocabulary with bias
         x = self.decoder(x)
 
         return x
@@ -337,7 +310,6 @@ class XLMRobertaXLForCausalLM(XLMRobertaXLPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -644,7 +616,6 @@ class XLMRobertaXLForTokenClassification(XLMRobertaXLPreTrainedModel):
         loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
-            # Only keep active parts of the loss
             if attention_mask is not None:
                 active_loss = attention_mask.view(-1) == 1
                 active_logits = logits.view(-1, self.num_labels)
@@ -706,12 +677,10 @@ class XLMRobertaXLForQuestionAnswering(XLMRobertaXLPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

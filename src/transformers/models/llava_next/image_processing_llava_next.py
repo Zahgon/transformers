@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for LLaVa-NeXT."""
 
 from typing import Union
 
@@ -39,12 +25,6 @@ from ...utils import TensorType, auto_docstring
 
 
 class LlavaNextImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    image_grid_pinpoints (`list[list[int]]`, *optional*):
-        A list of possible resolutions to use for processing high resolution images. The best resolution is selected
-        based on the original size of the image. Can be overridden by `image_grid_pinpoints` in the `preprocess`
-        method.
-    """
 
     image_grid_pinpoints: list[list[int]]
 
@@ -132,8 +112,6 @@ class LlavaNextImageProcessor(TorchvisionBackend):
         )
         padded_image = self._pad_for_patching(resized_image, best_resolution)
         patches = divide_to_patches(padded_image, patch_size=patch_size)
-        # Resize original image using backend's resize method (handles resample conversion)
-        # size is a tuple (height, width), convert to SizeDict
         size_height, size_width = size
         resized_original_image = self.resize(
             image=image,
@@ -181,14 +159,11 @@ class LlavaNextImageProcessor(TorchvisionBackend):
         processed_images = []
         image_sizes = []
 
-        # Backend's resize method handles resample conversion, so we can pass it directly
-        # Determine the size tuple
         if size and size.height and size.width:
             size_tuple = (size.height, size.width)
         else:
             size_tuple = (size.shortest_edge, size.shortest_edge)
 
-        # Determine the patch size
         if crop_size and crop_size.height:
             patch_size = crop_size.height
         elif size and size.height:
@@ -205,7 +180,6 @@ class LlavaNextImageProcessor(TorchvisionBackend):
                 resample=resample,
             )
 
-            # Group images by size for batched processing
             processed_image_patches_grouped = {}
             grouped_image_patches, grouped_image_patches_index = group_images_by_shape(
                 image_patches, disable_grouping=disable_grouping
@@ -219,8 +193,6 @@ class LlavaNextImageProcessor(TorchvisionBackend):
                     )
                 if do_center_crop:
                     stacked_image_patches = self.center_crop(stacked_image_patches, crop_size)
-                # Fused rescale and normalize
-                # Convert lists to tuples for lru_cache compatibility
                 image_mean_tuple = tuple(image_mean) if isinstance(image_mean, list) else image_mean
                 image_std_tuple = tuple(image_std) if isinstance(image_std, list) else image_std
                 stacked_image_patches = self.rescale_and_normalize(

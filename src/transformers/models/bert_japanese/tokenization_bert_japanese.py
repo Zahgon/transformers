@@ -1,17 +1,3 @@
-# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes."""
 
 import collections
 import copy
@@ -56,35 +42,6 @@ def whitespace_tokenize(text):
 
 
 class BertJapaneseTokenizer(PreTrainedTokenizer):
-    r"""
-    Construct a BERT tokenizer for Japanese text.
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer
-    to: this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            Path to a one-wordpiece-per-line vocabulary file.
-        spm_file (`str`, *optional*):
-            Path to [SentencePiece](https://github.com/google/sentencepiece) file (generally has a .spm or .model
-            extension) that contains the vocabulary.
-        do_lower_case (`bool`, *optional*, defaults to `True`):
-            Whether to lower case the input. Only has an effect when do_basic_tokenize=True.
-        do_word_tokenize (`bool`, *optional*, defaults to `True`):
-            Whether to do word tokenization.
-        do_subword_tokenize (`bool`, *optional*, defaults to `True`):
-            Whether to do subword tokenization.
-        word_tokenizer_type (`str`, *optional*, defaults to `"basic"`):
-            Type of word tokenizer. Choose from ["basic", "mecab", "sudachi", "jumanpp"].
-        subword_tokenizer_type (`str`, *optional*, defaults to `"wordpiece"`):
-            Type of subword tokenizer. Choose from ["wordpiece", "character", "sentencepiece",].
-        mecab_kwargs (`dict`, *optional*):
-            Dictionary passed to the `MecabTokenizer` constructor.
-        sudachi_kwargs (`dict`, *optional*):
-            Dictionary passed to the `SudachiTokenizer` constructor.
-        jumanpp_kwargs (`dict`, *optional*):
-            Dictionary passed to the `JumanppTokenizer` constructor.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
 
@@ -186,7 +143,7 @@ class BertJapaneseTokenizer(PreTrainedTokenizer):
 
     @property
     def do_lower_case(self):
-        return self.lower_case
+        pass
 
     def __getstate__(self):
         state = dict(self.__dict__)
@@ -224,18 +181,14 @@ class BertJapaneseTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        if self.subword_tokenizer_type == "sentencepiece":
-            return len(self.subword_tokenizer.sp_model)
-        return len(self.vocab)
+        pass
 
     def get_vocab(self):
         if self.subword_tokenizer_type == "sentencepiece":
             vocab = {self.convert_ids_to_tokens(i): i for i in range(self.vocab_size)}
             vocab.update(self.added_tokens_encoder)
             return vocab
-        # base vocab
         vocab = dict(self.vocab)
-        # + added_tokens_encoder (only for tokens not in base vocab)
         for token, index in self.added_tokens_encoder.items():
             if token not in self.vocab:
                 vocab[token] = index
@@ -294,7 +247,6 @@ class BertJapaneseTokenizer(PreTrainedTokenizer):
 
 
 class MecabTokenizer:
-    """Runs basic tokenization with MeCab morphological parser."""
 
     def __init__(
         self,
@@ -402,7 +354,6 @@ class MecabTokenizer:
 
 
 class SudachiTokenizer:
-    """Runs basic tokenization with Sudachi morphological parser."""
 
     def __init__(
         self,
@@ -499,7 +450,6 @@ class SudachiTokenizer:
 
 
 class JumanppTokenizer:
-    """Runs basic tokenization with jumanpp morphological parser."""
 
     def __init__(
         self,
@@ -566,7 +516,6 @@ class JumanppTokenizer:
 
 
 class CharacterTokenizer:
-    """Runs Character tokenization."""
 
     def __init__(self, vocab, unk_token, normalize_text=True):
         """
@@ -612,27 +561,6 @@ class CharacterTokenizer:
 
 
 class BasicTokenizer:
-    """
-    Constructs a BasicTokenizer that will run basic tokenization (punctuation splitting, lower casing, etc.).
-
-    Args:
-        do_lower_case (`bool`, *optional*, defaults to `True`):
-            Whether or not to lowercase the input when tokenizing.
-        never_split (`Iterable`, *optional*):
-            Collection of tokens which will never be split during tokenization. Only has an effect when
-            `do_basic_tokenize=True`
-        tokenize_chinese_chars (`bool`, *optional*, defaults to `True`):
-            Whether or not to tokenize Chinese characters.
-
-            This should likely be deactivated for Japanese (see this
-            [issue](https://github.com/huggingface/transformers/issues/328)).
-        strip_accents (`bool`, *optional*):
-            Whether or not to strip all accents. If this option is not specified, then it will be determined by the
-            value for `lowercase` (as in the original BERT).
-        do_split_on_punc (`bool`, *optional*, defaults to `True`):
-            In some instances we want to skip the basic punctuation splitting so that later tokenization can capture
-            the full context of the words, such as contractions.
-    """
 
     def __init__(
         self,
@@ -659,19 +587,11 @@ class BasicTokenizer:
                 Kept for backward compatibility purposes. Now implemented directly at the base class level (see
                 [`PreTrainedTokenizer.tokenize`]) List of token not to split.
         """
-        # union() returns a new set by concatenating the two sets.
         never_split = self.never_split.union(set(never_split)) if never_split else self.never_split
         text = self._clean_text(text)
 
-        # This was added on November 1st, 2018 for the multilingual and Chinese
-        # models. This is also applied to the English models now, but it doesn't
-        # matter since the English models were not trained on any Chinese data
-        # and generally don't have any Chinese data in them (there are Chinese
-        # characters in the vocabulary because Wikipedia does have some Chinese
-        # words in the English Wikipedia.).
         if self.tokenize_chinese_chars:
             text = self._tokenize_chinese_chars(text)
-        # prevents treating the same character with different unicode codepoints as different characters
         unicode_normalized_text = unicodedata.normalize("NFC", text)
         orig_tokens = whitespace_tokenize(unicode_normalized_text)
         split_tokens = []
@@ -736,14 +656,6 @@ class BasicTokenizer:
 
     def _is_chinese_char(self, cp):
         """Checks whether CP is the codepoint of a CJK character."""
-        # This defines a "chinese character" as anything in the CJK Unicode block:
-        #   https://en.wikipedia.org/wiki/CJK_Unified_Ideographs_(Unicode_block)
-        #
-        # Note that the CJK Unicode block is NOT all Japanese and Korean characters,
-        # despite its name. The modern Korean Hangul alphabet is a different block,
-        # as is Japanese Hiragana and Katakana. Those alphabets are used to write
-        # space-separated words, so they are not treated specially and handled
-        # like the all of the other languages.
         if (
             (cp >= 0x4E00 and cp <= 0x9FFF)
             or (cp >= 0x3400 and cp <= 0x4DBF)
@@ -773,7 +685,6 @@ class BasicTokenizer:
 
 
 class WordpieceTokenizer:
-    """Runs WordPiece tokenization."""
 
     def __init__(self, vocab, unk_token, max_input_chars_per_word=100):
         self.vocab = vocab
@@ -830,9 +741,6 @@ class WordpieceTokenizer:
 
 
 class SentencepieceTokenizer:
-    """
-    Runs sentencepiece tokenization. Based on transformers.models.albert.tokenization_albert.AlbertTokenizer.
-    """
 
     def __init__(
         self,

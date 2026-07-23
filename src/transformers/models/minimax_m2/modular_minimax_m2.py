@@ -1,16 +1,3 @@
-# Copyright 2025 the MiniMax AI Team and HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -48,21 +35,6 @@ from ..mixtral.modeling_mixtral import (
 @auto_docstring(checkpoint="MiniMaxAI/MiniMax-Text-01-hf")
 @strict
 class MiniMaxM2Config(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import MiniMaxM2Model, MiniMaxM2Config
-
-    >>> # Initializing a MiniMaxM2 style configuration
-    >>> configuration = MiniMaxM2Config()
-
-    >>> # Initializing a model from the MiniMaxM2 style configuration
-    >>> model = MiniMaxM2Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "minimax_m2"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -120,7 +92,6 @@ class MiniMaxM2TopKRouter(MixtralTopKRouter):
     def forward(self, hidden_states, e_score_correction_bias):
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
         router_logits = F.linear(hidden_states.to(self.weight.dtype), self.weight)  # (seq_len, num_experts)
-        # Main difference to other Moe, using Sigmoid activation instead of Softmax
         routing_weights = nn.functional.sigmoid(router_logits.float())
         scores_for_choice = routing_weights + e_score_correction_bias
         _, top_k_index = torch.topk(scores_for_choice, self.top_k, dim=-1, sorted=False)
@@ -210,7 +181,6 @@ class MiniMaxM2Model(MixtralModel):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # No sliding window opposed to mixtral
         causal_mask = create_causal_mask(
             config=self.config,
             inputs_embeds=inputs_embeds,

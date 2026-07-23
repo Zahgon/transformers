@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Pix2Struct model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -25,28 +11,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="google/pix2struct-base")
 @strict
 class Pix2StructTextConfig(PreTrainedConfig):
-    r"""
-    relative_attention_num_buckets (`int`, *optional*, defaults to 32):
-        The number of buckets to use for each attention layer.
-    relative_attention_max_distance (`int`, *optional*, defaults to 128):
-        The maximum distance of the longer sequences for the bucket separation.
-    dense_act_fn (`Union[Callable, str]`, *optional*, defaults to `"gelu_new"`):
-        The non-linear activation function (function or string).
-
-    Example:
-
-    ```python
-    >>> from transformers import Pix2StructTextConfig, Pix2StructTextModel
-
-    >>> # Initializing a Pix2StructTextConfig with google/pix2struct-base style configuration
-    >>> configuration = Pix2StructTextConfig()
-
-    >>> # Initializing a Pix2StructTextModel (with random weights) from the google/pix2struct-base style configuration
-    >>> model = Pix2StructTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "pix2struct_text_model"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -85,38 +49,6 @@ class Pix2StructTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="google/pix2struct-base")
 @strict
 class Pix2StructVisionConfig(PreTrainedConfig):
-    r"""
-    patch_embed_hidden_size (`int`, *optional*, defaults to 768):
-        Dimensionality of the input patch_embedding layer in the Transformer encoder.
-    d_ff (`int`, *optional*, defaults to 2048):
-        Dimensionality of the "intermediate" (i.e., feed-forward) layer in the Transformer encoder.
-    d_kv (`int`, *optional*, defaults to 64):
-        Dimensionality of the key, query, value projections per attention head.
-    The non-linear activation function (function or string) in the encoder and pooler. If string, `"gelu"`,
-        `"relu"`, `"selu"` and `"gelu_new"` `"gelu"` are supported.
-    dense_act_fn (`Union[Callable, str]`, *optional*, defaults to `"gelu_new"`):
-        The non-linear activation function (function or string).
-    seq_len (`int`, *optional*, defaults to 4096):
-        Maximum sequence length (here number of patches) supported by the model.
-    relative_attention_num_buckets (`int`, *optional*, defaults to 32):
-        The number of buckets to use for each attention layer.
-    relative_attention_max_distance (`int`, *optional*, defaults to 128):
-        The maximum distance (in tokens) to use for each attention layer.
-
-    Example:
-
-    ```python
-    >>> from transformers import Pix2StructVisionConfig, Pix2StructVisionModel
-
-    >>> # Initializing a Pix2StructVisionConfig with google/pix2struct-base style configuration
-    >>> configuration = Pix2StructVisionConfig()
-
-    >>> # Initializing a Pix2StructVisionModel (with random weights) from the google/pix2struct-base style configuration
-    >>> model = Pix2StructVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "pix2struct_vision_model"
 
@@ -140,32 +72,6 @@ class Pix2StructVisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="google/pix2struct-base")
 @strict
 class Pix2StructConfig(PreTrainedConfig):
-    r"""
-    is_vqa (`bool`, *optional*, defaults to `False`):
-        Whether the model has been fine-tuned for VQA or not.
-
-    Example:
-
-    ```python
-    >>> from transformers import Pix2StructConfig, Pix2StructForConditionalGeneration
-
-    >>> # Initializing a Pix2StructConfig with google/pix2struct-base style configuration
-    >>> configuration = Pix2StructConfig()
-
-    >>> # Initializing a Pix2StructForConditionalGeneration (with random weights) from the google/pix2struct-base style configuration
-    >>> model = Pix2StructForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-
-    >>> # We can also initialize a Pix2StructConfig from a Pix2StructTextConfig and a Pix2StructVisionConfig
-
-    >>> # Initializing a Pix2Struct text and Pix2Struct vision configuration
-    >>> config_text = Pix2StructTextConfig()
-    >>> config_vision = Pix2StructVisionConfig()
-
-    >>> config = Pix2StructConfig(text_config=config_text, vision_config=config_vision)
-    ```"""
 
     model_type = "pix2struct"
     sub_configs = {"text_config": Pix2StructTextConfig, "vision_config": Pix2StructVisionConfig}

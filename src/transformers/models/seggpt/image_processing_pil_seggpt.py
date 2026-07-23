@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for SegGPT."""
 
 import numpy as np
 
@@ -35,27 +21,15 @@ if is_torch_available():
     import torch
 
 
-# Adapted from transformers.models.seggpt.image_processing_seggpt.SegGptImageProcessorKwargs
 class SegGptImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    num_labels (`int`, *optional*):
-        Number of classes in the segmentation task (excluding the background). If specified, a palette will be
-        built, assuming that class_idx 0 is the background, to map the prompt mask from a plain segmentation map
-        to a 3-channel RGB image. Not specifying this will result in the prompt mask being duplicated across the
-        channel dimension when `do_convert_rgb` is `True`.
-    """
 
     num_labels: int
 
 
-# Adapted from transformers.models.seggpt.image_processing_seggpt.build_palette
-# See https://huggingface.co/papers/2212.02499 at 3.1 Redefining Output Spaces as "Images" - Semantic Segmentation
-# Taken from https://github.com/Abdullah-Meda/Painter/blob/main/Painter/data/coco_semseg/gen_color_coco_panoptic_segm.py#L31
 def build_palette(num_labels: int) -> list[tuple[int, int, int]]:
     base = int(num_labels ** (1 / 3)) + 1
     margin = 256 // base
 
-    # class_idx 0 is the background which is mapped to black
     color_list = [(0, 0, 0)]
     for location in range(num_labels):
         num_seq_r = location // base**2
@@ -170,8 +144,6 @@ class SegGptImageProcessorPil(PilBackend):
     ) -> BatchFeature:
         data = {}
 
-        # Process regular images (do_convert_rgb=False: assume RGB, no mask conversion)
-        # Check for the empty-list sentinel passed when images=None
         _images_provided = not (isinstance(images, list) and len(images) == 0)
         if _images_provided:
             prepared_images = self._prepare_image_like_inputs(
@@ -179,17 +151,14 @@ class SegGptImageProcessorPil(PilBackend):
             )
             data["pixel_values"] = self._preprocess(prepared_images, **kwargs)
 
-        # Process prompt images (same as regular images)
         if prompt_images is not None:
             prepared_prompt_images = self._prepare_image_like_inputs(
                 images=prompt_images, do_convert_rgb=False, input_data_format=input_data_format
             )
             data["prompt_pixel_values"] = self._preprocess(prepared_prompt_images, **kwargs)
 
-        # Process prompt masks with special handling
         if prompt_masks is not None:
             if do_convert_rgb:
-                # 2D segmentation maps → convert to 3-channel RGB via palette
                 prepared_masks = self._prepare_image_like_inputs(
                     images=prompt_masks,
                     expected_ndims=2,
@@ -199,7 +168,6 @@ class SegGptImageProcessorPil(PilBackend):
                 palette = self.get_palette(num_labels) if num_labels is not None else None
                 prepared_masks = [self.mask_to_rgb(mask, palette=palette) for mask in prepared_masks]
             else:
-                # Already 3-channel RGB masks
                 prepared_masks = self._prepare_image_like_inputs(
                     images=prompt_masks, expected_ndims=3, do_convert_rgb=False, input_data_format=input_data_format
                 )

@@ -1,17 +1,3 @@
-# Copyright 2021 Google Research The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch BigBirdPegasus model."""
 
 import math
 from collections.abc import Callable
@@ -67,16 +53,12 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("self.model.config.pad_token_id has to be defined.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
 
 
 class BigBirdPegasusLearnedPositionalEmbedding(nn.Embedding):
-    """
-    This module learns positional embeddings up to a fixed maximum size.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int):
         super().__init__(num_embeddings, embedding_dim)
@@ -94,11 +76,7 @@ class BigBirdPegasusLearnedPositionalEmbedding(nn.Embedding):
         return super().forward(position_ids)
 
 
-# Copied from transformers.models.bart.modeling_bart.BartScaledWordEmbedding with Bart->BigBirdPegasus
 class BigBirdPegasusScaledWordEmbedding(nn.Embedding):
-    """
-    This module overrides nn.Embeddings' forward by multiplying with embeddings scale.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int, embed_scale: float | None = 1.0):
         super().__init__(num_embeddings, embedding_dim, padding_idx)
@@ -108,7 +86,6 @@ class BigBirdPegasusScaledWordEmbedding(nn.Embedding):
         return super().forward(input_ids) * self.embed_scale
 
 
-# Copied from transformers.models.big_bird.modeling_big_bird.BigBirdSelfAttention with BigBird->BigBirdPegasus
 class BigBirdPegasusSelfAttention(nn.Module):
     def __init__(self, config, layer_idx=None):
         super().__init__()
@@ -147,7 +124,6 @@ class BigBirdPegasusSelfAttention(nn.Module):
         current_states = encoder_hidden_states if is_cross_attention else hidden_states
         attention_mask = encoder_attention_mask if is_cross_attention else attention_mask
         if is_cross_attention and past_key_values is not None and past_key_values.get_seq_length(self.layer_idx) > 0:
-            # reuse k,v, cross_attentions
             key_layer = past_key_values.layers[self.layer_idx].keys
             value_layer = past_key_values.layers[self.layer_idx].values
         else:
@@ -156,26 +132,20 @@ class BigBirdPegasusSelfAttention(nn.Module):
             value_layer = self.value(current_states).view(kv_shape).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all key/value_layer to cache to be re-used for fast auto-regressive generation
                 key_layer, value_layer = past_key_values.update(
                     key_layer,
                     value_layer,
                     self.layer_idx,
                 )
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in BigBirdPegasusModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -187,7 +157,6 @@ class BigBirdPegasusSelfAttention(nn.Module):
         return context_layer, attention_probs
 
 
-# Copied from transformers.models.big_bird.modeling_big_bird.BigBirdBlockSparseAttention with BigBird->BigBirdPegasus
 class BigBirdPegasusBlockSparseAttention(nn.Module):
     def __init__(self, config, seed=None):
         super().__init__()
@@ -295,27 +264,10 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         plan_from_length,
         plan_num_rand_blocks,
     ):
-        # BigBirdPegasus block-sparse attention as suggested in paper
 
-        # ITC:
-        #     global tokens: 2 x block_size
-        #     window tokens: 3 x block_size
-        #     random tokens: num_rand_tokens x block_size
 
-        # ETC:
-        #     global tokens: extra_globals_tokens + 2 x block_size
-        #     window tokens: 3 x block_size
-        #     random tokens: num_rand_tokens x block_size
 
-        # Note:
-        #     1) Currently, ETC is not supported.
-        #     2) Window size is fixed to 3 blocks & it can be changed only by
-        #     changing `block_size`.
-        #     3) Number of global blocks are fixed (2 blocks here) & global tokens can be
-        #     controlled only by `block_size`.
 
-        # attention is calculated separately for q[0], q[1], q[2:-2], q[-2], q[-1] in order to use special trick of shifting tokens (for calculating sliding attention)
-        # hence following code can be divided into 5 parts.
 
         if from_seq_len // from_block_size != to_seq_len // to_block_size:
             raise ValueError("Error the number of blocks needs to be same!")
@@ -324,7 +276,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         bsz = batch_size
         attn_mask_penalty = -10000.0
 
-        # generate random attention and corresponding masks
         np.random.seed(seed)
         if from_seq_len in [1024, 3072, 4096]:  # old plans used in paper
             rand_attn = [
@@ -361,7 +312,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         blocked_key_matrix = key_layer.view(bsz, n_heads, to_seq_len // to_block_size, to_block_size, -1)
         blocked_value_matrix = value_layer.view(bsz, n_heads, to_seq_len // to_block_size, to_block_size, -1)
 
-        # preparing block for randn attn
         gathered_key = self.torch_gather_b2(blocked_key_matrix, rand_attn)
         gathered_key = gathered_key.view(
             bsz, n_heads, to_seq_len // to_block_size - 2, n_rand_blocks * to_block_size, -1
@@ -371,11 +321,7 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
             bsz, n_heads, to_seq_len // to_block_size - 2, n_rand_blocks * to_block_size, -1
         )  # [bsz, n_heads, to_seq_len//to_block_size-2, n_rand_blocks, to_block_size, -1]
 
-        # 1st PART
-        # 1st block (global block) attention scores
-        # q[0] x (k[0], k[1], k[2], k[3], k[4] .... )
 
-        # [bsz, n_heads, from_block_size, -1] x [bsz, n_heads, to_seq_len, -1] ==> [bsz, n_heads, from_block_size, to_seq_len]
         first_product = torch.matmul(blocked_query_matrix[:, :, 0], key_layer.transpose(-1, -2))
 
         first_product = first_product * rsqrt_d
@@ -384,15 +330,9 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
             first_product, dim=-1
         )  # [bsz, n_heads, from_block_size, to_seq_len]
 
-        # [bsz, n_heads, from_block_size, to_seq_len] x [bsz, n_heads, to_seq_len, -1] ==> [bsz, n_heads, from_block_size, -1]
         first_context_layer = torch.matmul(first_attn_weights, value_layer)
         first_context_layer.unsqueeze_(2)
 
-        # 2nd PART
-        # 2nd block attention scores
-        # q[1] x (sliding_keys, random_keys, global_keys)
-        # sliding key blocks -> 2nd, 3rd blocks
-        # global key blocks -> 1st block
 
         second_key_mat = torch.cat(
             [
@@ -415,7 +355,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
             dim=2,
         )  # [bsz, n_heads, (4+n_rand_blocks)*to_block_size, -1]
 
-        # [bsz, n_heads, from_block_size, -1] x [bsz, n_heads, (4+n_rand_blocks)*to_block_size, -1] ==> [bsz, n_heads, from_block_size, (4+n_rand_blocks)*to_block_size]
         second_product = torch.matmul(blocked_query_matrix[:, :, 1], second_key_mat.transpose(-1, -2))
         second_seq_pad = torch.cat(
             [
@@ -438,17 +377,10 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
             second_product, dim=-1
         )  # [bsz, n_heads, from_block_size, (4+n_rand_blocks)*to_block_size]
 
-        # [bsz, n_heads, from_block_size, (4+n_rand_blocks)*to_block_size] x [bsz, n_heads, (4+n_rand_blocks)*to_block_size, -1] ==> [bsz, n_heads, from_block_size, -1]
         second_context_layer = torch.matmul(second_attn_weights, second_value_mat)
 
         second_context_layer.unsqueeze_(2)
 
-        # 3rd PART
-        # Middle blocks attention scores
-        # q[-2:2] x (sliding_keys, random_keys, global_keys)
-        # sliding attn is calculated using special trick of shifting tokens as discussed in paper
-        # random keys are generated by taking random indices as per `rand_attn`
-        # global keys -> 1st & last block
 
         exp_blocked_key_matrix = torch.cat(
             [blocked_key_matrix[:, :, 1:-3], blocked_key_matrix[:, :, 2:-2], blocked_key_matrix[:, :, 3:-1]], dim=3
@@ -459,61 +391,43 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         )  # [bsz, n_heads, from_seq_len//from_block_size-4, 3*to_block_size, -1]
         middle_query_matrix = blocked_query_matrix[:, :, 2:-2]
 
-        # sliding attention scores for q[-2:2]
-        # [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, -1] x [b, n_heads, from_seq_len//from_block_size-4, 3*to_block_size, -1]
         inner_band_product = torch.matmul(middle_query_matrix, exp_blocked_key_matrix.transpose(-1, -2))
-        #     ==> [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, 3*to_block_size]
         inner_band_product = inner_band_product * rsqrt_d
 
-        # randn attention scores for q[-2:2]
-        # [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, -1] x [bsz, n_heads, from_seq_len//from_block_size-4, n_rand_blocks*to_block_size, -1]
         rand_band_product = torch.matmul(middle_query_matrix, gathered_key[:, :, 1:-1].transpose(-1, -2))
-        #     ==> [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, n_rand_blocks*to_block_size]
         rand_band_product = rand_band_product * rsqrt_d
 
-        # Including 1st block (since it's global)
         first_band_product = torch.einsum(
             "bhlqd,bhkd->bhlqk", middle_query_matrix, blocked_key_matrix[:, :, 0]
         )  # [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, -1] x [bsz, n_heads, to_block_size, -1] ==> [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, to_block_size]
         first_band_product = first_band_product * rsqrt_d
 
-        # Including last block (since it's global)
         last_band_product = torch.einsum(
             "bhlqd,bhkd->bhlqk", middle_query_matrix, blocked_key_matrix[:, :, -1]
         )  # [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, -1] x [bsz, n_heads, to_block_size, -1] ==> [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, to_block_size]
         last_band_product = last_band_product * rsqrt_d
 
-        # masking padded tokens
         inner_band_product += (1.0 - band_mask) * attn_mask_penalty
         first_band_product += (1.0 - to_mask[:, :, :, :to_block_size].unsqueeze(3)) * attn_mask_penalty
         last_band_product += (1.0 - to_mask[:, :, :, -to_block_size:].unsqueeze(3)) * attn_mask_penalty
         rand_band_product += (1.0 - rand_mask[:, :, 1:-1]) * attn_mask_penalty
 
-        # completing attention scores matrix for all q[-2:2]
         band_product = torch.cat(
             [first_band_product, inner_band_product, rand_band_product, last_band_product], dim=-1
         )  # [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, (5+n_rand_blocks)*to_block_size]
 
-        # safely doing softmax since attention matrix is completed
         attn_weights = nn.functional.softmax(
             band_product, dim=-1
         )  # [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, (5+n_rand_blocks)*to_block_size]
 
-        # contribution of sliding keys
-        # [bsz, n_heads, m//from_block_size-4, from_block_size, 3*to_block_size] x [bsz, n_heads, from_seq_len//from_block_size-4, 3*to_block_size, -1]
         context_layer = torch.matmul(
             attn_weights[:, :, :, :, to_block_size : 4 * to_block_size], exp_blocked_value_matrix
         )
-        #     ==> [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, -1]
 
-        # adding contribution of random keys
-        # [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, n_rand_blocks*to_block_size] x [bsz, n_heads, from_seq_len//from_block_size-4, n_rand_blocks*to_block_size, -1]
         context_layer += torch.matmul(
             attn_weights[:, :, :, :, 4 * to_block_size : -to_block_size], gathered_value[:, :, 1:-1]
         )
-        #     ==> [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, -1]
 
-        # adding contribution of global keys
         context_layer += torch.einsum(
             "bhlqk,bhkd->bhlqd", attn_weights[:, :, :, :, :to_block_size], blocked_value_matrix[:, :, 0]
         )  # [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, to_block_size] x [bsz, n_heads, to_block_size, -1] ==> [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, -1]
@@ -521,12 +435,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
             "bhlqk,bhkd->bhlqd", attn_weights[:, :, :, :, -to_block_size:], blocked_value_matrix[:, :, -1]
         )  # [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, to_block_size] x [bsz, n_heads, to_block_size, -1] ==> [bsz, n_heads, from_seq_len//from_block_size-4, from_block_size, -1]
 
-        # 4th PART
-        # last 2nd token attention scores
-        # q[-2] x (sliding_keys, random_keys, global_keys)
-        # sliding key blocks -> last 3 blocks
-        # global key block -> 1st block
-        # random key block -> based on indices stored in `randn_attn`
 
         second_last_key_mat = torch.cat(
             [
@@ -549,7 +457,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
             dim=2,
         )  # [bsz, n_heads, (4+r)*to_block_size, -1]
 
-        # [bsz, n_heads, from_block_size, -1] x [bsz, n_heads, (4+n_rand_blocks)*to_block_size, -1] ==> [bsz, n_heads, from_block_size, (4+n_rand_blocks)*to_block_size]
         second_last_product = torch.matmul(blocked_query_matrix[:, :, -2], second_last_key_mat.transpose(-1, -2))
         second_last_seq_pad = torch.cat(
             [
@@ -572,25 +479,18 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
             second_last_product, dim=-1
         )  # [bsz, n_heads, from_block_size, (4+n_rand_blocks)*to_block_size]
 
-        # [bsz, n_heads, from_block_size, (4+n_rand_blocks)*to_block_size] x [bsz, n_heads, (4+n_rand_blocks)*to_block_size, -1] ==> [bsz, n_heads, from_block_size, -1]
         second_last_context_layer = torch.matmul(second_last_attn_weights, second_last_value_mat)
         second_last_context_layer.unsqueeze_(2)
 
-        # 5th PART
-        # last block (global) attention scores
-        # q[-1] x (k[0], k[1], k[2], k[3], .... )
 
-        # [bsz, n_heads, from_block_size, -1] x [bsz, n_heads, to_seq_len, -1] ==> [bsz, n_heads, from_block_size, to_seq_len]
         last_product = torch.matmul(blocked_query_matrix[:, :, -1], key_layer.transpose(-1, -2))
         last_product = last_product * rsqrt_d
         last_product += (1.0 - to_mask) * attn_mask_penalty
         last_attn_weights = nn.functional.softmax(last_product, dim=-1)  # [bsz, n_heads, from_block_size, n]
 
-        # [bsz, n_heads, from_block_size, to_seq_len] x [bsz, n_heads, to_seq_len, -1] ==> [bsz, n_heads, from_block_size, -1]
         last_context_layer = torch.matmul(last_attn_weights, value_layer)
         last_context_layer.unsqueeze_(2)
 
-        # combining representations of all tokens
         context_layer = torch.cat(
             [first_context_layer, second_context_layer, context_layer, second_last_context_layer, last_context_layer],
             dim=2,
@@ -598,13 +498,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         context_layer = context_layer.view((bsz, n_heads, from_seq_len, -1)) * from_mask
         context_layer = torch.transpose(context_layer, 1, 2)
 
-        # Reassemble the full (bsz, n_heads, from_seq_len, to_seq_len) attention-probability
-        # matrix from the per-block weights. Block-sparse stores values only for the
-        # global / sliding / random positions that were actually attended to; everything else
-        # stays zero. The original implementation scatter-assigned into a zeros tensor through
-        # four nested per-batch / per-head / per-q-block Python loops; the equivalent below uses
-        # bulk slice-assigns plus four `scatter_` calls with broadcast indices so there's no
-        # host-side per-element work.
         attention_probs = torch.zeros(
             bsz, n_heads, from_seq_len, to_seq_len, dtype=context_layer.dtype, device=context_layer.device
         )
@@ -612,7 +505,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         num_k_blocks = to_seq_len // to_block_size
         num_middle = num_q_blocks - 4
 
-        # Global rows that are independent of `rand_attn` — direct slice assigns.
         attention_probs[:, :, :from_block_size, :] = first_attn_weights  # q[0] attends to all keys
         attention_probs[:, :, from_block_size : 2 * from_block_size, : 3 * to_block_size] = second_attn_weights[
             :, :, :, : 3 * to_block_size
@@ -636,8 +528,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
 
         view = attention_probs.view(bsz, n_heads, num_q_blocks, from_block_size, num_k_blocks, to_block_size)
 
-        # q[1] random keys — scatter `n_rand_blocks` blocks along the k-block axis using
-        # `rand_attn[:, :, 0]` as the per-(batch, head) target k-block indices.
         q1_rand_vals = second_attn_weights[:, :, :, 4 * to_block_size :].view(
             bsz, n_heads, from_block_size, n_rand_blocks, to_block_size
         )
@@ -645,8 +535,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         q1_rand_idx = q1_rand_idx[:, :, None].expand(-1, -1, from_block_size, -1, -1)
         view[:, :, 1].scatter_(3, q1_rand_idx, q1_rand_vals)
 
-        # q[2:-2] sliding keys — diagonal scatter: middle q-block `i` attends to k-blocks
-        # `i, i+1, i+2` in the `k[1:-1]` window (k-axis indices `i+1, i+2, i+3` in full view).
         sliding_vals = attn_weights[:, :, :, :, to_block_size : 4 * to_block_size].view(
             bsz, n_heads, num_middle, from_block_size, 3, to_block_size
         )
@@ -657,8 +545,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         )
         view[:, :, 2:-2, :, 1:-1, :].scatter_(4, k_diag, sliding_vals)
 
-        # q[2:-2] random keys — for each middle q-block `i`, scatter `n_rand_blocks` blocks at
-        # `rand_attn[:, :, i + 1]` along the k-block axis.
         mid_rand_vals = attn_weights[:, :, :, :, 4 * to_block_size : -to_block_size].view(
             bsz, n_heads, num_middle, from_block_size, n_rand_blocks, to_block_size
         )
@@ -669,7 +555,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         )
         view[:, :, 2:-2].scatter_(4, mid_rand_idx, mid_rand_vals)
 
-        # q[-2] random keys — same pattern as q[1], using `rand_attn[:, :, -1]`.
         qm2_rand_vals = second_last_attn_weights[:, :, :, 4 * to_block_size :].view(
             bsz, n_heads, from_block_size, n_rand_blocks, to_block_size
         )
@@ -728,9 +613,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
             from_block_size, num_rand_blocks*to_block_size].
         """
         num_windows = from_seq_length // from_block_size - 2
-        # Vectorised replacement of `torch.stack([p1[i1.flatten()] for p1, i1 in zip(to_blocked_mask, rand_attn)])`.
-        # Flatten the random-block indices to `(batch_size, n_heads * num_windows * num_rand_blocks)` and gather
-        # the corresponding rows from `to_blocked_mask` (`(batch_size, num_to_blocks, from_block_size)`) along dim 1.
         flat_indices = rand_attn.reshape(batch_size, -1)
         rand_mask = torch.gather(to_blocked_mask, 1, flat_indices.unsqueeze(-1).expand(-1, -1, from_block_size))
         rand_mask = rand_mask.view(batch_size, num_attention_heads, num_windows, num_rand_blocks * from_block_size)
@@ -788,13 +670,11 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         Returns:
             adjacency list of size from_seq_length//from_block_size-2 by num_rand_blocks
         """
-        # using this method when from_seq_length in [1024, 3072, 4096]
 
         if from_seq_length // from_block_size != to_seq_length // to_block_size:
             raise ValueError("Error the number of blocks needs to be same!")
 
         rand_attn = np.zeros((from_seq_length // from_block_size - 2, num_rand_blocks), dtype=np.int32)
-        # During inference (eval) no randomness
         if not self.training:
             return rand_attn
         middle_seq = np.arange(1, to_seq_length // to_block_size - 1, dtype=np.int32)
@@ -812,10 +692,8 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
                 rand_attn[i - 1, :] = np.random.permutation(middle_seq[3:last])[:r]
             elif i == from_seq_length // from_block_size - 3:
                 rand_attn[i - 1, :] = np.random.permutation(middle_seq[:last])[:r]
-            # Missing -3: should have been sliced till last-3
             elif i == from_seq_length // from_block_size - 2:
                 rand_attn[i - 1, :] = np.random.permutation(middle_seq[:last])[:r]
-            # Missing -4: should have been sliced till last-4
             else:
                 if start > last:
                     start = last
@@ -866,7 +744,6 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
             adjacency list of size num_head where each element is of size from_seq_length//from_block_size-2 by
             num_rand_blocks
         """
-        # using this method when from_seq_length not in [1024, 3072, 4096]
 
         if from_seq_length // from_block_size != to_seq_length // to_block_size:
             raise ValueError("Error the number of blocks needs to be same!")
@@ -874,33 +751,22 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         if from_seq_length not in plan_from_length:
             raise ValueError("Error from sequence length not in plan!")
 
-        # Total number of blocks in the mmask
         num_blocks = from_seq_length // from_block_size
-        # Number of blocks per plan
         plan_block_length = np.array(plan_from_length) // from_block_size
-        # till when to follow plan
         max_plan_idx = plan_from_length.index(from_seq_length)
 
-        # Random Attention adjacency list
         rand_attn = [
             np.zeros((num_blocks, np.sum(plan_num_rand_blocks[: max_plan_idx + 1])), dtype=np.int32)
             for i in range(num_heads)
         ]
-        # During inference (eval) no randomness
         if not self.training:
             for nh in range(num_heads):
                 rand_attn[nh] = rand_attn[nh][global_block_top : num_blocks - global_block_bottom, :]
             return rand_attn
 
-        # We will go iteratively over the plan blocks and pick random number of
-        # Attention blocks from the legally allowed blocks
         for plan_idx in range(max_plan_idx + 1):
             rnd_r_cnt = 0
             if plan_idx > 0:
-                # set the row for all from_blocks starting from 0 to
-                # plan_block_length[plan_idx-1]
-                # column indx start from plan_block_length[plan_idx-1] and ends at
-                # plan_block_length[plan_idx]
                 if plan_num_rand_blocks[plan_idx] > 0:
                     rnd_r_cnt = int(np.sum(plan_num_rand_blocks[:plan_idx]))
                     curr_r_cnt = int(np.sum(plan_num_rand_blocks[: plan_idx + 1]))
@@ -994,23 +860,17 @@ class BigBirdPegasusBlockSparseAttention(nn.Module):
         Returns:
             row containing the random attention vector of size num_rand_blocks.
         """
-        # list of to_blocks from which to choose random attention
         to_block_list = np.arange(to_start_block_id, to_end_block_id, dtype=np.int32)
-        # permute the blocks
         perm_block = np.random.permutation(to_block_list)
 
-        # illegal blocks for the current block id, using window
         illegal_blocks = list(range(block_id - window_block_left, block_id + window_block_right + 1))
 
-        # Add blocks at the start and at the end
         illegal_blocks.extend(list(range(global_block_left)))
         illegal_blocks.extend(list(range(to_end_block_id - global_block_right, to_end_block_id)))
 
-        # The second from_block cannot choose random attention on second last to_block
         if block_id == 1:
             illegal_blocks.append(to_end_block_id - 2)
 
-        # The second last from_block cannot choose random attention on second to_block
         if block_id == to_end_block_id - 2:
             illegal_blocks.append(1)
 
@@ -1048,15 +908,12 @@ class BigBirdPegasusEncoderAttention(nn.Module):
             raise ValueError(
                 f"attention_type can only be set to either 'original_full' or 'block_sparse', but is {value}"
             )
-        # attention type is already correctly set
         if value == self.attention_type:
             return
 
         if value == "original_full":
-            # copy all weights to new full attention class
             attn_weights = BigBirdPegasusSelfAttention(self.config)
         else:
-            # copy all weights to new sparse attention class
             attn_weights = BigBirdPegasusBlockSparseAttention(self.config, self.seed)
 
         attn_weights.query = self.self.query
@@ -1113,7 +970,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -1128,9 +984,7 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.bart.modeling_bart.BartAttention with BartConfig->BigBirdPegasusConfig, Bart->BigBirdPegasusDecoder
 class BigBirdPegasusDecoderAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -1177,22 +1031,16 @@ class BigBirdPegasusDecoderAttention(nn.Module):
         key_value_states: torch.Tensor | None = None,
         past_key_values: Cache | None = None,
         attention_mask: torch.Tensor | None = None,
-        # TODO: we need a refactor so that the different attention modules can get their specific kwargs
-        # ATM, we have mixed things encoder, decoder, and encoder-decoder attn
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        # get query proj
         query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         is_updated = False
@@ -1200,7 +1048,6 @@ class BigBirdPegasusDecoderAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -1209,7 +1056,6 @@ class BigBirdPegasusDecoderAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -1221,7 +1067,6 @@ class BigBirdPegasusDecoderAttention(nn.Module):
 
             if past_key_values is not None:
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -1307,7 +1152,6 @@ class BigBirdPegasusEncoderLayer(GradientCheckpointingLayer):
             raise ValueError(
                 f"attention_type can only be set to either 'original_full' or 'block_sparse', but is {value}"
             )
-        # attention type is already correctly set
         if value == self.attention_type:
             return
         self.attention_type = value
@@ -1346,7 +1190,6 @@ class BigBirdPegasusDecoderLayer(GradientCheckpointingLayer):
         self.fc2 = nn.Linear(config.decoder_ffn_dim, self.embed_dim)
         self.final_layer_norm = nn.LayerNorm(self.embed_dim)
 
-    # Copied from transformers.models.mbart.modeling_mbart.MBartDecoderLayer.forward
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -1371,7 +1214,6 @@ class BigBirdPegasusDecoderLayer(GradientCheckpointingLayer):
         residual = hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             past_key_values=past_key_values,
@@ -1381,7 +1223,6 @@ class BigBirdPegasusDecoderLayer(GradientCheckpointingLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
 
-        # Cross-Attention Block
         if encoder_hidden_states is not None:
             residual = hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
@@ -1396,7 +1237,6 @@ class BigBirdPegasusDecoderLayer(GradientCheckpointingLayer):
             hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
             hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.activation_fn(self.fc1(hidden_states))
@@ -1408,9 +1248,7 @@ class BigBirdPegasusDecoderLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-# Copied from transformers.models.bart.modeling_bart.BartClassificationHead with Bart->BigBirdPegasus
 class BigBirdPegasusClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(
         self,
@@ -1449,24 +1287,10 @@ class BigBirdPegasusPreTrainedModel(PreTrainedModel):
 
     @property
     def dummy_inputs(self):
-        pad_token = self.config.pad_token_id
-        input_ids = torch.tensor([[0, 6, 10, 4, 2], [0, 8, 12, 2, pad_token]], device=self.device)
-        dummy_inputs = {
-            "attention_mask": input_ids.ne(pad_token),
-            "input_ids": input_ids,
-        }
-        return dummy_inputs
+        pass
 
 
 class BigBirdPegasusEncoder(BigBirdPegasusPreTrainedModel):
-    """
-    Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a
-    [`BigBirdPegasusEncoderLayer`].
-
-    Args:
-        config: BigBirdPegasusConfig
-        embed_tokens (nn.Embedding): output embedding
-    """
 
     _can_record_outputs = {
         "hidden_states": BigBirdPegasusEncoderLayer,
@@ -1499,7 +1323,6 @@ class BigBirdPegasusEncoder(BigBirdPegasusPreTrainedModel):
         self.layernorm_embedding = nn.LayerNorm(embed_dim)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -1529,13 +1352,8 @@ class BigBirdPegasusEncoder(BigBirdPegasusPreTrainedModel):
             attention_mask = torch.ones(input_shape, device=hidden_states.device)
         attention_mask = attention_mask.long()
 
-        # in order to use block_sparse attention, sequence_length has to be at least
-        # bigger than all global attentions: 2 * block_size
-        # + sliding tokens: 3 * block_size
-        # + random tokens: 2 * num_random_blocks * block_size
         max_tokens_to_attend = (5 + 2 * self.config.num_random_blocks) * self.config.block_size
         if self.attention_type == "block_sparse" and input_shape[1] <= max_tokens_to_attend:
-            # change attention_type from block_sparse to original_full
             sequence_length = input_shape[1]
             logger.warning(
                 "Attention type 'block_sparse' is not possible if sequence_length: "
@@ -1555,9 +1373,7 @@ class BigBirdPegasusEncoder(BigBirdPegasusPreTrainedModel):
         else:
             padding_len = 0
 
-        # expand attention_mask
         if self.attention_type == "original_full":
-            # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
             attention_mask = create_bidirectional_mask(
                 config=self.config,
                 inputs_embeds=inputs_embeds,
@@ -1575,7 +1391,6 @@ class BigBirdPegasusEncoder(BigBirdPegasusPreTrainedModel):
             )
 
         for idx, encoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -1597,7 +1412,6 @@ class BigBirdPegasusEncoder(BigBirdPegasusPreTrainedModel):
         hidden_states = self.layernorm_embedding(hidden_states)
 
         if padding_len > 0:
-            # unpad `sequence_output` because the calling function is expecting a length == input_ids.size(1)
             hidden_states = hidden_states[:, :-padding_len]
 
         return BaseModelOutput(
@@ -1609,7 +1423,6 @@ class BigBirdPegasusEncoder(BigBirdPegasusPreTrainedModel):
             raise ValueError(
                 f"attention_type can only be set to either 'original_full' or 'block_sparse', but is {value}"
             )
-        # attention type is already correctly set
         if value == self.attention_type:
             return
         self.attention_type = value
@@ -1656,7 +1469,6 @@ class BigBirdPegasusEncoder(BigBirdPegasusPreTrainedModel):
 
     def _pad_to_block_size(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
         """A helper function to pad tokens and mask to work with implementation of BigBird block-sparse attention."""
-        # padding
         block_size = self.config.block_size
         batch_size, seq_len = hidden_states.shape[:2]
 
@@ -1680,13 +1492,6 @@ class BigBirdPegasusEncoder(BigBirdPegasusPreTrainedModel):
 
 
 class BigBirdPegasusDecoder(BigBirdPegasusPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a [`BigBirdPegasusDecoderLayer`]
-
-    Args:
-        config: BigBirdPegasusConfig
-        embed_tokens (nn.Embedding): output embedding
-    """
 
     _can_record_outputs = {
         "hidden_states": BigBirdPegasusDecoderLayer,
@@ -1716,7 +1521,6 @@ class BigBirdPegasusDecoder(BigBirdPegasusPreTrainedModel):
         self.layernorm_embedding = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -1739,7 +1543,6 @@ class BigBirdPegasusDecoder(BigBirdPegasusPreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # initialize `past_key_values`
         if use_cache and past_key_values is None:
             past_key_values = (
                 EncoderDecoderCache(DynamicCache(config=self.config), DynamicCache(config=self.config))
@@ -1752,7 +1555,6 @@ class BigBirdPegasusDecoder(BigBirdPegasusPreTrainedModel):
         position_ids = torch.arange(seq_length, device=inputs_embeds.device) + past_key_values_length
 
         if attention_mask is None and not is_torchdynamo_compiling():
-            # required mask seq length can be calculated via length of past cache
             mask_seq_length = past_key_values_length + seq_length
             attention_mask = torch.ones(batch_size, mask_seq_length, device=inputs_embeds.device)
 
@@ -1775,7 +1577,6 @@ class BigBirdPegasusDecoder(BigBirdPegasusPreTrainedModel):
             encoder_hidden_states=encoder_hidden_states,
         )
 
-        # embed positions
         positions = self.embed_positions(input_ids, past_key_values_length, position_ids=position_ids)
         positions = positions.to(inputs_embeds.device)
 
@@ -1784,7 +1585,6 @@ class BigBirdPegasusDecoder(BigBirdPegasusPreTrainedModel):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if self.training:
                 dropout_probability = torch.rand([])
                 if dropout_probability < self.layerdrop:
@@ -1827,7 +1627,6 @@ class BigBirdPegasusModel(BigBirdPegasusPreTrainedModel):
         self.encoder = BigBirdPegasusEncoder(config)
         self.decoder = BigBirdPegasusDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1865,8 +1664,6 @@ class BigBirdPegasusModel(BigBirdPegasusPreTrainedModel):
             [`modeling_bigbird_pegasus._prepare_decoder_attention_mask`] and modify to your needs. See diagram 1 in
             [the paper](https://huggingface.co/papers/1910.13461) for more information on the default strategy.
         """
-        # different to other models, BigBirdPegasus automatically creates decoder_input_ids from
-        # input_ids if no decoder_input_ids are provided
         if decoder_input_ids is None and decoder_inputs_embeds is None:
             if input_ids is None:
                 raise ValueError(
@@ -1928,17 +1725,14 @@ class BigBirdPegasusForConditionalGeneration(BigBirdPegasusPreTrainedModel, Gene
     }
     _keys_to_ignore_on_load_missing = ["final_logits_bias"]
 
-    # Copied from transformers.models.bart.modeling_bart.BartForConditionalGeneration.__init__ with Bart->BigBirdPegasus, BART->BIGBIRD_PEGASUS
     def __init__(self, config: BigBirdPegasusConfig):
         super().__init__(config)
         self.model = BigBirdPegasusModel(config)
         self.register_buffer("final_logits_bias", torch.zeros((1, self.model.shared.num_embeddings)))
         self.lm_head = nn.Linear(config.d_model, self.model.shared.num_embeddings, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.bart.modeling_bart.BartForConditionalGeneration.resize_token_embeddings with Bart->BigBirdPegasus, BART->BIGBIRD_PEGASUS
     def resize_token_embeddings(
         self, new_num_tokens: int, pad_to_multiple_of: int | None = None, mean_resizing: bool = True
     ) -> nn.Embedding:
@@ -1946,7 +1740,6 @@ class BigBirdPegasusForConditionalGeneration(BigBirdPegasusPreTrainedModel, Gene
         self._resize_final_logits_bias(new_embeddings.weight.shape[0])
         return new_embeddings
 
-    # Copied from transformers.models.bart.modeling_bart.BartForConditionalGeneration._resize_final_logits_bias with Bart->BigBirdPegasus, BART->BIGBIRD_PEGASUS
     def _resize_final_logits_bias(self, new_num_tokens: int) -> None:
         old_num_tokens = self.final_logits_bias.shape[-1]
         if new_num_tokens <= old_num_tokens:
@@ -2055,7 +1848,6 @@ class BigBirdPegasusForConditionalGeneration(BigBirdPegasusPreTrainedModel, Gene
             encoder_attentions=outputs.encoder_attentions,
         )
 
-    # Copied from transformers.models.bart.modeling_bart.BartForConditionalGeneration.prepare_decoder_input_ids_from_labels with Bart->BigBirdPegasus, BART->BIGBIRD_PEGASUS
     def prepare_decoder_input_ids_from_labels(self, labels: torch.Tensor):
         return shift_tokens_right(labels, self.config.pad_token_id, self.config.decoder_start_token_id)
 
@@ -2077,7 +1869,6 @@ class BigBirdPegasusForSequenceClassification(BigBirdPegasusPreTrainedModel):
             config.classifier_dropout,
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -2193,7 +1984,6 @@ class BigBirdPegasusForQuestionAnswering(BigBirdPegasusPreTrainedModel):
         self.model = BigBirdPegasusModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -2248,12 +2038,10 @@ class BigBirdPegasusForQuestionAnswering(BigBirdPegasusPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)
@@ -2277,12 +2065,7 @@ class BigBirdPegasusForQuestionAnswering(BigBirdPegasusPreTrainedModel):
         )
 
 
-# Copied from transformers.models.pegasus.modeling_pegasus.PegasusDecoderWrapper with Pegasus->BigBirdPegasus
 class BigBirdPegasusDecoderWrapper(BigBirdPegasusPreTrainedModel):
-    """
-    This wrapper class is a helper class to correctly load pretrained checkpoints when the causal language model is
-    used in combination with the [`EncoderDecoderModel`] framework.
-    """
 
     def __init__(self, config):
         super().__init__(config)
@@ -2302,7 +2085,6 @@ class BigBirdPegasusForCausalLM(BigBirdPegasusPreTrainedModel, GenerationMixin):
 
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -2360,7 +2142,6 @@ class BigBirdPegasusForCausalLM(BigBirdPegasusPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

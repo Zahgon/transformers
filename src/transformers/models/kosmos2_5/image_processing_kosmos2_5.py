@@ -1,17 +1,3 @@
-# Copyright 2025 Microsoft Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Kosmos2_5."""
 
 import math
 
@@ -26,19 +12,11 @@ from ...utils import TensorType, auto_docstring
 
 
 class Kosmos2_5ImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    patch_size (`Dict[str, int]`, *optional*, defaults to `{"height": 16, "width": 16}`):
-        The patch size to use for the image. According to Kosmos2_5 paper and code, the patch size is 16x16.
-    max_patches (`int`, *optional*, defaults to 4096):
-        The maximum number of patches to extract from the image as per the
-        [KOSMOS 2.5 paper](https://huggingface.co/papers/2309.11419).
-    """
 
     patch_size: SizeDict | None
     max_patches: int
 
 
-# Similar to transformers.models.pix2struct.image_processing_pix2struct.torch_extract_patches but dealing with a batch of images directly.
 def torch_extract_patches(image_tensor, patch_height, patch_width):
     """
     Utility function to extract patches from a given tensor representing a batch of images. Returns a tensor of shape
@@ -94,26 +72,20 @@ class Kosmos2_5ImageProcessor(TorchvisionBackend):
         if image.dtype == torch.uint8:
             image = image.to(dtype=torch.float32)
 
-        # take mean across the whole `image` except the batch dim (= 0).
         dim = list(range(1, image.ndim))
         mean = torch.mean(image, dim=dim)
         std = torch.std(image, dim=dim)
-        # num_elements in a single image
         num_elements = torch.tensor(torch.numel(image[0]))
         adjusted_stddev = torch.max(std, 1.0 / torch.sqrt(num_elements))
 
-        # change `image` from [batch_size, n_channels, width, height] to [n_channels, batch_size, width, height]
         image = torch.transpose(image, 0, 1)
 
-        # 'torchvision.transforms.Normalize` works on the usual channel dimension (dim=1) which is the batch
-        # dimension before we use `transpose`.
         image = super().normalize(
             image,
             mean=mean,
             std=adjusted_stddev,
             **kwargs,
         )
-        # back to [batch_size, n_channels, width, height]
         normalized_image = torch.transpose(image, 0, 1)
 
         return normalized_image
@@ -146,7 +118,6 @@ class Kosmos2_5ImageProcessor(TorchvisionBackend):
         patch_height, patch_width = patch_size.height, patch_size.width
         image_height, image_width = get_image_size(image, ChannelDimension.FIRST)
 
-        # maximize scale s.t.
         scale = math.sqrt(max_patches * (patch_height / image_height) * (patch_width / image_width))
         num_feasible_rows = max(min(math.floor(scale * image_height / patch_height), max_patches), 1)
         num_feasible_cols = max(min(math.floor(scale * image_width / patch_width), max_patches), 1)
@@ -161,7 +132,6 @@ class Kosmos2_5ImageProcessor(TorchvisionBackend):
             antialias=True,
         )
 
-        # [batch_size, rows, columns, patch_height * patch_width * image_channels]
         patches = torch_extract_patches(image, patch_height, patch_width)
 
         patches_shape = patches.shape
@@ -170,10 +140,8 @@ class Kosmos2_5ImageProcessor(TorchvisionBackend):
         columns = patches_shape[2]
         depth = patches_shape[3]
 
-        # [batch_size, rows * columns, patch_height * patch_width * image_channels]
         patches = patches.reshape([batch_size, rows * columns, depth])
 
-        # [rows * columns, 1]
         row_ids = (
             torch.arange(rows, device=patches.device)
             .reshape([rows, 1])
@@ -187,19 +155,14 @@ class Kosmos2_5ImageProcessor(TorchvisionBackend):
             .reshape([rows * columns, 1])
         )
 
-        # Offset by 1 so the ids do not contain zeros, which represent padding.
         row_ids += 1
         col_ids += 1
 
-        # Prepare additional patch features.
-        # [batch_size, rows * columns, 1]
         row_ids = row_ids.unsqueeze(0).repeat(batch_size, 1, 1).to(torch.float32)
         col_ids = col_ids.unsqueeze(0).repeat(batch_size, 1, 1).to(torch.float32)
 
-        # [rows * columns, 2 + patch_height * patch_width * image_channels]
         result = torch.cat([row_ids, col_ids, patches], -1)
 
-        # [batch_size, max_patches, 2 + patch_height * patch_width * image_channels]
         result = torch.nn.functional.pad(result, [0, 0, 0, max_patches - (rows * columns)]).float()
 
         return result, resized_width, resized_height, rows, columns
@@ -218,7 +181,6 @@ class Kosmos2_5ImageProcessor(TorchvisionBackend):
         obj_idx_to_new_index_map = {}
         current_index = -1
 
-        # Group images by size for batched resizing
         processed_image_patches_grouped = {}
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         for shape, stacked_images in grouped_images.items():
@@ -235,7 +197,6 @@ class Kosmos2_5ImageProcessor(TorchvisionBackend):
             height.extend([resized_height] * n_of_stacked_images)
             rows.extend([n_rows] * n_of_stacked_images)
             cols.extend([n_columns] * n_of_stacked_images)
-            # create attention mask
             attention_masks.extend(list((patches.sum(axis=-1) != 0).to(dtype=torch.float32)))
             processed_image_patches_grouped[shape] = list(patches)
             for x in processed_image_patches_grouped[shape]:

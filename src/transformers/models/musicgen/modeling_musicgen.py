@@ -1,17 +1,3 @@
-# Copyright 2023 Meta AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Musicgen model."""
 
 import copy
 import inspect
@@ -67,16 +53,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring
 @dataclass
 class MusicgenUnconditionalInput(ModelOutput):
-    r"""
-    encoder_outputs (`tuple[torch.FloatTensor]` of length 1, with tensor shape `(batch_size, sequence_length, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the text encoder model.
-    attention_mask (`torch.LongTensor`)  of shape `(batch_size, sequence_length)`, *optional*):
-        Encoder attention mask to avoid performing attention on padding token indices. Mask values selected in `[0,
-        1]`: 1 for tokens that are **not masked**, 0 for tokens that are **masked**.
-    guidance_scale (`float`, *optional*):
-        Guidance scale for classifier free guidance, setting the balance between the conditional logits (predicted
-        from the prompts) and the unconditional logits (predicted without prompts).
-    """
 
     encoder_outputs: tuple[torch.FloatTensor] | None = None
     attention_mask: torch.LongTensor | None = None
@@ -87,7 +63,6 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
     """
     Shift input ids one token to the right.
     """
-    # transpose to get (bsz, num_codebooks, seq_len)
     input_ids = input_ids.transpose(1, 2)
     shifted_input_ids = input_ids.new_zeros(input_ids.shape)
     shifted_input_ids[..., 1:] = input_ids[..., :-1].clone()
@@ -97,14 +72,12 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("Make sure to set the pad_token_id attribute of the model's configuration.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
 
 
 class MusicgenSinusoidalPositionalEmbedding(nn.Module):
-    """This module produces sinusoidal positional embeddings of any length."""
 
     def __init__(self, num_positions: int, embedding_dim: int):
         super().__init__()
@@ -115,7 +88,6 @@ class MusicgenSinusoidalPositionalEmbedding(nn.Module):
     def make_weights(self, num_embeddings: int, embedding_dim: int):
         emb_weights = self.get_embedding(num_embeddings, embedding_dim)
         if hasattr(self, "weights"):
-            # in forward put the weights on the correct dtype and device of the param
             emb_weights = emb_weights.to(dtype=self.weights.dtype, device=self.weights.device)
 
         self.register_buffer("weights", emb_weights, persistent=False)
@@ -132,22 +104,18 @@ class MusicgenSinusoidalPositionalEmbedding(nn.Module):
         emb = torch.arange(num_embeddings, dtype=torch.int64).float().unsqueeze(1) * emb.unsqueeze(0)
         emb = torch.cat([torch.cos(emb), torch.sin(emb)], dim=1).view(num_embeddings, -1)
         if embedding_dim % 2 == 1:
-            # zero pad
             emb = torch.cat([emb, torch.zeros(num_embeddings, 1)], dim=1)
         return emb.to(torch.get_default_dtype())
 
     @torch.no_grad()
     def forward(self, input_ids: torch.Tensor, past_key_values_length: int = 0):
         bsz, codebooks, seq_len = input_ids.size()
-        # Create the position ids from the input token ids.
         position_ids = (torch.arange(seq_len) + past_key_values_length).to(input_ids.device)
-        # expand embeddings if needed
         if seq_len > self.weights.size(0):
             self.make_weights(seq_len, self.embedding_dim)
         return self.weights.index_select(0, position_ids.view(-1)).detach()
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -161,7 +129,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -177,7 +144,6 @@ def eager_attention_forward(
 
 
 class MusicgenAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -219,22 +185,16 @@ class MusicgenAttention(nn.Module):
         past_key_values: Cache | None = None,
         attention_mask: torch.Tensor | None = None,
         output_attentions: bool | None = False,
-        # TODO: we need a refactor so that the different attention modules can get their specific kwargs
-        # ATM, we have mixed things encoder, decoder, and encoder-decoder attn
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        # get query proj
         query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         is_updated = False
@@ -242,7 +202,6 @@ class MusicgenAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_layer from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -251,7 +210,6 @@ class MusicgenAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -260,9 +218,7 @@ class MusicgenAttention(nn.Module):
             value_states = self.v_proj(current_states).view(kv_shape).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all key/value_states to cache to be re-used for fast auto-regressive generation
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -346,7 +302,6 @@ class MusicgenDecoderLayer(GradientCheckpointingLayer):
         residual = hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states,
             past_key_values=past_key_values,
@@ -356,7 +311,6 @@ class MusicgenDecoderLayer(GradientCheckpointingLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
 
-        # Cross-Attention Block
         if encoder_hidden_states is not None:
             residual = hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
@@ -371,7 +325,6 @@ class MusicgenDecoderLayer(GradientCheckpointingLayer):
             hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
             hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.activation_fn(self.fc1(hidden_states))
@@ -402,9 +355,6 @@ class MusicgenPreTrainedModel(PreTrainedModel):
 
 
 class MusicgenDecoder(MusicgenPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`MusicgenDecoderLayer`]
-    """
 
     _can_record_outputs = {
         "hidden_states": MusicgenDecoderLayer,
@@ -438,7 +388,6 @@ class MusicgenDecoder(MusicgenPreTrainedModel):
         self.attn_implementation = config._attn_implementation
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -489,7 +438,6 @@ class MusicgenDecoder(MusicgenPreTrainedModel):
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError("You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
         elif input_ids is not None:
-            # (bsz * codebooks, seq_len) -> (bsz, codebooks, seq_len)
             input = input_ids.reshape(-1, self.num_codebooks, input_ids.shape[-1])
             bsz, num_codebooks, seq_len = input.shape
         elif inputs_embeds is not None:
@@ -518,13 +466,11 @@ class MusicgenDecoder(MusicgenPreTrainedModel):
             encoder_hidden_states=encoder_hidden_states,
         )
 
-        # embed positions
         positions = self.embed_positions(input, past_key_values_length)
         hidden_states = inputs_embeds + positions.to(inputs_embeds.device)
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             dropout_probability = random.uniform(0, 1)
             if self.training and (dropout_probability < self.layerdrop):
                 continue
@@ -552,7 +498,6 @@ class MusicgenModel(MusicgenPreTrainedModel):
     def __init__(self, config: MusicgenDecoderConfig):
         super().__init__(config)
         self.decoder = MusicgenDecoder(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -638,7 +583,6 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
             [nn.Linear(config.hidden_size, config.vocab_size, bias=False) for _ in range(config.num_codebooks)]
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -724,19 +668,13 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
 
         loss = None
         if labels is not None:
-            # since encoder hidden states have been concatenated to the decoder hidden states,
-            # we take the last timestamps corresponding to labels
             logits = lm_logits[:, :, -labels.shape[1] :]
 
             loss_fct = CrossEntropyLoss()
             loss = torch.zeros([], device=self.device)
 
-            # per codebook cross-entropy
-            # -100 labels are ignored
             labels = labels.masked_fill(labels == self.config.pad_token_id, -100)
 
-            # per codebook cross-entropy
-            # ref: https://github.com/facebookresearch/audiocraft/blob/69fea8b290ad1b4b40d28f92d1dfc0ab01dbab85/audiocraft/solvers/musicgen.py#L242-L243
             for codebook in range(self.config.num_codebooks):
                 codebook_logits = logits[:, codebook].contiguous().view(-1, logits.shape[-1])
                 codebook_labels = labels[..., codebook].contiguous().view(-1)
@@ -744,7 +682,6 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
 
             loss = loss / self.config.num_codebooks
 
-        # (bsz, num_codebooks, seq_len, vocab_size) -> (bsz * num_codebooks, seq_len, vocab_size)
         lm_logits = lm_logits.reshape(-1, *lm_logits.shape[2:])
 
         return CausalLMOutputWithCrossAttentions(
@@ -768,7 +705,6 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
         guidance_scale=None,
         **kwargs,
     ):
-        # Overwritten -- MusicGen has custom processing
         if delay_pattern_mask is None:
             input_ids, delay_pattern_mask = self.build_delay_pattern_mask(
                 input_ids,
@@ -776,12 +712,9 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
                 max_length=self.generation_config.max_length,
             )
 
-        # apply the delay pattern mask
         input_ids = self.apply_delay_pattern_mask(input_ids, delay_pattern_mask)
 
         if guidance_scale is not None and guidance_scale > 1:
-            # for classifier free guidance we need to replicate the decoder args across the batch dim (we'll split these
-            # before sampling)
             input_ids = input_ids.repeat((2, 1))
             if attention_mask is not None:
                 attention_mask = attention_mask.repeat((2, 1))
@@ -817,7 +750,6 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
         where a-h indicate the input prompt (decoder input ids) that are offset by 1. Now, we only override the -1
         tokens in our prediction.
         """
-        # (bsz * num_codebooks, seq_len) -> (bsz, num_codebooks, seq_len)
         input_ids = input_ids.reshape(-1, self.num_codebooks, input_ids.shape[-1])
         bsz, num_codebooks, seq_len = input_ids.shape
 
@@ -827,46 +759,34 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
         )
 
         channel_codebooks = num_codebooks // 2 if self.config.audio_channels == 2 else num_codebooks
-        # we only apply the mask if we have a large enough seq len - otherwise we return as is
         if max_length < 2 * channel_codebooks - 1:
             return input_ids.reshape(bsz * num_codebooks, -1), input_ids_shifted.reshape(bsz * num_codebooks, -1)
 
-        # fill the shifted ids with the prompt entries, offset by the codebook idx
         for codebook in range(channel_codebooks):
             if self.config.audio_channels == 1:
-                # mono channel - loop over the codebooks one-by-one
                 input_ids_shifted[:, codebook, codebook : seq_len + codebook] = input_ids[:, codebook]
             else:
-                # left/right channels are interleaved in the generated codebooks, so handle one then the other
                 input_ids_shifted[:, 2 * codebook, codebook : seq_len + codebook] = input_ids[:, 2 * codebook]
                 input_ids_shifted[:, 2 * codebook + 1, codebook : seq_len + codebook] = input_ids[:, 2 * codebook + 1]
 
-        # construct a pattern mask that indicates the positions of padding tokens for each codebook
-        # first fill the upper triangular part (the EOS padding)
         delay_pattern = torch.triu(
             torch.ones((channel_codebooks, max_length), dtype=torch.bool), diagonal=max_length - channel_codebooks + 1
         )
-        # then fill the lower triangular part (the BOS padding)
         delay_pattern = delay_pattern + torch.tril(torch.ones((channel_codebooks, max_length), dtype=torch.bool))
 
         if self.config.audio_channels == 2:
-            # for left/right channel we need to duplicate every row of the pattern mask in an interleaved fashion
             delay_pattern = delay_pattern.repeat_interleave(2, dim=0)
 
         mask = ~delay_pattern.to(input_ids.device)
         input_ids = mask * input_ids_shifted + ~mask * pad_token_id
 
-        # find the first position to start generating - this is the first place we have the -1 token
-        # and will always be in the first codebook (since it has no codebook offset)
         first_codebook_ids = input_ids[:, 0, :]
         start_ids = (first_codebook_ids == -1).nonzero()[:, 1]
         if len(start_ids) > 0:
             first_start_id = min(start_ids)
         else:
-            # we have no tokens that need to be filled - return entire matrix of input ids
             first_start_id = seq_len
 
-        # (bsz * num_codebooks, seq_len) -> (bsz, num_codebooks, seq_len)
         pattern_mask = input_ids.reshape(bsz * num_codebooks, -1)
         input_ids = input_ids[..., :first_start_id].reshape(bsz * num_codebooks, -1)
         return input_ids, pattern_mask
@@ -954,7 +874,6 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
                     - [`~generation.GenerateEncoderDecoderOutput`],
                     - [`~generation.GenerateBeamEncoderDecoderOutput`]
         """
-        # 1. Handle `generation_config` and kwargs that might update it, and validate the resulting objects
         if generation_config is None:
             generation_config = self.generation_config
 
@@ -963,21 +882,18 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
         generation_config.validate()
         self._validate_model_kwargs(model_kwargs.copy())
 
-        # 2. Set generation parameters if not already defined
         logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
 
         requires_attention_mask = "encoder_outputs" not in model_kwargs
         kwargs_has_attention_mask = model_kwargs.get("attention_mask", None) is not None
 
-        # 3. Define model inputs`
         input_ids, model_input_name, model_kwargs = self._prepare_model_inputs(
             inputs, generation_config.bos_token_id, model_kwargs
         )
         batch_size = input_ids.shape[0] // self.num_codebooks
         self._prepare_special_tokens(generation_config, kwargs_has_attention_mask, device=input_ids.device)
 
-        # 4. Define other model kwargs
         model_kwargs["use_cache"] = generation_config.use_cache
         model_kwargs["guidance_scale"] = generation_config.guidance_scale
 
@@ -986,7 +902,6 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
                 input_ids, generation_config, model_kwargs
             )
 
-        # 5. Prepare `max_length` depending on other stopping criteria.
         input_ids_length = input_ids.shape[-1]
         has_default_max_length = kwargs.get("max_length") is None and generation_config.max_length is not None
         has_default_min_length = kwargs.get("min_length") is None and generation_config.min_length is not None
@@ -1001,10 +916,6 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
 
         self._validate_generated_length(generation_config, input_ids_length, has_default_max_length)
 
-        # 6. Prepare the cache.
-        # - `model_kwargs` may be updated in place with a cache as defined by the parameters in `generation_config`.
-        # - different models have a different cache name expected by the model (default = "past_key_values")
-        # - `max_length`, prepared above, is used to determine the maximum cache length
         max_cache_length = generation_config.max_length - 1
         self._prepare_cache_for_generation(
             generation_config,
@@ -1014,8 +925,6 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
             max_cache_length=max_cache_length,
         )
 
-        # 7. Prepare `input_ids` which will be used for auto-regressive generation
-        # Build the delay pattern mask for offsetting each codebook prediction by 1 (this behaviour is specific to MusicGen)
         input_ids, delay_pattern_mask = self.build_delay_pattern_mask(
             input_ids,
             pad_token_id=generation_config._decoder_start_token_tensor,
@@ -1025,18 +934,14 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
         if streamer is not None:
             streamer.put(input_ids.cpu())
 
-        # stash the delay mask so that we don't have to recompute it in each forward pass
         model_kwargs["delay_pattern_mask"] = delay_pattern_mask
 
-        # 8. determine generation mode
         generation_mode = generation_config.get_generation_mode()
 
-        # 9. prepare batched CFG externally (to enable coexistence with the unbatched CFG)
         if generation_config.guidance_scale is not None and generation_config.guidance_scale > 1:
             logits_processor.append(ClassifierFreeGuidanceLogitsProcessor(generation_config.guidance_scale))
             generation_config.guidance_scale = None
 
-        # 10. prepare distribution pre_processing samplers
         logits_processor = self._get_logits_processor(
             generation_config=generation_config,
             input_ids_seq_length=input_ids_length,
@@ -1046,20 +951,17 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
             device=input_ids.device,
         )
 
-        # 10. prepare stopping criteria
         stopping_criteria = self._get_stopping_criteria(
             generation_config=generation_config, stopping_criteria=stopping_criteria
         )
 
         if generation_mode in (GenerationMode.SAMPLE, GenerationMode.GREEDY_SEARCH):
-            # expand input_ids with `num_return_sequences` additional sequences per batch
             input_ids, model_kwargs = self._expand_inputs_for_generation(
                 input_ids=input_ids,
                 expand_size=generation_config.num_return_sequences,
                 **model_kwargs,
             )
 
-            # 11. run sample
             outputs = self._sample(
                 input_ids,
                 logits_processor=logits_processor,
@@ -1081,10 +983,8 @@ class MusicgenForCausalLM(MusicgenPreTrainedModel, GenerationMixin):
         else:
             output_ids = outputs
 
-        # apply the pattern mask to the final ids
         output_ids = self.apply_delay_pattern_mask(output_ids, model_kwargs["delay_pattern_mask"])
 
-        # revert the pattern delay mask by filtering the pad token id
         output_ids = output_ids[output_ids != generation_config._pad_token_tensor].reshape(
             batch_size, self.num_codebooks, -1
         )
@@ -1144,7 +1044,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
                     " `config.text_encoder.hidden_size`."
                 )
 
-        # initialize with config
         super().__init__(config)
 
         if text_encoder is None:
@@ -1180,8 +1079,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
                 f" {self.config.decoder}"
             )
 
-        # make sure that the individual model's config refers to the shared config
-        # so that the updates to the config will be synced
         self.config.text_encoder._attn_implementation = self.text_encoder.config._attn_implementation
         self.config.audio_encoder._attn_implementation = self.audio_encoder.config._attn_implementation
         self.config.decoder._attn_implementation = self.decoder.config._attn_implementation
@@ -1189,7 +1086,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
         self.audio_encoder.config = self.config.audio_encoder
         self.decoder.config = self.config.decoder
 
-        # text encoder outputs might need to be projected to different dimension for decoder
         if (
             self.text_encoder.config.hidden_size != self.decoder.config.hidden_size
             and self.decoder.config.cross_attention_hidden_size is None
@@ -1208,7 +1104,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
                 "following discussion on GitHub: https://github.com/huggingface/transformers/issues/23350"
             )
 
-        # tie text encoder, decoder weights if config set accordingly
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1229,193 +1124,7 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
         *model_args,
         **kwargs,
     ) -> PreTrainedModel:
-        r"""
-        Instantiate a text encoder, an audio encoder, and a MusicGen decoder from one, two or three base classes of the
-        library from pretrained model checkpoints.
-
-
-        The model is set in evaluation mode by default using `model.eval()` (Dropout modules are deactivated). To train
-        the model, you need to first set it back in training mode with `model.train()`.
-
-        Params:
-            text_encoder_pretrained_model_name_or_path (`str`, *optional*):
-                Information necessary to initiate the text encoder. Can be either:
-
-                    - A string, the *model id* of a pretrained model hosted inside a model repo on huggingface.co.
-                    - A path to a *directory* containing model weights saved using
-                      [`~PreTrainedModel.save_pretrained`], e.g., `./my_model_directory/`.
-
-            audio_encoder_pretrained_model_name_or_path (`str`, *optional*):
-                Information necessary to initiate the audio encoder. Can be either:
-
-                    - A string, the *model id* of a pretrained model hosted inside a model repo on huggingface.co.
-                    - A path to a *directory* containing model weights saved using
-                      [`~PreTrainedModel.save_pretrained`], e.g., `./my_model_directory/`.
-
-            decoder_pretrained_model_name_or_path (`str`, *optional*, defaults to `None`):
-                Information necessary to initiate the decoder. Can be either:
-
-                    - A string, the *model id* of a pretrained model hosted inside a model repo on huggingface.co.
-                    - A path to a *directory* containing model weights saved using
-                      [`~PreTrainedModel.save_pretrained`], e.g., `./my_model_directory/`.
-
-            model_args (remaining positional arguments, *optional*):
-                All remaining positional arguments will be passed to the underlying model's `__init__` method.
-
-            kwargs (remaining dictionary of keyword arguments, *optional*):
-                Can be used to update the configuration object (after it being loaded) and initiate the model (e.g.,
-                `output_attentions=True`).
-
-                - To update the text encoder configuration, use the prefix *text_encoder_* for each configuration
-                  parameter.
-                - To update the audio encoder configuration, use the prefix *audio_encoder_* for each configuration
-                  parameter.
-                - To update the decoder configuration, use the prefix *decoder_* for each configuration parameter.
-                - To update the parent model configuration, do not use a prefix for each configuration parameter.
-
-                Behaves differently depending on whether a `config` is provided or automatically loaded.
-
-        Example:
-
-        ```python
-        >>> from transformers import MusicgenForConditionalGeneration
-
-        >>> # initialize a musicgen model from a t5 text encoder, encodec audio encoder, and musicgen decoder
-        >>> model = MusicgenForConditionalGeneration.from_sub_models_pretrained(
-        ...     text_encoder_pretrained_model_name_or_path="google-t5/t5-base",
-        ...     audio_encoder_pretrained_model_name_or_path="facebook/encodec_24khz",
-        ...     decoder_pretrained_model_name_or_path="facebook/musicgen-small",
-        ... )
-        >>> # saving model after fine-tuning
-        >>> model.save_pretrained("./musicgen-ft")
-        >>> # load fine-tuned model
-        >>> model = MusicgenForConditionalGeneration.from_pretrained("./musicgen-ft")
-        ```"""
-
-        kwargs_text_encoder = {
-            argument[len("text_encoder_") :]: value
-            for argument, value in kwargs.items()
-            if argument.startswith("text_encoder_")
-        }
-
-        kwargs_audio_encoder = {
-            argument[len("audio_encoder_") :]: value
-            for argument, value in kwargs.items()
-            if argument.startswith("audio_encoder_")
-        }
-
-        kwargs_decoder = {
-            argument[len("decoder_") :]: value for argument, value in kwargs.items() if argument.startswith("decoder_")
-        }
-
-        # remove text encoder, audio encoder and decoder kwargs from kwargs
-        for key in kwargs_text_encoder:
-            del kwargs["text_encoder_" + key]
-        for key in kwargs_audio_encoder:
-            del kwargs["audio_encoder_" + key]
-        for key in kwargs_decoder:
-            del kwargs["decoder_" + key]
-
-        # Load and initialize the encoder and decoder
-        # The distinction between encoder and decoder at the model level is made
-        # by the value of the flag `is_decoder` that we need to set correctly.
-        text_encoder = kwargs_text_encoder.pop("model", None)
-        if text_encoder is None:
-            if text_encoder_pretrained_model_name_or_path is None:
-                raise ValueError(
-                    "If `text_encoder_model` is not defined as an argument, a `text_encoder_pretrained_model_name_or_path` has "
-                    "to be defined."
-                )
-
-            if "config" not in kwargs_text_encoder:
-                encoder_config, kwargs_text_encoder = AutoConfig.from_pretrained(
-                    text_encoder_pretrained_model_name_or_path, **kwargs_text_encoder, return_unused_kwargs=True
-                )
-
-                if encoder_config.is_decoder is True or encoder_config.add_cross_attention is True:
-                    logger.info(
-                        f"Initializing {text_encoder_pretrained_model_name_or_path} as a text_encoder model "
-                        "from a decoder model. Cross-attention and causal mask are disabled."
-                    )
-                    encoder_config.is_decoder = False
-                    encoder_config.add_cross_attention = False
-
-                kwargs_text_encoder["config"] = encoder_config
-
-            text_encoder = AutoModel.from_pretrained(
-                text_encoder_pretrained_model_name_or_path, *model_args, **kwargs_text_encoder
-            )
-
-        audio_encoder = kwargs_audio_encoder.pop("model", None)
-        if audio_encoder is None:
-            if audio_encoder_pretrained_model_name_or_path is None:
-                raise ValueError(
-                    "If `audio_encoder_model` is not defined as an argument, an `audio_encoder_pretrained_model_name_or_path` has "
-                    "to be defined."
-                )
-
-            if "config" not in kwargs_audio_encoder:
-                encoder_config, kwargs_audio_encoder = AutoConfig.from_pretrained(
-                    audio_encoder_pretrained_model_name_or_path, **kwargs_audio_encoder, return_unused_kwargs=True
-                )
-
-                if encoder_config.is_decoder is True or encoder_config.add_cross_attention is True:
-                    logger.info(
-                        f"Initializing {audio_encoder_pretrained_model_name_or_path} as an audio_encoder model "
-                        "from a decoder model. Cross-attention and causal mask are disabled."
-                    )
-                    encoder_config.is_decoder = False
-                    encoder_config.add_cross_attention = False
-
-                kwargs_audio_encoder["config"] = encoder_config
-
-            audio_encoder = AutoModel.from_pretrained(
-                audio_encoder_pretrained_model_name_or_path, *model_args, **kwargs_audio_encoder
-            )
-
-        decoder = kwargs_decoder.pop("model", None)
-        if decoder is None:
-            if decoder_pretrained_model_name_or_path is None:
-                raise ValueError(
-                    "If `decoder_model` is not defined as an argument, a `decoder_pretrained_model_name_or_path` has "
-                    "to be defined."
-                )
-
-            if "config" not in kwargs_decoder:
-                decoder_config, kwargs_decoder = AutoConfig.from_pretrained(
-                    decoder_pretrained_model_name_or_path, **kwargs_decoder, return_unused_kwargs=True
-                )
-
-                if isinstance(decoder_config, MusicgenConfig):
-                    decoder_config = decoder_config.decoder
-
-                if decoder_config.is_decoder is False or decoder_config.add_cross_attention is False:
-                    logger.info(
-                        f"Initializing {decoder_pretrained_model_name_or_path} as a decoder model. Cross attention"
-                        f" layers are added to {decoder_pretrained_model_name_or_path} and randomly initialized if"
-                        f" {decoder_pretrained_model_name_or_path}'s architecture allows for cross attention layers."
-                    )
-                    decoder_config.is_decoder = True
-                    decoder_config.add_cross_attention = True
-
-                kwargs_decoder["config"] = decoder_config
-
-            if kwargs_decoder["config"].is_decoder is False or kwargs_decoder["config"].add_cross_attention is False:
-                logger.warning(
-                    f"Decoder model {decoder_pretrained_model_name_or_path} is not initialized as a decoder. "
-                    f"In order to initialize {decoder_pretrained_model_name_or_path} as a decoder, "
-                    "make sure that the attributes `is_decoder` and `add_cross_attention` of `decoder_config` "
-                    "passed to `.from_sub_models_pretrained(...)` are set to `True` or do not pass a "
-                    "`decoder_config` to `.from_sub_models_pretrained(...)`"
-                )
-
-            decoder = MusicgenForCausalLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
-
-        # instantiate config with corresponding kwargs
-        config = MusicgenConfig(
-            text_encoder=text_encoder.config, audio_encoder=audio_encoder.config, decoder=decoder.config, **kwargs
-        )
-        return cls(text_encoder=text_encoder, audio_encoder=audio_encoder, decoder=decoder, config=config)
+        pass
 
     @can_return_tuple
     @auto_docstring
@@ -1520,7 +1229,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
 
         encoder_hidden_states = encoder_outputs[0]
 
-        # optionally project encoder_hidden_states
         if (
             self.text_encoder.config.hidden_size != self.decoder.config.hidden_size
             and self.decoder.config.cross_attention_hidden_size is None
@@ -1550,12 +1258,10 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
                 )
 
             if self.config.decoder.audio_channels == 2 and audio_codes.shape[2] == self.decoder.num_codebooks // 2:
-                # mono input through encodec that we convert to stereo
                 audio_codes = audio_codes.repeat_interleave(2, dim=2)
 
             decoder_input_ids = audio_codes[0, ...].reshape(bsz * self.decoder.num_codebooks, seq_len)
 
-        # Decode
         decoder_outputs: CausalLMOutputWithCrossAttentions = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -1594,7 +1300,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
         guidance_scale=None,
         **kwargs,
     ):
-        # Overwritten -- MusicGen has custom processing
         if decoder_delay_pattern_mask is None:
             decoder_input_ids, decoder_delay_pattern_mask = self.decoder.build_delay_pattern_mask(
                 decoder_input_ids,
@@ -1602,12 +1307,9 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
                 max_length=self.generation_config.max_length,
             )
 
-        # apply the delay pattern mask
         decoder_input_ids = self.decoder.apply_delay_pattern_mask(decoder_input_ids, decoder_delay_pattern_mask)
 
         if guidance_scale is not None and guidance_scale > 1:
-            # for classifier free guidance we need to replicate the decoder args across the batch dim (we'll split these
-            # before sampling)
             decoder_input_ids = decoder_input_ids.repeat((2, 1))
             if decoder_attention_mask is not None:
                 decoder_attention_mask = decoder_attention_mask.repeat((2, 1))
@@ -1638,8 +1340,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
     ) -> tuple[torch.LongTensor, dict[str, torch.Tensor]]:
         """Prepares `decoder_input_ids` for generation with encoder-decoder models"""
 
-        # 1. Check whether the user has defined `decoder_input_ids` manually. To facilitate in terms of input naming,
-        # we also allow the user to pass it under `input_ids`, if the encoder does not use it as the main input.
         if model_kwargs is not None and "decoder_input_ids" in model_kwargs:
             decoder_input_ids = model_kwargs.pop("decoder_input_ids")
         elif "input_ids" in model_kwargs and model_input_name != "input_ids":
@@ -1647,7 +1347,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
         else:
             decoder_input_ids = None
 
-        # 2. Encoder-decoder models expect the `decoder_input_ids` to start with a special token. Let's ensure that.
         decoder_start_token_id = self._get_decoder_start_token_id(decoder_start_token_id, bos_token_id)
         if device is None:
             device = self.device
@@ -1656,12 +1355,9 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
             * decoder_start_token_id
         )
 
-        # no user input -> use decoder_start_token_id as decoder_input_ids
         if decoder_input_ids is None:
             decoder_input_ids = decoder_input_ids_start
 
-        # user input but doesn't start with decoder_start_token_id -> prepend decoder_start_token_id (and adjust
-        # decoder_attention_mask if provided)
         elif (decoder_input_ids[..., 0] != decoder_start_token_id).all().item():
             decoder_input_ids = torch.cat([decoder_input_ids_start, decoder_input_ids], dim=-1)
             if "decoder_attention_mask" in model_kwargs:
@@ -1681,14 +1377,10 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
         model_input_name: str | None,
         generation_config: GenerationConfig,
     ) -> dict[str, Any]:
-        # 1. get text encoder
         encoder = self.get_encoder()
-        # Compatibility with Accelerate big model inference: we need the encoder to outputs stuff on the same device
-        # as the inputs.
         if hasattr(encoder, "_hf_hook"):
             encoder._hf_hook.io_same_device = True
 
-        # 2. Prepare encoder args and encoder kwargs from model kwargs.
         irrelevant_prefix = ["decoder_", "cross_attn", "use_cache"]
         encoder_kwargs = {
             argument: value
@@ -1705,13 +1397,11 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
         encoder_kwargs["output_hidden_states"] = generation_config.output_hidden_states
         guidance_scale = generation_config.guidance_scale
 
-        # 3. make sure that encoder returns `ModelOutput`
         model_input_name = model_input_name if model_input_name is not None else self.text_encoder.main_input_name
         encoder_kwargs["return_dict"] = True
         encoder_kwargs[model_input_name] = inputs_tensor
         last_hidden_state = encoder(**encoder_kwargs).last_hidden_state
 
-        # for classifier free guidance we need to add a 'null' input to our encoder hidden states
         if guidance_scale is not None and guidance_scale > 1:
             last_hidden_state = torch.concatenate([last_hidden_state, torch.zeros_like(last_hidden_state)], dim=0)
             if "attention_mask" in model_kwargs:
@@ -1726,14 +1416,10 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
     def _prepare_audio_encoder_kwargs_for_generation(
         self, input_values, model_kwargs, model_input_name: str | None = None
     ):
-        # 1. get audio encoder
         encoder = self.get_encoder(modality="audio")
-        # Compatibility with Accelerate big model inference: we need the encoder to outputs stuff on the same device
-        # as the inputs.
         if hasattr(encoder, "_hf_hook"):
             encoder._hf_hook.io_same_device = True
 
-        # 2. Prepare encoder args and encoder kwargs from model kwargs.
         irrelevant_prefix = ["decoder_", "cross_attn", "use_cache"]
         encoder_kwargs = {
             argument: value
@@ -1747,7 +1433,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
                 argument: value for argument, value in encoder_kwargs.items() if argument in encoder_signature
             }
 
-        # 3. make sure that encoder returns `ModelOutput`
         model_input_name = model_input_name if model_input_name is not None else self.audio_encoder.main_input_name
         encoder_kwargs["return_dict"] = True
 
@@ -1776,7 +1461,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
             audio_scales_right = audio_encoder_outputs_right.audio_scales
 
             frames, bsz, codebooks, seq_len = audio_codes_left.shape
-            # copy alternating left/right channel codes into stereo codebook
             audio_codes = audio_codes_left.new_ones((frames, bsz, 2 * codebooks, seq_len))
 
             audio_codes[:, :, ::2, :] = audio_codes_left
@@ -1810,20 +1494,10 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
         )
 
     def freeze_audio_encoder(self):
-        """
-        Freeze the audio encoder weights.
-        """
-        for param in self.audio_encoder.parameters():
-            param.requires_grad = False
-        self.audio_encoder._requires_grad = False
+        pass
 
     def freeze_text_encoder(self):
-        """
-        Freeze the text encoder weights.
-        """
-        for param in self.text_encoder.parameters():
-            param.requires_grad = False
-        self.text_encoder._requires_grad = False
+        pass
 
     def _maybe_initialize_input_ids_for_generation(
         self,
@@ -1837,15 +1511,12 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
 
         encoder_outputs = model_kwargs.get("encoder_outputs")
         if encoder_outputs is not None:
-            # make dummy input_ids with value -100, as a sanity check ensuring that they won't be used for encoding
             shape = encoder_outputs[0].size()[:-1]
             return torch.ones(shape, dtype=torch.long, device=self.device) * -100
 
         if bos_token_id is None:
             raise ValueError("`bos_token_id` has to be defined when no `input_ids` are provided.")
 
-        # If there is some tensor in `model_kwargs`, we can infer the batch size from it. This is helpful with
-        # soft-prompting or in multimodal implementations built on top of decoder-only language models.
         batch_size = 1
         for value in model_kwargs.values():
             if isinstance(value, torch.Tensor):
@@ -1945,7 +1616,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
                     - [`~generation.GenerateEncoderDecoderOutput`],
                     - [`~generation.GenerateBeamEncoderDecoderOutput`]
         """
-        # 1. Handle `generation_config` and kwargs that might update it, and validate the resulting objects
         generation_mode_kwargs = self._extract_generation_mode_kwargs(None, kwargs, False, None, None)
         generation_config, model_kwargs = self._prepare_generation_config(generation_config, **kwargs)
         generation_mode = generation_config.get_generation_mode()
@@ -1959,24 +1629,20 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
         self._validate_generation_mode(generation_mode, generation_config, generation_mode_kwargs)
 
         if model_kwargs.get("encoder_outputs") is not None and type(model_kwargs["encoder_outputs"]) is tuple:
-            # wrap the unconditional outputs as a BaseModelOutput for compatibility with the rest of generate
             model_kwargs["encoder_outputs"] = BaseModelOutput(last_hidden_state=model_kwargs["encoder_outputs"][0])
 
-        # 2. Set generation parameters if not already defined
         logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
 
         requires_attention_mask = "encoder_outputs" not in model_kwargs
         kwargs_has_attention_mask = model_kwargs.get("attention_mask", None) is not None
 
-        # 3. Define model inputs
         inputs_tensor, model_input_name, model_kwargs = self._prepare_model_inputs(
             inputs, generation_config.bos_token_id, model_kwargs
         )
         batch_size = inputs_tensor.shape[0]
         self._prepare_special_tokens(generation_config, kwargs_has_attention_mask, device=inputs_tensor.device)
 
-        # 4. Define other model kwargs
         model_kwargs["use_cache"] = generation_config.use_cache
         model_kwargs["guidance_scale"] = generation_config.guidance_scale
 
@@ -1986,7 +1652,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
             )
 
         if "encoder_outputs" not in model_kwargs:
-            # encoder_outputs are created and added to `model_kwargs`
             model_kwargs = self._prepare_text_encoder_kwargs_for_generation(
                 inputs_tensor, model_kwargs, model_input_name, generation_config
             )
@@ -1997,7 +1662,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
                 model_kwargs,
             )
 
-        # 5. Prepare `input_ids` which will be used for auto-regressive generation
         input_ids, model_kwargs = self._prepare_decoder_input_ids_for_generation(
             batch_size=batch_size,
             model_input_name=model_input_name,
@@ -2007,7 +1671,6 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
             device=inputs_tensor.device,
         )
 
-        # 6. Prepare `max_length` depending on other stopping criteria.
         input_ids_length = input_ids.shape[-1]
         has_default_max_length = kwargs.get("max_length") is None and generation_config.max_length is not None
         has_default_min_length = kwargs.get("min_length") is None and generation_config.min_length is not None
@@ -2020,28 +1683,22 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
             input_ids_length=input_ids_length,
         )
 
-        # build the delay pattern mask for offsetting each codebook prediction by 1 (this behaviour is specific to MusicGen)
         input_ids, decoder_delay_pattern_mask = self.decoder.build_delay_pattern_mask(
             input_ids,
             pad_token_id=generation_config._decoder_start_token_tensor,
             max_length=generation_config.max_length,
         )
-        # stash the delay mask so that we don't have to recompute in each forward pass
         model_kwargs["decoder_delay_pattern_mask"] = decoder_delay_pattern_mask
 
-        # input_ids are ready to be placed on the streamer (if used)
         if streamer is not None:
             streamer.put(input_ids.cpu())
 
-        # 7. determine generation mode
         generation_mode = generation_config.get_generation_mode()
 
-        # 8. prepare batched CFG externally (to enable coexistence with the unbatched CFG)
         if generation_config.guidance_scale is not None and generation_config.guidance_scale > 1:
             logits_processor.append(ClassifierFreeGuidanceLogitsProcessor(generation_config.guidance_scale))
             generation_config.guidance_scale = None
 
-        # 9. prepare distribution pre_processing samplers
         logits_processor = self._get_logits_processor(
             generation_config=generation_config,
             input_ids_seq_length=input_ids_length,
@@ -2051,12 +1708,10 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
             device=input_ids.device,
         )
 
-        # 10. prepare stopping criteria
         stopping_criteria = self._get_stopping_criteria(
             generation_config=generation_config, stopping_criteria=stopping_criteria
         )
 
-        # expand input_ids with `num_return_sequences` additional sequences per batch
         input_ids, model_kwargs = self._expand_inputs_for_generation(
             input_ids=input_ids,
             expand_size=generation_config.num_return_sequences,
@@ -2064,10 +1719,8 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
             **model_kwargs,
         )
 
-        # 10b. prepare prefill outputs
         generation_mode_kwargs["prefill_outputs"] = self._prefill(input_ids, generation_config, model_kwargs)
 
-        # 11. run sample
         outputs = self._sample(
             input_ids,
             logits_processor=logits_processor,
@@ -2082,15 +1735,12 @@ class MusicgenForConditionalGeneration(MusicgenPreTrainedModel, GenerationMixin)
         else:
             output_ids = outputs
 
-        # apply the pattern mask to the final ids
         output_ids = self.decoder.apply_delay_pattern_mask(output_ids, model_kwargs["decoder_delay_pattern_mask"])
 
-        # revert the pattern delay mask by filtering the pad token id
         output_ids = output_ids[output_ids != generation_config._pad_token_tensor].reshape(
             batch_size, self.decoder.num_codebooks, -1
         )
 
-        # append the frame dimension back to the audio codes
         output_ids = output_ids[None, ...]
 
         audio_scales = model_kwargs.get("audio_scales")

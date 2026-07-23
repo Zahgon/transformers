@@ -1,17 +1,3 @@
-# Copyright 2022 KAIST and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch GLPN model."""
 
 import math
 
@@ -28,9 +14,7 @@ from .configuration_glpn import GLPNConfig
 logger = logging.get_logger(__name__)
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.segformer.modeling_segformer.SegformerOverlapPatchEmbeddings
 class GLPNOverlapPatchEmbeddings(nn.Module):
-    """Construct the overlapping patch embeddings."""
 
     def __init__(self, patch_size, stride, num_channels, hidden_size):
         super().__init__()
@@ -47,17 +31,12 @@ class GLPNOverlapPatchEmbeddings(nn.Module):
     def forward(self, pixel_values):
         embeddings = self.proj(pixel_values)
         _, _, height, width = embeddings.shape
-        # (batch_size, num_channels, height, width) -> (batch_size, num_channels, height*width) -> (batch_size, height*width, num_channels)
-        # this can be fed to a Transformer layer
         embeddings = embeddings.flatten(2).transpose(1, 2)
         embeddings = self.layer_norm(embeddings)
         return embeddings, height, width
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.segformer.modeling_segformer.SegformerEfficientSelfAttention
 class GLPNEfficientSelfAttention(nn.Module):
-    """SegFormer's efficient self-attention mechanism. Employs the sequence reduction process introduced in the [PvT
-    paper](https://huggingface.co/papers/2102.12122)."""
 
     def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio):
         super().__init__()
@@ -99,11 +78,8 @@ class GLPNEfficientSelfAttention(nn.Module):
 
         if self.sr_ratio > 1:
             batch_size, seq_len, num_channels = hidden_states.shape
-            # Reshape to (batch_size, num_channels, height, width)
             hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
-            # Apply sequence reduction
             hidden_states = self.sr(hidden_states)
-            # Reshape back to (batch_size, seq_len, num_channels)
             hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
             hidden_states = self.layer_norm(hidden_states)
 
@@ -111,16 +87,12 @@ class GLPNEfficientSelfAttention(nn.Module):
         key_layer = self.key(hidden_states).view(kv_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(kv_shape).transpose(1, 2)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -134,7 +106,6 @@ class GLPNEfficientSelfAttention(nn.Module):
         return outputs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.segformer.modeling_segformer.SegformerSelfOutput
 class GLPNSelfOutput(nn.Module):
     def __init__(self, config, hidden_size):
         super().__init__()
@@ -147,7 +118,6 @@ class GLPNSelfOutput(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.segformer.modeling_segformer.SegformerAttention with Segformer->GLPN
 class GLPNAttention(nn.Module):
     def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio):
         super().__init__()
@@ -167,9 +137,7 @@ class GLPNAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.segformer.modeling_segformer.SegformerDepthWiseConv with Segformer->GLPN
 class GLPNDepthWiseConv(nn.Module):
-    """Depthwise convolution used in the Mix-FFN to implicitly encode positional information."""
 
     def __init__(self, dim=768):
         super().__init__()
@@ -183,7 +151,6 @@ class GLPNDepthWiseConv(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.segformer.modeling_segformer.SegformerMixFFN with Segformer->GLPN
 class GLPNMixFFN(nn.Module):
     def __init__(self, config, in_features, hidden_features=None, out_features=None):
         super().__init__()
@@ -207,13 +174,7 @@ class GLPNMixFFN(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->GlpnDropPath
 class GlpnDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -229,12 +190,10 @@ class GlpnDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.segformer.modeling_segformer.SegformerLayer with Segformer->GLPN
 class GLPNLayer(nn.Module):
-    """This corresponds to the Block class in the original implementation."""
 
     def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
         super().__init__()
@@ -261,13 +220,11 @@ class GLPNLayer(nn.Module):
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
 
-        # first residual connection (with stochastic depth)
         attention_output = self.drop_path(attention_output)
         hidden_states = attention_output + hidden_states
 
         mlp_output = self.mlp(self.layer_norm_2(hidden_states), height, width)
 
-        # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(mlp_output)
         layer_output = mlp_output + hidden_states
 
@@ -281,10 +238,8 @@ class GLPNEncoder(nn.Module):
         super().__init__()
         self.config = config
 
-        # stochastic depth decay rule
         dpr = [x.item() for x in torch.linspace(0, config.drop_path_rate, sum(config.depths), device="cpu")]
 
-        # patch embeddings
         embeddings = []
         for i in range(config.num_encoder_blocks):
             embeddings.append(
@@ -297,11 +252,9 @@ class GLPNEncoder(nn.Module):
             )
         self.patch_embeddings = nn.ModuleList(embeddings)
 
-        # Transformer blocks
         blocks = []
         cur = 0
         for i in range(config.num_encoder_blocks):
-            # each block consists of layers
             layers = []
             if i != 0:
                 cur += config.depths[i - 1]
@@ -320,7 +273,6 @@ class GLPNEncoder(nn.Module):
 
         self.block = nn.ModuleList(blocks)
 
-        # Layer norms
         self.layer_norm = nn.ModuleList(
             [nn.LayerNorm(config.hidden_sizes[i]) for i in range(config.num_encoder_blocks)]
         )
@@ -340,17 +292,13 @@ class GLPNEncoder(nn.Module):
         hidden_states = pixel_values
         for idx, x in enumerate(zip(self.patch_embeddings, self.block, self.layer_norm)):
             embedding_layer, block_layer, norm_layer = x
-            # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
-            # second, send embeddings through blocks
             for i, blk in enumerate(block_layer):
                 layer_outputs = blk(hidden_states, height, width, output_attentions)
                 hidden_states = layer_outputs[0]
                 if output_attentions:
                     all_self_attentions = all_self_attentions + (layer_outputs[1],)
-            # third, apply layer norm
             hidden_states = norm_layer(hidden_states)
-            # fourth, optionally reshape back to (batch_size, num_channels, height, width)
             hidden_states = hidden_states.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
@@ -375,19 +323,15 @@ class GLPNPreTrainedModel(PreTrainedModel):
 
 @auto_docstring
 class GLPNModel(GLPNPreTrainedModel):
-    # Todo - Refactor as part of vision refactor. Copied from transformers.models.segformer.modeling_segformer.SegformerModel.__init__ with Segformer->GLPN
     def __init__(self, config):
         super().__init__(config)
         self.config = config
 
-        # hierarchical Transformer encoder
         self.encoder = GLPNEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
-    # Todo - Refactor as part of vision refactor. Copied from transformers.models.segformer.modeling_segformer.SegformerModel.forward
     def forward(
         self,
         pixel_values: torch.FloatTensor,
@@ -421,10 +365,6 @@ class GLPNModel(GLPNPreTrainedModel):
 
 
 class GLPNSelectiveFeatureFusion(nn.Module):
-    """
-    Selective Feature Fusion module, as explained in the [paper](https://huggingface.co/papers/2201.07436) (section 3.4). This
-    module adaptively selects and integrates local and global features by attaining an attention map for each feature.
-    """
 
     def __init__(self, in_channel=64):
         super().__init__()
@@ -448,15 +388,11 @@ class GLPNSelectiveFeatureFusion(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, local_features, global_features):
-        # concatenate features along the channel dimension
         features = torch.cat((local_features, global_features), dim=1)
-        # pass through convolutional layers
         features = self.convolutional_layer1(features)
         features = self.convolutional_layer2(features)
         features = self.convolutional_layer3(features)
-        # apply sigmoid to get two-channel attention map
         attn = self.sigmoid(features)
-        # construct hybrid features by adding element-wise
         hybrid_features = local_features * attn[:, 0, :, :].unsqueeze(1) + global_features * attn[
             :, 1, :, :
         ].unsqueeze(1)
@@ -487,14 +423,12 @@ class GLPNDecoderStage(nn.Module):
 class GLPNDecoder(nn.Module):
     def __init__(self, config):
         super().__init__()
-        # we use features from end -> start
         reserved_hidden_sizes = config.hidden_sizes[::-1]
         out_channels = config.decoder_hidden_size
 
         self.stages = nn.ModuleList(
             [GLPNDecoderStage(hidden_size, out_channels) for hidden_size in reserved_hidden_sizes]
         )
-        # don't fuse in first stage
         self.stages[0].fusion = None
 
         self.final_upsample = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
@@ -512,13 +446,6 @@ class GLPNDecoder(nn.Module):
 
 
 class SiLogLoss(nn.Module):
-    r"""
-    Implements the Scale-invariant log scale loss [Eigen et al., 2014](https://huggingface.co/papers/1406.2283).
-
-    $$L=\frac{1}{n} \sum_{i} d_{i}^{2}-\frac{1}{2 n^{2}}\left(\sum_{i} d_{i}^{2}\right)$$ where $d_{i}=\log y_{i}-\log
-    y_{i}^{*}$.
-
-    """
 
     def __init__(self, lambd=0.5):
         super().__init__()
@@ -546,7 +473,6 @@ class GLPNDepthEstimationHead(nn.Module):
         )
 
     def forward(self, hidden_states: list[torch.Tensor]) -> torch.Tensor:
-        # use last features of the decoder
         hidden_states = hidden_states[self.config.head_in_index]
 
         hidden_states = self.head(hidden_states)
@@ -570,7 +496,6 @@ class GLPNForDepthEstimation(GLPNPreTrainedModel):
         self.decoder = GLPNDecoder(config)
         self.head = GLPNDepthEstimationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

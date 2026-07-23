@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for LLaVa."""
 
 import numpy as np
 
@@ -62,7 +48,6 @@ class LlavaImageProcessorPil(PilBackend):
         Returns:
             `np.ndarray`: The padded image.
         """
-        # Backend always uses channels_first format: (num_channels, height, width)
         num_channels, height, width = image.shape
 
         if height == width:
@@ -70,7 +55,6 @@ class LlavaImageProcessorPil(PilBackend):
 
         max_dim = max(height, width)
 
-        # Ensure background_color is the correct shape
         if isinstance(background_color, int):
             background_color = [background_color]
         elif len(background_color) != num_channels:
@@ -110,7 +94,6 @@ class LlavaImageProcessorPil(PilBackend):
     ) -> BatchFeature:
         processed_images = []
         for image in images:
-            # Apply pad_to_square first if needed (before resize)
             if do_pad:
                 background_color = tuple(int(x * 255) for x in image_mean) if image_mean else 0
                 image = self.pad_to_square(image, background_color=background_color)

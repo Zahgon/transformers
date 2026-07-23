@@ -1,17 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Typing helpers shared across the Transformers library."""
 
 from __future__ import annotations
 
@@ -27,7 +13,6 @@ if TYPE_CHECKING:
     from .cache_utils import Cache
 
 
-# A few helpful type aliases
 Level: TypeAlias = int
 ExcInfo: TypeAlias = (
     None
@@ -39,7 +24,6 @@ DeviceMeshLike: TypeAlias = Any  # PyTorch stubs do not model torch.distributed.
 
 
 class TransformersLogger(Protocol):
-    # ---- Core Logger identity / configuration ----
     name: str
     level: int
     parent: logging.Logger | None
@@ -47,10 +31,8 @@ class TransformersLogger(Protocol):
     disabled: bool
     handlers: list[logging.Handler]
 
-    # Exists on Logger; default is True. (Not heavily used, but is part of API.)
     raiseExceptions: bool
 
-    # ---- Standard methods ----
     def setLevel(self, level: Level) -> None: ...
     def isEnabledFor(self, level: Level) -> bool: ...
     def getEffectiveLevel(self) -> int: ...
@@ -61,7 +43,6 @@ class TransformersLogger(Protocol):
     def removeHandler(self, hdlr: logging.Handler) -> None: ...
     def hasHandlers(self) -> bool: ...
 
-    # ---- Logging calls ----
     def debug(self, msg: object, *args: object, **kwargs: object) -> None: ...
     def info(self, msg: object, *args: object, **kwargs: object) -> None: ...
     def warning(self, msg: object, *args: object, **kwargs: object) -> None: ...
@@ -71,10 +52,8 @@ class TransformersLogger(Protocol):
     def critical(self, msg: object, *args: object, **kwargs: object) -> None: ...
     def fatal(self, msg: object, *args: object, **kwargs: object) -> None: ...
 
-    # The lowest-level primitive
     def log(self, level: Level, msg: object, *args: object, **kwargs: object) -> None: ...
 
-    # ---- Record-level / formatting ----
     def makeRecord(
         self,
         name: str,
@@ -110,7 +89,6 @@ class TransformersLogger(Protocol):
         stacklevel: int = 1,
     ) -> None: ...
 
-    # ---- Filters ----
     def addFilter(self, filt: logging.Filter) -> None: ...
     def removeFilter(self, filt: logging.Filter) -> None: ...
     @property
@@ -118,28 +96,17 @@ class TransformersLogger(Protocol):
 
     def filter(self, record: logging.LogRecord) -> bool: ...
 
-    # ---- Convenience helpers ----
     def setFormatter(self, fmt: logging.Formatter) -> None: ...  # mostly on handlers; present on adapters sometimes
     def debugStack(self, msg: object, *args: object, **kwargs: object) -> None: ...  # not std; safe no-op if absent
 
-    # ---- stdlib dictConfig-friendly / extra storage ----
-    # Logger has `manager` and can have arbitrary attributes; Protocol can't express arbitrary attrs,
-    # but we can at least include `__dict__` to make "extra attributes" less painful.
     __dict__: MutableMapping[str, Any]
 
-    # ---- Transformers logger specific methods ----
     def warning_advice(self, msg: object, *args: object, **kwargs: object) -> None: ...
     def warning_once(self, msg: object, *args: object, **kwargs: object) -> None: ...
     def info_once(self, msg: object, *args: object, **kwargs: object) -> None: ...
 
 
 class GenerativePreTrainedModel(Protocol):
-    """Protocol for the model interface that GenerationMixin expects.
-
-    GenerationMixin is designed to be mixed into PreTrainedModel subclasses. This Protocol documents the
-    attributes and methods the mixin relies on from its host class. It is *not* used at runtime — its
-    purpose is to help the ``ty`` type checker resolve ``self.<attr>`` accesses inside the mixin.
-    """
 
     config: Any  # PretrainedConfig — kept as Any to avoid circular imports
     device: torch.device
@@ -182,6 +149,5 @@ class PeftConfigLike(Protocol):
 
 
 class WhisperGenerationConfigLike(Protocol):
-    """Protocol for Whisper-specific generation config fields accessed in generation internals."""
 
     no_timestamps_token_id: int

@@ -1,16 +1,3 @@
-# Copyright 2025 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import collections.abc
@@ -60,7 +47,6 @@ def eager_attention_forward(
     if attention_mask is not None:
         attn_weights = attn_weights + attention_mask
 
-    # No upcasting of the attention weights to float32 in this implementation
     attn_weights = nn.functional.softmax(attn_weights, dim=-1)
     attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
     attn_output = torch.matmul(attn_weights, value_states)
@@ -78,7 +64,6 @@ class InternVLVisionAttention(JanusVisionAttention):
         super().__init__(config)
         del self.num_key_value_groups
 
-        # Needed for flash attention
         self.is_causal = False
         qk_norm = config.use_qk_norm
 
@@ -134,20 +119,10 @@ class InternVLVisionAttention(JanusVisionAttention):
 )
 @dataclass
 class InternVLVisionModelOutputWithPooling(BaseModelOutputWithPooling):
-    r"""
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, hidden_size)`):
-        Average of the last layer hidden states of the patch tokens (excluding the *[CLS]* token) if
-        *config.use_mean_pooling* is set to True. If set to False, then the final hidden state of the *[CLS]* token
-        will be returned.
-    """
+    pass
 
 
 class InternVLVisionPatchEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
-    `hidden_states` (patch embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
-    Transformer.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -177,13 +152,7 @@ class InternVLVisionPatchEmbeddings(nn.Module):
         return embeddings
 
 
-# Based on timm implementation, which can be found here:
-# https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
 class InternVLVisionEmbeddings(nn.Module):
-    """
-    Construct the CLS token, position and patch embeddings. Optionally, also the mask token.
-
-    """
 
     def __init__(self, config: InternVLVisionConfig) -> None:
         super().__init__()
@@ -220,7 +189,6 @@ class InternVLVisionEmbeddings(nn.Module):
         num_patches = embeddings.shape[1] - 1
         num_positions = self.position_embeddings.shape[1] - 1
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
@@ -258,7 +226,6 @@ class InternVLVisionEmbeddings(nn.Module):
 
         if bool_masked_pos is not None:
             mask_tokens = self.mask_token.expand(batch_size, seq_len, -1)
-            # replace the masked visual tokens by mask_tokens
             w = bool_masked_pos.unsqueeze(-1).type_as(mask_tokens)
             embeddings = embeddings * (1 - w) + mask_tokens * w
 
@@ -281,7 +248,6 @@ NORM2FN = {"layer_norm": nn.LayerNorm, "rms_norm": InternVLVisionRMSNorm}
 
 
 class InternVLVisionLayer(GradientCheckpointingLayer):
-    """This corresponds to the Block class in the timm implementation."""
 
     def __init__(self, config: InternVLVisionConfig) -> None:
         super().__init__()
@@ -289,7 +255,6 @@ class InternVLVisionLayer(GradientCheckpointingLayer):
         self.seq_len_dim = 1
         self.attention = InternVLVisionAttention(config)
         self.mlp = InternVLVisionMLP(config)
-        # InternVL uses different layernorm implementations for different models
         self.layernorm_before = NORM2FN[config.norm_type](config.hidden_size, eps=config.layer_norm_eps)
         self.layernorm_after = NORM2FN[config.norm_type](config.hidden_size, eps=config.layer_norm_eps)
 
@@ -308,10 +273,8 @@ class InternVLVisionLayer(GradientCheckpointingLayer):
 
         attention_output = self.lambda_1 * attention_output
 
-        # first residual connection
         hidden_states = attention_output + hidden_states
 
-        # in InternVLVision, layernorm is also applied after self-attention
         layer_output = self.layernorm_after(hidden_states)
 
         layer_output = self.mlp(layer_output)
@@ -320,7 +283,6 @@ class InternVLVisionLayer(GradientCheckpointingLayer):
         if self.lambda_2 is not None:
             layer_output = self.lambda_2 * layer_output
 
-        # second residual connection
         layer_output = layer_output + hidden_states
 
         return layer_output
@@ -391,7 +353,6 @@ class InternVLVisionModel(InternVLVisionPreTrainedModel):
             nn.Identity() if config.use_mean_pooling else nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -468,19 +429,15 @@ class InternVLModel(LlavaModel):
         if height % scale_factor != 0 or width % scale_factor != 0:
             raise ValueError("Height and width must be divisible by scale_factor for proper downsampling.")
 
-        # Reshape to allow downsampling
         vision_features = vision_features.view(
             batch_size, width, int(height * scale_factor), int(channels / scale_factor)
         )
-        # Permute dimensions to align downsampled axis correctly
         vision_features = vision_features.permute(0, 2, 1, 3).contiguous()
 
-        # Reshape to achieve final downsampled dimensions
         vision_features = vision_features.view(
             batch_size, int(height * scale_factor), int(width * scale_factor), int(channels / (scale_factor**2))
         )
 
-        # Swap height and width back for proper orientation
         vision_features = vision_features.permute(0, 2, 1, 3).contiguous()
 
         return vision_features
@@ -516,21 +473,16 @@ class InternVLModel(LlavaModel):
         if vision_feature_select_strategy == "default":
             vision_features = vision_features[:, 1:, :]
 
-        # Calculate dimensions based on vision features
         channels = vision_features.shape[1]
         feature_size = int(channels**0.5)
         batch_size = vision_features.shape[0]
 
-        # Reshape tensor to spatial dimensions
         vision_features = vision_features.reshape(batch_size, feature_size, feature_size, -1)
 
-        # Apply downsampling using pixel shuffle
         vision_features = self.pixel_shuffle(vision_features, scale_factor=downsample_ratio)
 
-        # Reshape tensor to prepare for projection
         vision_features = vision_features.reshape(batch_size, -1, vision_features.shape[-1])
 
-        # Project features through multi-modal projector
         vision_features = self.multi_modal_projector(vision_features)
         vision_outputs.pooler_output = vision_features
 

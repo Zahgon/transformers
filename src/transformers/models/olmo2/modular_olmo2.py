@@ -1,21 +1,3 @@
-# Copyright 2024 HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable
 
@@ -48,22 +30,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="allenai/Olmo2-7B-1124-hf")
 @strict
 class Olmo2Config(OlmoConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Olmo2Model, Olmo2Config
-
-    >>> # Initializing a Olmo2 7B style configuration
-    >>> configuration = Olmo2Config()
-
-    >>> # Initializing a model from the Olmo2 7B style configuration
-    >>> model = Olmo2Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "olmo2"
     base_model_tp_plan = {
@@ -85,8 +51,6 @@ class Olmo2Config(OlmoConfig):
     clip_qkv = AttributeError()
 
 
-# OLMo2 RMS norm is identical to Llama RMS norm except:
-# - Weight and hidden states are multiplied before converting back to the input dtype, rather than after.
 class Olmo2RMSNorm(LlamaRMSNorm):
     def forward(self, hidden_states):
         input_dtype = hidden_states.dtype
@@ -107,9 +71,6 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-# Olmo2 attention is identical to OLMo attention except:
-# - Norm is applied to attention queries and keys.
-# - No qkv clipping.
 class Olmo2Attention(OlmoAttention):
     def __init__(self, config: Olmo2Config, layer_idx: int | None = None):
         super().__init__(config, layer_idx=layer_idx)
@@ -161,9 +122,6 @@ class Olmo2Attention(OlmoAttention):
         return attn_output, attn_weights
 
 
-# The OLMo2 layers are identical to those of the OLMo model except:
-# - RMSNorm is used instead of standard layer norm.
-# - Norm is applied after attention/feedforward rather than before.
 class Olmo2DecoderLayer(OlmoDecoderLayer):
     def __init__(self, config: Olmo2Config, layer_idx: int):
         super().__init__(config, layer_idx=layer_idx)
@@ -195,7 +153,6 @@ class Olmo2DecoderLayer(OlmoDecoderLayer):
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.mlp(hidden_states)
         hidden_states = self.post_feedforward_layernorm(hidden_states)
@@ -207,8 +164,6 @@ class Olmo2PreTrainedModel(LlamaPreTrainedModel):
     pass
 
 
-# The OLMo2 model is identical to the OLMo model, except RMSNorm is used instead of
-# standard layer norm for the output norm.
 class Olmo2Model(OlmoModel):
     def __init__(self, config: Olmo2Config):
         super().__init__(config)
@@ -218,7 +173,6 @@ class Olmo2Model(OlmoModel):
         )
 
 
-# The heads now only need to redefine the model inside to the correct `RobertaModel`
 class Olmo2ForCausalLM(OlmoForCausalLM):
     pass
 

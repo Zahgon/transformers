@@ -1,17 +1,3 @@
-# Copyright 2024 JetMoe AI and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch JetMoe model."""
 
 from collections.abc import Callable
 
@@ -124,27 +110,21 @@ class JetMoeTopKGating(nn.Module):
         self.layer = nn.Linear(input_size, num_experts, bias=False)
 
     def forward(self, hidden_states):
-        # compute the top_k routing decision
         logits = self.layer(hidden_states).float()  # [batch_size x seq_len, num_experts]
         top_k_logits, top_k_indices = logits.topk(self.top_k, dim=1)  # [num_tokens, top_k]
         top_k_gates = torch.softmax(top_k_logits, dim=1).type_as(hidden_states)  # [num_tokens, top_k]
 
-        # compute number of input given to each expert
         zeros = torch.zeros(
             [top_k_gates.size(0), self.num_experts], dtype=top_k_gates.dtype, device=top_k_gates.device
         )  # [num_tokens, num_experts]
         gates = zeros.scatter(1, top_k_indices, 1)  # [num_tokens, num_experts]
         expert_size = gates.long().sum(0)  # [num_experts,]
-        # (This cause torch.compile to fail with `torch._dynamo.exc.Unsupported: Backend compiler failed with a fake tensor exception at`)
-        # (and `DataDependentOutputException`)
         expert_size = expert_size.tolist()
 
-        # sort and group input tokens according to expert assignment
         top_k_experts = top_k_indices.flatten()  # [num_tokens * top_k]
         _, index_sorted_experts = top_k_experts.sort(0)  # [num_tokens * top_k]
         batch_index = index_sorted_experts.div(self.top_k, rounding_mode="trunc")  # [num_tokens * top_k]
 
-        # gather the gate values for grouped input tokens
         top_k_gates = top_k_gates.flatten()  # [num_tokens * top_k]
         batch_gates = top_k_gates[index_sorted_experts]  # [num_tokens * top_k]
 
@@ -152,13 +132,6 @@ class JetMoeTopKGating(nn.Module):
 
 
 class JetMoeMoE(nn.Module):
-    """
-    A Sparsely gated mixture of experts layer with 1-layer Feed-Forward networks as experts.
-
-    Args:
-        config:
-            Configuration object with model hyperparameters.
-    """
 
     def __init__(self, config: JetMoeConfig):
         super().__init__()
@@ -210,13 +183,6 @@ class JetMoeMoE(nn.Module):
 
 
 class JetMoeMoA(nn.Module):
-    """
-    A Sparsely gated mixture of attention layer with pairs of query- and output-projections as experts.
-
-    Args:
-        config:
-            Configuration object with model hyperparameters.
-    """
 
     def __init__(self, config: JetMoeConfig):
         super().__init__()
@@ -237,27 +203,7 @@ class JetMoeMoA(nn.Module):
         )
 
     def map(self, layer_input):
-        """
-        Map inputs to attention experts according to routing decision and compute query projection inside each experts.
-        """
-
-        # Compute gating topology
-        bsz, length, emb_size = layer_input.size()
-        layer_input = layer_input.reshape(-1, emb_size)  # [bsz * length, emb_size]
-        index_sorted_experts, batch_index, batch_gates, expert_size, router_logits = self.router(layer_input)
-        topo_info = (index_sorted_experts, batch_index, batch_gates, expert_size)
-
-        # Group inputs according to topology and compute query projection
-        expert_inputs = layer_input[batch_index]  # [bsz * length * top_k, emb_size]
-        expert_outputs = self.input_linear(expert_inputs, expert_size)  # [bsz * length * top_k, hidden_size]
-
-        # Ungroup queries back to original order
-        zeros = torch.zeros(
-            (bsz * length * self.top_k, self.hidden_size), dtype=expert_outputs.dtype, device=expert_outputs.device
-        )
-        layer_output = zeros.index_add(0, index_sorted_experts, expert_outputs)
-        layer_output = layer_output.view(bsz, length, self.top_k, -1)  # [bsz, length, top_k, hidden_size]
-        return layer_output, router_logits, topo_info
+        pass
 
     def reduce(self, layer_input, topo_info):
         """
@@ -267,14 +213,11 @@ class JetMoeMoA(nn.Module):
         layer_input = layer_input.reshape(-1, hidden_size)  # [bsz * length * k, hidden_size]
         index_sorted_experts, batch_index, batch_gates, expert_size = topo_info
 
-        # Group inputs according to topology and compute output projection
         expert_inputs = layer_input[index_sorted_experts]  # [bsz * length * top_k, hidden_size]
         expert_outputs = self.output_linear(expert_inputs, expert_size)  # [bsz * length * top_k, emb_size]
 
-        # Apply gates to attention expert outputs
         expert_outputs = expert_outputs * batch_gates[:, None]
 
-        # Ungroup and merge outputs to original order
         zeros = torch.zeros((bsz * length, self.input_size), dtype=expert_outputs.dtype, device=expert_outputs.device)
         layer_output = zeros.index_add(0, batch_index, expert_outputs)
         layer_output = layer_output.view(bsz, length, self.input_size)
@@ -286,9 +229,6 @@ class JetMoeMoA(nn.Module):
 
 
 class JetMoeAttention(nn.Module):
-    """
-    Multi-headed attention from 'Attention Is All You Need' paper.
-    """
 
     def __init__(self, config: JetMoeConfig, layer_idx: int | None = None):
         """
@@ -351,8 +291,6 @@ class JetMoeAttention(nn.Module):
             self.config._attn_implementation, eager_attention_forward
         )
 
-        # This is different from other models where we repeat k/v heads
-        # instead of repeat interleaving them
         key_states = key_states.repeat(1, self.top_k, 1, 1)
         value_states = value_states.repeat(1, self.top_k, 1, 1)
 
@@ -394,7 +332,6 @@ class JetMoeDecoderLayer(LlamaDecoderLayer):
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        # Self Attention
         hidden_states, _, _ = self.self_attention(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -406,7 +343,6 @@ class JetMoeDecoderLayer(LlamaDecoderLayer):
         )
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -491,7 +427,6 @@ class JetMoeModel(MixtralModel):
 
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
@@ -526,7 +461,6 @@ class JetMoeForCausalLM(JetMoePreTrainedModel, GenerationMixin):
         self.num_experts = config.num_local_experts
         self.num_experts_per_tok = config.num_experts_per_tok
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -556,7 +490,6 @@ class JetMoeForCausalLM(JetMoePreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

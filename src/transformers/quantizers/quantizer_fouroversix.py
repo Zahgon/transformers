@@ -19,9 +19,6 @@ if is_torch_available():
 
 
 class FourOverSixHfQuantizer(HfQuantizer):
-    """
-    FP4 quantization with fouroversix.
-    """
 
     requires_calibration = False
     quantization_config: "FourOverSixConfig"
@@ -77,8 +74,6 @@ class FourOverSixHfQuantizer(HfQuantizer):
             adapt_fouroversix_config(self.quantization_config),
         )
 
-        # If the model has already been quantized, we need to delete the weight tensor here so that
-        # it's not expected when parameters are loaded from the checkpoint.
         if self.pre_quantized and not self.quantization_config.keep_master_weights:
             for _, module in model.named_modules():
                 if QuantizedModule.is_quantized_module_type(type(module)):
@@ -93,7 +88,7 @@ class FourOverSixHfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self) -> bool:
-        return self.quantization_config.keep_master_weights
+        pass
 
     def get_quantize_ops(self):
         from ..integrations.fouroversix import FourOverSixQuantize
@@ -111,8 +106,6 @@ class FourOverSixHfQuantizer(HfQuantizer):
         """
         from fouroversix import WeightConversions
 
-        # pre_quantized_model_config_type is only set if we are loading a
-        # pre-quantized model so it is not guaranteed to exist.
         if hasattr(self.quantization_config, "pre_quantized_model_config_type"):
             model_config_type = self.quantization_config.pre_quantized_model_config_type
             weight_conversions = WeightConversions.get_weight_conversions(

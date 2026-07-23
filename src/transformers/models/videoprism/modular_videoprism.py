@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from collections.abc import Callable
@@ -53,22 +40,6 @@ _R_SOFTPLUS_0 = 1.442695041
 @auto_docstring(checkpoint="google/videoprism-base-f16r288")
 @strict
 class VideoPrismVisionConfig(VivitConfig):
-    r"""
-    num_frames (`int`, *optional*, defaults to 16):
-        The number of frames in the input video.
-    tubelet_size (`List[int]`, *optional*, defaults to `[1, 18, 18]`):
-        The size of the tubelet patch.
-    num_spatial_layers (`int`, *optional*, defaults to 12):
-        Number of spatial transformer blocks.
-    num_temporal_layers (`int`, *optional*, defaults to 4):
-        Number of temporal transformer blocks.
-    attn_logit_softcapping (`float`, *optional*, defaults to 50.0):
-        Softcapping constant for attention logits.
-    num_auxiliary_layers (`int`, *optional*, defaults to 2):
-        Number of auxiliary layers. This is used in the VideoPrismVideoModel that is a part of VideoPrismClipModel.
-    apply_l2norm (`bool`, *optional*, defaults to `True`):
-        Whether to apply L2 normalization to the output. This is used in the VideoPrismVideoModel that is a part of VideoPrismClipModel.
-    """
 
     model_type = "videoprism_vision_model"
     base_config_key = "vision_config"
@@ -92,12 +63,6 @@ class VideoPrismVisionConfig(VivitConfig):
 @auto_docstring(checkpoint="google/videoprism-lvt-base-f16r288")
 @strict
 class VideoPrismTextConfig(SiglipTextConfig):
-    r"""
-    apply_l2norm (`bool`, *optional*, defaults to `True`):
-        Whether to apply L2 normalization to the output of VideoPrismTextEncoder.
-    attn_logit_softcapping (`float`, *optional*, defaults to 50.0):
-        Softcapping constant for attention logits.
-    """
 
     hidden_act: str = "relu"
     pad_token_id: int | None = 0
@@ -119,34 +84,11 @@ class VideoPrismTextConfig(SiglipTextConfig):
 @auto_docstring(checkpoint="google/videoprism-lvt-base-f16r288")
 @strict
 class VideoPrismConfig(SiglipConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import VideoPrismClipModel, VideoPrismConfig
-
-    >>> # Initializing a VideoPrismConfig with default values
-    >>> configuration = VideoPrismConfig()
-
-    >>> # Initializing a VideoPrismClipModel with the configuration
-    >>> model = VideoPrismClipModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     initializer_factor = AttributeError()
 
 
 class VideoPrismTokenizer(T5Tokenizer):
-    r"""
-    Constructs a VideoPrism tokenizer, which is essentially a T5 tokenizer without its postprocessor
-    (appending an EOS token at the end of the sequence).
-
-    This tokenizer inherits from [`T5Tokenizer`] which contains most of the main methods. Users should refer to this
-    superclass for more information regarding those methods.
-    """
 
     def __init__(
         self,
@@ -169,7 +111,6 @@ class VideoPrismTokenizer(T5Tokenizer):
             additional_special_tokens=additional_special_tokens,
             **kwargs,
         )
-        # VideoPrism does not append an EOS token by default
         del self._tokenizer.post_processor
 
 
@@ -199,14 +140,6 @@ class VideoPrismProcessor(ProcessorMixin):
 @auto_docstring(custom_intro="""Base class for model outputs that include spatial and temporal states.""")
 @dataclass
 class BaseModelOutputWithSpatialAndTemporalStates(BaseModelOutput):
-    r"""
-    last_temporal_hidden_state (`torch.FloatTensor`, *optional*):
-        The last hidden state of the temporal encoder, typically of shape
-        `(batch_size * num_patches, num_frames, hidden_size)`.
-    last_spatial_hidden_state (`torch.FloatTensor`, *optional*):
-        The last hidden state of the spatial encoder, typically of shape
-        `(batch_size * num_frames, num_patches, hidden_size)`.
-    """
 
     last_temporal_hidden_state: torch.FloatTensor | None = None
     last_spatial_hidden_state: torch.FloatTensor | None = None
@@ -217,24 +150,6 @@ class BaseModelOutputWithSpatialAndTemporalStates(BaseModelOutput):
 )
 @dataclass
 class VideoPrismClipOutput(ModelOutput):
-    r"""
-    logits_per_video (`torch.FloatTensor` of shape `(video_batch_size, text_batch_size)`):
-        The scaled dot product scores between `video_embeds` and `text_embeds`. This represents the video-text
-        similarity scores.
-    logits_per_text (`torch.FloatTensor` of shape `(text_batch_size, video_batch_size)`):
-        The scaled dot product scores between `text_embeds` and `video_embeds`. This represents the text-video
-        similarity scores.
-    video_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim)`):
-        The video embeddings obtained by applying the projection layer to the pooled output of [`VideoPrismVideoModel`].
-    text_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim)`):
-        The text embeddings obtained by applying the projection layer to the pooled output of [`VideoPrismTextModel`].
-    video_model_output (`BaseModelOutputWithPooling`):
-        The output of [`VideoPrismVideoModel`].
-    text_model_output (`BaseModelOutputWithPooling`):
-        The output of the [`VideoPrismTextModel`].
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `return_loss` is `True`):
-        Contrastive loss for video-text similarity.
-    """
 
     logits_per_video: torch.FloatTensor | None = None
     logits_per_text: torch.FloatTensor | None = None
@@ -252,13 +167,6 @@ class VideoPrismClipOutput(ModelOutput):
 
 
 class VideoPrismTubeletEmbeddings(VivitTubeletEmbeddings):
-    """
-    VideoPrism Tubelet Embeddings.
-
-    The authors of Videoprism use the Factorized Encoder architecture, i.e. "Model 2", introduced in the VIVIT paper (https://huggingface.co/papers/2103.15691).
-    This differs from Vivit by using a convolution of `tubelet_size=(1, 18, 18)`, which is essentially a 2d convolution in the spatial dimension.
-    The temporal dimension is also merged with the `batch_size` in order to make sure the image embeddings have no temporal component, unlike Vivit.
-    """
 
     def __init__(self, config: VideoPrismVisionConfig):
         super().__init__(config)
@@ -272,12 +180,9 @@ class VideoPrismTubeletEmbeddings(VivitTubeletEmbeddings):
             raise ValueError(
                 f"Image size ({height}*{width}) doesn't match model ({self.image_size[0]}*{self.image_size[1]}). Set interpolate_pos_encoding=True to automatically resize the model position embeddings."
             )
-        # permute to (batch_size, num_channels, num_frames, height, width)
         pixel_values_videos = pixel_values_videos.transpose(1, 2)
         hidden_states = self.projection(pixel_values_videos)
-        # flatten the spatial part and permute to (batch_size, num_frames, num_patches, hidden_dim)
         hidden_states = hidden_states.flatten(3).permute(0, 2, 3, 1)
-        # combine batch and time dimension
         batch_size, num_frames, num_patches, hidden_size = hidden_states.shape
         hidden_states = hidden_states.reshape(batch_size * num_frames, num_patches, hidden_size)
 
@@ -301,11 +206,9 @@ class VideoPrismSpatialEmbeddings(VivitEmbeddings):
         - https://github.com/facebookresearch/dinov2/blob/e1277af2ba9496fbadf7aec6eba56e8d882d1e35/dinov2/models/vision_transformer.py#L179-L211
         """
 
-        # The only difference from Vivit is that we don't have to account for a cls token
         num_patches = embeddings.shape[1]
         num_positions = self.position_embeddings.shape[1]
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
@@ -318,7 +221,6 @@ class VideoPrismSpatialEmbeddings(VivitEmbeddings):
         patch_pos_embed = self.position_embeddings.reshape(1, sqrt_num_positions, sqrt_num_positions, dim)
         patch_pos_embed = patch_pos_embed.permute(0, 3, 1, 2)
 
-        # This differs from Vivit by using bilinear mode instead of bicubic.
         patch_pos_embed = nn.functional.interpolate(
             patch_pos_embed,
             size=(num_row_patches, num_col_patches),
@@ -336,7 +238,6 @@ class VideoPrismSpatialEmbeddings(VivitEmbeddings):
     ) -> torch.Tensor:
         batch, frames, channel, height, width = pixel_values_videos.shape
         embeddings = self.patch_embeddings(pixel_values_videos, interpolate_pos_encoding)
-        # no cls token is added unlike Vivit
         # add positional encoding to each token
         if interpolate_pos_encoding:
             embeddings = embeddings + self.interpolate_pos_encoding(embeddings, height, width)
@@ -349,12 +250,6 @@ class VideoPrismSpatialEmbeddings(VivitEmbeddings):
 
 
 class VideoPrismTemporalEmbeddings(VivitEmbeddings):
-    """
-    VideoPrism Temporal Embeddings.
-
-    Receives embeddings from spatial encoder, reshapes the hidden state to
-    (batch_size * num_patches, num_frames, hidden_size) and adds positional embeddings.
-    """
 
     def __init__(self, config: VideoPrismVisionConfig):
         super().__init__(config)
@@ -369,7 +264,6 @@ class VideoPrismTemporalEmbeddings(VivitEmbeddings):
         target_emb_length = embeddings.shape[1]
         source_emb_length = self.position_embeddings.shape[1]
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and target_emb_length == source_emb_length:
             return self.position_embeddings
 
@@ -485,9 +379,6 @@ class VideoPrismAttention(VivitAttention):
 
 class VideoPrismLayerNorm(nn.LayerNorm):
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # a custom layernorm formula with gamma -> gamma + 1 is used in this model. ``+ 1.0`` (not
-        # ``+ 1``) keeps the constant as a float scalar — Python-int addition routes through a
-        # ``prim.device`` graph node that ``run_decompositions`` rejects during ONNX export.
         return F.layer_norm(hidden_states, self.normalized_shape, self.weight + 1.0, self.bias, self.eps)
 
 
@@ -512,8 +403,6 @@ class VideoPrismPreTrainedModel(VivitPreTrainedModel):
         "VideoPrismTextEmbeddings",
         "VideoPrismMultiheadAttentionPoolingHead",
     ]
-    # sdpa is disabled because it does not support attention capping
-    # used in eager and logits are too far off
     _supports_sdpa = False
     _input_embed_layer = AttributeError()
 
@@ -588,21 +477,18 @@ class VideoPrismVisionModel(VideoPrismPreTrainedModel):
 
         input_shape = pixel_values_videos.shape
 
-        # spatial
         spatial_embeds = self.spatial_embeddings(pixel_values_videos, interpolate_pos_encoding)
         spatial_hidden_states = spatial_embeds
         for spatial_layer in self.spatial_layers:
             spatial_hidden_states = spatial_layer(spatial_hidden_states, **kwargs)
         features = self.layernorm1(spatial_hidden_states)
 
-        # temporal
         temporal_embeds = self.temporal_embeddings(features, input_shape, interpolate_pos_encoding)
         temporal_hidden_states = temporal_embeds
         for temporal_layer in self.temporal_layers:
             temporal_hidden_states = temporal_layer(temporal_hidden_states, **kwargs)
         features = self.layernorm2(temporal_hidden_states)
 
-        # final reshape
         _, num_frames, dim = features.shape
         features = features.view(input_shape[0], -1, num_frames, dim).transpose(1, 2).contiguous()
         _, num_frames, num_patches, dim = features.shape
@@ -880,10 +766,8 @@ class VideoPrismClipModel(VideoPrismPreTrainedModel):
         logits_per_video = logits_per_video / torch.sum(logits_per_video, dim=0, keepdims=True)
         logits_per_text = logits_per_text / torch.sum(logits_per_text, dim=0, keepdims=True)
 
-        # adopted from siglip
         loss = None
         if return_loss:
-            # Adapted from https://github.com/google-research/big_vision/blob/01edb81a4716f93a48be43b3a4af14e29cdb3a7f/big_vision/trainers/proj/image_text/siglip.py#L287
             eye = torch.eye(logits_per_text.size(0), device=logits_per_text.device)
             m1_diag1 = -torch.ones_like(logits_per_text) + 2 * eye
             loglik = torch.nn.functional.logsigmoid(m1_diag1 * logits_per_text)

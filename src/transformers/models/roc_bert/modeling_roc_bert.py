@@ -1,17 +1,3 @@
-# Copyright 2022 WeChatAI The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch RoCBert model."""
 
 from collections.abc import Callable
 
@@ -48,7 +34,6 @@ logger = logging.get_logger(__name__)
 
 
 class RoCBertEmbeddings(nn.Module):
-    """Construct the embeddings from word, position, shape, pronunciation and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -80,7 +65,6 @@ class RoCBertEmbeddings(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -110,12 +94,8 @@ class RoCBertEmbeddings(nn.Module):
         if position_ids is None:
             position_ids = self.position_ids[:, past_key_values_length : seq_length + past_key_values_length]
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
-                # NOTE: We assume either pos ids to have bsz == 1 (broadcastable) or bsz == effective bsz (input_shape[0])
                 buffered_token_type_ids = self.token_type_ids.expand(position_ids.shape[0], -1)
                 buffered_token_type_ids = torch.gather(buffered_token_type_ids, dim=1, index=position_ids)
                 token_type_ids = buffered_token_type_ids.expand(batch_size, seq_length)
@@ -174,7 +154,6 @@ class RoCBertEmbeddings(nn.Module):
             return embedding_in
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -188,7 +167,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -203,7 +181,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfAttention with Bert->RoCBert
 class RoCBertSelfAttention(nn.Module):
     def __init__(self, config, is_causal=False, layer_idx=None):
         super().__init__()
@@ -239,18 +216,15 @@ class RoCBertSelfAttention(nn.Module):
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.attention_head_size)
 
-        # get all proj
         query_layer = self.query(hidden_states).view(*hidden_shape).transpose(1, 2)
         key_layer = self.key(hidden_states).view(*hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(*hidden_shape).transpose(1, 2)
 
         if past_key_values is not None:
-            # decoder-only bert can have a simple dynamic cache for example
             current_past_key_values = past_key_values
             if isinstance(past_key_values, EncoderDecoderCache):
                 current_past_key_values = past_key_values.self_attention_cache
 
-            # save all key/value_layer to cache to be re-used for fast auto-regressive generation
             key_layer, value_layer = current_past_key_values.update(key_layer, value_layer, self.layer_idx)
 
         attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
@@ -271,7 +245,6 @@ class RoCBertSelfAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertCrossAttention with Bert->RoCBert
 class RoCBertCrossAttention(nn.Module):
     def __init__(self, config, is_causal=False, layer_idx=None):
         super().__init__()
@@ -304,17 +277,14 @@ class RoCBertCrossAttention(nn.Module):
         past_key_values: EncoderDecoderCache | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple[torch.Tensor]:
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.attention_head_size)
 
-        # get query proj
         query_layer = self.query(hidden_states).view(hidden_shape).transpose(1, 2)
 
         is_updated = past_key_values.is_updated.get(self.layer_idx) if past_key_values is not None else False
         if past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_layer = past_key_values.cross_attention_cache.layers[self.layer_idx].keys
             value_layer = past_key_values.cross_attention_cache.layers[self.layer_idx].values
         else:
@@ -323,11 +293,9 @@ class RoCBertCrossAttention(nn.Module):
             value_layer = self.value(encoder_hidden_states).view(kv_shape).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all states to the cache
                 key_layer, value_layer = past_key_values.cross_attention_cache.update(
                     key_layer, value_layer, self.layer_idx
                 )
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 past_key_values.is_updated[self.layer_idx] = True
 
         attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
@@ -348,7 +316,6 @@ class RoCBertCrossAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput with Bert->RoCBert
 class RoCBertSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -363,7 +330,6 @@ class RoCBertSelfOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertAttention with Bert->RoCBert,BERT->ROC_BERT
 class RoCBertAttention(nn.Module):
     def __init__(self, config, is_causal=False, layer_idx=None, is_cross_attention=False):
         super().__init__()
@@ -393,7 +359,6 @@ class RoCBertAttention(nn.Module):
         return attention_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->RoCBert
 class RoCBertIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -409,7 +374,6 @@ class RoCBertIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput with Bert->RoCBert
 class RoCBertOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -424,7 +388,6 @@ class RoCBertOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertLayer with Bert->RoCBert
 class RoCBertLayer(GradientCheckpointingLayer):
     def __init__(self, config, layer_idx=None):
         super().__init__()
@@ -490,7 +453,6 @@ class RoCBertLayer(GradientCheckpointingLayer):
         return layer_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertEncoder with Bert->RoCBert
 class RoCBertEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -523,7 +485,6 @@ class RoCBertEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler with Bert->RoCBert
 class RoCBertPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -531,15 +492,12 @@ class RoCBertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPredictionHeadTransform with Bert->RoCBert
 class RoCBertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -557,14 +515,11 @@ class RoCBertPredictionHeadTransform(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertLMPredictionHead with Bert->RoCBert
 class RoCBertLMPredictionHead(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.transform = RoCBertPredictionHeadTransform(config)
 
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=True)
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
@@ -574,7 +529,6 @@ class RoCBertLMPredictionHead(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOnlyMLMHead with Bert->RoCBert
 class RoCBertOnlyMLMHead(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -639,28 +593,25 @@ class RoCBertModel(RoCBertPreTrainedModel):
 
         self.pooler = RoCBertPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.bert.modeling_bert.BertModel.get_input_embeddings
     def get_input_embeddings(self):
         return self.embeddings.word_embeddings
 
-    # Copied from transformers.models.bert.modeling_bert.BertModel.set_input_embeddings
     def set_input_embeddings(self, value):
         self.embeddings.word_embeddings = value
 
     def get_pronunciation_embeddings(self):
-        return self.embeddings.pronunciation_embed
+        pass
 
     def set_pronunciation_embeddings(self, value):
-        self.embeddings.pronunciation_embed = value
+        pass
 
     def get_shape_embeddings(self):
-        return self.embeddings.shape_embed
+        pass
 
     def set_shape_embeddings(self, value):
-        self.embeddings.shape_embed = value
+        pass
 
     @merge_with_config_defaults
     @capture_outputs
@@ -746,7 +697,6 @@ class RoCBertModel(RoCBertPreTrainedModel):
             past_key_values=encoder_outputs.past_key_values,
         )
 
-    # Copied from transformers.models.bert.modeling_bert.BertModel._create_attention_masks
     def _create_attention_masks(
         self,
         attention_mask,
@@ -797,14 +747,11 @@ class RoCBertForPreTraining(RoCBertPreTrainedModel):
         self.roc_bert = RoCBertModel(config)
         self.cls = RoCBertOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.bert.modeling_bert.BertForPreTraining.get_output_embeddings
     def get_output_embeddings(self):
         return self.cls.predictions.decoder
 
-    # Copied from transformers.models.bert.modeling_bert.BertForPreTraining.set_output_embeddings
     def set_output_embeddings(self, new_embeddings):
         self.cls.predictions.decoder = new_embeddings
         self.cls.predictions.bias = new_embeddings.bias
@@ -987,7 +934,6 @@ class RoCBertForMaskedLM(RoCBertPreTrainedModel):
         "cls.predictions.decoder.weight": "roc_bert.embeddings.word_embeddings.weight",
     }
 
-    # Copied from transformers.models.bert.modeling_bert.BertForMaskedLM.__init__ with Bert->RoCBert,bert->roc_bert
     def __init__(self, config):
         super().__init__(config)
 
@@ -1000,14 +946,11 @@ class RoCBertForMaskedLM(RoCBertPreTrainedModel):
         self.roc_bert = RoCBertModel(config, add_pooling_layer=False)
         self.cls = RoCBertOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.bert.modeling_bert.BertForMaskedLM.get_output_embeddings
     def get_output_embeddings(self):
         return self.cls.predictions.decoder
 
-    # Copied from transformers.models.bert.modeling_bert.BertForMaskedLM.set_output_embeddings
     def set_output_embeddings(self, new_embeddings):
         self.cls.predictions.decoder = new_embeddings
         self.cls.predictions.bias = new_embeddings.bias
@@ -1110,7 +1053,6 @@ class RoCBertForCausalLM(RoCBertPreTrainedModel, GenerationMixin):
         "cls.predictions.decoder.weight": "roc_bert.embeddings.word_embeddings.weight",
     }
 
-    # Copied from transformers.models.bert.modeling_bert.BertLMHeadModel.__init__ with BertLMHeadModel->RoCBertForCausalLM,Bert->RoCBert,bert->roc_bert
     def __init__(self, config):
         super().__init__(config)
 
@@ -1120,14 +1062,11 @@ class RoCBertForCausalLM(RoCBertPreTrainedModel, GenerationMixin):
         self.roc_bert = RoCBertModel(config, add_pooling_layer=False)
         self.cls = RoCBertOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.bert.modeling_bert.BertLMHeadModel.get_output_embeddings
     def get_output_embeddings(self):
         return self.cls.predictions.decoder
 
-    # Copied from transformers.models.bert.modeling_bert.BertLMHeadModel.set_output_embeddings
     def set_output_embeddings(self, new_embeddings):
         self.cls.predictions.decoder = new_embeddings
         self.cls.predictions.bias = new_embeddings.bias
@@ -1205,7 +1144,6 @@ class RoCBertForCausalLM(RoCBertPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.cls(hidden_states[:, slice_indices, :])
 
@@ -1231,7 +1169,6 @@ class RoCBertForCausalLM(RoCBertPreTrainedModel, GenerationMixin):
         attention_mask=None,
         **model_kwargs,
     ):
-        # Overwritten -- `input_pronunciation_ids`
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids=input_ids,
@@ -1240,7 +1177,6 @@ class RoCBertForCausalLM(RoCBertPreTrainedModel, GenerationMixin):
             **model_kwargs,
         )
 
-        # cut decoder_input_ids if past_key_values is used
         if past_key_values is not None:
             if input_shape_ids is not None:
                 model_inputs["input_shape_ids"] = input_shape_ids[:, -1:]
@@ -1257,7 +1193,6 @@ class RoCBertForCausalLM(RoCBertPreTrainedModel, GenerationMixin):
     """
 )
 class RoCBertForSequenceClassification(RoCBertPreTrainedModel):
-    # Copied from transformers.models.bert.modeling_bert.BertForSequenceClassification.__init__ with Bert->RoCBert,bert->roc_bert
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -1270,7 +1205,6 @@ class RoCBertForSequenceClassification(RoCBertPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1357,7 +1291,6 @@ class RoCBertForSequenceClassification(RoCBertPreTrainedModel):
 
 @auto_docstring
 class RoCBertForMultipleChoice(RoCBertPreTrainedModel):
-    # Copied from transformers.models.bert.modeling_bert.BertForMultipleChoice.__init__ with Bert->RoCBert,bert->roc_bert
     def __init__(self, config):
         super().__init__(config)
 
@@ -1368,7 +1301,6 @@ class RoCBertForMultipleChoice(RoCBertPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1480,7 +1412,6 @@ class RoCBertForMultipleChoice(RoCBertPreTrainedModel):
 
 @auto_docstring
 class RoCBertForTokenClassification(RoCBertPreTrainedModel):
-    # Copied from transformers.models.bert.modeling_bert.BertForTokenClassification.__init__ with Bert->RoCBert,bert->roc_bert
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -1492,7 +1423,6 @@ class RoCBertForTokenClassification(RoCBertPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1559,7 +1489,6 @@ class RoCBertForTokenClassification(RoCBertPreTrainedModel):
 
 @auto_docstring
 class RoCBertForQuestionAnswering(RoCBertPreTrainedModel):
-    # Copied from transformers.models.bert.modeling_bert.BertForQuestionAnswering.__init__ with Bert->RoCBert,bert->roc_bert
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -1567,7 +1496,6 @@ class RoCBertForQuestionAnswering(RoCBertPreTrainedModel):
         self.roc_bert = RoCBertModel(config, add_pooling_layer=False)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1622,12 +1550,10 @@ class RoCBertForQuestionAnswering(RoCBertPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

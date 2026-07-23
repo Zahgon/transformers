@@ -21,29 +21,6 @@ if is_vision_available():
     """,
 )
 class ImageFeatureExtractionPipeline(Pipeline):
-    """
-    Image feature extraction pipeline uses no model head. This pipeline extracts the hidden states from the base
-    transformer, which can be used as features in downstream tasks.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> extractor = pipeline(model="google/vit-base-patch16-224", task="image-feature-extraction")
-    >>> result = extractor("https://huggingface.co/datasets/Narsil/image_dummy/raw/main/parrots.png", return_tensors=True)
-    >>> result.shape  # This is a tensor of shape [1, sequence_length, hidden_dimension] representing the input image.
-    torch.Size([1, 197, 768])
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This image feature extraction pipeline can currently be loaded from [`pipeline`] using the task identifier:
-    `"image-feature-extraction"`.
-
-    All vision models may be used for this pipeline. See a list of all models, including community-contributed models on
-    [huggingface.co/models](https://huggingface.co/models).
-    """
 
     _load_processor = False
     _load_image_processor = True
@@ -84,7 +61,6 @@ class ImageFeatureExtractionPipeline(Pipeline):
                 )
             outputs = model_outputs["pooler_output"]
         else:
-            # [0] is the first available tensor, logits or last_hidden_state.
             outputs = model_outputs[0]
 
         if return_tensors:

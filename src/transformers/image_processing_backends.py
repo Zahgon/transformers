@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Iterable
 from functools import lru_cache
@@ -84,7 +71,6 @@ logger = logging.get_logger(__name__)
 
 @requires(backends=("torch", "torchvision"))
 class TorchvisionBackend(BaseImageProcessor):
-    """Torchvision backend for GPU-accelerated batched image processing."""
 
     def __init__(self, **kwargs: Unpack[ImagesKwargs]):
         super().__init__(**kwargs)
@@ -92,10 +78,7 @@ class TorchvisionBackend(BaseImageProcessor):
 
     @property
     def backend(self) -> str:
-        """
-        `str`: The backend used by this image processor.
-        """
-        return "torchvision"
+        pass
 
     def fetch_images(self, image_url_or_urls: str | list[str] | list[list[str]]):
         """
@@ -211,7 +194,6 @@ class TorchvisionBackend(BaseImageProcessor):
         **kwargs,
     ) -> "torch.Tensor":
         """Resize an image using Torchvision."""
-        # Convert PIL resample to torchvision interpolation if needed
         if resample is not None:
             if isinstance(resample, (PILImageResampling, int)):
                 interpolation = pil_torch_interpolation_mapping[resample]
@@ -251,7 +233,6 @@ class TorchvisionBackend(BaseImageProcessor):
                 f" {size}."
             )
 
-        # Workaround for torch.compile issue with uint8 on AMD GPUs
         if is_torchdynamo_compiling() and is_rocm_platform():
             return self._compile_friendly_resize(image, new_size, interpolation, antialias)
         return tvF.resize(image, new_size, interpolation=interpolation, antialias=antialias)
@@ -305,7 +286,6 @@ class TorchvisionBackend(BaseImageProcessor):
         device: Optional["torch.device"] = None,
     ) -> tuple:
         if do_rescale and do_normalize:
-            # Fused rescale and normalize
             image_mean = torch.tensor(image_mean, device=device) * (1.0 / rescale_factor)
             image_std = torch.tensor(image_std, device=device) * (1.0 / rescale_factor)
             do_rescale = False
@@ -384,7 +364,6 @@ class TorchvisionBackend(BaseImageProcessor):
         **kwargs,
     ) -> BatchFeature:
         """Preprocess using Torchvision backend (fast, GPU-accelerated)."""
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -393,13 +372,11 @@ class TorchvisionBackend(BaseImageProcessor):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_center_crop:
                 stacked_images = self.center_crop(stacked_images, crop_size)
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -414,7 +391,6 @@ class TorchvisionBackend(BaseImageProcessor):
 
 @requires(backends=("vision",))
 class PilBackend(BaseImageProcessor):
-    """PIL/NumPy backend for portable CPU-only image processing."""
 
     def __init__(self, **kwargs: Unpack[ImagesKwargs]):
         super().__init__(**kwargs)
@@ -422,10 +398,7 @@ class PilBackend(BaseImageProcessor):
 
     @property
     def backend(self) -> str:
-        """
-        `str`: The backend used by this image processor.
-        """
-        return "pil"
+        pass
 
     def process_image(
         self,
@@ -444,7 +417,6 @@ class PilBackend(BaseImageProcessor):
 
         if image_type == ImageType.PIL:
             image = np.array(image)
-            # Set LAST only for multi-channel PIL images (H, W, C); for grayscale (H, W), leave as is to avoid shape errors after expand_dims.
             if image.ndim >= 3:
                 input_data_format = ChannelDimension.LAST if input_data_format is None else input_data_format
         elif image_type == ImageType.TORCH:
@@ -457,7 +429,6 @@ class PilBackend(BaseImageProcessor):
             input_data_format = infer_channel_dimension_format(image)
 
         if input_data_format == ChannelDimension.LAST:
-            # Convert from channels-last to channels-first
             if isinstance(image, np.ndarray):
                 image = np.transpose(image, (2, 0, 1))
 
@@ -499,8 +470,6 @@ class PilBackend(BaseImageProcessor):
                 )
 
             if height != target_height or width != target_width:
-                # Pad format: ((before_1, after_1), (before_2, after_2), ...)
-                # For CHW format: ((0, 0), (0, padding_height), (0, padding_width))
                 pad_width = ((0, 0), (0, padding_height), (0, padding_width))
                 if padding_mode == "constant":
                     image = np.pad(image, pad_width, mode="constant", constant_values=fill_value)
@@ -527,7 +496,6 @@ class PilBackend(BaseImageProcessor):
         **kwargs,
     ) -> np.ndarray:
         """Resize an image using PIL/NumPy."""
-        # PIL backend only supports PILImageResampling
         if resample is not None and not isinstance(resample, (PILImageResampling, int)):
             if torch_pil_interpolation_mapping is not None and resample in torch_pil_interpolation_mapping:
                 resample = torch_pil_interpolation_mapping[resample]
@@ -654,11 +622,9 @@ class PilBackend(BaseImageProcessor):
 
     def to_dict(self) -> dict[str, Any]:
         processor_dict = super().to_dict()
-        # Remove the "Pil" suffix from the image processor type
         if processor_dict.get("image_processor_type", "").endswith("Pil"):
             processor_dict["image_processor_type"] = processor_dict["image_processor_type"][:-3]
         return processor_dict
 
 
-# Backward-compatible alias: allow referring to TorchvisionBackend as BaseImageProcessorFast
 BaseImageProcessorFast = TorchvisionBackend

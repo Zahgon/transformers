@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert DiT checkpoints from the unilm repository."""
 
 import argparse
 import json
@@ -32,13 +18,11 @@ logging.set_verbosity_info()
 logger = logging.get_logger(__name__)
 
 
-# here we list all keys to be renamed (original name on the left, our name on the right)
 def create_rename_keys(config, has_lm_head=False, is_semantic=False):
     prefix = "backbone." if is_semantic else ""
 
     rename_keys = []
     for i in range(config.num_hidden_layers):
-        # encoder layers: output projection, 2 feedforward neural networks and 2 layernorms
         rename_keys.append((f"{prefix}blocks.{i}.norm1.weight", f"beit.encoder.layer.{i}.layernorm_before.weight"))
         rename_keys.append((f"{prefix}blocks.{i}.norm1.bias", f"beit.encoder.layer.{i}.layernorm_before.bias"))
         rename_keys.append(
@@ -54,7 +38,6 @@ def create_rename_keys(config, has_lm_head=False, is_semantic=False):
         rename_keys.append((f"{prefix}blocks.{i}.mlp.fc2.weight", f"beit.encoder.layer.{i}.output.dense.weight"))
         rename_keys.append((f"{prefix}blocks.{i}.mlp.fc2.bias", f"beit.encoder.layer.{i}.output.dense.bias"))
 
-    # projection layer + position embeddings
     rename_keys.extend(
         [
             (f"{prefix}cls_token", "beit.embeddings.cls_token"),
@@ -65,7 +48,6 @@ def create_rename_keys(config, has_lm_head=False, is_semantic=False):
     )
 
     if has_lm_head:
-        # mask token + layernorm
         rename_keys.extend(
             [
                 ("mask_token", "beit.embeddings.mask_token"),
@@ -74,7 +56,6 @@ def create_rename_keys(config, has_lm_head=False, is_semantic=False):
             ]
         )
     else:
-        # layernorm + classification head
         rename_keys.extend(
             [
                 ("fc_norm.weight", "beit.pooler.layernorm.weight"),
@@ -87,11 +68,9 @@ def create_rename_keys(config, has_lm_head=False, is_semantic=False):
     return rename_keys
 
 
-# we split up the matrix of each encoder layer into queries, keys and values
 def read_in_q_k_v(state_dict, config, has_lm_head=False, is_semantic=False):
     for i in range(config.num_hidden_layers):
         prefix = "backbone." if is_semantic else ""
-        # queries, keys and values
         in_proj_weight = state_dict.pop(f"{prefix}blocks.{i}.attn.qkv.weight")
         q_bias = state_dict.pop(f"{prefix}blocks.{i}.attn.q_bias")
         v_bias = state_dict.pop(f"{prefix}blocks.{i}.attn.v_bias")
@@ -108,8 +87,6 @@ def read_in_q_k_v(state_dict, config, has_lm_head=False, is_semantic=False):
         ]
         state_dict[f"beit.encoder.layer.{i}.attention.attention.value.bias"] = v_bias
 
-        # gamma_1 and gamma_2
-        # we call them lambda because otherwise they are renamed when using .from_pretrained
         gamma_1 = state_dict.pop(f"{prefix}blocks.{i}.gamma_1")
         gamma_2 = state_dict.pop(f"{prefix}blocks.{i}.gamma_2")
 
@@ -122,7 +99,6 @@ def rename_key(dct, old, new):
     dct[new] = val
 
 
-# We will verify our results on an image of cute cats
 def prepare_img():
     url = "http://images.cocodataset.org/val2017/000000039769.jpg"
     with httpx.stream("GET", url) as response:
@@ -132,73 +108,7 @@ def prepare_img():
 
 @torch.no_grad()
 def convert_dit_checkpoint(checkpoint_url, pytorch_dump_folder_path, push_to_hub=False):
-    """
-    Copy/paste/tweak model's weights to our BEiT structure.
-    """
-
-    # define default BEiT configuration
-    has_lm_head = "rvlcdip" not in checkpoint_url
-    config = BeitConfig(use_absolute_position_embeddings=True, use_mask_token=has_lm_head)
-
-    # size of the architecture
-    if "large" in checkpoint_url or "dit-l" in checkpoint_url:
-        config.hidden_size = 1024
-        config.intermediate_size = 4096
-        config.num_hidden_layers = 24
-        config.num_attention_heads = 16
-
-    # labels
-    if "rvlcdip" in checkpoint_url:
-        config.num_labels = 16
-        repo_id = "huggingface/label-files"
-        filename = "rvlcdip-id2label.json"
-        id2label = json.load(open(hf_hub_download(repo_id, filename, repo_type="dataset"), "r"))
-        id2label = {int(k): v for k, v in id2label.items()}
-        config.id2label = id2label
-        config.label2id = {v: k for k, v in id2label.items()}
-
-    # load state_dict of original model, remove and rename some keys
-    state_dict = torch.hub.load_state_dict_from_url(checkpoint_url, map_location="cpu")["model"]
-
-    rename_keys = create_rename_keys(config, has_lm_head=has_lm_head)
-    for src, dest in rename_keys:
-        rename_key(state_dict, src, dest)
-    read_in_q_k_v(state_dict, config, has_lm_head=has_lm_head)
-
-    # load HuggingFace model
-    model = BeitForMaskedImageModeling(config) if has_lm_head else BeitForImageClassification(config)
-    model.eval()
-    model.load_state_dict(state_dict)
-
-    # Check outputs on an image
-    image_processor = BeitImageProcessor(
-        size=config.image_size, resample=PILImageResampling.BILINEAR, do_center_crop=False
-    )
-    image = prepare_img()
-
-    encoding = image_processor(images=image, return_tensors="pt")
-    pixel_values = encoding["pixel_values"]
-
-    outputs = model(pixel_values)
-    logits = outputs.logits
-
-    # verify logits
-    expected_shape = [1, 16] if "rvlcdip" in checkpoint_url else [1, 196, 8192]
-    assert logits.shape == torch.Size(expected_shape), "Shape of logits not as expected"
-
-    Path(pytorch_dump_folder_path).mkdir(exist_ok=True)
-    print(f"Saving model to {pytorch_dump_folder_path}")
-    model.save_pretrained(pytorch_dump_folder_path)
-    print(f"Saving image processor to {pytorch_dump_folder_path}")
-    image_processor.save_pretrained(pytorch_dump_folder_path)
-
-    if push_to_hub:
-        if has_lm_head:
-            model_name = "dit-base" if "base" in checkpoint_url else "dit-large"
-        else:
-            model_name = "dit-base-finetuned-rvlcdip" if "dit-b" in checkpoint_url else "dit-large-finetuned-rvlcdip"
-        image_processor.push_to_hub(repo_id=f"nielsr/{model_name}")
-        model.push_to_hub(repo_id=f"nielsr/{model_name}")
+    pass
 
 
 if __name__ == "__main__":

@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team and Google LLC. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import numpy as np
 
@@ -28,7 +15,6 @@ if is_torch_available():
 logger = logging.get_logger(__name__)
 
 
-# TODO: @eustlb, we should be able to remove this and use mel_filter_bank from audio_utils
 def linear_to_mel_weight_matrix(
     num_mel_bins: int,
     num_spectrogram_bins: int,
@@ -38,10 +24,8 @@ def linear_to_mel_weight_matrix(
     dtype,
 ) -> np.ndarray:
     """NumPy-port of the JAX mel weight matrix logic."""
-    # We use float64 for precision, matching the JAX implementation.
     internal_dtype = np.float64
 
-    # HTK excludes the spectrogram DC bin.
     bands_to_zero = 1
     nyquist_hertz = sample_rate / 2.0
     linear_frequencies = np.linspace(0.0, nyquist_hertz, num_spectrogram_bins, dtype=internal_dtype)[bands_to_zero:]
@@ -68,29 +52,6 @@ def linear_to_mel_weight_matrix(
 
 @requires(backends=("torch",))
 class LasrFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a LASR feature extractor.
-
-    This feature extractor inherits from [`~feature_extraction_sequence_utils.SequenceFeatureExtractor`] which contains
-    most of the main methods. Users should refer to this superclass for more information regarding those methods.
-
-    This class extracts mel-filter bank features from raw speech using a custom numpy implementation of the `Short Time
-    Fourier Transform` which should match pytorch's `torch.stft` equivalent.
-
-    Args:
-            feature_size (`int`, *optional*, defaults to 128):
-                The feature dimension of the extracted features.
-            sampling_rate (`int`, *optional*, defaults to 16000):
-                The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
-            hop_length (`int`, *optional*, defaults to 160):
-                Length of the overlapping windows for the STFT used to obtain the Mel Frequency coefficients.
-            n_fft (`int`, *optional*, defaults to 512):
-                Size of the Fourier transform.
-            win_length (`int`, *optional*, defaults to 400):
-                The window length for the STFT computation.
-            padding_value (`float`, *optional*, defaults to 0.0):
-                Padding value used to pad the audio. Should correspond to silences.
-    """
 
     model_input_names = ["input_features", "attention_mask"]
 
@@ -121,23 +82,7 @@ class LasrFeatureExtractor(SequenceFeatureExtractor):
         )
 
     def _torch_extract_fbank_features(self, waveform, device="cpu"):
-        # spectrogram
-        window = torch.hann_window(self.win_length, periodic=False, device=device, dtype=torch.float64)
-        waveform = waveform.to(torch.float64)
-
-        # TODO: @eustlb, to be standardized
-        # here we cannot use directly torch.stft because every fft frame is padded with zeros
-        # due to unfold then rfft, while torch.stft unfolds with the number of fft points
-        frames = waveform.unfold(-1, self.win_length, self.hop_length)
-        stft = torch.fft.rfft(window * frames, n=self.n_fft)
-        power_spec = torch.abs(stft) ** 2
-
-        # log mel spectrogram
-        mel_filters = self.mel_filters.to(device)
-        mel_spec = torch.clamp(power_spec @ mel_filters, min=1e-5)
-        mel_spec = torch.log(mel_spec)
-
-        return mel_spec
+        pass
 
     def __call__(
         self,
@@ -220,7 +165,6 @@ class LasrFeatureExtractor(SequenceFeatureExtractor):
                 "Failing to do so can result in silent errors that might be hard to debug."
             )
 
-        # Convert to torch tensor
         if isinstance(raw_speech, np.ndarray):
             raw_speech = torch.tensor(raw_speech)
         elif isinstance(raw_speech, (list, tuple)):

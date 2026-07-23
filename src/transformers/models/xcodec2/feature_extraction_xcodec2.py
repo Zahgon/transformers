@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import copy
 from typing import Any
@@ -35,24 +22,6 @@ logger = logging.get_logger(__name__)
 
 @requires(backends=("torchaudio",))
 class Xcodec2FeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a Xcodec2 feature extractor, which computes mel-filter bank features for the semantic encoder and padded
-    audio for the acoustic encoder.
-
-    This feature extractor inherits from [`SequenceFeatureExtractor`] which contains most of the main methods. Users
-    should refer to this superclass for more information regarding those methods.
-
-    Args:
-        feature_size (`int`, *optional*, defaults to 80):
-            The feature dimension of the extracted features.
-        sampling_rate (`int`, *optional*, defaults to 16000):
-            The sample rate at which the audio files should be digitalized expressed in hertz (Hz).
-        padding_value (`float`, *optional*, defaults to 1.0):
-            The value that is used to fill the padding vectors for the mel spectrogram.
-        hop_length (`int`, *optional*, defaults to 320):
-            Number of audio samples encoded per frame. Equivalent to product of downsampling ratios.
-            Needed for acoustic encoder input padding.
-    """
 
     model_input_names = ["input_features", "input_values", "padding_mask", "input_features_mask"]
 
@@ -66,8 +35,6 @@ class Xcodec2FeatureExtractor(SequenceFeatureExtractor):
     ):
         super().__init__(feature_size=feature_size, sampling_rate=sampling_rate, padding_value=padding_value, **kwargs)
 
-        # Acoustic encoder feature extraction (similar to DAC). Defining sub feature extractor as workaround for
-        # padding audio with hop_length multiple, and relying on the parent class for padding the spectrogram.
         self.hop_length = hop_length
         self.acoustic_encoder_padder = SequenceFeatureExtractor(
             feature_size=1,
@@ -76,7 +43,6 @@ class Xcodec2FeatureExtractor(SequenceFeatureExtractor):
         )
         self.acoustic_encoder_padder.model_input_names = ["audio", "padding_mask"]
 
-        # Semantic encoder feature extraction (similar to SeamlessM4T)
         self.stride = 2
         self.num_mel_bins = 80
         self.frame_length = 400
@@ -146,7 +112,6 @@ class Xcodec2FeatureExtractor(SequenceFeatureExtractor):
                 raise ValueError(f"Expected input shape (channels, length) but got shape {example.shape}")
         batch_size = len(audio)
 
-        # 1) Acoustic encoder padding
         audio = [F.pad(torch.as_tensor(a), (0, 1), value=0.0) for a in audio]
         padded_inputs = self.acoustic_encoder_padder.pad(
             BatchFeature({"audio": audio}),
@@ -160,9 +125,6 @@ class Xcodec2FeatureExtractor(SequenceFeatureExtractor):
         padding_mask = padded_inputs.pop("attention_mask")
         padded_audio = padded_inputs["audio"][:, None, :]
 
-        # 2) Semantic encoder feature extraction (mel spectrogram) with normalization computed before padding
-        # NOTE (ebezzam): looping over the batch to match the original implementation with `torchaudio.compliance.kaldi.fbank`. However it does not support batched inputs.
-        # Original used `SeamlessM4TFeatureExtractor`, which also loops over individual audio, but was numpy-based.
         mel_features = []
         for i in range(batch_size):
             orig_len = int(padding_mask[i].sum().item()) if padding_mask is not None else padded_audio.shape[-1]

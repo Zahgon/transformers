@@ -1,17 +1,3 @@
-# Copyright 2022 Meta Platforms authors and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch FLAVA model."""
 
 import collections
 import math
@@ -60,20 +46,6 @@ FlavaPossibleConfigs = FlavaTextConfig | FlavaImageConfig | FlavaMultimodalConfi
 )
 @dataclass
 class FlavaModelOutput(ModelOutput):
-    r"""
-    image_embeddings (`torch.FloatTensor` of shape `(batch_size, output_dim)`, *optional*, returned when `pixel_values` are present):
-        The image embeddings which are basically the pooled output of [`FlavaImageModel`].
-    image_output (`BaseModelOutputWithPooling`, *optional*, returned when `pixel_values` are present):
-        The output of the [`FlavaImageModel`].
-    text_embeddings (`torch.FloatTensor` of shape `(batch_size, output_dim)`, *optional*, returned when `input_ids` are present):
-        The text embeddings which are basically the pooled output of [`FlavaTextModel`].
-    text_output (`BaseModelOutputWithPooling`, *optional*, returned when `input_ids` are present):
-        The output of the [`FlavaTextModel`].
-    multimodal_embeddings (`torch.FloatTensor` of shape `(batch_size, output_dim)`, *optional*, returned when `input_ids` and `pixel_values` are present and `skip_multimodal_encoder` is `None` or `False`):
-        The multimodal embeddings which are basically the pooled output of [`FlavaTextModel`].
-    multimodal_output (`BaseModelOutputWithPooling`, returned when `input_ids` and `pixel_values` are present and `skip_multimodal_encoder` is `None` or `False`):
-        The output of the [`FlavaMultimodalModel`].
-    """
 
     image_embeddings: torch.FloatTensor | None = None
     image_output: BaseModelOutputWithPooling | None = None
@@ -96,22 +68,6 @@ class FlavaModelOutput(ModelOutput):
 )
 @dataclass
 class FlavaLosses(ModelOutput):
-    r"""
-    mim (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `mim_labels` and `pixel_values` are present, `input_ids_masked` is absent and `mim_weight` > 0.):
-        Masked Image Modeling loss as used in BeIT calculated only for unimodal image data.
-    mlm (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `mlm_labels` and `input_ids_masked` are present, `pixel_values` is absent and `mlm_weight` > 0.):
-        Masked Language Modeling loss as used in BERT calculated only for unimodal text data.
-    itm (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `itm_labels`, `input_ids_masked`, `pixel_values` are present and `itm_weight` > 0.):
-        Image Text Matching (ITM) loss calculated for paired image-text data. Note that ITM loss is calculated on
-        masked pairs in FLAVA.
-    global_contrastive (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `input_ids` and `pixel_values` are present and `global_contrastive_weight` > 0.):
-        Contrastive loss for image-text similarity similar to CLIP but calculated globally for paired image-text
-        data. This is calculated on unmasked images and texts.
-    mmm_image (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `mim_labels`, `pixel_values` and `input_ids_masked` are present and `mmm_image_weight` > 0.):
-        Masked Multimodal Modeling loss's image component calculated on paired image-text data.
-    mmm_text (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `mlm_labels`, `pixel_values` and `input_ids_masked` are present and `mmm_text_weight` > 0.):
-        Masked Multimodal Modeling loss's text component calculated on paired image-text data.
-    """
 
     mim: torch.FloatTensor | None = None
     mlm: torch.FloatTensor | None = None
@@ -140,60 +96,6 @@ class FlavaLosses(ModelOutput):
 )
 @dataclass
 class FlavaForPreTrainingOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor`, *optional*, returned when `return_loss` is True):
-        Total loss calculated for this model.
-    loss_info (`FlavaLosses`):
-        Detailed info for FLAVA Pretraining losses. Check `FlavaLosses` class description for the information on
-        the keys.
-    image_embeddings (`torch.FloatTensor` of shape `(batch_size, output_dim)`, *optional*, returned when `pixel_values` are present):
-        The image embeddings which are basically the pooled output of [`FlavaImageModel`].
-    image_output (`BaseModelOutputWithPooling`, *optional*, returned when `pixel_values` are present):
-        The output of the [`FlavaImageModel`].
-    text_embeddings (`torch.FloatTensor` of shape `(batch_size, output_dim)`, *optional*, returned when `input_ids` are present):
-        The text embeddings which are basically the pooled output of [`FlavaTextModel`].
-    text_output (`BaseModelOutputWithPooling`, *optional*, returned when `input_ids` are present):
-        The output of the [`FlavaTextModel`].
-    multimodal_embeddings (`torch.FloatTensor` of shape `(batch_size, output_dim)`, *optional*, returned when `input_ids` and `pixel_values` are present and `skip_unmasked_multimodal_encoder` is `None` or `False`):
-        The multimodal embeddings which are basically the pooled output of [`FlavaTextModel`].
-    multimodal_output (`BaseModelOutputWithPooling`, returned when `input_ids` and `pixel_values` are present and `skip_unmasked_multimodal_encoder` is `None` or `False`):
-        The output of the [`FlavaMultimodalModel`].
-    image_masked_embeddings (`torch.FloatTensor` of shape `(batch_size, output_dim)`, *optional*, returned when `pixel_values` are present):
-        The image embeddings which are basically the pooled output of [`FlavaImageModel`]. Uses `bool_masked_pos`
-        to create masked images.
-    image_masked_output (`BaseModelOutputWithPooling`, *optional*, returned when `pixel_values` are present):
-        The output of the [`FlavaImageModel`]. Uses `bool_masked_pos` to create masked images.
-    text_masked_embeddings (`torch.FloatTensor` of shape `(batch_size, output_dim)`, *optional*, returned when `input_ids_masked` are present):
-        The text embeddings which are basically the pooled output of [`FlavaTextModel`].
-    text_masked_output (`BaseModelOutputWithPooling`, *optional*, returned when `input_ids_masked` are present):
-        The output of the [`FlavaTextModel`].
-    multimodal_masked_embeddings (`torch.FloatTensor` of shape `(batch_size, output_dim)`, *optional*, returned when `input_ids` and `pixel_values` are present):
-        The multimodal embeddings which are basically the pooled output of [`FlavaTextModel`].
-    multimodal_masked_output (`BaseModelOutputWithPooling`, *optional*, returned when `input_ids_masked` and `pixel_values` are present):
-        The output of the [`FlavaMultimodalModel`].
-    mim_logits (`torch.FloatTensor` of shape `(batch_size, num_image_patches, image_vocab_size)` or of shape `(total_masked_patches, image_vocab_size)` , *optional*, returned when `pixel_values` are present and `input_ids_masked` are not):
-        The logits for MIM unimodal loss. Uses `book_masked_pos` to get masked patches. The flattened output is
-            returned when `bool_masked_pos` has some of the patches masked.
-    mlm_logits (`torch.FloatTensor` of shape `(batch_size, text_seq_length, text_vocab_size)` or of shape `(total_masked_seq_length, text_vocab_size)`, *optional*, returned when `input_ids_masked` are present and `pixel_values` are not):
-        The logits for MLM unimodal loss. The flattened output is returned when `input_ids_masked` has some of
-            the tokens masked.
-    itm_logits (`torch.FloatTensor` of shape `(batch_size, 2)`, *optional*, returned when `input_ids_masked` and `pixel_values` are present):
-        The logits for ITM loss. Note that ITM loss is calculated on masked pairs in FLAVA.
-    contrastive_logits_per_image (`torch.FloatTensor` of shape `(image_batch_size, text_batch_size)`):
-        The scaled dot product scores between `image_embeddings` and `text_embeddings` but passed through FLAVA's
-        `image_projection` and `text_projection` layers respectively. This represents the image-text similarity
-        scores. This is calculated on unmasked images and texts.
-    contrastive_logits_per_text (`torch.FloatTensor` of shape `(text_batch_size, image_batch_size)`):
-        The scaled dot product scores between `text_embeddings` and `image_embeddings` but passed through FLAVA's
-        `text_projection` and `image_projection` layers respectively. This is calculated on unmasked images and
-        texts.
-    mmm_image_logits (`torch.FloatTensor` of shape `(batch_size, num_image_patches, image_vocab_size)` or of shape`(total_masked_patches, image_vocab_size)`, *optional*, returned when `pixel_values` and `input_ids_masked` are present):
-        The logits for MMM image multimodal loss. Uses `book_masked_pos` to get masked patches. The flattened
-            output is returned when `bool_masked_pos` has some of the patches masked.
-    mmm_text_logits (`torch.FloatTensor` of shape `(batch_size, text_seq_length, text_vocab_size)` or of shape `(`(total_masked_seq_length, text_vocab_size)`), *optional*, returned when `pixel_values` and `input_ids_masked` are present):
-        The logits for MMM text multimodal loss. The flattened output is returned when `input_ids_masked` has
-            some of the tokens masked.
-    """
 
     loss: torch.FloatTensor | None = None
     loss_info: FlavaLosses = None
@@ -229,12 +131,7 @@ class FlavaForPreTrainingOutput(ModelOutput):
         return tuple(self[k] if k not in transformer_outputs else getattr(self, k).to_tuple() for k in self.keys())
 
 
-# Based on timm implementation, which can be found here:
-# https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/image_transformer.py
 class FlavaImageEmbeddings(nn.Module):
-    """
-    Construct the CLS token, position and patch embeddings. Optionally, also the mask token.
-    """
 
     def __init__(self, config: FlavaImageConfig, use_mask_token: bool = False) -> None:
         super().__init__()
@@ -254,7 +151,6 @@ class FlavaImageEmbeddings(nn.Module):
         self.patch_size = config.patch_size
         self.config = config
 
-    # Copied from transformers.models.vit.modeling_vit.ViTEmbeddings.interpolate_pos_encoding
     def interpolate_pos_encoding(self, embeddings: torch.Tensor, height: int, width: int) -> torch.Tensor:
         """
         This method allows to interpolate the pre-trained position encodings, to be able to use the model on higher resolution
@@ -268,7 +164,6 @@ class FlavaImageEmbeddings(nn.Module):
         num_patches = embeddings.shape[1] - 1
         num_positions = self.position_embeddings.shape[1] - 1
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
@@ -307,14 +202,11 @@ class FlavaImageEmbeddings(nn.Module):
         batch_size, seq_len, _ = embeddings.size()
         if bool_masked_pos is not None:
             mask_tokens = self.mask_token.expand(batch_size, seq_len, -1)
-            # B X H X W = B X HW
             if bool_masked_pos.dim() == 3:
                 bool_masked_pos = bool_masked_pos.view(bool_masked_pos.size(0), -1)
-            # replace the masked visual tokens by mask_tokens
             mask = bool_masked_pos.unsqueeze(-1).type_as(mask_tokens)
             embeddings = embeddings * (1.0 - mask) + mask_tokens * mask
 
-        # add the [CLS] token to the embedded patch tokens
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         embeddings = torch.cat((cls_tokens, embeddings), dim=1)
 
@@ -329,12 +221,7 @@ class FlavaImageEmbeddings(nn.Module):
         return embeddings
 
 
-# Based on timm implementation, which can be found here:
-# https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/image_transformer.py
 class PatchEmbeddings(nn.Module):
-    """
-    Image to Patch Embedding.
-    """
 
     def __init__(
         self,
@@ -368,7 +255,6 @@ class PatchEmbeddings(nn.Module):
 
 
 class FlavaTextEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -378,7 +264,6 @@ class FlavaTextEmbeddings(nn.Module):
 
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -398,9 +283,6 @@ class FlavaTextEmbeddings(nn.Module):
         if position_ids is None:
             position_ids = self.position_ids[:, :seq_length]
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
                 buffered_token_type_ids = self.token_type_ids[:, :seq_length]
@@ -452,19 +334,14 @@ class FlavaSelfAttention(nn.Module):
         key_layer = self.key(hidden_states).view(hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -479,10 +356,6 @@ class FlavaSelfAttention(nn.Module):
 
 
 class FlavaSelfOutput(nn.Module):
-    """
-    The residual connection is defined in FlavaLayer (same as ViTLayer) instead of here (as is the case with other
-    models), due to the layernorm applied before each block.
-    """
 
     def __init__(self, config: FlavaPossibleConfigs) -> None:
         super().__init__()
@@ -527,7 +400,6 @@ class FlavaIntermediate(nn.Module):
         else:
             self.intermediate_act_fn = config.hidden_act
 
-    # Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTMLP.forward
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         hidden_states = self.dense(hidden_states)
         hidden_states = self.intermediate_act_fn(hidden_states)
@@ -541,7 +413,6 @@ class FlavaOutput(nn.Module):
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    # Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTMLP.forward
     def forward(self, hidden_states: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
@@ -552,7 +423,6 @@ class FlavaOutput(nn.Module):
 
 
 class FlavaLayer(GradientCheckpointingLayer):
-    """This corresponds to the Block class in the timm implementation."""
 
     def __init__(self, config: FlavaPossibleConfigs) -> None:
         super().__init__()
@@ -562,7 +432,6 @@ class FlavaLayer(GradientCheckpointingLayer):
         self.intermediate = FlavaIntermediate(config)
         self.output = FlavaOutput(config)
 
-        # TODO: Check fp32 layer norm possibility
         self.layernorm_before = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.layernorm_after = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
@@ -580,14 +449,11 @@ class FlavaLayer(GradientCheckpointingLayer):
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
 
-        # first residual connection
         hidden_states = attention_output + hidden_states
 
-        # in ViT, layernorm is also applied after self-attention
         layer_output = self.layernorm_after(hidden_states)
         layer_output = self.intermediate(layer_output)
 
-        # second residual connection is done here
         layer_output = self.output(layer_output, hidden_states)
 
         outputs = (layer_output,) + outputs
@@ -641,8 +507,6 @@ class FlavaPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor):
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -680,7 +544,6 @@ class FlavaPreTrainedModel(PreTrainedModel):
 @auto_docstring
 class FlavaImageModel(FlavaPreTrainedModel):
     config: FlavaImageConfig
-    # This override allows us to load FlavaImageModel from FlavaModel/FlavaForPreTraining checkpoints.
     base_model_prefix = "flava.image_model"
     main_input_name = "pixel_values"
     input_modalities = ("image",)
@@ -762,7 +625,6 @@ class FlavaImageModel(FlavaPreTrainedModel):
 @auto_docstring
 class FlavaTextModel(FlavaPreTrainedModel):
     config: FlavaTextConfig
-    # This override allows us to load FlavaTextModel from FlavaModel/FlavaForPreTraining checkpoints.
     base_model_prefix = "flava.text_model"
     input_modalities = ("text",)
 
@@ -858,7 +720,6 @@ class FlavaTextModel(FlavaPreTrainedModel):
 @auto_docstring
 class FlavaMultimodalModel(FlavaPreTrainedModel):
     config: FlavaMultimodalConfig
-    # This override allows us to load FlavaMultimodalModel from FlavaModel/FlavaForPreTraining checkpoints.
     base_model_prefix = "flava.multimodal_model"
     main_input_name = "hidden_states"
 
@@ -979,7 +840,6 @@ class FlavaModel(FlavaPreTrainedModel):
 
         self.image_to_mm_projection = nn.Linear(self.image_hidden_size, self.mm_hidden_size)
         self.text_to_mm_projection = nn.Linear(self.text_hidden_size, self.mm_hidden_size)
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1166,7 +1026,6 @@ class FlavaModel(FlavaPreTrainedModel):
                 return_dict=return_dict,
             )
             image_embeddings, image_states = image_output[0], image_output[2]
-            # Note that these states don't use final layernorm in the transformer model
             image_mm_projection = self.image_to_mm_projection(image_states[-1])
 
         text_embeddings = None
@@ -1185,7 +1044,6 @@ class FlavaModel(FlavaPreTrainedModel):
             )
 
             text_embeddings, text_states = text_output[0], text_output[2]
-            # Note that these states don't use final layernorm in the transformer model
             text_mm_projection = self.text_to_mm_projection(text_states[-1])
 
         multimodal_embeddings = None
@@ -1282,7 +1140,6 @@ class FlavaImageCodebookLayerGroup(nn.Module):
         return self.group(x)
 
 
-# Inspired by DALLE Encoder in https://github.com/openai/DALL-E/blob/5be4b236bc3ade6943662354117a0e83752cc322/dall_e/encoder.py#L42
 @auto_docstring(
     custom_intro="""
     The FLAVA's image codebook model inspired from DALL-E's original encoder. Outputs raw hidden states and can be used
@@ -1372,8 +1229,7 @@ class FlavaImageCodebook(FlavaPreTrainedModel):
         return torch.argmax(z_logits, axis=1)
 
     def get_codebook_probs(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        z_logits = self.blocks(pixel_values)
-        return nn.Softmax(dim=1)(z_logits)
+        pass
 
     def forward(self, pixel_values: torch.FloatTensor, **kwargs) -> torch.Tensor:
         f"""
@@ -1475,8 +1331,6 @@ class FlavaGlobalContrastiveHead(nn.Module):
             world_size = torch.distributed.get_world_size()
 
             if self.global_backprop_contrastive:
-                # `torch.distributed.nn.functional.all_gather` does backprop on all active workers
-                # whereas `torch.distributed.all_gather` does only backpropagates on the current worker.
                 image_embeddings_all = torch.distributed.nn.functional.all_gather(image_embeddings)
                 text_embeddings_all = torch.distributed.nn.functional.all_gather(text_embeddings)
             else:
@@ -1504,7 +1358,6 @@ class FlavaGlobalContrastiveHead(nn.Module):
     """
 )
 class FlavaForPreTraining(FlavaPreTrainedModel):
-    # Those are linked to xxx.bias
     _tied_weights_keys = {
         "mmm_text_head.bias": "mmm_text_head.decoder.bias",
         "mim_head.bias": "mim_head.decoder.bias",
@@ -1525,8 +1378,6 @@ class FlavaForPreTraining(FlavaPreTrainedModel):
         if self.image_codebook is None and config.init_codebook:
             self.image_codebook = FlavaImageCodebook(config.image_codebook_config)
 
-        # Levarage text and image encoder configs to create the masked
-        # head since it has the right vocab
         self.mim_head = FlavaMaskedPredictionHead(config.image_config)
         self.mlm_head = FlavaMaskedPredictionHead(config.text_config)
         self.itm_head = FlavaITMHead(config)
@@ -1674,12 +1525,9 @@ class FlavaForPreTraining(FlavaPreTrainedModel):
             token_type_ids=token_type_ids,
             position_ids=position_ids,
             image_attention_mask=image_attention_mask,
-            # Don't need unmasked multimodal embedding for anything so skip it
-            # NOTE: ITM uses masked version
             skip_multimodal_encoder=skip_unmasked_multimodal_encoder,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
-            # Pass true to have deterministic outputs
             return_dict=True,
         )
 
@@ -1707,7 +1555,6 @@ class FlavaForPreTraining(FlavaPreTrainedModel):
         mim_logits = mlm_logits = mmm_text_logits = mmm_image_logits = None
         itm_logits = logits_per_image = logits_per_text = None
 
-        # Calculate mim_labels if necessary from the image_codebook
         if image_masked_embeddings is not None or multimodal_masked_embeddings is not None:
             if mim_labels is None and return_loss:
                 if self.image_codebook is None:
@@ -1722,8 +1569,6 @@ class FlavaForPreTraining(FlavaPreTrainedModel):
                         "Call `AutoProcessor` with `return_codebook_pixels` set to True"
                     )
                 mim_labels = self.image_codebook.get_codebook_indices(codebook_pixel_values)
-        # Unimodal MIM Loss
-        # If multimodal embeddings are present, we will calculate MMM loss
         if self.mim_weight > 0 and image_masked_embeddings is not None and multimodal_masked_embeddings is None:
             sequence_for_image = image_masked_embeddings
 
@@ -1745,7 +1590,6 @@ class FlavaForPreTraining(FlavaPreTrainedModel):
             else:
                 mim_logits = self.mim_head(sequence_for_image)
 
-        # Unimodal MLM Loss
         if self.mlm_weight > 0 and text_masked_embeddings is not None and multimodal_masked_embeddings is None:
             sequence_for_text = text_masked_embeddings
             if mlm_labels is not None:
@@ -1763,13 +1607,11 @@ class FlavaForPreTraining(FlavaPreTrainedModel):
             else:
                 mlm_logits = self.mlm_head(sequence_for_text)
 
-        # ITM Loss
         if self.itm_weight > 0 and multimodal_masked_embeddings is not None:
             itm_logits = self.itm_head(multimodal_masked_embeddings)
 
             if itm_labels is not None:
                 pos_pairs = itm_labels.ne(0)
-                # If there are no positive pairs, we calculate loss on all pairs.
                 pos_mask = pos_pairs | ~pos_pairs.any()
                 if return_loss:
                     itm_loss = nn.functional.cross_entropy(itm_logits, itm_labels)
@@ -1785,7 +1627,6 @@ class FlavaForPreTraining(FlavaPreTrainedModel):
                     mim_labels = mim_labels[pos_mask]
                     bool_masked_pos = bool_masked_pos[pos_mask]
 
-        # MMM Image Loss
         if multimodal_masked_embeddings is not None and self.mmm_image_weight > 0:
             sequence_for_image = multimodal_masked_embeddings
             end_index = image_masked_embeddings.size(1) - 1
@@ -1808,7 +1649,6 @@ class FlavaForPreTraining(FlavaPreTrainedModel):
             else:
                 mmm_image_logits = self.mmm_image_head(sequence_for_image)
 
-        # MMM Text Loss
         if multimodal_masked_embeddings is not None and self.mmm_text_weight > 0:
             sequence_for_text = multimodal_masked_embeddings
             sequence_for_text = sequence_for_text[:, -text_masked_embeddings.size(1) :, :]
@@ -1827,7 +1667,6 @@ class FlavaForPreTraining(FlavaPreTrainedModel):
             else:
                 mmm_text_logits = self.mmm_text_head(sequence_for_text)
 
-        # Global Contrastive Loss
         if image_embeddings is not None and text_embeddings is not None and self.global_contrastive_weight > 0:
             text_embedding = self.flava.text_projection(text_embeddings[:, 0, :])
             text_embedding = nn.functional.normalize(text_embedding, dim=-1)
@@ -1842,7 +1681,6 @@ class FlavaForPreTraining(FlavaPreTrainedModel):
                 image_embedding, text_embedding, self.flava.logit_scale
             )
 
-            # Apply ITM negative mask if any
             if pos_mask is not None:
                 logits_per_image = logits_per_image[pos_mask]
                 logits_per_text = logits_per_text[pos_mask]
@@ -1896,7 +1734,6 @@ class FlavaForPreTraining(FlavaPreTrainedModel):
                     flava_losses,
                 ) + output
 
-            # Filter None as transformer by default won't handle it
             return tuple(x for x in output if x is not None)
 
         return FlavaForPreTrainingOutput(

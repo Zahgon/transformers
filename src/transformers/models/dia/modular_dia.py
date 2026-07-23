@@ -1,17 +1,3 @@
-# Copyright 2025 The Nari Labs and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Dia model."""
 
 from collections.abc import Callable
 
@@ -68,18 +54,6 @@ class DiaPreTrainedModel(PreTrainedModel):
 
 
 class DiaMultiChannelEmbedding(nn.Module):
-    """In order to efficiently compute the audio embedding from the 9 different channels,
-    we vectorize the embedding process by using a single embedding layer and an offset.
-    Example:
-    - num_embeds = 4
-    - vocab_size = 8
-    - num_channels = 3
-    We would have offsets = [0, 8, 16]
-    If audio_codes = [0, 1, 2, 3], [1, 3, 4, 7], [5, 6, 7, 8],
-    then tokens = audio_codes + offsets
-                = [0, 1, 2, 3, 9, 11, 12, 15, 21, 22, 23, 24]
-    This allows us to use a single embedding layer for all channels.
-    """
 
     def __init__(self, config: DiaDecoderConfig):
         super().__init__()
@@ -110,7 +84,6 @@ class DiaRotaryEmbedding(LlamaRotaryEmbedding):
 
 
 class DiaSelfAttention(LlamaAttention):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: DiaEncoderConfig | DiaDecoderConfig, layer_idx: int, is_causal: bool = False):
         nn.Module.__init__(self)
@@ -132,7 +105,6 @@ class DiaSelfAttention(LlamaAttention):
 
 
 class DiaCrossAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: DiaDecoderConfig, layer_idx: int):
         super().__init__()
@@ -169,7 +141,6 @@ class DiaCrossAttention(nn.Module):
 
         is_updated = past_key_values.is_updated.get(self.layer_idx) if past_key_values is not None else False
         if past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = past_key_values.cross_attention_cache.layers[self.layer_idx].keys
             value_states = past_key_values.cross_attention_cache.layers[self.layer_idx].values
         else:
@@ -177,13 +148,11 @@ class DiaCrossAttention(nn.Module):
             value_states = self.v_proj(cross_attention_states).view(cross_shape).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all states to the cache
                 key_states, value_states = past_key_values.cross_attention_cache.update(
                     key_states,
                     value_states,
                     self.layer_idx,
                 )
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 past_key_values.is_updated[self.layer_idx] = True
 
         attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
@@ -268,9 +237,6 @@ class DiaEncoder(DiaPreTrainedModel):
     ) -> BaseModelOutput:
         hidden_states = self.embedding(input_ids)
 
-        # RoPE
-        # Note: We expect right padding and hence always generate
-        # the position ids on the fly to reduce preparation overhead
         position_ids = torch.arange(input_ids.shape[-1], device=input_ids.device)[None, :]
 
         attention_mask = create_bidirectional_mask(
@@ -325,8 +291,6 @@ class DiaDecoderLayer(GradientCheckpointingLayer):
             normed_states,
             position_embeddings,
             attention_mask,
-            # Needs to be an arg in order to function properly
-            # on inplace operations to be carried (e.g. compile)
             self_attn_cache,
             **kwargs,
         )
@@ -352,7 +316,6 @@ class DiaDecoderLayer(GradientCheckpointingLayer):
 
 
 class DiaDecoder(DiaPreTrainedModel):
-    """Transformer Decoder Stack using DenseGeneral."""
 
     _can_record_outputs = {
         "hidden_states": DiaDecoderLayer,
@@ -400,11 +363,9 @@ class DiaDecoder(DiaPreTrainedModel):
             position_ids = torch.arange(seq_length, device=input_ids.device) + past_key_values_length
             position_ids = position_ids.unsqueeze(0)
 
-        # RoPE
         hidden_states = self.embeddings(input_ids)
 
         if attention_mask is None and not is_torchdynamo_compiling():
-            # required mask seq length can be calculated via length of past cache
             mask_seq_length = past_key_values_length + seq_length
             attention_mask = torch.ones(batch_size, mask_seq_length, device=input_ids.device)
 
@@ -425,8 +386,6 @@ class DiaDecoder(DiaPreTrainedModel):
         for layer in self.layers:
             hidden_states = layer(
                 hidden_states,
-                # Needs to be an arg in order to function properly
-                # on inplace operations to be carried (e.g. compile)
                 position_embeddings,
                 attention_mask,
                 encoder_hidden_states,
@@ -514,7 +473,6 @@ class DiaModel(DiaPreTrainedModel):
                 attention_mask=attention_mask,
                 **kwargs,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput
         elif not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -522,13 +480,11 @@ class DiaModel(DiaPreTrainedModel):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        # On default we initialize the decoder with bos tokens if nothing has been provided
         bsz, seq_len, channels = (encoder_outputs[0].shape[0], -1, self.config.decoder_config.num_channels)
         if decoder_input_ids is None:
             decoder_input_ids = torch.full(
                 size=(bsz, 1, channels), fill_value=self.config.decoder_config.bos_token_id, device=self.device
             )
-        # Ensure 3D
         if decoder_input_ids.ndim == 2:
             decoder_input_ids = decoder_input_ids.reshape(bsz, channels, seq_len).transpose(1, 2)
 
@@ -576,7 +532,6 @@ class DiaForConditionalGeneration(DiaPreTrainedModel, DiaGenerationMixin):
         )
         self.loss_type = "ForMaskedLM"
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -634,7 +589,6 @@ class DiaForConditionalGeneration(DiaPreTrainedModel, DiaGenerationMixin):
 
         last_hidden_state = outputs[0]
         batch_size = last_hidden_state.shape[0]
-        # 3D <-> 2D makes it necessary to prioritize channel dim
         audio_logits = (
             self.logits_dense(last_hidden_state)
             .view((batch_size, -1, self.num_channels, self.vocab_size))

@@ -1,21 +1,3 @@
-# Copyright 2025 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 import warnings
@@ -129,14 +111,7 @@ def smart_resize(
 
 
 class PaddleOCRVLImageProcessorKwargs(Qwen2VLImageProcessorKwargs):
-    r"""
-    patch_size (`int`, *optional*, defaults to 14):
-        The spatial patch size of the vision encoder.
-    temporal_patch_size (`int`, *optional*, defaults to 1):
-        The temporal patch size of the vision encoder.
-    merge_size (`int`, *optional*, defaults to 2):
-        The merge size of the vision encoder to llm encoder.
-    """
+    pass
 
 
 class PaddleOCRVLImageProcessorPil(Qwen2VLImageProcessorPil):
@@ -224,30 +199,7 @@ class PaddleOCRVLImageProcessorPil(Qwen2VLImageProcessorPil):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None):
-        """
-        A utility that returns number of image patches for a given image size.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`, *optional*)
-                Any kwargs to override defaults of the image processor.
-        Returns:
-            `int`: Number of image patches per image.
-        """
-        min_pixels = images_kwargs["min_pixels"] if "min_pixels" in images_kwargs else self.size["shortest_edge"]
-        max_pixels = images_kwargs["max_pixels"] if "max_pixels" in images_kwargs else self.size["longest_edge"]
-        patch_size = images_kwargs.get("patch_size", self.patch_size)
-        merge_size = images_kwargs.get("merge_size", self.merge_size)
-
-        factor = patch_size * merge_size
-        resized_height, resized_width = smart_resize(
-            height, width, factor, min_pixels=min_pixels, max_pixels=max_pixels
-        )
-        grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
-        return grid_h * grid_w
+        pass
 
 
 class PaddleOCRVLImageProcessor(Qwen2VLImageProcessor):
@@ -336,30 +288,7 @@ class PaddleOCRVLImageProcessor(Qwen2VLImageProcessor):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None):
-        """
-        A utility that returns number of image patches for a given image size.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`, *optional*)
-                Any kwargs to override defaults of the image processor.
-        Returns:
-            `int`: Number of image patches per image.
-        """
-        min_pixels = images_kwargs["min_pixels"] if "min_pixels" in images_kwargs else self.size["shortest_edge"]
-        max_pixels = images_kwargs["max_pixels"] if "max_pixels" in images_kwargs else self.size["longest_edge"]
-        patch_size = images_kwargs.get("patch_size", self.patch_size)
-        merge_size = images_kwargs.get("merge_size", self.merge_size)
-
-        factor = patch_size * merge_size
-        resized_height, resized_width = smart_resize(
-            height, width, factor, min_pixels=min_pixels, max_pixels=max_pixels
-        )
-        grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
-        return grid_h * grid_w
+        pass
 
 
 class PaddleOCRVLProcessorKwargs(ProcessingKwargs, total=False):
@@ -372,17 +301,6 @@ class PaddleOCRVLProcessorKwargs(ProcessingKwargs, total=False):
 
 
 class PaddleOCRVLProcessor(ProcessorMixin):
-    r"""
-    [`PaddleOCRVLProcessor`] offers all the functionalities of [`PaddleOCRVLImageProcessor`] and [`LLamaTokenizerFast`]. See the
-    [`~PaddleOCRVLProcessor.__call__`] and [`~PaddleOCRVLProcessor.decode`] for more information.
-    Args:
-        image_processor ([`PaddleOCRVLImageProcessor`], *optional*):
-            The image processor is a required input.
-        tokenizer ([`LLamaTokenizerFast`], *optional*):
-            The tokenizer is a required input.
-        chat_template (`str`, *optional*): A Jinja template which will be used to convert lists of messages
-            in a chat into a tokenizable string.
-    """
 
     image_processor_class = "AutoImageProcessor"
     tokenizer_class = "AutoTokenizer"
@@ -472,22 +390,6 @@ class PaddleOCRVLProcessor(ProcessorMixin):
 @auto_docstring(checkpoint="PaddlePaddle/PaddleOCR-VL")
 @strict
 class PaddleOCRVisionConfig(SiglipVisionConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import PaddleOCRVisionConfig, PaddleOCRVisionModel
-
-    >>> # Initializing a PaddleOCRVisionConfig with PaddlePaddle/PaddleOCR-VL style configuration
-    >>> configuration = PaddleOCRVisionConfig()
-
-    >>> # Initializing a PaddleOCRVisionModel (with random weights) from the PaddlePaddle/PaddleOCR-VL style configuration
-    >>> model = PaddleOCRVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "paddleocr_vl_vision"
     base_config_key = "vision_config"
@@ -510,21 +412,6 @@ class PaddleOCRTextConfig(Ernie4_5Config):
 @auto_docstring(checkpoint="PaddlePaddle/PaddleOCR-VL")
 @strict
 class PaddleOCRVLConfig(Qwen2VLConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import PaddleOCRVLForConditionalGeneration, PaddleOCRVLConfig
-
-    >>> # Initializing a PaddleOCRVL style configuration
-    >>> configuration = PaddleOCRVLConfig()
-
-    >>> # Initializing a model from the PaddleOCRVL style configuration
-    >>> model = PaddleOCRVLForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     sub_configs = {"vision_config": PaddleOCRVisionConfig, "text_config": PaddleOCRTextConfig}
 
@@ -791,8 +678,6 @@ class PaddleOCRVisionEncoder(VideoLlama3VisionEncoder):
         grid_thw (`torch.LongTensor` of shape `(num_images, 3)`, *optional*):
             The temporal, height and width of feature shape of each image in LLM.
         """
-        # Use merge_size=1: PaddleOCR merges patches in the projector (after the encoder),
-        # unlike Qwen which merges inside the encoder, so rotary positions here are simple (row, col).
         position_ids = get_vision_position_ids(grid_thw, 1, kwargs=kwargs)
         cu_seqlens, max_seqlen = get_vision_attention_seqlens(grid_thw, self.config, kwargs=kwargs)
 
@@ -886,7 +771,6 @@ class PaddleOCRVisionModel(PaddleOCRVLPreTrainedModel):
 
         self.vision_model = PaddleOCRVisionTransformer(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @deprecate_kwarg("image_grid_thw", new_name="grid_thw", version="5.11.0")

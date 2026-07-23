@@ -1,16 +1,3 @@
-# Copyright 2026 Google LLC and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -41,19 +28,6 @@ from ..zoedepth.modeling_zoedepth import (
 
 @dataclass
 class Tipsv2DptDensePredictorOutput(ModelOutput):
-    r"""
-    predicted_depth (`torch.FloatTensor` of shape `(batch_size, height, width)`):
-        Predicted depth for each pixel.
-    normals (`torch.FloatTensor` of shape `(batch_size, 3, height, width)`):
-        Raw normal map predictions (unnormalized).
-    segmentation_logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels, height, width)`):
-        Classification scores for each pixel.
-        <Tip warning={true}>
-        The logits returned do not necessarily have the same size as the `pixel_values` passed as inputs. This is
-        to avoid doing two interpolations and lose some quality when a user needs to resize the logits to the
-        original image size as post-processing. You should always check your logits shape and resize as needed.
-        </Tip>
-    """
 
     predicted_depth: torch.FloatTensor | None = None
     normals: torch.FloatTensor | None = None
@@ -109,37 +83,7 @@ class Tipsv2DptImageProcessor(Tipsv2ImageProcessor):
         outputs,
         target_sizes: TensorType | list[tuple[int, int]] | None = None,
     ) -> list[dict[str, torch.Tensor]]:
-        """
-        Converts the output of [`Tipsv2DptForNormalEstimation`] or [`Tipsv2DptForDensePrediction`] into L2-normalized surface normal maps.
-
-        Args:
-            outputs (`Tipsv2DptNormalEstimatorOutput` or `Tipsv2DptDensePredictorOutput`):
-                Raw outputs of the model.
-            target_sizes ([`TensorType`] or `list[tuple[int, int]]`, *optional*):
-                Tensor of shape `(batch_size, 2)` or list of tuples (`tuple[int, int]`) containing the target size
-                (height, width) of each image in the batch. If left to None, predictions will not be resized.
-
-        Returns:
-            `list[dict[str, torch.Tensor]]` of length `batch_size`. Each dict has a `"normals"` key
-            mapping to a tensor of shape `(3, height, width)` with L2-normalized unit vectors in
-            `[-1, 1]` per channel (XYZ surface normals).
-        """
-        normals = nn.functional.normalize(outputs.normals, p=2, dim=1)
-
-        if target_sizes is not None and len(normals) != len(target_sizes):
-            raise ValueError(
-                "Make sure that you pass in as many target sizes as the batch dimension of the normals output"
-            )
-
-        target_sizes = [None] * len(normals) if target_sizes is None else target_sizes
-        results = []
-        for normal, target_size in zip(normals, target_sizes):
-            if target_size is not None:
-                normal = nn.functional.interpolate(
-                    normal.unsqueeze(0), size=target_size, mode="bilinear", align_corners=False
-                ).squeeze(0)
-            results.append({"normals": normal})
-        return results
+        pass
 
     def post_process_semantic_segmentation(
         self,
@@ -196,36 +140,6 @@ class Tipsv2DptImageProcessor(Tipsv2ImageProcessor):
 @auto_docstring(checkpoint="google/tipsv2-b14-dpt")
 @strict
 class Tipsv2DptConfig(PreTrainedConfig):
-    r"""
-    neck_hidden_sizes (`list[int]`, *optional*, defaults to `[96, 192, 384, 768]`):
-        The hidden sizes to project to for the feature maps of the backbone.
-    fusion_hidden_size (`int`, *optional*, defaults to 256):
-        The number of channels before fusion.
-    reassemble_factors (`list[float]`, *optional*, defaults to `[4, 2, 1, 0.5]`):
-        The up/downsampling factors of the reassemble layers.
-    readout_activation (`str`, *optional*, defaults to `"gelu_pytorch_tanh"`):
-        Activation applied after the readout projection layer.
-    num_depth_bins (`int`, *optional*, defaults to 256):
-        The number of depth bins used by the depth-estimation head.
-    min_depth (`float`, *optional*, defaults to 0.001):
-        The minimum depth value (meters) for depth bin calculation.
-    max_depth (`float`, *optional*, defaults to 10.0):
-        The maximum depth value (meters) for depth bin calculation.
-    depth_decoder_activation (`str`, *optional*, defaults to `"relu"`):
-        Activation applied after the depth decoder projection layer.
-    semantic_loss_ignore_index (`int`, *optional*, defaults to 255):
-        Label index to ignore in the cross-entropy loss for semantic segmentation.
-
-    Example:
-
-    ```python
-    >>> from transformers import Tipsv2DptConfig, Tipsv2DptForDensePrediction
-
-    >>> configuration = Tipsv2DptConfig()
-    >>> model = Tipsv2DptForDensePrediction(configuration)
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "tipsv2_dpt"
     sub_configs = {"backbone_config": AutoConfig}
@@ -269,19 +183,6 @@ class Tipsv2DptReassembleLayer(DPTReassembleLayer):
 
 
 class Tipsv2DptReassembleStage(ZoeDepthReassembleStage):
-    """
-    This class reassembles the hidden states of the backbone into image-like feature representations at various
-    resolutions.
-
-    This happens in 3 stages:
-    1. Map the N + class + register tokens to a set of N tokens.
-    2. Project the channel dimension of the hidden states according to `config.neck_hidden_sizes`.
-    3. Resizing the spatial dimensions (height, width).
-
-    Args:
-        config ([`Tipsv2DptConfig`]):
-            Model configuration class defining the model architecture.
-    """
 
     def __init__(self, config: Tipsv2DptConfig):
         nn.Module.__init__(self)
@@ -376,7 +277,6 @@ class Tipsv2DptDecoder(nn.Module):
 
 
 class Tipsv2DptFeaturesToDepth(nn.Module):
-    """Converts raw logits from the depth head into a depth map using depth bins."""
 
     def __init__(self, config: Tipsv2DptConfig):
         super().__init__()

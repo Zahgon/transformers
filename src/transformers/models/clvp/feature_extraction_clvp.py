@@ -1,20 +1,4 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""
-Feature extractor class for CLVP
-"""
 
 import numpy as np
 
@@ -28,40 +12,6 @@ logger = logging.get_logger(__name__)
 
 
 class ClvpFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a CLVP feature extractor.
-
-    This feature extractor inherits from [`~feature_extraction_sequence_utils.SequenceFeatureExtractor`] which contains
-    most of the main methods. Users should refer to this superclass for more information regarding those methods.
-
-    This class extracts log-mel-spectrogram features from raw speech using a custom numpy implementation of the `Short
-    Time Fourier Transform` which should match pytorch's `torch.stft` equivalent.
-
-    Args:
-        feature_size (`int`, *optional*, defaults to 80):
-            The feature dimension of the extracted features.
-        sampling_rate (`int`, *optional*, defaults to 22050):
-            The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
-        default_audio_length (`int`, *optional*, defaults to 6):
-            The default length of raw audio in seconds. If `max_length` is not set during `__call__` then it will
-            automatically be set to default_audio_length * `self.sampling_rate`.
-        hop_length (`int`, *optional*, defaults to 256):
-            Length of the overlapping windows for the STFT used to obtain the Mel Frequency coefficients.
-        chunk_length (`int`, *optional*, defaults to 30):
-            The maximum number of chunks of `sampling_rate` samples used to trim and pad longer or shorter audio
-            sequences.
-        n_fft (`int`, *optional*, defaults to 1024):
-            Size of the Fourier transform.
-        padding_value (`float`, *optional*, defaults to 0.0):
-            Padding value used to pad the audio. Should correspond to silences.
-        mel_norms (`list` of length `feature_size`, *optional*):
-            If `mel_norms` is provided then it will be used to normalize the log-mel spectrograms along each
-            mel-filter.
-        return_attention_mask (`bool`, *optional*, defaults to `False`):
-            Whether to return the attention mask. If left to the default, it will return the attention mask.
-
-            [What are attention masks?](../glossary#attention-mask)
-    """
 
     model_input_names = ["input_features", "attention_mask"]
 
@@ -104,26 +54,7 @@ class ClvpFeatureExtractor(SequenceFeatureExtractor):
         )
 
     def _np_extract_fbank_features(self, waveform: np.ndarray) -> np.ndarray:
-        """
-        This method first computes the log-mel spectrogram of the provided audio then applies normalization along the
-        each mel-filterbank, if `mel_norms` is provided.
-        """
-        log_spec = spectrogram(
-            waveform,
-            window_function(self.n_fft, "hann"),
-            frame_length=self.n_fft,
-            hop_length=self.hop_length,
-            power=2.0,
-            mel_filters=self.mel_filters,
-            log_mel=None,
-        )
-
-        log_spec = np.log(np.clip(log_spec, a_min=1e-5, a_max=None))
-
-        if self.mel_norms is not None:
-            log_spec = log_spec / np.array(self.mel_norms)[:, None]
-
-        return log_spec
+        pass
 
     def __call__(
         self,
@@ -202,7 +133,6 @@ class ClvpFeatureExtractor(SequenceFeatureExtractor):
         elif isinstance(raw_speech, np.ndarray) and raw_speech.dtype is np.dtype(np.float64):
             raw_speech = raw_speech.astype(np.float32)
 
-        # always return batch
         if not is_batched:
             raw_speech = [np.asarray([raw_speech]).T]
 
@@ -219,7 +149,6 @@ class ClvpFeatureExtractor(SequenceFeatureExtractor):
             return_attention_mask=return_attention_mask,
         )
 
-        # make sure list is in array format
         input_features = padded_inputs.get("input_features").transpose(2, 0, 1)
 
         input_features = [

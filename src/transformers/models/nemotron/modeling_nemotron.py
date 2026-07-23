@@ -1,18 +1,3 @@
-# Copyright 2024 HuggingFace Inc. team. All rights reserved.
-# Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Nemotron model."""
 
 from collections.abc import Callable
 from typing import Optional
@@ -80,7 +65,6 @@ class NemotronLayerNorm1P(nn.LayerNorm):
             return F.layer_norm(*args)
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with LLAMA->NEMOTRON,Llama->Nemotron,llama->nemotron
 class NemotronRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
@@ -101,7 +85,6 @@ class NemotronRotaryEmbedding(nn.Module):
         self.register_buffer("original_inv_freq", inv_freq.clone(), persistent=False)
 
     @staticmethod
-    # Ignore copy
     def compute_default_rope_parameters(
         config: NemotronConfig | None = None,
         device: Optional["torch.device"] = None,
@@ -127,7 +110,6 @@ class NemotronRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
@@ -149,7 +131,6 @@ class NemotronRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-# Copied from transformers.models.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
@@ -179,7 +160,6 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     sin = sin.unsqueeze(unsqueeze_dim)
 
     rot_dim = cos.shape[-1]
-    # If q_pass/k_pass is empty, rotary pos embedding is applied to all tensor q/k
     q, q_pass = q[..., :rot_dim], q[..., rot_dim:]
     k, k_pass = k[..., :rot_dim], k[..., rot_dim:]
 
@@ -202,7 +182,6 @@ class NemotronMLP(nn.Module):
         return self.down_proj(self.act_fn(self.up_proj(x)))
 
 
-# Copied from transformers.models.llama.modeling_llama.repeat_kv
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -215,7 +194,6 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
-# Copied from transformers.models.llama.modeling_llama.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -242,7 +220,6 @@ def eager_attention_forward(
 
 
 class NemotronAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: NemotronConfig, layer_idx: int | None = None):
         super().__init__()
@@ -331,7 +308,6 @@ class NemotronDecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -343,7 +319,6 @@ class NemotronDecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -380,12 +355,6 @@ class NemotronPreTrainedModel(PreTrainedModel):
 
 @auto_docstring
 class NemotronModel(NemotronPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`NemotronDecoderLayer`]
-
-    Args:
-        config: NemotronConfig
-    """
 
     def __init__(self, config: NemotronConfig):
         super().__init__(config)
@@ -400,7 +369,6 @@ class NemotronModel(NemotronPreTrainedModel):
         self.rotary_emb = NemotronRotaryEmbedding(config=config)
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -460,7 +428,6 @@ class NemotronModel(NemotronPreTrainedModel):
         )
 
 
-# TODO: re-enable check: Copied from transformers.models.llama.modeling_llama.LlamaForCausalLM with LLAMA->NEMOTRON,Llama->Nemotron,llama->nemotron
 class NemotronForCausalLM(NemotronPreTrainedModel, GenerationMixin):
     _tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}
 
@@ -470,7 +437,6 @@ class NemotronForCausalLM(NemotronPreTrainedModel, GenerationMixin):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

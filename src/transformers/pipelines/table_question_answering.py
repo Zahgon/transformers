@@ -22,17 +22,8 @@ if is_torch_available():
 
 
 class TableQuestionAnsweringArgumentHandler(ArgumentHandler):
-    """
-    Handles arguments for the TableQuestionAnsweringPipeline
-    """
 
     def __call__(self, table=None, query=None, **kwargs):
-        # Returns tqa_pipeline_inputs of shape:
-        # [
-        #   {"table": pd.DataFrame, "query": list[str]},
-        #   ...,
-        #   {"table": pd.DataFrame, "query" : list[str]}
-        # ]
         requires_backends(self, "pandas")
         import pandas as pd
 
@@ -76,39 +67,6 @@ class TableQuestionAnsweringArgumentHandler(ArgumentHandler):
 
 @add_end_docstrings(build_pipeline_init_args(has_tokenizer=True))
 class TableQuestionAnsweringPipeline(Pipeline):
-    """
-    Table Question Answering pipeline using a `ModelForTableQuestionAnswering`. This pipeline is only available in
-    PyTorch.
-
-    Unless the model you're using explicitly sets these generation parameters in its configuration files
-    (`generation_config.json`), the following default values will be used:
-    - max_new_tokens: 256
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> oracle = pipeline(model="google/tapas-base-finetuned-wtq")
-    >>> table = {
-    ...     "Repository": ["Transformers", "Datasets", "Tokenizers"],
-    ...     "Stars": ["36542", "4512", "3934"],
-    ...     "Contributors": ["651", "77", "34"],
-    ...     "Programming language": ["Python", "Python", "Rust, Python and NodeJS"],
-    ... }
-    >>> oracle(query="How many stars does the transformers repository have?", table=table)
-    {'answer': 'AVERAGE > 36542', 'coordinates': [(0, 1)], 'cells': ['36542'], 'aggregator': 'AVERAGE'}
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This tabular question answering pipeline can currently be loaded from [`pipeline`] using the following task
-    identifier: `"table-question-answering"`.
-
-    The models that this pipeline can use are models that have been fine-tuned on a tabular question answering task.
-    See the up-to-date list of available models on
-    [huggingface.co/models](https://huggingface.co/models?filter=table-question-answering).
-    """
 
     default_input_names = "table,query"
 
@@ -117,7 +75,6 @@ class TableQuestionAnsweringPipeline(Pipeline):
     _load_image_processor = False
     _load_feature_extractor = False
     _load_tokenizer = True
-    # Make sure the docstring is updated when the default generation config is changed
     _default_generation_config = GenerationConfig(
         max_new_tokens=256,
     )
@@ -154,8 +111,6 @@ class TableQuestionAnsweringPipeline(Pipeline):
         token_type_ids_example = None
 
         for index in range(batch_size):
-            # If sequences have already been processed, the token type IDs will be created according to the previous
-            # answer.
             if prev_answers is not None:
                 prev_labels_example = token_type_ids_example[:, 3]  # shape (seq_len,)
                 model_labels = np.zeros_like(prev_labels_example.cpu().numpy())  # shape (seq_len,)
@@ -331,7 +286,6 @@ class TableQuestionAnsweringPipeline(Pipeline):
             else:
                 outputs = self.batch_inference(**model_inputs)
         else:
-            # User-defined `generation_config` passed to the pipeline call take precedence
             if "generation_config" not in generate_kwargs:
                 generate_kwargs["generation_config"] = self.generation_config
 

@@ -1,16 +1,3 @@
-# Copyright 2026 Illuin Technology and contributors, and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from dataclasses import dataclass
@@ -44,32 +31,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="ModernVBERT/modernvbert")
 @strict
 class ModernVBertConfig(PreTrainedConfig):
-    r"""
-    pixel_shuffle_factor (`int | None`, *optional*, defaults to 4):
-        Scale factor used by any pixel-shuffle / upsampling operations in the vision head.
-    initializer_cutoff_factor (`float | None`, *optional*, defaults to 2.0):
-        The cutoff factor for the truncated_normal_initializer for initializing all weight matrices.
-    classifier_pooling (`Literal["cls", "mean"]`, *optional*, defaults to `"cls"`):
-        The pooling strategy to use for classification tasks.
-    classifier_bias (`bool | None`, *optional*, defaults to `False`):
-        Whether to add a bias term to the classification head
-
-    Example:
-    ```python
-    >>> from transformers import ModernVBertConfig
-
-    >>> # Initializing configuration
-    >>> configuration = ModernVBertConfig()
-
-    >>> # Initializing a model from the configuration (model class is implemented in
-    >>> # `modernvbert.modeling_modernvbert`)
-
-    >>> from transformers import ModernVBertModel
-    >>> model = ModernVBertModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> cfg = model.config
-    ```"""
 
     model_type = "modernvbert"
     sub_configs = {"text_config": AutoConfig, "vision_config": AutoConfig}
@@ -101,27 +62,6 @@ class ModernVBertConfig(PreTrainedConfig):
 
 @dataclass
 class ModernVBertBaseModelOutput(BaseModelOutput):
-    """
-    Base class for ModernVBERT model's outputs.
-    Args:
-        last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-            Sequence of hidden-states at the output of the last layer of the model.
-            If `past_key_values` is used only the last hidden-state of the sequences of shape `(batch_size, 1,
-            hidden_size)` is output.
-        hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-            Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
-            one for the output of each layer) of shape `(batch_size, sequence_length, hidden_size)`.
-            Hidden-states of the model at the output of each layer plus the optional initial embedding outputs.
-        attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-            Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-            sequence_length)`.
-            Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
-            heads.
-        image_hidden_states (`tuple(torch.FloatTensor)`, *optional*):
-            Tuple of `torch.FloatTensor` (one for the output of the image embeddings, `(batch_size, num_images,
-            sequence_length, hidden_size)`.
-            image_hidden_states of the model produced by the vision encoder
-    """
 
     last_hidden_state: torch.FloatTensor = None
     hidden_states: tuple[torch.FloatTensor] | None = None
@@ -131,27 +71,6 @@ class ModernVBertBaseModelOutput(BaseModelOutput):
 
 @dataclass
 class ModernVBertMaskedLMOutput(MaskedLMOutput):
-    """
-    Base class for ModernVBERT model's outputs with masked language modeling loss.
-    Args:
-        loss (`torch.FloatTensor`, *optional*, returned when `labels` is provided):
-            Masked language modeling (MLM) loss.
-        logits (`torch.FloatTensor`):
-            Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-        hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-            Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
-            one for the output of each layer) of shape `(batch_size, sequence_length, hidden_size)`.
-            Hidden-states of the model at the output of each layer plus the optional initial embedding outputs.
-        attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-            Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-            sequence_length)`.
-            Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
-            heads.
-        image_hidden_states (`tuple(torch.FloatTensor)`, *optional*):
-            Tuple of `torch.FloatTensor` (one for the output of the image embeddings, `(batch_size, num_images,
-            sequence_length, hidden_size)`.
-            image_hidden_states of the model produced by the vision encoder
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor = None
@@ -161,10 +80,6 @@ class ModernVBertMaskedLMOutput(MaskedLMOutput):
 
 
 class ModernVBertConnector(nn.Module):
-    """
-    Connector module for ModernVBERT. It performs a pixel shuffle operation followed by a linear projection to match the text model's hidden size.
-    Based on https://pytorch.org/docs/stable/generated/torch.nn.PixelShuffle.html
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -251,7 +166,6 @@ class ModernVBertModel(SmolVLMModel):
     def __init__(self, config: ModernVBertConfig):
         super().__init__(config)
 
-        # init components
         self.connector = ModernVBertConnector(config)
         self.text_model = AutoModel.from_config(config.text_config)
         self.vision_model = AutoModel.from_config(config.vision_config)
@@ -261,7 +175,6 @@ class ModernVBertModel(SmolVLMModel):
             / (config.pixel_shuffle_factor**2)
         )
 
-        # initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -298,20 +211,17 @@ class ModernVBertModel(SmolVLMModel):
         if inputs_embeds is None:
             inputs_embeds = self.text_model.get_input_embeddings()(input_ids).to(input_ids.device)
 
-        # Images processing
         if pixel_values is not None:
             image_hidden_states = self.get_image_features(
                 pixel_values=pixel_values, pixel_attention_mask=pixel_attention_mask
             ).pooler_output
 
-        # Merge image and text embeddings
         if image_hidden_states is not None:
             image_hidden_states = image_hidden_states.to(dtype=inputs_embeds.dtype, device=inputs_embeds.device)
             inputs_embeds = self.inputs_merger(
                 input_ids=input_ids, inputs_embeds=inputs_embeds, image_hidden_states=image_hidden_states
             )
 
-        # Language model pass
         outputs = self.text_model(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
@@ -344,7 +254,6 @@ class ModernVBertForMaskedLM(ModernVBertPreTrainedModel):
         self.projection_head = ModernVBertPredictionHead(config.text_config)
         self.lm_head = nn.Linear(config.text_config.hidden_size, self.vocab_size, bias=config.text_config.decoder_bias)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -433,7 +342,6 @@ class ModernVBertForSequenceClassification(ModernVBertPreTrainedModel):
         self.drop = nn.Dropout(config.classifier_dropout)
         self.classifier = nn.Linear(config.text_config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -548,7 +456,6 @@ class ModernVBertForTokenClassification(ModernVBertPreTrainedModel):
         self.drop = nn.Dropout(config.classifier_dropout)
         self.classifier = nn.Linear(config.text_config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

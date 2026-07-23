@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -23,23 +10,6 @@ from ..auto import CONFIG_MAPPING, AutoConfig
 @auto_docstring(checkpoint="mistralai/Voxtral-Mini-3B-2507")
 @strict
 class VoxtralEncoderConfig(PreTrainedConfig):
-    r"""
-    max_source_positions (`int`, *optional*, defaults to 1500):
-        The maximum sequence length of log-mel filter-bank features that this model might ever be used with.
-
-    ```python
-    >>> from transformers import VoxtralEncoderConfig, VoxtralEncoder
-
-    >>> # Initializing a VoxtralEncoderConfig
-    >>> configuration = VoxtralEncoderConfig()
-
-    >>> # Initializing a VoxtralEncoder (with random weights)
-    >>> model = VoxtralEncoder(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "voxtral_encoder"
 
@@ -63,9 +33,6 @@ class VoxtralEncoderConfig(PreTrainedConfig):
     initializer_range: float = 0.02
     attention_dropout: float | int = 0.0
 
-    # TODO: @eustlb, we do not use dropout and layerdrop, yet we need to hardcode them
-    # to be able to use Whisper with modular (here actually from Qwen2-Audio and copied from).
-    # After a future Whisper refactor, we should remove this.
     dropout: float | int = 0.0
     layerdrop: float | int = 0.0
     activation_dropout: float | int = 0.0
@@ -74,21 +41,6 @@ class VoxtralEncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="mistralai/Voxtral-Mini-3B-2507")
 @strict
 class VoxtralConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import VoxtralForConditionalGeneration, VoxtralConfig
-
-    >>> # Initializing a Voxtral configuration
-    >>> configuration = VoxtralConfig(audio_token_id=24, projector_hidden_act="gelu")
-
-    >>> # Initializing a 3B model with random weights
-    >>> model = VoxtralForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "voxtral"
     sub_configs = {"text_config": AutoConfig, "audio_config": AutoConfig}

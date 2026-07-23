@@ -27,37 +27,6 @@ logger = logging.get_logger(__name__)
 
 @add_end_docstrings(build_pipeline_init_args(has_image_processor=True))
 class ZeroShotImageClassificationPipeline(Pipeline):
-    """
-    Zero shot image classification pipeline using `CLIPModel`. This pipeline predicts the class of an image when you
-    provide an image and a set of `candidate_labels`.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> classifier = pipeline(model="google/siglip-so400m-patch14-384")
-    >>> classifier(
-    ...     "https://huggingface.co/datasets/Narsil/image_dummy/raw/main/parrots.png",
-    ...     candidate_labels=["animals", "humans", "landscape"],
-    ... )
-    [{'score': 0.965, 'label': 'animals'}, {'score': 0.03, 'label': 'humans'}, {'score': 0.005, 'label': 'landscape'}]
-
-    >>> classifier(
-    ...     "https://huggingface.co/datasets/Narsil/image_dummy/raw/main/parrots.png",
-    ...     candidate_labels=["black and white", "photorealist", "painting"],
-    ... )
-    [{'score': 0.996, 'label': 'black and white'}, {'score': 0.003, 'label': 'photorealist'}, {'score': 0.0, 'label': 'painting'}]
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This image classification pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"zero-shot-image-classification"`.
-
-    See the list of available models on
-    [huggingface.co/models](https://huggingface.co/models?filter=zero-shot-image-classification).
-    """
 
     _load_processor = False
     _load_image_processor = True
@@ -116,7 +85,6 @@ class ZeroShotImageClassificationPipeline(Pipeline):
             - **score** (`float`) -- The score attributed by the model to that label. It is a value between
                 0 and 1, computed as the `softmax` of `logits_per_image`.
         """
-        # After deprecation of this is completed, remove the default `None` value for `image`
         if "images" in kwargs:
             image = kwargs.pop("images")
         if image is None:
@@ -163,7 +131,6 @@ class ZeroShotImageClassificationPipeline(Pipeline):
         if isinstance(text_inputs[0], UserDict):
             text_inputs = text_inputs[0]
         else:
-            # Batching case.
             text_inputs = text_inputs[0][0]
 
         outputs = self.model(**text_inputs, **model_inputs)

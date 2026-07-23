@@ -1,31 +1,3 @@
-# Copyright 2026 Mobile Perception Systems Lab at TU/e and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Conversion script for EoMT-DINOv3 checkpoints.
-
-To convert one of the official checkpoints directly from the Hugging Face Hub you can run:
-
-```bash
-HF_TOKEN=your_token_here \
-python -m transformers.models.eomt_dinov3.convert_eomt_dinov3_to_hf \
-    --model-id tue-mps/coco_panoptic_eomt_large_640_dinov3 \
-    --output-dir /tmp/eomt_converted \
-    --verify \
-    --original-repo-path /tmp/eomt
-```
-
-Make sure the token used above has been granted access to the gated DINOv3 weights.
-"""
 
 from __future__ import annotations
 
@@ -55,7 +27,6 @@ DEFAULT_IMAGE_SIZE = 640
 
 
 class CheckpointSpec(NamedTuple):
-    """Metadata describing how to convert an official EoMT-DINOv3 checkpoint."""
 
     model_id: str
     backbone_repo_id: str
@@ -282,11 +253,9 @@ def convert_checkpoint(
     backbone_repo_id: str,
     image_size: int,
 ) -> tuple[EomtDinov3Config, dict[str, torch.Tensor]]:
-    # load model.safetensors
     filepath = hf_hub_download(backbone_repo_id, filename="model.safetensors")
     base_state_dict = load_file(filepath)
 
-    # load config.json
     filepath = hf_hub_download(backbone_repo_id, filename="config.json")
     with open(filepath, "r") as f:
         base_config = json.load(f)
@@ -318,17 +287,14 @@ def convert_model(
     original_repo_path: Path | None,
     push_to_hub: bool = False,
 ) -> None:
-    # resolve checkpoint spec
     spec = resolve_checkpoint_spec(model_id)
     backbone_repo_id = spec.backbone_repo_id
     image_size = spec.image_size
 
-    # load delta state
     delta_path = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin")
     raw_delta_state = torch.load(delta_path, map_location="cpu")
     delta_state_dict = ensure_state_dict(raw_delta_state)
 
-    # convert checkpoint
     config, merged_state_dict = convert_checkpoint(
         delta_state_dict=delta_state_dict,
         backbone_repo_id=backbone_repo_id,
@@ -362,10 +328,8 @@ def convert_model(
         processor.save_pretrained(output_dir)
 
     if push_to_hub:
-        # Extract model name from model_id (e.g. "tue-mps/coco_panoptic_eomt_large_640_dinov3" -> "eomt-dinov3-coco-panoptic-large-640")
         base_name = model_id.split("/")[-1]  # e.g. "coco_panoptic_eomt_large_640_dinov3"
         parts = base_name.replace("_dinov3", "").split("_")  # ["coco", "panoptic", "eomt", "large", "640"]
-        # Reorder to: eomt-dinov3-{task}-{dataset}-{size}-{resolution}
         if "eomt" in parts:
             parts.remove("eomt")
         repo_name = "eomt-dinov3-" + "-".join(parts)

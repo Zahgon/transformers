@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -24,27 +11,6 @@ from ..auto import CONFIG_MAPPING
 @auto_docstring(checkpoint="UsefulSensors/moonshine-streaming-tiny")
 @strict
 class MoonshineStreamingEncoderConfig(PreTrainedConfig):
-    r"""
-    sample_rate (`int`, *optional*, defaults to 16000):
-        The sample rate of the audio input in Hz.
-    frame_ms (`float`, *optional*, defaults to 5.0):
-        The frame duration in milliseconds for audio processing.
-    sliding_windows (`list[tuple[int, int]]`, *optional*, defaults to `[(16, 4), (16, 4), (16, 0), (16, 0), (16, 4), (16, 4)]`):
-        List of sliding window configurations for each encoder layer. Each tuple contains (window_size, shift).
-
-    ```python
-    >>> from transformers import MoonshineStreamingEncoder, MoonshineStreamingEncoderConfig
-
-    >>> # Initializing a Moonshine Streaming encoder configuration
-    >>> configuration = MoonshineStreamingEncoderConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = MoonshineStreamingEncoder(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "moonshine_streaming_encoder"
 
@@ -79,23 +45,6 @@ class MoonshineStreamingEncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="UsefulSensors/moonshine-streaming-tiny")
 @strict
 class MoonshineStreamingConfig(PreTrainedConfig):
-    r"""
-    pad_head_dim_to_multiple_of (`int`, *optional*):
-        If set, the head dimension will be padded to a multiple of this value.
-
-    ```python
-    >>> from transformers import MoonshineStreamingModel, MoonshineStreamingConfig
-
-    >>> # Initializing a Moonshine Streaming configuration
-    >>> configuration = MoonshineStreamingConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = MoonshineStreamingModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "moonshine_streaming"
     sub_configs = {"encoder_config": MoonshineStreamingEncoderConfig}

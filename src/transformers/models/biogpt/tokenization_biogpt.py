@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Team and Microsoft Research AI4Science. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for BioGPT."""
 
 import json
 import os
@@ -42,47 +28,6 @@ def get_pairs(word):
 
 
 class BioGptTokenizer(PreTrainedTokenizer):
-    """
-    Construct an FAIRSEQ Transformer tokenizer. Moses tokenization followed by Byte-Pair Encoding.
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            Path to the vocabulary file.
-        merges_file (`str`):
-            Merges file.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the beginning of
-            sequence. The token used is the `cls_token`.
-
-            </Tip>
-
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the end of sequence.
-            The token used is the `sep_token`.
-
-            </Tip>
-
-        sep_token (`str`, *optional*, defaults to `"</s>"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -108,7 +53,6 @@ class BioGptTokenizer(PreTrainedTokenizer):
 
         self.lang = "en"
         self.sm = sacremoses
-        # cache of sm.MosesTokenizer instance
         self.cache_moses_tokenizer = {}
         self.cache_moses_detokenizer = {}
 
@@ -133,8 +77,7 @@ class BioGptTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        """Returns vocab size"""
-        return len(self.encoder)
+        pass
 
     def get_vocab(self):
         return dict(self.encoder, **self.added_tokens_encoder)
@@ -221,10 +164,8 @@ class BioGptTokenizer(PreTrainedTokenizer):
 
     def convert_tokens_to_string(self, tokens):
         """Converts a sequence of tokens (string) in a single string."""
-        # remove BPE
         tokens = [t.replace(" ", "").replace("</w>", " ") for t in tokens]
         tokens = "".join(tokens).split()
-        # detokenize
         text = self.moses_detokenize(tokens, self.lang)
         return text
 
@@ -274,7 +215,6 @@ class BioGptTokenizer(PreTrainedTokenizer):
             return super().get_special_tokens_mask(
                 token_ids_0=token_ids_0, token_ids_1=token_ids_1, already_has_special_tokens=True
             )
-        # no bos used in fairseq
         if token_ids_1 is not None:
             return [1] + ([0] * len(token_ids_0)) + [1] + ([0] * len(token_ids_1))
         return [1] + ([0] * len(token_ids_0))

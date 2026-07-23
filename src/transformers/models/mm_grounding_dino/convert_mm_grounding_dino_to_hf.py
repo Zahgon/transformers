@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import argparse
 import re
 from io import BytesIO
@@ -159,9 +146,7 @@ MODEL_NAME_TO_EXPECTED_OUTPUT_MAPPING = {
     },
 }
 
-# fmt: off
 ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
-    # vision backbone
     r"backbone.patch_embed.projection.(weight|bias)":                                                               r"model.backbone.conv_encoder.model.embeddings.patch_embeddings.projection.\1",
     r"backbone.patch_embed.norm.(weight|bias)":                                                                     r"model.backbone.conv_encoder.model.embeddings.norm.\1",
     r"backbone.stages.(\d+).blocks.(\d+).attn.w_msa.(relative_position_bias_table|relative_position_index)":        r"model.backbone.conv_encoder.model.encoder.layers.\1.blocks.\2.attention.self.\3",
@@ -178,10 +163,8 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"neck.convs.(\d+).gn.(weight|bias)":                                                                           r"model.input_proj_vision.\1.1.\2",
     r"neck.extra_convs.(\d+).conv.(weight|bias)":                                                                   r"model.input_proj_vision.\1.0.\2",
     r"neck.extra_convs.(\d+).gn.(weight|bias)":                                                                     r"model.input_proj_vision.\1.1.\2",
-    # text backbone
     r"language_model.language_backbone.body.model.(.*)":                                                            r"model.text_backbone.\1",
     r"text_feat_map.(weight|bias)":                                                                                 r"model.text_projection.\1",
-    # encoder
     r"encoder.fusion_layers.(\d+).gamma_v":                                                                         r"model.encoder.layers.\1.fusion_layer.vision_param",
     r"encoder.fusion_layers.(\d+).gamma_l":                                                                         r"model.encoder.layers.\1.fusion_layer.text_param",
     r"encoder.fusion_layers.(\d+).layer_norm_v.(weight|bias)":                                                      r"model.encoder.layers.\1.fusion_layer.layer_norm_vision.\2",
@@ -207,7 +190,6 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"encoder.bbox_head.reg_branch.0.(weight|bias)":                                                                r"model.encoder_output_bbox_embed.layers.0.\1",
     r"encoder.bbox_head.reg_branch.2.(weight|bias)":                                                                r"model.encoder_output_bbox_embed.layers.1.\1",
     r"encoder.bbox_head.reg_branch.4.(weight|bias)":                                                                r"model.encoder_output_bbox_embed.layers.2.\1",
-    # decoder
     r"decoder.norm.(weight|bias)":                                                                                  r"model.decoder.layer_norm.\1",
     r"decoder.ref_point_head.layers.(\d+).(weight|bias)":                                                           r"model.decoder.reference_points_head.layers.\1.\2",
     r"decoder.layers.(\d+).self_attn.attn.(query|key|value)_proj_(weight|bias)":                                    r"model.decoder.layers.\1.self_attn.\2.\3",
@@ -225,7 +207,6 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"decoder.bbox_head.reg_branches.(\d+).0.(weight|bias)":                                                        r"model.decoder.bbox_embed.\1.layers.0.\2",
     r"decoder.bbox_head.reg_branches.(\d+).2.(weight|bias)":                                                        r"model.decoder.bbox_embed.\1.layers.1.\2",
     r"decoder.bbox_head.reg_branches.(\d+).4.(weight|bias)":                                                        r"model.decoder.bbox_embed.\1.layers.2.\2",
-    # other
     r"level_embed":                                                                                                 r"model.level_embed",
     r"query_embedding.weight":                                                                                      r"model.query_position_embeddings.weight",
     r"memory_trans_fc.(weight|bias)":                                                                               r"model.enc_output.\1",
@@ -235,159 +216,28 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"bbox_head.reg_branches.(\d+).2.(weight|bias)":                                                                r"bbox_embed.\1.layers.1.\2",
     r"bbox_head.reg_branches.(\d+).4.(weight|bias)":                                                                r"bbox_embed.\1.layers.2.\2",
 }
-# fmt: on
 
 
 def get_mm_grounding_dino_config(model_name: str) -> MMGroundingDinoConfig:
-    if "tiny" in model_name:
-        swin_image_size = 224
-        swin_window_size = 7
-        swin_embed_dim = 96
-        swin_depths = (2, 2, 6, 2)
-        swin_num_heads = (3, 6, 12, 24)
-        swin_out_features = ["stage2", "stage3", "stage4"]
-        num_feature_levels = 4
-    elif "base" in model_name:
-        swin_image_size = 384
-        swin_window_size = 12
-        swin_embed_dim = 128
-        swin_depths = (2, 2, 18, 2)
-        swin_num_heads = (4, 8, 16, 32)
-        swin_out_features = ["stage2", "stage3", "stage4"]
-        num_feature_levels = 4
-    elif "large" in model_name:
-        swin_image_size = 384
-        swin_window_size = 12
-        swin_embed_dim = 192
-        swin_depths = (2, 2, 18, 2)
-        swin_num_heads = (6, 12, 24, 48)
-        swin_out_features = ["stage1", "stage2", "stage3", "stage4"]
-        num_feature_levels = 5
-    else:
-        raise ValueError(
-            f"Model name: {model_name} is not supported. Only `tiny`, `base` and `large` models are currently supported."
-        )
-
-    backbone_config = SwinConfig(
-        image_size=swin_image_size,
-        window_size=swin_window_size,
-        embed_dim=swin_embed_dim,
-        depths=swin_depths,
-        num_heads=swin_num_heads,
-        out_features=swin_out_features,
-    )
-
-    model_config = MMGroundingDinoConfig(
-        backbone_config=backbone_config,
-        num_feature_levels=num_feature_levels,
-    )
-
-    return model_config
+    pass
 
 
 def get_mm_grounding_dino_processor() -> GroundingDinoProcessor:
-    img_processor = GroundingDinoImageProcessor()
-    txt_processor = BertTokenizer.from_pretrained("bert-base-uncased")
-    processor = GroundingDinoProcessor(img_processor, txt_processor)
-    return processor
+    pass
 
 
-# Copied from: https://github.com/iSEE-Laboratory/LLMDet/blob/96ec8c82a9d97b170db759e043afd5b81445d0f1/hf_model/mmdet2groundingdino_swint.py#L8C1-L13C13
 def correct_unfold_reduction_order(x: torch.Tensor) -> torch.Tensor:
-    out_channel, in_channel = x.shape
-    x = x.reshape(out_channel, in_channel // 4, 4).transpose(1, 2)
-    x = x[:, [0, 2, 1, 3], :]
-    x = x.reshape(out_channel, in_channel)
-    return x
+    pass
 
 
-# Copied from: https://github.com/iSEE-Laboratory/LLMDet/blob/96ec8c82a9d97b170db759e043afd5b81445d0f1/hf_model/mmdet2groundingdino_swint.py#L15C1-L20C13
 def correct_unfold_norm_order(x: torch.Tensor) -> torch.Tensor:
-    in_channel = x.shape[0]
-    x = x.reshape(in_channel // 4, 4).transpose(0, 1)
-    x = x[[0, 2, 1, 3], :]
-    x = x.reshape(in_channel)
-    return x
+    pass
 
 
 def preprocess_old_state(state_dict: dict, config: MMGroundingDinoConfig) -> dict:
-    """
-    Preprocesses old state dict to enable 1-1 mapping:
-        - split qkv projections in Swin backbone
-        - reorder reduction and norm parameters in Swin backbone
-        - shift output norm indices in Swin backbone
-        - shift output proj indices in neck
-        - split q,k,v projections in text self and cross attentions in encoder and decoder
-        - duplicate detection head parameters for decoder and encoder
-    """
-    new_state_dict = state_dict.copy()
-    for k in state_dict:
-        if k.startswith("backbone"):
-            if "downsample.reduction" in k:
-                new_state_dict[k] = correct_unfold_reduction_order(new_state_dict.pop(k))
-            elif "downsample.norm" in k:
-                new_state_dict[k] = correct_unfold_norm_order(new_state_dict.pop(k))
-            elif "w_msa.qkv" in k:
-                q_param, k_param, v_param = new_state_dict.pop(k).chunk(3)
-                new_state_dict[k.replace("qkv", "query")] = q_param
-                new_state_dict[k.replace("qkv", "key")] = k_param
-                new_state_dict[k.replace("qkv", "value")] = v_param
-            elif "backbone.norm" in k:
-                match = re.match(r"backbone.norm(\d+).(weight|bias)", k)
-                new_state_dict[f"backbone.norms.{int(match.group(1)) + 1}.{match.group(2)}"] = new_state_dict.pop(k)
-        elif k.startswith("neck.extra_convs"):
-            num_normal_convs = len(config.backbone_config.out_indices)
-            if "gn" in k:
-                match = re.match(r"neck.extra_convs.(\d+).gn.(weight|bias)", k)
-                new_state_dict[f"neck.extra_convs.{num_normal_convs + int(match.group(1))}.gn.{match.group(2)}"] = (
-                    new_state_dict.pop(k)
-                )
-            elif "conv" in k:
-                match = re.match(r"neck.extra_convs.(\d+).conv.(weight|bias)", k)
-                new_state_dict[f"neck.extra_convs.{num_normal_convs + int(match.group(1))}.conv.{match.group(2)}"] = (
-                    new_state_dict.pop(k)
-                )
-        elif k.startswith("encoder"):
-            if "self_attn.attn.in_proj" in k:
-                q_param, k_param, v_param = new_state_dict.pop(k).chunk(3)
-                new_state_dict[k.replace("in", "query")] = q_param
-                new_state_dict[k.replace("in", "key")] = k_param
-                new_state_dict[k.replace("in", "value")] = v_param
-        elif k.startswith("decoder"):
-            if "self_attn.attn.in_proj" in k or "cross_attn_text.attn.in_proj" in k:
-                q_param, k_param, v_param = new_state_dict.pop(k).chunk(3)
-                new_state_dict[k.replace("in", "query")] = q_param
-                new_state_dict[k.replace("in", "key")] = k_param
-                new_state_dict[k.replace("in", "value")] = v_param
-        elif k.startswith("bbox_head"):
-            num_decoder_layers = config.decoder_layers
-            match = re.match(r"bbox_head.(cls|reg)_branches.(\d+).(.*)", k)
-            cls_or_reg = match.group(1)
-            layer_idx = int(match.group(2))
-            suffix = match.group(3)
-            if layer_idx < num_decoder_layers:
-                new_key = f"decoder.bbox_head.{cls_or_reg}_branches.{layer_idx}.{suffix}"
-                new_state_dict[new_key] = new_state_dict[k]  # copy
-            else:
-                new_key = f"encoder.bbox_head.{cls_or_reg}_branch.{suffix}"
-                new_state_dict[new_key] = new_state_dict.pop(k)  # move
-
-        # remove unused params
-        if (
-            k == "dn_query_generator.label_embedding.weight"
-            or k == "language_model.language_backbone.body.model.embeddings.position_ids"
-            or k == "image_separate.weight"
-            or k.startswith("lmm")
-            or k.startswith("connector")
-            or k.startswith("region_connector")
-            or k.startswith("ref_point_head")
-        ):
-            new_state_dict.pop(k)
-
-    return new_state_dict
+    pass
 
 
-# Copied from transformers/models/siglip2/convert_siglip2_to_hf.py
 def convert_old_keys_to_new_keys(state_dict_keys: list) -> dict:
     """
     This function should be applied only once, on the concatenated keys to efficiently rename using
@@ -407,24 +257,11 @@ def convert_old_keys_to_new_keys(state_dict_keys: list) -> dict:
 
 
 def convert_mm_to_hf_state(original_state: dict, hf_cfg: MMGroundingDinoConfig) -> dict:
-    original_state = preprocess_old_state(original_state, hf_cfg)
-    original_state_keys = list(original_state.keys())
-    original_to_hf_key_map = convert_old_keys_to_new_keys(original_state_keys)
-
-    hf_state = {}
-    for original_key in original_state_keys:
-        hf_key = original_to_hf_key_map[original_key]
-        hf_state[hf_key] = original_state.pop(original_key)
-
-    return hf_state
+    pass
 
 
 def prepare_test_inputs():
-    url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-    with httpx.stream("GET", url) as response:
-        image = Image.open(BytesIO(response.read()))
-    text = [["cat", "remote"]]
-    return image, text
+    pass
 
 
 @torch.no_grad()
@@ -434,48 +271,7 @@ def convert_mm_grounding_dino_checkpoint(
     push_to_hub: bool,
     hub_user_name: str,
 ) -> tuple[MMGroundingDinoConfig, dict]:
-    # Load original state
-    checkpoint_url = MODEL_NAME_TO_CHECKPOINT_URL_MAPPING[model_name]
-    print(f"Loading checkpoint from: {checkpoint_url}")
-    ckpt = torch.hub.load_state_dict_from_url(checkpoint_url, map_location="cpu")
-    mm_state = ckpt["state_dict"]
-
-    # Create hf model and processor
-    print("Creating model...")
-    hf_cfg = get_mm_grounding_dino_config(model_name)
-    hf_state = convert_mm_to_hf_state(mm_state, hf_cfg)
-    hf_model = MMGroundingDinoForObjectDetection(hf_cfg).eval()
-    hf_model.load_state_dict(hf_state)
-    hf_processor = get_mm_grounding_dino_processor()
-
-    # Verify outputs if needed
-    if verify_outputs:
-        print("Running inference to verify outputs...")
-        image, text = prepare_test_inputs()
-        model_inputs = hf_processor(images=image, text=text, return_tensors="pt")
-        model_outputs = hf_model(**model_inputs)
-        results = hf_processor.post_process_grounded_object_detection(
-            model_outputs,
-            model_inputs.input_ids,
-            box_threshold=0.4,
-            text_threshold=0.3,
-        )
-        result = results[0]
-        print(result)
-        expected = MODEL_NAME_TO_EXPECTED_OUTPUT_MAPPING[model_name]
-        for key in expected:
-            torch.testing.assert_close(result[key], expected[key], atol=1e-3, rtol=1e-3)
-        print("Outputs match.")
-
-    # Push to hub if needed
-    if push_to_hub:
-        print("Pushing to hub...")
-        hub_url = f"{hub_user_name}/{model_name}"
-        hf_model.push_to_hub(hub_url)
-        hf_processor.push_to_hub(hub_url)
-        print(f"Pushed to huggingface hub at: {hub_url}.")
-
-    return hf_cfg, hf_state
+    pass
 
 
 def parse_args():

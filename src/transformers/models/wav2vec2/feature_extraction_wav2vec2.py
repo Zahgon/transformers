@@ -1,19 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Feature extractor class for Wav2Vec2
-"""
 
 import numpy as np
 
@@ -26,38 +10,6 @@ logger = logging.get_logger(__name__)
 
 
 class Wav2Vec2FeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a Wav2Vec2 feature extractor.
-
-    This feature extractor inherits from [`~feature_extraction_sequence_utils.SequenceFeatureExtractor`] which contains
-    most of the main methods. Users should refer to this superclass for more information regarding those methods.
-
-    Args:
-        feature_size (`int`, *optional*, defaults to 1):
-            The feature dimension of the extracted features.
-        sampling_rate (`int`, *optional*, defaults to 16000):
-            The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
-        padding_value (`float`, *optional*, defaults to 0.0):
-            The value that is used to fill the padding values.
-        do_normalize (`bool`, *optional*, defaults to `True`):
-            Whether or not to zero-mean unit-variance normalize the input. Normalizing can help to significantly
-            improve the performance for some models, *e.g.*,
-            [wav2vec2-lv60](https://huggingface.co/models?search=lv60).
-        return_attention_mask (`bool`, *optional*, defaults to `False`):
-            Whether or not [`~Wav2Vec2FeatureExtractor.__call__`] should return `attention_mask`.
-
-            <Tip>
-
-            Wav2Vec2 models that have set `config.feat_extract_norm == "group"`, such as
-            [wav2vec2-base](https://huggingface.co/facebook/wav2vec2-base-960h), have **not** been trained using
-            `attention_mask`. For such models, `input_values` should simply be padded with 0 and no `attention_mask`
-            should be passed.
-
-            For Wav2Vec2 models that have set `config.feat_extract_norm == "layer"`, such as
-            [wav2vec2-lv60](https://huggingface.co/facebook/wav2vec2-large-960h-lv60-self), `attention_mask` should be
-            passed for batched inference.
-
-            </Tip>"""
 
     model_input_names = ["input_values", "attention_mask"]
 
@@ -78,23 +30,7 @@ class Wav2Vec2FeatureExtractor(SequenceFeatureExtractor):
     def zero_mean_unit_var_norm(
         input_values: list[np.ndarray], attention_mask: list[np.ndarray], padding_value: float = 0.0
     ) -> list[np.ndarray]:
-        """
-        Every array in the list is normalized to have zero mean and unit variance
-        """
-        if attention_mask is not None:
-            attention_mask = np.array(attention_mask, np.int32)
-            normed_input_values = []
-
-            for vector, length in zip(input_values, attention_mask.sum(-1)):
-                normed_slice = (vector - vector[:length].mean()) / np.sqrt(vector[:length].var() + 1e-7)
-                if length < normed_slice.shape[0]:
-                    normed_slice[length:] = padding_value
-
-                normed_input_values.append(normed_slice)
-        else:
-            normed_input_values = [(x - x.mean()) / np.sqrt(x.var() + 1e-7) for x in input_values]
-
-        return normed_input_values
+        pass
 
     def __call__(
         self,
@@ -185,11 +121,9 @@ class Wav2Vec2FeatureExtractor(SequenceFeatureExtractor):
             isinstance(raw_speech, (list, tuple)) and (isinstance(raw_speech[0], (np.ndarray, tuple, list)))
         )
 
-        # always return batch
         if not is_batched:
             raw_speech = [raw_speech]
 
-        # convert into correct format for padding
         encoded_inputs = BatchFeature({"input_values": raw_speech})
 
         padded_inputs = self.pad(
@@ -201,7 +135,6 @@ class Wav2Vec2FeatureExtractor(SequenceFeatureExtractor):
             return_attention_mask=return_attention_mask,
         )
 
-        # convert input values to correct format
         input_values = padded_inputs["input_values"]
         if not isinstance(input_values[0], np.ndarray):
             padded_inputs["input_values"] = [np.asarray(array, dtype=np.float32) for array in input_values]
@@ -214,12 +147,10 @@ class Wav2Vec2FeatureExtractor(SequenceFeatureExtractor):
         elif isinstance(input_values, np.ndarray) and input_values.dtype is np.dtype(np.float64):
             padded_inputs["input_values"] = input_values.astype(np.float32)
 
-        # convert attention_mask to correct format
         attention_mask = padded_inputs.get("attention_mask")
         if attention_mask is not None:
             padded_inputs["attention_mask"] = [np.asarray(array, dtype=np.int32) for array in attention_mask]
 
-        # zero-mean and unit-variance normalization
         if self.do_normalize:
             attention_mask = (
                 attention_mask

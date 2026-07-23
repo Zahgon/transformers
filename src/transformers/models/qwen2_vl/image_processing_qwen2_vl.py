@@ -1,22 +1,3 @@
-# Copyright 2024 The Qwen team, Alibaba Group and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Qwen2-VL."""
 
 import math
 from collections.abc import Iterable
@@ -39,18 +20,6 @@ from ...utils import TensorType, auto_docstring
 
 
 class Qwen2VLImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    min_pixels (`int`, *optional*, defaults to `56 * 56`):
-        The min pixels of the image to resize the image.
-    max_pixels (`int`, *optional*, defaults to `28 * 28 * 1280`):
-        The max pixels of the image to resize the image.
-    patch_size (`int`, *optional*, defaults to 14):
-        The spatial patch size of the vision encoder.
-    temporal_patch_size (`int`, *optional*, defaults to 2):
-        The temporal patch size of the vision encoder.
-    merge_size (`int`, *optional*, defaults to 2):
-        The merge size of the vision encoder to llm encoder.
-    """
 
     min_pixels: int
     max_pixels: int
@@ -109,7 +78,6 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
         size = kwargs.pop("size", None)
         min_pixels = kwargs.pop("min_pixels", None)
         max_pixels = kwargs.pop("max_pixels", None)
-        # backward compatibility: override size with min_pixels and max_pixels if they are provided
         size = self.size if size is None else size
         if min_pixels is not None:
             size["shortest_edge"] = min_pixels
@@ -203,8 +171,6 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
                 merge_size,
                 patch_size,
             )
-            # Reorder dimensions to group grid and patch information for subsequent flattening.
-            # [batch, grid_h/merge, grid_w/merge, merge, merge, channel, patch, patch]
             patches = patches.permute(0, 2, 5, 3, 6, 1, 4, 7)
 
             flatten_patches = (
@@ -230,33 +196,7 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None):
-        """
-        A utility that returns number of image patches for a given image size.
-
-        Note: Do not remove this method! It is used by vLLM to infer the number of patches and placeholders
-        without an image input.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`, *optional*)
-                Any kwargs to override defaults of the image processor.
-        Returns:
-            `int`: Number of image patches per image.
-        """
-        min_pixels = images_kwargs["min_pixels"] if "min_pixels" in images_kwargs else self.size["shortest_edge"]
-        max_pixels = images_kwargs["max_pixels"] if "max_pixels" in images_kwargs else self.size["longest_edge"]
-        patch_size = images_kwargs.get("patch_size", self.patch_size)
-        merge_size = images_kwargs.get("merge_size", self.merge_size)
-
-        factor = patch_size * merge_size
-        resized_height, resized_width = smart_resize(
-            height, width, factor, min_pixels=min_pixels, max_pixels=max_pixels
-        )
-        grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
-        return grid_h * grid_w
+        pass
 
 
 __all__ = ["Qwen2VLImageProcessor"]

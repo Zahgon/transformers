@@ -1,17 +1,3 @@
-# Copyright 2021 The Facebook, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Blenderbot model."""
 
 import math
 from collections.abc import Callable
@@ -45,7 +31,6 @@ from .configuration_blenderbot import BlenderbotConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.bart.modeling_bart.shift_tokens_right
 def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
     """
     Shift input ids one token to the right.
@@ -56,16 +41,12 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("self.model.config.pad_token_id has to be defined.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
 
 
 class BlenderbotLearnedPositionalEmbedding(nn.Embedding):
-    """
-    This module learns positional embeddings up to a fixed maximum size.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int):
         super().__init__(num_embeddings, embedding_dim)
@@ -82,11 +63,7 @@ class BlenderbotLearnedPositionalEmbedding(nn.Embedding):
         return super().forward(position_ids)
 
 
-# Copied from transformers.models.bart.modeling_bart.BartScaledWordEmbedding with Bart->Blenderbot
 class BlenderbotScaledWordEmbedding(nn.Embedding):
-    """
-    This module overrides nn.Embeddings' forward by multiplying with embeddings scale.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int, embed_scale: float | None = 1.0):
         super().__init__(num_embeddings, embedding_dim, padding_idx)
@@ -96,7 +73,6 @@ class BlenderbotScaledWordEmbedding(nn.Embedding):
         return super().forward(input_ids) * self.embed_scale
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -110,7 +86,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -125,9 +100,7 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.bart.modeling_bart.BartAttention with Bart->Blenderbot
 class BlenderbotAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -174,22 +147,16 @@ class BlenderbotAttention(nn.Module):
         key_value_states: torch.Tensor | None = None,
         past_key_values: Cache | None = None,
         attention_mask: torch.Tensor | None = None,
-        # TODO: we need a refactor so that the different attention modules can get their specific kwargs
-        # ATM, we have mixed things encoder, decoder, and encoder-decoder attn
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        # get query proj
         query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         is_updated = False
@@ -197,7 +164,6 @@ class BlenderbotAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -206,7 +172,6 @@ class BlenderbotAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -218,7 +183,6 @@ class BlenderbotAttention(nn.Module):
 
             if past_key_values is not None:
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -243,7 +207,6 @@ class BlenderbotAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.mbart.modeling_mbart.MBartEncoderLayer with MBart->Blenderbot, MBART->BLENDERBOT
 class BlenderbotEncoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: BlenderbotConfig):
         super().__init__()
@@ -300,7 +263,6 @@ class BlenderbotEncoderLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-# Copied from transformers.models.mbart.modeling_mbart.MBartDecoderLayer with MBart->Blenderbot, MBART->BLENDERBOT
 class BlenderbotDecoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: BlenderbotConfig, layer_idx: int | None = None):
         super().__init__()
@@ -357,7 +319,6 @@ class BlenderbotDecoderLayer(GradientCheckpointingLayer):
         residual = hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             past_key_values=past_key_values,
@@ -367,7 +328,6 @@ class BlenderbotDecoderLayer(GradientCheckpointingLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
 
-        # Cross-Attention Block
         if encoder_hidden_states is not None:
             residual = hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
@@ -382,7 +342,6 @@ class BlenderbotDecoderLayer(GradientCheckpointingLayer):
             hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
             hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.activation_fn(self.fc1(hidden_states))
@@ -411,25 +370,10 @@ class BlenderbotPreTrainedModel(PreTrainedModel):
 
     @property
     def dummy_inputs(self):
-        pad_token = self.config.pad_token_id
-        input_ids = torch.tensor([[0, 6, 10, 4, 2], [0, 8, 12, 2, pad_token]], device=self.device)
-        dummy_inputs = {
-            "attention_mask": input_ids.ne(pad_token),
-            "input_ids": input_ids,
-            "decoder_input_ids": input_ids,
-        }
-        return dummy_inputs
+        pass
 
 
 class BlenderbotEncoder(BlenderbotPreTrainedModel):
-    """
-    Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a
-    [`BlenderbotEncoderLayer`].
-
-    Args:
-        config: BlenderbotConfig
-        embed_tokens (nn.Embedding): output embedding
-    """
 
     _can_record_outputs = {
         "hidden_states": BlenderbotEncoderLayer,
@@ -459,7 +403,6 @@ class BlenderbotEncoder(BlenderbotPreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -490,7 +433,6 @@ class BlenderbotEncoder(BlenderbotPreTrainedModel):
             attention_mask=attention_mask,
         )
         for idx, encoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -504,7 +446,6 @@ class BlenderbotEncoder(BlenderbotPreTrainedModel):
                     **kwargs,
                 )
 
-        # add final layer norm
         hidden_states = self.layer_norm(hidden_states)
 
         return BaseModelOutput(
@@ -513,13 +454,6 @@ class BlenderbotEncoder(BlenderbotPreTrainedModel):
 
 
 class BlenderbotDecoder(BlenderbotPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a [`BlenderbotDecoderLayer`]
-
-    Args:
-        config: BlenderbotConfig
-        embed_tokens (nn.Embedding): output embedding
-    """
 
     _can_record_outputs = {
         "hidden_states": BlenderbotDecoderLayer,
@@ -549,7 +483,6 @@ class BlenderbotDecoder(BlenderbotPreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -572,7 +505,6 @@ class BlenderbotDecoder(BlenderbotPreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # initialize `past_key_values`
         if use_cache and past_key_values is None:
             past_key_values = (
                 EncoderDecoderCache(DynamicCache(config=self.config), DynamicCache(config=self.config))
@@ -585,7 +517,6 @@ class BlenderbotDecoder(BlenderbotPreTrainedModel):
         position_ids = torch.arange(seq_length, device=inputs_embeds.device) + past_key_values_length
 
         if attention_mask is None and not is_torchdynamo_compiling():
-            # required mask seq length can be calculated via length of past cache
             mask_seq_length = past_key_values_length + seq_length
             attention_mask = torch.ones(batch_size, mask_seq_length, device=inputs_embeds.device)
 
@@ -608,7 +539,6 @@ class BlenderbotDecoder(BlenderbotPreTrainedModel):
             encoder_hidden_states=encoder_hidden_states,
         )
 
-        # embed positions
         position_ids = self.embed_positions(
             (batch_size, seq_length), past_key_values_length, position_ids=position_ids
         )
@@ -617,7 +547,6 @@ class BlenderbotDecoder(BlenderbotPreTrainedModel):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if self.training:
                 dropout_probability = torch.rand([])
                 if dropout_probability < self.layerdrop:
@@ -634,7 +563,6 @@ class BlenderbotDecoder(BlenderbotPreTrainedModel):
             )
             hidden_states = layer_outputs[0] if isinstance(layer_outputs, tuple) else layer_outputs
 
-        # add final layer norm
         hidden_states = self.layer_norm(hidden_states)
 
         return BaseModelOutputWithPastAndCrossAttentions(
@@ -659,7 +587,6 @@ class BlenderbotModel(BlenderbotPreTrainedModel):
         self.encoder = BlenderbotEncoder(config)
         self.decoder = BlenderbotDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -773,7 +700,6 @@ class BlenderbotForConditionalGeneration(BlenderbotPreTrainedModel, GenerationMi
         self.register_buffer("final_logits_bias", torch.zeros((1, self.model.shared.num_embeddings)))
         self.lm_head = nn.Linear(config.d_model, self.model.shared.num_embeddings, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def resize_token_embeddings(
@@ -904,12 +830,7 @@ class BlenderbotForConditionalGeneration(BlenderbotPreTrainedModel, GenerationMi
         )
 
 
-# Copied from transformers.models.bart.modeling_bart.BartDecoderWrapper with Bart->Blenderbot
 class BlenderbotDecoderWrapper(BlenderbotPreTrainedModel):
-    """
-    This wrapper class is a helper class to correctly load pretrained checkpoints when the causal language model is
-    used in combination with the [`EncoderDecoderModel`] framework.
-    """
 
     def __init__(self, config):
         super().__init__(config)
@@ -920,7 +841,6 @@ class BlenderbotDecoderWrapper(BlenderbotPreTrainedModel):
         return self.decoder(*args, **kwargs)
 
 
-# Copied from transformers.models.bart.modeling_bart.BartForCausalLM with Bart->Blenderbot, facebook/bart-base->facebook/blenderbot-400M-distill
 class BlenderbotForCausalLM(BlenderbotPreTrainedModel, GenerationMixin):
     _tied_weights_keys = {
         "lm_head.weight": "model.decoder.embed_tokens.weight",
@@ -934,7 +854,6 @@ class BlenderbotForCausalLM(BlenderbotPreTrainedModel, GenerationMixin):
 
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -993,7 +912,6 @@ class BlenderbotForCausalLM(BlenderbotPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

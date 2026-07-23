@@ -1,16 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from __future__ import annotations
 
@@ -26,9 +13,6 @@ if TYPE_CHECKING:
 
 
 class BaseStreamer:
-    """
-    Base class from which `.generate()` streamers should inherit.
-    """
 
     def put(self, value):
         """Function that is called by `.generate()` to push new tokens"""
@@ -40,39 +24,12 @@ class BaseStreamer:
 
 
 class TextStreamer(BaseStreamer):
-    """
-    Simple text streamer that prints the token(s) to stdout as soon as entire words are formed.
-
-    Parameters:
-        tokenizer (`AutoTokenizer`):
-            The tokenizer used to decode the tokens.
-        skip_prompt (`bool`, *optional*, defaults to `False`):
-            Whether to skip the prompt to `.generate()` or not. Useful e.g. for chatbots.
-        decode_kwargs (`dict`, *optional*):
-            Additional keyword arguments to pass to the tokenizer's `decode` method.
-
-    Examples:
-
-        ```python
-        >>> from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
-
-        >>> tok = AutoTokenizer.from_pretrained("openai-community/gpt2")
-        >>> model = AutoModelForCausalLM.from_pretrained("openai-community/gpt2")
-        >>> inputs = tok(["An increasing sequence: one,"], return_tensors="pt")
-        >>> streamer = TextStreamer(tok)
-
-        >>> # Despite returning the usual output, the streamer will also print the generated text to stdout.
-        >>> _ = model.generate(**inputs, streamer=streamer, max_new_tokens=20)
-        An increasing sequence: one, two, three, four, five, six, seven, eight, nine, ten, eleven,
-        ```
-    """
 
     def __init__(self, tokenizer: PreTrainedTokenizerBase, skip_prompt: bool = False, **decode_kwargs: Any):
         self.tokenizer = tokenizer
         self.skip_prompt = skip_prompt
         self.decode_kwargs = decode_kwargs
 
-        # variables used in the streaming process
         self.token_cache: list[int] = []
         self.print_len = 0
         self.next_tokens_are_prompt = True
@@ -90,21 +47,16 @@ class TextStreamer(BaseStreamer):
             self.next_tokens_are_prompt = False
             return
 
-        # Add the new token to the cache and decodes the entire thing.
         self.token_cache.extend(value.tolist())
         text = cast(str, self.tokenizer.decode(self.token_cache, **self.decode_kwargs))
 
-        # After the symbol for a new line, we flush the cache.
         if text.endswith("\n"):
             printable_text = text[self.print_len :]
             self.token_cache = []
             self.print_len = 0
-        # If the last token is a CJK character, we print the characters.
         elif len(text) > 0 and self._is_chinese_char(ord(text[-1])):
             printable_text = text[self.print_len :]
             self.print_len += len(printable_text)
-        # Otherwise, prints until the last space char (simple heuristic to avoid printing incomplete words,
-        # which may change with the subsequent token -- there are probably smarter ways to do this!)
         else:
             printable_text = text[self.print_len : text.rfind(" ") + 1]
             self.print_len += len(printable_text)
@@ -113,7 +65,6 @@ class TextStreamer(BaseStreamer):
 
     def end(self):
         """Flushes any remaining cache and prints a newline to stdout."""
-        # Flush the cache, if it exists
         if len(self.token_cache) > 0:
             text = cast(str, self.tokenizer.decode(self.token_cache, **self.decode_kwargs))
             printable_text = text[self.print_len :]
@@ -131,14 +82,6 @@ class TextStreamer(BaseStreamer):
 
     def _is_chinese_char(self, cp):
         """Checks whether CP is the codepoint of a CJK character."""
-        # This defines a "chinese character" as anything in the CJK Unicode block:
-        #   https://en.wikipedia.org/wiki/CJK_Unified_Ideographs_(Unicode_block)
-        #
-        # Note that the CJK Unicode block is NOT all Japanese and Korean characters,
-        # despite its name. The modern Korean Hangul alphabet is a different block,
-        # as is Japanese Hiragana and Katakana. Those alphabets are used to write
-        # space-separated words, so they are not treated specially and handled
-        # like the all of the other languages.
         if (
             (cp >= 0x4E00 and cp <= 0x9FFF)
             or (cp >= 0x3400 and cp <= 0x4DBF)
@@ -155,44 +98,6 @@ class TextStreamer(BaseStreamer):
 
 
 class TextIteratorStreamer(TextStreamer):
-    """
-    Streamer that stores print-ready text in a queue, to be used by a downstream application as an iterator. This is
-    useful for applications that benefit from accessing the generated text in a non-blocking way (e.g. in an interactive
-    Gradio demo).
-
-    Parameters:
-        tokenizer (`AutoTokenizer`):
-            The tokenizer used to decode the tokens.
-        skip_prompt (`bool`, *optional*, defaults to `False`):
-            Whether to skip the prompt to `.generate()` or not. Useful e.g. for chatbots.
-        timeout (`float`, *optional*):
-            The timeout for the text queue. If `None`, the queue will block indefinitely. Useful to handle exceptions
-            in `.generate()`, when it is called in a separate thread.
-        decode_kwargs (`dict`, *optional*):
-            Additional keyword arguments to pass to the tokenizer's `decode` method.
-
-    Examples:
-
-        ```python
-        >>> from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
-        >>> from threading import Thread
-
-        >>> tok = AutoTokenizer.from_pretrained("openai-community/gpt2")
-        >>> model = AutoModelForCausalLM.from_pretrained("openai-community/gpt2")
-        >>> inputs = tok(["An increasing sequence: one,"], return_tensors="pt")
-        >>> streamer = TextIteratorStreamer(tok)
-
-        >>> # Run the generation in a separate thread, so that we can fetch the generated text in a non-blocking way.
-        >>> generation_kwargs = dict(inputs, streamer=streamer, max_new_tokens=20)
-        >>> thread = Thread(target=model.generate, kwargs=generation_kwargs)
-        >>> thread.start()
-        >>> generated_text = ""
-        >>> for new_text in streamer:
-        ...     generated_text += new_text
-        >>> generated_text
-        'An increasing sequence: one, two, three, four, five, six, seven, eight, nine, ten, eleven,'
-        ```
-    """
 
     def __init__(
         self,
@@ -224,51 +129,6 @@ class TextIteratorStreamer(TextStreamer):
 
 
 class AsyncTextIteratorStreamer(TextStreamer):
-    """
-    Streamer that stores print-ready text in a queue, to be used by a downstream application as an async iterator.
-    This is useful for applications that benefit from accessing the generated text asynchronously (e.g. in an
-    interactive Gradio demo).
-
-    Parameters:
-        tokenizer (`AutoTokenizer`):
-            The tokenizer used to decode the tokens.
-        skip_prompt (`bool`, *optional*, defaults to `False`):
-            Whether to skip the prompt to `.generate()` or not. Useful e.g. for chatbots.
-        timeout (`float`, *optional*):
-            The timeout for the text queue. If `None`, the queue will block indefinitely. Useful to handle exceptions
-            in `.generate()`, when it is called in a separate thread.
-        decode_kwargs (`dict`, *optional*):
-            Additional keyword arguments to pass to the tokenizer's `decode` method.
-
-    Raises:
-        TimeoutError: If token generation time exceeds timeout value.
-
-    Examples:
-
-        ```python
-        >>> from transformers import AutoModelForCausalLM, AutoTokenizer, AsyncTextIteratorStreamer
-        >>> from threading import Thread
-        >>> import asyncio
-
-        >>> tok = AutoTokenizer.from_pretrained("openai-community/gpt2")
-        >>> model = AutoModelForCausalLM.from_pretrained("openai-community/gpt2")
-        >>> inputs = tok(["An increasing sequence: one,"], return_tensors="pt")
-
-        >>> # Run the generation in a separate thread, so that we can fetch the generated text in a non-blocking way.
-        >>> async def main():
-        ...     # Important: AsyncTextIteratorStreamer must be initialized inside a coroutine!
-        ...     streamer = AsyncTextIteratorStreamer(tok)
-        ...     generation_kwargs = dict(inputs, streamer=streamer, max_new_tokens=20)
-        ...     thread = Thread(target=model.generate, kwargs=generation_kwargs)
-        ...     thread.start()
-        ...     generated_text = ""
-        ...     async for new_text in streamer:
-        ...         generated_text += new_text
-        >>>     print(generated_text)
-        >>> asyncio.run(main())
-        An increasing sequence: one, two, three, four, five, six, seven, eight, nine, ten, eleven,
-        ```
-    """
 
     def __init__(
         self,
@@ -312,45 +172,6 @@ class AsyncTextIteratorStreamer(TextStreamer):
 
 
 class TextDiffusionStreamer(TextStreamer):
-    """
-    Streamer that prints text diffusion outputs. Intermediate diffusion steps (drafts) are temporary
-    and overwritten by subsequent drafts, and removed when confirmed text is printed.
-
-    <Tip warning={true}>
-
-    If you're running on an environment like tmux, the draft text may fail to overwrite itself.
-
-    </Tip>
-
-
-    Parameters:
-        tokenizer (`AutoTokenizer`):
-            The tokenized used to decode the tokens.
-        skip_prompt (`bool`, *optional*, defaults to `False`):
-            Whether to skip the prompt to `.generate()` or not. Useful e.g. for chatbots.
-        sleep_time (`float`, *optional*):
-            Time to sleep between diffusion drafts, which may be helpful to visualize intermediate outputs.
-        decode_kwargs (`dict`, *optional*):
-            Additional keyword arguments to pass to the tokenizer's `decode` method.
-
-    Examples:
-
-        ```python
-        >>> from transformers import DiffusionGemmaForBlockDiffusion, AutoProcessor, TextDiffusionStreamer
-
-        >>> model = DiffusionGemmaForBlockDiffusion.from_pretrained(
-        ...     "google/diffusiongemma-26B-A4B-it", device_map="auto",
-        ... )
-        >>> processor = AutoProcessor.from_pretrained("google/diffusiongemma-26B-A4B-it")
-
-        >>> chat = [{"role": "user", "content": "Why is the sky blue?"},]
-        >>> input_ids = processor.apply_chat_template(
-        ...     chat, tokenize=True, return_tensors="pt", add_generation_prompt=True
-        ... )
-        >>> streamer = TextDiffusionStreamer(tokenizer=processor.tokenizer)
-        >>> model.generate(input_ids.to(model.device), max_new_tokens=512, streamer=streamer)
-        ```
-    """
 
     def __init__(
         self,
@@ -361,15 +182,11 @@ class TextDiffusionStreamer(TextStreamer):
     ):
         super().__init__(tokenizer, skip_prompt, **decode_kwargs)
         self._has_draft = False
-        # `_takes_logits`: Overwrite this attribute if you want your new Streamer class to take the draft
-        # logits as an input to `put_draft`. On diffusion models, `logits` can be a very large tensor, so
-        # we recommend setting it to `False` by default.
         self._takes_logits = False
         self.sleep_time = sleep_time
 
     def _clear_draft(self):
         if self._has_draft:
-            # Restore cursor and clear to end of screen
             print("\0338\033[J", end="", flush=True)
             self._has_draft = False
 
@@ -387,9 +204,7 @@ class TextDiffusionStreamer(TextStreamer):
 
         text = self.tokenizer.decode(value, **self.decode_kwargs)
 
-        # Save cursor position
         print("\0337", end="", flush=True)
-        # Print draft in yellow
         print(f"\033[33m{text}\033[0m", end="", flush=True)
         self._has_draft = True
         if self.sleep_time is not None:

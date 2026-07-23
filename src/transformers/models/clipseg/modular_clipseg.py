@@ -1,17 +1,3 @@
-# Copyright 2022 The OpenAI Team Authors and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch CLIPSeg model."""
 
 import copy
 import math
@@ -48,21 +34,6 @@ from ..clip.modeling_clip import (
 @auto_docstring(checkpoint="CIDAS/clipseg-rd64")
 @strict
 class CLIPSegTextConfig(CLIPTextConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import CLIPSegTextConfig, CLIPSegTextModel
-
-    >>> # Initializing a CLIPSegTextConfig with CIDAS/clipseg-rd64 style configuration
-    >>> configuration = CLIPSegTextConfig()
-
-    >>> # Initializing a CLIPSegTextModel (with random weights) from the CIDAS/clipseg-rd64 style configuration
-    >>> model = CLIPSegTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     projection_dim = AttributeError()
 
@@ -70,21 +41,6 @@ class CLIPSegTextConfig(CLIPTextConfig):
 @auto_docstring(checkpoint="CIDAS/clipseg-rd64")
 @strict
 class CLIPSegVisionConfig(CLIPVisionConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import CLIPSegVisionConfig, CLIPSegVisionModel
-
-    >>> # Initializing a CLIPSegVisionConfig with CIDAS/clipseg-rd64 style configuration
-    >>> configuration = CLIPSegVisionConfig()
-
-    >>> # Initializing a CLIPSegVisionModel (with random weights) from the CIDAS/clipseg-rd64 style configuration
-    >>> model = CLIPSegVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     projection_dim = AttributeError()
 
@@ -92,40 +48,6 @@ class CLIPSegVisionConfig(CLIPVisionConfig):
 @auto_docstring(checkpoint="CIDAS/clipseg-rd64")
 @strict
 class CLIPSegConfig(CLIPConfig):
-    r"""
-    extract_layers (`list[int]`, *optional*, defaults to `[3, 6, 9]`):
-        Layers to extract when forwarding the query image through the frozen visual backbone of CLIP.
-    reduce_dim (`int`, *optional*, defaults to 64):
-        Dimensionality to reduce the CLIP vision embedding.
-    conditional_layer (`int`, *optional*, defaults to 0):
-        The layer to use of the Transformer encoder whose activations will be combined with the condition
-        embeddings using FiLM (Feature-wise Linear Modulation). If 0, the last layer is used.
-    use_complex_transposed_convolution (`bool`, *optional*, defaults to `False`):
-        Whether to use a more complex transposed convolution in the decoder, enabling more fine-grained
-        segmentation..
-
-    Example:
-
-    ```python
-    >>> from transformers import CLIPSegConfig, CLIPSegModel
-
-    >>> # Initializing a CLIPSegConfig with CIDAS/clipseg-rd64 style configuration
-    >>> configuration = CLIPSegConfig()
-
-    >>> # Initializing a CLIPSegModel (with random weights) from the CIDAS/clipseg-rd64 style configuration
-    >>> model = CLIPSegModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-
-    >>> # We can also initialize a CLIPSegConfig from a CLIPSegTextConfig and a CLIPSegVisionConfig
-
-    >>> # Initializing a CLIPSegText and CLIPSegVision configuration
-    >>> config_text = CLIPSegTextConfig()
-    >>> config_vision = CLIPSegVisionConfig()
-
-    >>> config = CLIPSegConfig(text_config=config_text, vision_config=config_vision)
-    ```"""
 
     extract_layers: list[int] | tuple[int, ...] = (3, 6, 9)
     reduce_dim: int = 64
@@ -144,16 +66,6 @@ class CLIPSegOutput(CLIPOutput):
 @auto_docstring
 @dataclass
 class CLIPSegDecoderOutput(ModelOutput):
-    r"""
-    logits (`torch.FloatTensor` of shape `(batch_size, height, width)`):
-        Classification scores for each pixel.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*,):
-        Hidden-states of the model at the output of each layer plus the optional initial embedding outputs.
-        Rreturned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`
-    attentions (`tuple(torch.FloatTensor)`, *optional*):
-        Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
-        heads. Returned when `output_attentions=True` is passed or when `config.output_attentions=True`
-    """
 
     logits: torch.FloatTensor | None = None
     hidden_states: tuple[torch.FloatTensor, ...] | None = None
@@ -163,20 +75,6 @@ class CLIPSegDecoderOutput(ModelOutput):
 @auto_docstring
 @dataclass
 class CLIPSegImageSegmentationOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Binary cross entropy loss for segmentation.
-    logits (`torch.FloatTensor` of shape `(batch_size, height, width)`):
-        Classification scores for each pixel.
-    conditional_embeddings (`torch.FloatTensor` of shape `(batch_size, projection_dim)`):
-        Conditional embeddings used for segmentation.
-    pooled_output (`torch.FloatTensor` of shape `(batch_size, embed_dim)`):
-        Pooled output of the [`CLIPSegVisionModel`].
-    vision_model_output (`BaseModelOutputWithPooling`):
-        The output of the [`CLIPSegVisionModel`].
-    decoder_output (`CLIPSegDecoderOutput`):
-        The output of the [`CLIPSegDecoder`].
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -190,7 +88,6 @@ class CLIPSegImageSegmentationOutput(ModelOutput):
 
 
 class CLIPSegVisionEmbeddings(CLIPVisionEmbeddings):
-    # Different default for `interpolate_pos_encoding` from CLIP
     def forward(self, pixel_values: torch.FloatTensor, interpolate_pos_encoding=True) -> torch.Tensor:
         super().forward(pixel_values, interpolate_pos_encoding)
 
@@ -212,10 +109,6 @@ class CLIPSegEncoderLayer(CLIPEncoderLayer):
 
 
 class CLIPSegDecoderLayer(CLIPEncoderLayer):
-    """
-    CLIPSeg decoder layer, which is identical to `CLIPSegEncoderLayer`, except that normalization is applied after
-    self-attention/MLP, rather than before.
-    """
 
     def forward(
         self,
@@ -530,7 +423,6 @@ class CLIPSegForImageSegmentation(CLIPSegPreTrainedModel):
         conditional_pixel_values: torch.Tensor | None = None,
     ) -> torch.FloatTensor:
         if input_ids is not None:
-            # compute conditional embeddings from texts
             if len(input_ids) != batch_size:
                 raise ValueError("Make sure to pass as many prompt texts as there are query images")
             with torch.no_grad():
@@ -538,7 +430,6 @@ class CLIPSegForImageSegmentation(CLIPSegPreTrainedModel):
                     input_ids, attention_mask=attention_mask, position_ids=position_ids
                 ).pooler_output
         elif conditional_pixel_values is not None:
-            # compute conditional embeddings from images
             if len(conditional_pixel_values) != batch_size:
                 raise ValueError("Make sure to pass as many prompt images as there are query images")
             with torch.no_grad():
@@ -598,7 +489,6 @@ class CLIPSegForImageSegmentation(CLIPSegPreTrainedModel):
         >>> print(logits.shape)
         torch.Size([3, 352, 352])
         ```"""
-        # step 1: forward the query images through the frozen CLIP vision encoder
         with torch.no_grad():
             kwargs["output_hidden_states"] = True  # required to extract layers for the stages
             vision_outputs = self.clip.get_image_features(
@@ -609,10 +499,8 @@ class CLIPSegForImageSegmentation(CLIPSegPreTrainedModel):
             pooled_output = vision_outputs.pooler_output
 
             hidden_states = vision_outputs.hidden_states
-            # we add +1 here as the hidden states also include the initial embeddings
             activations = [hidden_states[i + 1] for i in self.extract_layers]
 
-            # update vision_outputs
             vision_outputs = BaseModelOutputWithPooling(
                 last_hidden_state=vision_outputs.last_hidden_state,
                 pooler_output=vision_outputs.pooler_output,
@@ -620,7 +508,6 @@ class CLIPSegForImageSegmentation(CLIPSegPreTrainedModel):
                 attentions=vision_outputs.attentions,
             )
 
-        # step 2: compute conditional embeddings, either from text, images or an own provided embedding
         if conditional_embeddings is None:
             conditional_embeddings = self.get_conditional_embeddings(
                 batch_size=pixel_values.shape[0],
@@ -640,7 +527,6 @@ class CLIPSegForImageSegmentation(CLIPSegPreTrainedModel):
                     " `config.projection_dim`."
                 )
 
-        # step 3: forward both the pooled output and the activations through the lightweight decoder to predict masks
         decoder_outputs = self.decoder(
             activations,
             conditional_embeddings,
@@ -650,7 +536,6 @@ class CLIPSegForImageSegmentation(CLIPSegPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # move labels to the correct device to enable PP
             labels = labels.to(logits.device)
             loss_fn = nn.BCEWithLogitsLoss()
             loss = loss_fn(logits, labels)

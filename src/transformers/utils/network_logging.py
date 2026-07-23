@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from __future__ import annotations
 
@@ -116,7 +103,7 @@ class _NetworkDebugProfiler:
 
     @property
     def enabled(self) -> bool:
-        return self._enabled
+        pass
 
     def clear(self) -> None:
         with self._lock:
@@ -137,63 +124,30 @@ class _NetworkDebugProfiler:
 
         @wraps(self._original_client_send)
         def patched_client_send(client, request, *args, **kwargs):
-            return profiler._send_with_trace(profiler._original_client_send, client, request, *args, **kwargs)
+            pass
 
         @wraps(self._original_async_client_send)
         async def patched_async_client_send(client, request, *args, **kwargs):
-            return await profiler._async_send_with_trace(
-                profiler._original_async_client_send, client, request, *args, **kwargs
-            )
+            pass
 
         httpx.Client.send = patched_client_send
         httpx.AsyncClient.send = patched_async_client_send
         self._enabled = True
 
     def setup_shared_dir(self) -> str | None:
-        """Create a shared temp directory for xdist workers to dump records into."""
-        if self._shared_dir is None:
-            import tempfile
-
-            self._shared_dir = tempfile.mkdtemp(prefix="network_debug_")
-        return self._shared_dir
+        pass
 
     def set_shared_dir(self, shared_dir: str) -> None:
-        """Set the shared directory (called in xdist workers)."""
-        self._shared_dir = shared_dir
+        pass
 
     def dump_worker_records(self, worker_id: str | None = None) -> None:
-        """Write this process's records to a file in the shared directory (called in workers)."""
-        if not self._shared_dir or not self._records:
-            return
-        worker_id = worker_id or f"pid{os.getpid()}"
-        dump_path = os.path.join(self._shared_dir, f"records_{worker_id}.json")
-        with self._lock:
-            records = [{**record, "phases_ms": dict(record["phases_ms"])} for record in self._records]
-        Path(dump_path).write_text(json.dumps(records), encoding="utf-8")
+        pass
 
     def load_worker_records(self) -> None:
-        """Load all worker record files from the shared directory (called in controller)."""
-        if not self._shared_dir or not os.path.isdir(self._shared_dir):
-            return
-        import glob as glob_module
-
-        for record_file in glob_module.glob(os.path.join(self._shared_dir, "records_*.json")):
-            try:
-                records = json.loads(Path(record_file).read_text(encoding="utf-8"))
-                with self._lock:
-                    for record in records:
-                        record["phases_ms"] = defaultdict(float, record.get("phases_ms", {}))
-                        self._records.append(record)
-            except (OSError, json.JSONDecodeError):
-                pass
+        pass
 
     def cleanup_shared_dir(self) -> None:
-        """Remove the shared temp directory."""
-        if self._shared_dir and os.path.isdir(self._shared_dir):
-            import shutil
-
-            shutil.rmtree(self._shared_dir, ignore_errors=True)
-            self._shared_dir = None
+        pass
 
     def disable(self) -> None:
         if not self._enabled:
@@ -215,10 +169,7 @@ class _NetworkDebugProfiler:
         existing_trace = request.extensions.get("trace")
 
         def wrapped_trace(name: str, info: dict[str, Any]) -> Any:
-            trace.trace(name, info)
-            if existing_trace is not None:
-                return existing_trace(name, info)
-            return None
+            pass
 
         return wrapped_trace
 
@@ -226,13 +177,7 @@ class _NetworkDebugProfiler:
         existing_trace = request.extensions.get("trace")
 
         async def wrapped_trace(name: str, info: dict[str, Any]) -> Any:
-            trace.trace(name, info)
-            if existing_trace is not None:
-                result = existing_trace(name, info)
-                if inspect.isawaitable(result):
-                    return await result
-                return result
-            return None
+            pass
 
         return wrapped_trace
 
@@ -319,13 +264,7 @@ class _NetworkDebugProfiler:
         }
 
     def maybe_write_report(self) -> str | None:
-        if self._output_path is None:
-            return None
-
-        report_path = Path(self._output_path)
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(self.build_report(), indent=2, sort_keys=True), encoding="utf-8")
-        return str(report_path)
+        pass
 
 
 _NETWORK_DEBUG_PROFILER = _NetworkDebugProfiler()
@@ -335,14 +274,7 @@ _DEFAULT_REPORT_PATH = "network_debug_report.json"
 
 
 def _parse_network_debug_env() -> tuple[bool, str]:
-    enabled_raw = os.environ.get("NETWORK_DEBUG_REPORT", "").strip()
-    try:
-        enabled = bool(strtobool(enabled_raw)) if enabled_raw else False
-    except ValueError:
-        enabled = False
-
-    output_path = os.environ.get("NETWORK_DEBUG_REPORT_PATH", "").strip() or _DEFAULT_REPORT_PATH
-    return enabled, output_path
+    pass
 
 
 def _enable_network_debug_report(output_path: str | os.PathLike | None = None) -> None:
@@ -362,12 +294,7 @@ def _get_network_debug_report() -> dict[str, Any]:
 
 
 def _enable_network_debug_report_from_env() -> bool:
-    enabled, output_path = _parse_network_debug_env()
-    if not enabled:
-        return False
-
-    _enable_network_debug_report(output_path=output_path)
-    return True
+    pass
 
 
 def _format_network_debug_report(max_requests: int = 20, max_routes: int = 10) -> str:
@@ -419,65 +346,22 @@ def _format_network_debug_report(max_requests: int = 20, max_routes: int = 10) -
 
 
 class NetworkDebugPlugin:
-    """Pytest plugin that handles all network debug orchestration including xdist coordination."""
 
     def pytest_configure(self, config):
-        _enable_network_debug_report_from_env()
-        if not _NETWORK_DEBUG_PROFILER.enabled:
-            return
-
-        # xdist controller: create shared dir for workers to dump network records
-        if not hasattr(config, "workerinput"):
-            shared_dir = _NETWORK_DEBUG_PROFILER.setup_shared_dir()
-            if shared_dir:
-                config._network_debug_shared_dir = shared_dir
-        else:
-            # xdist worker: receive shared dir from controller
-            shared_dir = config.workerinput.get("network_debug_shared_dir")
-            if shared_dir:
-                _NETWORK_DEBUG_PROFILER.set_shared_dir(shared_dir)
+        pass
 
     def pytest_configure_node(self, node):
-        """xdist hook: called on the controller to configure each worker node."""
-        shared_dir = getattr(node.config, "_network_debug_shared_dir", None)
-        if shared_dir:
-            node.workerinput["network_debug_shared_dir"] = shared_dir
+        pass
 
     def pytest_sessionfinish(self, session, exitstatus):
-        # xdist worker: dump network debug records for the controller to aggregate
-        if hasattr(session.config, "workerinput"):
-            worker_id = session.config.workerinput.get("workerid", f"pid{os.getpid()}")
-            _NETWORK_DEBUG_PROFILER.dump_worker_records(worker_id=worker_id)
+        pass
 
     def pytest_terminal_summary(self, terminalreporter):
-        if not _NETWORK_DEBUG_PROFILER.enabled:
-            return
-
-        # Skip report generation in xdist worker processes; only the controller should aggregate and report.
-        if hasattr(terminalreporter.config, "workerinput"):
-            return
-
-        # Aggregate worker records if running under xdist.
-        _NETWORK_DEBUG_PROFILER.load_worker_records()
-
-        report_path = None
-        try:
-            report_path = _NETWORK_DEBUG_PROFILER.maybe_write_report()
-        except OSError as error:
-            report_path = f"Failed to write JSON report: {error}"
-
-        terminalreporter.section("Network debug", sep="=")
-        for line in _format_network_debug_report().splitlines():
-            terminalreporter.write_line(line)
-        if report_path is not None:
-            terminalreporter.write_line(f"JSON report: {report_path}")
-
-        _NETWORK_DEBUG_PROFILER.cleanup_shared_dir()
+        pass
 
 
 def register_network_debug_plugin(config) -> None:
-    """Register the network debug pytest plugin. Single entry point for conftest.py."""
-    config.pluginmanager.register(NetworkDebugPlugin(), "network_debug")
+    pass
 
 
 __all__ = [

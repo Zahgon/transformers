@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from typing import TYPE_CHECKING
 
 from ..utils.logging import tqdm
@@ -33,9 +20,6 @@ logger = logging.get_logger(__name__)
 
 
 class HiggsHfQuantizer(HfQuantizer):
-    """
-    Quantizer of the HIGGS method. Enables the loading of prequantized models and in-flight quantization of full-precision models.
-    """
 
     requires_calibration = False
     quantization_config: "HiggsConfig"
@@ -78,39 +62,8 @@ class HiggsHfQuantizer(HfQuantizer):
 
         return dtype
 
-    # TODO: to remove
-    # Kept here in case we see some interest in adding support for it
-    # def create_quantized_param(
-    #     self,
-    #     model: "PreTrainedModel",
-    #     param_value: "torch.Tensor",
-    #     param_name: str,
-    #     target_device: "torch.device",
-    #     **kwargs,
-    # ):
-    #     from ..integrations import quantize_with_higgs
 
-    #     flute_dict = quantize_with_higgs(
-    #         param_value.to(target_device),
-    #         self.quantization_config.bits,
-    #         self.quantization_config.p,
-    #         self.quantization_config.group_size,
-    #         self.quantization_config.hadamard_size,
-    #     )
-    #     del param_value
 
-    #     module, _ = get_module_from_name(model, param_name)
-    #     module_name = ".".join(param_name.split(".")[:-1])
-    #     for key, value in flute_dict.items():
-    #         if key in module._parameters:
-    #             module._parameters[key] = torch.nn.Parameter(value, requires_grad=False)
-    #         elif key in module._buffers:
-    #             module._buffers[key] = torch.nn.Buffer(value)
-    #         elif key == "tune_metadata":
-    #             module.tune_metadata = value
-    #             self.quantization_config.tune_metadata[module_name] = value.to_dict()
-    #         else:
-    #             raise ValueError(f"Unexpected key {key} in module {module}")
 
     def _process_model_before_weight_loading(
         self,
@@ -138,14 +91,10 @@ class HiggsHfQuantizer(HfQuantizer):
         flute_workspaces = {}
         flute_modules = {name: module for name, module in model.named_modules() if isinstance(module, HiggsLinear)}
         for name, module in tqdm(flute_modules.items(), desc="Repacking HIGGS modules", leave=False):
-            # Every HiggsLinear needs a "workspace": a buffer for the unpacking operation.
-            # This buffer needs to be on the same device as the weights, but can be reused across modules otherwise.
             if module.weight.device not in flute_workspaces:
                 flute_workspaces[module.weight.device] = make_workspace_streamk(device=module.weight.device)
             module.workspace = flute_workspaces[module.weight.device]
 
-            # FLUTE weights are packed in a way that is optimized for a specific number of SMs (GPU streaming multiprocessors).
-            # If the model is loaded on a different device than the one it was saved on, we need to repack the weights.
             module.tune_metadata = TuneMetaData.from_dict(self.quantization_config.tune_metadata[name])
             module.weight.data, module.tune_metadata = maybe_tune_and_repack(
                 weight=module.weight.data,
@@ -156,7 +105,7 @@ class HiggsHfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self) -> bool:
-        return False
+        pass
 
     def is_serializable(self):
         return True
@@ -166,7 +115,6 @@ class HiggsHfQuantizer(HfQuantizer):
 
         module, tensor_name = get_module_from_name(model, param_name)
         if isinstance(module, HiggsLinear) and tensor_name == "weight":
-            # Only quantize weights of HiggsLinear modules that are not already quantized
             return True
         else:
             return False

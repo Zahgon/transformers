@@ -1,63 +1,3 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Example for running:
-0. Cp ckpts to local
-aws s3 cp --recursive s3://ai2-llm/checkpoints/OLMoE/olmoe-8x1b-newhp-newds-final-annealFrom1200000/step23842 /data/niklas/llm/checkpoints/olmoe-8x1b-newhp-newds-final-annealFrom1200000_step23842
-1. Unshard your OLMoE checkpoint using https://github.com/allenai/OLMo/blob/7d63fe09d23cf23714da5aa633a44a90180195da/scripts/unshard.py
-python OLMo/scripts/unshard.py /data/niklas/llm/checkpoints/23485/step954000 /data/niklas/llm/checkpoints/1b-954000-unsharded --model-only
-python OLMo/scripts/unshard.py /data/niklas/llm/checkpoints/23485/step954000 /data/niklas/llm/checkpoints/1b-954000-unsharded --model-only
-python OLMo/scripts/unshard.py /data/niklas/llm/checkpoints/olmoe-8x1b-newhp-newds-final-annealFrom1200000_step23842 /data/niklas/llm/checkpoints/olmoe-8x1b-newhp-newds-final-annealFrom1200000_step23842-unsharded --model-only
-2. Convert to transformers
-rm -rf olmoe; mkdir olmoe; python /data/niklas/transformers/src/transformers/models/olmoe/convert_olmoe_weights_to_hf.py --input_dir /data/niklas/llm/checkpoints/olmoe-8x1b-newhp-newds-final-annealFrom1200000_step23842-unsharded --tokenizer_json_path /data/niklas/llm/checkpoints/olmoe-step1200000-unsharded/tokenizer.json --output_dir olmoe
-3. Load model via:
-```
-from transformers import OlmoeForCausalLM, AutoTokenizer
-import torch
-model = OlmoeForCausalLM.from_pretrained("../transformers/olmoe", dtype=torch.bfloat16).cuda()
-model = OlmoeForCausalLM.from_pretrained("../transformers/olmoe").cuda()
-tokenizer = AutoTokenizer.from_pretrained("../transformers/olmoe")
-inputs = tokenizer("Bitcoin is", return_tensors="pt")
-inputs = {k: v.cuda() for k, v in inputs.items()}
-out = model.generate(**inputs, max_length=64)
-print(tokenizer.decode(out[0]))
-# > # Bitcoin is a digital currency that is created and held electronically. No one controls it. Bitcoins aren’t printed, like dollars or euros – they’re produced by people and businesses running computers all around the world, using software that solves mathematical
-# Or quick sanity check:
-o = model(torch.tensor([[0, 1]]).cuda())
-# If the checkpoint is not converted to BF16 but kept in FP32:
-# > # Bitcoin is a digital currency that is not controlled by any central authority. It is a peer-to-peer payment system that allows users to send and receive payments from anywhere in the world. Bitcoin is also known as a cryptocurrency because it uses cryptography to secure transactions and prevent fraud.
-```
-
-Note: you need to be able to host the whole model in RAM to execute this script (even if the biggest versions
-come in several checkpoints they each contain a part of each weight of the model, so we need to load them all in RAM).
-
-Compare with OLMo codebase:
-```
-from olmo.model import OLMo
-import torch
-model = OLMo.from_checkpoint("/data/niklas/llm/checkpoints/olmoe-step1200000-unsharded-pt")
-model = model.cuda()
-model = model.to(torch.bfloat16)
-from transformers import AutoTokenizer
-tokenizer = AutoTokenizer.from_pretrained("../transformers/olmoe")
-inputs = tokenizer("Bitcoin is", return_tensors="pt")
-inputs = {k: v.cuda() for k, v in inputs.items()}
-out = model.generate(**inputs)
-print(tokenizer.decode(out[0][0][0]))
-# Bitcoin is a digital currency that is created and held electronically. No one controls it. Bitcoins aren’t printed, like dollars or euros – they’re produced by people and businesses running computers all around the world, using software that solves mathematical problems. It’s the first example of a growing category of money
-# Or quick sanity check:
-o = model(torch.tensor([[0, 1]]).cuda())
-```
-"""
 
 import argparse
 import gc
@@ -118,7 +58,6 @@ def write_model(model_path, input_base_path, tokenizer_path=None, fix_eos_token_
 
     print(f"Fetching all parameters from the checkpoint at {input_base_path}.")
 
-    # Not sharded
     loaded = torch.load(os.path.join(input_base_path, "model.pt"), map_location="cpu", weights_only=True)
 
     param_count = 0
@@ -165,7 +104,6 @@ def write_model(model_path, input_base_path, tokenizer_path=None, fix_eos_token_
 
     filename = f"pytorch_model-{n_layers + 1}-of-{n_layers + 1}.bin"
 
-    # Unsharded
     state_dict = {
         "model.embed_tokens.weight": loaded["transformer.wte.weight"],
         "lm_head.weight": loaded["transformer.ff_out.weight"],
@@ -177,7 +115,6 @@ def write_model(model_path, input_base_path, tokenizer_path=None, fix_eos_token_
         param_count += v.numel()
     torch.save(state_dict, os.path.join(tmp_model_path, filename))
 
-    # Write configs
     index_dict["metadata"] = {"total_size": param_count * 2}
     write_json(index_dict, os.path.join(tmp_model_path, "pytorch_model.bin.index.json"))
 
@@ -198,7 +135,6 @@ def write_model(model_path, input_base_path, tokenizer_path=None, fix_eos_token_
     )
     config.save_pretrained(tmp_model_path)
 
-    # Make space so we can load the model properly now.
     del state_dict
     del loaded
     gc.collect()
@@ -208,7 +144,6 @@ def write_model(model_path, input_base_path, tokenizer_path=None, fix_eos_token_
 
     print("Loading the checkpoint in a OLMoE model.")
     model = OlmoeForCausalLM.from_pretrained(tmp_model_path, dtype=torch.bfloat16)
-    # Avoid saving this as part of the config.
     del model.config._name_or_path
     print("Saving in the Transformers format.")
     model.save_pretrained(model_path)
@@ -226,7 +161,6 @@ def _write_tokenizer(
     pad_token_id = config.pad_token_id if config.pad_token_id is not None else eos_token_id
 
     if fix_eos_token_id and eos_token_id == 0:
-        # Fixing a bug in OLMo where eos token id was incorrectly set
         print("Changing eos_token_id from 0 to 50279.")
         eos_token_id = 50279
 

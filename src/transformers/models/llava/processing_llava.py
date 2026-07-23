@@ -1,19 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for Llava.
-"""
 
 from ...image_utils import get_image_size, to_numpy_array
 from ...processing_utils import (
@@ -68,43 +52,10 @@ class LlavaProcessor(ProcessorMixin):
         super().__init__(image_processor, tokenizer, chat_template=chat_template)
 
     def replace_image_token(self, image_inputs: dict, image_idx: int) -> str:
-        pixel_values = image_inputs["pixel_values"][image_idx]
-        height, width = get_image_size(to_numpy_array(pixel_values))
-        num_image_tokens = (height // self.patch_size) * (width // self.patch_size) + self.num_additional_image_tokens
-        if self.vision_feature_select_strategy == "default":
-            num_image_tokens -= 1
-        return self.image_token * num_image_tokens
+        pass
 
     def _get_num_multimodal_tokens(self, image_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-
-        Args:
-            image_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (height, width) per each image.
-
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-
-        vision_data = {}
-        if image_sizes is not None:
-            images_kwargs = LlavaProcessorKwargs._defaults.get("images_kwargs", {})
-            images_kwargs.update(kwargs)
-            crop_size = images_kwargs.get("crop_size", None) or self.image_processor.crop_size
-            resized_height, resized_width = crop_size["height"], crop_size["width"]
-
-            num_image_tokens = (resized_height // self.patch_size) * (resized_width // self.patch_size)
-            num_image_tokens += self.num_additional_image_tokens
-            if self.vision_feature_select_strategy == "default":
-                num_image_tokens -= 1
-
-            num_image_tokens = [num_image_tokens] * len(image_sizes)
-            num_image_patches = [1] * len(image_sizes)
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-
-        return MultiModalData(**vision_data)
+        pass
 
 
 __all__ = ["LlavaProcessor"]

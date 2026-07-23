@@ -1,17 +1,3 @@
-# Copyright 2022 Sea AI Lab and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch PoolFormer model."""
 
 import collections.abc
 
@@ -30,9 +16,6 @@ logger = logging.get_logger(__name__)
 
 
 class PoolFormerEmbeddings(nn.Module):
-    """
-    Construct Patch Embeddings.
-    """
 
     def __init__(self, hidden_size, num_channels, patch_size, stride, padding, norm_layer=None):
         super().__init__()
@@ -50,9 +33,6 @@ class PoolFormerEmbeddings(nn.Module):
 
 
 class PoolFormerGroupNorm(nn.GroupNorm):
-    """
-    Group Normalization with 1 group. Input: tensor in shape [B, C, H, W]
-    """
 
     def __init__(self, num_channels, **kwargs):
         super().__init__(1, num_channels, **kwargs)
@@ -67,13 +47,7 @@ class PoolFormerPooling(nn.Module):
         return self.pool(hidden_states) - hidden_states
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->PoolFormerDropPath
 class PoolFormerDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -89,7 +63,7 @@ class PoolFormerDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class PoolFormerOutput(nn.Module):
@@ -114,7 +88,6 @@ class PoolFormerOutput(nn.Module):
 
 
 class PoolFormerLayer(nn.Module):
-    """This corresponds to the 'PoolFormerBlock' class in the original implementation."""
 
     def __init__(self, config, num_channels, pool_size, hidden_size, intermediate_size, drop_path):
         super().__init__()
@@ -123,7 +96,6 @@ class PoolFormerLayer(nn.Module):
         self.before_norm = PoolFormerGroupNorm(num_channels)
         self.after_norm = PoolFormerGroupNorm(num_channels)
 
-        # Useful for training neural nets
         self.drop_path = PoolFormerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.use_layer_scale = config.use_layer_scale
         if config.use_layer_scale:
@@ -138,13 +110,11 @@ class PoolFormerLayer(nn.Module):
         if self.use_layer_scale:
             pooling_output = self.pooling(self.before_norm(hidden_states))
             scaled_op = self.layer_scale_1.unsqueeze(-1).unsqueeze(-1) * pooling_output
-            # First residual connection
             hidden_states = hidden_states + self.drop_path(scaled_op)
             outputs = ()
 
             layer_output = self.output(self.after_norm(hidden_states))
             scaled_op = self.layer_scale_2.unsqueeze(-1).unsqueeze(-1) * layer_output
-            # Second residual connection
             output = hidden_states + self.drop_path(scaled_op)
 
             outputs = (output,) + outputs
@@ -152,11 +122,9 @@ class PoolFormerLayer(nn.Module):
 
         else:
             pooling_output = self.drop_path(self.pooling(self.before_norm(hidden_states)))
-            # First residual connection
             hidden_states = pooling_output + hidden_states
             outputs = ()
 
-            # Second residual connection inside the PoolFormerOutput block
             layer_output = self.drop_path(self.output(self.after_norm(hidden_states)))
             output = hidden_states + layer_output
 
@@ -168,10 +136,8 @@ class PoolFormerEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        # stochastic depth decay rule
         dpr = [x.item() for x in torch.linspace(0, config.drop_path_rate, sum(config.depths), device="cpu")]
 
-        # patch embeddings
         embeddings = []
         for i in range(config.num_encoder_blocks):
             embeddings.append(
@@ -185,11 +151,9 @@ class PoolFormerEncoder(nn.Module):
             )
         self.patch_embeddings = nn.ModuleList(embeddings)
 
-        # Transformer blocks
         blocks = []
         cur = 0
         for i in range(config.num_encoder_blocks):
-            # each block consists of layers
             layers = []
             if i != 0:
                 cur += config.depths[i - 1]
@@ -214,9 +178,7 @@ class PoolFormerEncoder(nn.Module):
         hidden_states = pixel_values
         for idx, layers in enumerate(zip(self.patch_embeddings, self.block)):
             embedding_layer, block_layer = layers
-            # Get patch embeddings from hidden_states
             hidden_states = embedding_layer(hidden_states)
-            # Send the embeddings through the blocks
             for _, blk in enumerate(block_layer):
                 layer_outputs = blk(hidden_states)
                 hidden_states = layer_outputs[0]
@@ -256,11 +218,9 @@ class PoolFormerModel(PoolFormerPreTrainedModel):
 
         self.encoder = PoolFormerEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
-        # Input embeddings correspond to the very first patch-embedding stage.
         return self.encoder.patch_embeddings[0]
 
     def set_input_embeddings(self, value):
@@ -319,14 +279,11 @@ class PoolFormerForImageClassification(PoolFormerPreTrainedModel):
         self.num_labels = config.num_labels
         self.poolformer = PoolFormerModel(config)
 
-        # Final norm
         self.norm = PoolFormerGroupNorm(config.hidden_sizes[-1])
-        # Classifier head
         self.classifier = (
             nn.Linear(config.hidden_sizes[-1], config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):

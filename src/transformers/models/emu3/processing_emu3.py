@@ -1,17 +1,3 @@
-# Copyright 2024 HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from ...image_processing_utils import BatchFeature
@@ -27,13 +13,6 @@ if is_vision_available():
 
 
 class Emu3TextKwargs(TextKwargs, total=False):
-    """
-    return_for_image_generation (`bool`, *optional*, defaults to `False`):
-        Whether the processed text is intended for image generation tasks. When `True`, the processor prepares
-        inputs for image generation by appending image start tokens and size information to the prompt, and
-        images should not be provided. When `False`, the processor prepares inputs for text generation from
-        images and text, requiring both inputs to be provided.
-    """
 
     return_for_image_generation: bool
 
@@ -90,7 +69,6 @@ class Emu3Processor(ProcessorMixin):
               `None`).
             - **pixel_values** -- Pixel values to be fed to a model. Returned when `images` is not `None`.
         """
-        # check if images and text inputs are reversed for BC
 
         if isinstance(text, str):
             text = [text]
@@ -116,7 +94,6 @@ class Emu3Processor(ProcessorMixin):
         image_start_tokens = f"{self.image_start_token}"
         image_end_tokens = f"{self.eof_token}{self.image_end_token}"
 
-        # generate text from image + text input, so we add placeholders for image tokens
         if not return_for_image_generation and images is not None:
             image_features = self.image_processor(images, **output_kwargs["images_kwargs"])
             image_sizes = iter(image_features.image_sizes)
@@ -136,14 +113,12 @@ class Emu3Processor(ProcessorMixin):
                 prompt_strings.append(sample)
             text = [sample.replace("<placeholder>", self.image_token) for sample in prompt_strings]
 
-        # generate image from text input, so we add begin-of-image tokens from where image generation starts
         elif return_for_image_generation:
             height, width = self.calculate_generate_size(ratio, image_area, self.downsample_ratio)
             image_prompt = f"{image_start_tokens}{height}*{width}{self.fake_token_around_image}"
             text = [f"{self.bos_token}{sample}{image_prompt}" for sample in text]
             image_features["image_sizes"] = [[height, width]] * len(text)
 
-        # else just generate from text-only input, and we do no special treatment for text
         return_tensors = output_kwargs["text_kwargs"].pop("return_tensors", None)
         return_mm_token_type_ids = output_kwargs["text_kwargs"].pop("return_mm_token_type_ids", False)
         text_inputs = self.tokenizer(text, **output_kwargs["text_kwargs"], return_tensors=None)
@@ -154,47 +129,10 @@ class Emu3Processor(ProcessorMixin):
         return BatchFeature(data={**text_inputs, **image_features}, tensor_type=return_tensors)
 
     def _get_num_multimodal_tokens(self, image_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-
-        Args:
-            image_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (height, width) per each image.
-
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-
-        vision_data = {}
-        if image_sizes is not None:
-            num_image_tokens = []
-            for height, width in image_sizes:
-                height, width = smart_resize(
-                    height,
-                    width,
-                    self.image_processor.spatial_factor,
-                    self.image_processor.min_pixels,
-                    self.image_processor.max_pixels,
-                )
-                height = height // self.downsample_ratio
-                width = width // self.downsample_ratio
-                image_seq_length = height * (width + 1)  # +1 for extra row when converting to BPE in modeling code
-                num_image_tokens.append(image_seq_length)
-
-            num_image_patches = [1] * len(image_sizes)
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-
-        return MultiModalData(**vision_data)
+        pass
 
     def calculate_generate_size(self, ratio, image_area, spatial_factor):
-        width, height = map(int, ratio.split(":"))
-        current_area = width * height
-        target_ratio = (image_area / current_area) ** 0.5
-
-        token_height = int(round(height * target_ratio / spatial_factor))
-        token_width = int(round(width * target_ratio / spatial_factor))
-        return token_height, token_width
+        pass
 
     def postprocess(self, images: ImageInput, **kwargs):
         return self.image_processor.postprocess(images, **kwargs)

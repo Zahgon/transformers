@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import math
 
 import torch
@@ -46,15 +33,6 @@ logger = logging.get_logger(__name__)
 
 
 class Gemma4VideoProcessorKwargs(VideosKwargs, total=False):
-    """
-    patch_size (`int`, *optional*):
-        Size of each image patch in pixels.
-    max_soft_tokens (`int`, *optional*):
-        Maximum number of soft (vision) tokens per video frame.
-        Must be one of {70, 140, 280, 560, 1120}.
-    pooling_kernel_size (`int`, *optional*):
-        Spatial pooling kernel size applied after patchification.
-    """
 
     patch_size: int
     max_soft_tokens: int
@@ -64,7 +42,6 @@ class Gemma4VideoProcessorKwargs(VideosKwargs, total=False):
 _SUPPORTED_SOFT_TOKENS = (70, 140, 280, 560, 1120)
 
 
-# Copied from transformers.models.gemma4.image_processing_gemma4.get_aspect_ratio_preserving_size
 def get_aspect_ratio_preserving_size(
     height: int,
     width: int,
@@ -85,11 +62,9 @@ def get_aspect_ratio_preserving_size(
     ideal_width = factor * width
     side_mult = pooling_kernel_size * patch_size
 
-    # Round down to nearest multiple of side_mult
     target_height = int(math.floor(ideal_height / side_mult)) * side_mult
     target_width = int(math.floor(ideal_width / side_mult)) * side_mult
 
-    # Handle edge cases where one or both dimensions round to 0
     if target_height == 0 and target_width == 0:
         raise ValueError(
             "Attempting to resize to a 0 x 0 image. Resized height should be divisible by "
@@ -180,10 +155,6 @@ class Gemma4VideoProcessor(BaseVideoProcessor):
             raise ValueError(f"`max_soft_tokens` must be one of {_SUPPORTED_SOFT_TOKENS}, got {self.max_soft_tokens}.")
 
     def _validate_preprocess_kwargs(self, **kwargs):
-        # Gemma4 uses aspect_ratio_preserving_resize driven by patch_size,
-        # max_soft_tokens, and pooling_kernel_size — not the standard `size`
-        # parameter. Temporarily disable do_resize so the base validation
-        # doesn't require `size` to be set.
         kwargs["do_resize"] = False
         super()._validate_preprocess_kwargs(**kwargs)
 
@@ -282,7 +253,6 @@ class Gemma4VideoProcessor(BaseVideoProcessor):
             pixel_values.append(patches)
             position_ids.append(positions)
 
-        # Stack into batch tensors
         pixel_values = torch.stack(pixel_values, dim=0)  # (num_videos, num_frames, max_patches, patch_pixels)
         position_ids = torch.stack(position_ids, dim=0)  # (num_videos, num_frames, max_patches, 2)
 

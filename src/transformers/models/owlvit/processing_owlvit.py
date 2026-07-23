@@ -1,19 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Image/Text processor class for OWL-ViT
-"""
 
 from typing import TYPE_CHECKING
 
@@ -36,12 +20,6 @@ if TYPE_CHECKING:
 
 
 class OwlViTImagesKwargs(ImagesKwargs, total=False):
-    """
-    query_images (`ImageInput`, *optional*):
-        Query images to use for image-guided object detection. When provided, these images serve as visual queries
-        to find similar objects in the main `images`. The query images override any text prompts, and the model
-        performs image-to-image matching instead of text-to-image matching.
-    """
 
     query_images: ImageInput | None
 
@@ -101,10 +79,8 @@ class OwlViTProcessor(ProcessorMixin):
             elif isinstance(text, list) and isinstance(text[0], list):
                 encodings = []
 
-                # Maximum number of queries across batch
                 max_num_queries = max(len(text_single) for text_single in text)
 
-                # Pad all batch samples to max number of text queries
                 for text_single in text:
                     if len(text_single) != max_num_queries:
                         text_single = text_single + [" "] * (max_num_queries - len(text_single))
@@ -130,7 +106,6 @@ class OwlViTProcessor(ProcessorMixin):
 
         if query_images is not None:
             query_pixel_values = self.image_processor(query_images, **output_kwargs["images_kwargs"]).pixel_values
-            # Query images always override the text prompt
             data = {"query_pixel_values": query_pixel_values}
 
         if images is not None:
@@ -140,11 +115,7 @@ class OwlViTProcessor(ProcessorMixin):
         return BatchFeature(data=data, tensor_type=return_tensors)
 
     def post_process(self, *args, **kwargs):
-        """
-        This method forwards all its arguments to [`OwlViTImageProcessor.post_process`]. Please refer to the docstring
-        of this method for more information.
-        """
-        return self.image_processor.post_process(*args, **kwargs)
+        pass
 
     def post_process_grounded_object_detection(
         self,
@@ -153,46 +124,7 @@ class OwlViTProcessor(ProcessorMixin):
         target_sizes: TensorType | list[tuple] | None = None,
         text_labels: list[list[str]] | None = None,
     ):
-        """
-        Converts the raw output of [`OwlViTForObjectDetection`] into final bounding boxes in (top_left_x, top_left_y,
-        bottom_right_x, bottom_right_y) format.
-
-        Args:
-            outputs ([`OwlViTObjectDetectionOutput`]):
-                Raw outputs of the model.
-            threshold (`float`, *optional*, defaults to 0.1):
-                Score threshold to keep object detection predictions.
-            target_sizes (`torch.Tensor` or `list[tuple[int, int]]`, *optional*):
-                Tensor of shape `(batch_size, 2)` or list of tuples (`tuple[int, int]`) containing the target size
-                `(height, width)` of each image in the batch. If unset, predictions will not be resized.
-            text_labels (`list[list[str]]`, *optional*):
-                List of lists of text labels for each image in the batch. If unset, "text_labels" in output will be
-                set to `None`.
-
-        Returns:
-            `list[Dict]`: A list of dictionaries, each dictionary containing the following keys:
-            - "scores": The confidence scores for each predicted box on the image.
-            - "labels": Indexes of the classes predicted by the model on the image.
-            - "boxes": Image bounding boxes in (top_left_x, top_left_y, bottom_right_x, bottom_right_y) format.
-            - "text_labels": The text labels for each predicted bounding box on the image.
-        """
-        output = self.image_processor.post_process_object_detection(
-            outputs=outputs, threshold=threshold, target_sizes=target_sizes
-        )
-
-        if text_labels is not None and len(text_labels) != len(output):
-            raise ValueError("Make sure that you pass in as many lists of text labels as images")
-
-        # adding text labels to the output
-        if text_labels is not None:
-            for image_output, image_text_labels in zip(output, text_labels):
-                object_text_labels = [image_text_labels[i] for i in image_output["labels"]]
-                image_output["text_labels"] = object_text_labels
-        else:
-            for image_output in output:
-                image_output["text_labels"] = None
-
-        return output
+        pass
 
     def post_process_image_guided_detection(
         self,
@@ -201,31 +133,7 @@ class OwlViTProcessor(ProcessorMixin):
         nms_threshold: float = 0.3,
         target_sizes: TensorType | list[tuple] | None = None,
     ):
-        """
-        Converts the output of [`OwlViTForObjectDetection.image_guided_detection`] into the format expected by the COCO
-        api.
-
-        Args:
-            outputs ([`OwlViTImageGuidedObjectDetectionOutput`]):
-                Raw outputs of the model.
-            threshold (`float`, *optional*, defaults to 0.0):
-                Minimum confidence threshold to use to filter out predicted boxes.
-            nms_threshold (`float`, *optional*, defaults to 0.3):
-                IoU threshold for non-maximum suppression of overlapping boxes.
-            target_sizes (`torch.Tensor`, *optional*):
-                Tensor of shape (batch_size, 2) where each entry is the (height, width) of the corresponding image in
-                the batch. If set, predicted normalized bounding boxes are rescaled to the target sizes. If left to
-                None, predictions will not be unnormalized.
-
-        Returns:
-            `list[Dict]`: A list of dictionaries, each dictionary containing the following keys:
-            - "scores": The confidence scores for each predicted box on the image.
-            - "boxes": Image bounding boxes in (top_left_x, top_left_y, bottom_right_x, bottom_right_y) format.
-            - "labels": Set to `None`.
-        """
-        return self.image_processor.post_process_image_guided_detection(
-            outputs=outputs, threshold=threshold, nms_threshold=nms_threshold, target_sizes=target_sizes
-        )
+        pass
 
 
 __all__ = ["OwlViTProcessor"]

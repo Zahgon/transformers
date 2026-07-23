@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable
 
@@ -48,36 +35,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="zai-org/GLM-5")
 @strict
 class GlmMoeDsaConfig(DeepseekV32Config):
-    r"""
-    n_group (`int`, *optional*, defaults to 1):
-        Number of groups for routed experts.
-    mlp_layer_types (`list`, *optional*):
-        MLP type pattern for each layer (`"dense"` or `"sparse"`). Defaults to 3 dense + rest sparse.
-    index_topk (`int`, *optional*, defaults to 2048):
-        Number of top tokens selected by the indexer for sparse attention.
-    index_head_dim (`int`, *optional*, defaults to 128):
-        Head dimension for the indexer projections (DSA).
-    index_n_heads (`int`, *optional*, defaults to 32):
-        Number of heads for the indexer projections (DSA).
-    first_k_dense_replace (`int`, *optional*, defaults to 3):
-        Number of leading layers that use a dense MLP; the rest use the MoE block.
-    indexer_types (`list[str]`, *optional*):
-        Per-layer indexer mode (`"full"` runs the indexer, `"shared"` reuses the previous full
-        layer's top-k). Defaults to the pattern derived from `index_topk_freq` /
-        `index_skip_topk_offset` (or `index_topk_pattern`).
-
-    ```python
-    >>> from transformers import GlmMoeDsaConfig, GlmMoeDsaModel
-
-    >>> # Initializing a GLM-MoE-DSA configuration
-    >>> configuration = GlmMoeDsaConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = GlmMoeDsaModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     vocab_size: int = 154880
     hidden_size: int = 6144
@@ -102,11 +59,9 @@ class GlmMoeDsaConfig(DeepseekV32Config):
     index_topk: int = 2048
     index_head_dim: int = 128
     index_n_heads: int = 32
-    # `"full"` runs the indexer, `"shared"` reuses the previous full layer's index mask.
     indexer_types: list[str] | None = None
 
     def __post_init__(self, **kwargs):
-        # Per-layer indexer mode: a pattern (e.g. `"FSSF..."`) overrides the freq/offset schedule.
         if self.indexer_types is None:
             pattern = kwargs.get("index_topk_pattern")
             if pattern is not None:
@@ -167,7 +122,6 @@ class GlmMoeDsaIndexer(DeepseekV32Indexer):
         k = self.k_norm(self.wk(hidden_states)).unsqueeze(2)  # [B, S, 1, D]
         k_rot, k_pass = torch.split(k, [self.qk_rope_head_dim, self.head_dim - self.qk_rope_head_dim], dim=-1)
 
-        # GLM-MoE-DSA uses interleaved RoPE in the indexer
         q_rot, k_rot = apply_rotary_pos_emb_interleave(q_rot, k_rot, cos, sin, unsqueeze_dim=2)
         q = torch.cat([q_rot, q_pass], dim=-1)  # [B, S, H, D]
         k = torch.cat([k_rot, k_pass], dim=-1).squeeze(2)  # [B, S, D]
@@ -178,11 +132,9 @@ class GlmMoeDsaIndexer(DeepseekV32Indexer):
         scores = torch.matmul(q.float(), k.transpose(-1, -2).float().unsqueeze(1)) * self.softmax_scale
         scores = F.relu(scores)
 
-        # Weight per head and sum across heads: [B, S, 1, H] @ [B, S, H, T] → [B, S, T]
         weights = self.weights_proj(hidden_states.to(self.weights_proj.weight.dtype)).float() * (self.n_heads**-0.5)
         index_scores = torch.matmul(weights.unsqueeze(-2), scores).squeeze(-2)
 
-        # Causality needs to be taken into account when computing scores so padding tokens don't affect computation
         if attention_mask is not None:
             index_scores = index_scores + attention_mask
         else:
@@ -195,18 +147,9 @@ class GlmMoeDsaIndexer(DeepseekV32Indexer):
 
 
 class GlmMoeDsaAttention(DeepseekV3Attention):
-    """
-    DeepSeek-V3 MLA + a DSA indexer, extended with **cross-layer top-k sharing**.
-
-    `config.indexer_types[layer_idx]` decides whether this layer runs its own indexer (`"full"`) or
-    reuses the previous full layer's top-k selection (`"shared"`).
-    `next_skip_topk` signals that the *next* layer will reuse this
-    layer's top-k, so it is propagated upward via `prev_topk_indices`.
-    """
 
     def __init__(self, config: GlmMoeDsaConfig, layer_idx: int):
         super().__init__(config, layer_idx)
-        # Refer: https://arxiv.org/abs/2603.12201 for more details.
         self.skip_topk = config.indexer_types[layer_idx] == "shared"
         self.indexer = None if self.skip_topk else GlmMoeDsaIndexer(config, layer_idx)
 
@@ -244,7 +187,6 @@ class GlmMoeDsaAttention(DeepseekV3Attention):
         if past_key_values is not None:
             key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx)
 
-        # DSA: select this layer's top-k tokens, or reuse the previous full layer's on `"shared"` layers.
         if self.indexer is not None:
             indexer_mask = attention_mask[:, 0, :, :] if attention_mask is not None else None
             topk_indices = self.indexer(
@@ -309,7 +251,6 @@ class GlmMoeDsaDecoderLayer(DeepseekV32DecoderLayer):
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        # Self Attention
         hidden_states, _, topk_indices = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -358,7 +299,6 @@ class GlmMoeDsaModel(DeepseekV32Model):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
             mask_kwargs = {
                 "config": self.config,

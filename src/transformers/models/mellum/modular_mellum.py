@@ -1,16 +1,3 @@
-# Copyright 2026 JetBrains and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import torch
 from huggingface_hub.dataclasses import strict
@@ -38,19 +25,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="JetBrains/Mellum2-12B-A2.5B-Base")
 @strict
 class MellumConfig(Qwen3MoeConfig):
-    r"""
-    mlp_layer_types (`list[str]`, *optional*):
-        Per-layer MLP type — `"dense"` or `"sparse"`. Length must equal
-        `num_hidden_layers`. Defaults to all sparse.
-
-    ```python
-    >>> from transformers import MellumModel, MellumConfig
-
-    >>> configuration = MellumConfig()
-    >>> model = MellumModel(configuration)
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "mellum"
 
@@ -91,7 +65,6 @@ class MellumConfig(Qwen3MoeConfig):
         )
 
     def convert_rope_params_to_dict(self, **kwargs):
-        # No need to handle BC for new models, because they have no old-format `rope_scaling`
         return kwargs
 
 

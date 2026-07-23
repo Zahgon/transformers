@@ -1,19 +1,3 @@
-# Copyright 2022 SHI Labs and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Image/Text processor class for OneFormer
-"""
 
 from ...processing_utils import ProcessorMixin
 from ...utils import auto_docstring, is_torch_available
@@ -164,18 +148,10 @@ class OneFormerProcessor(ProcessorMixin):
         return self.image_processor.post_process_semantic_segmentation(*args, **kwargs)
 
     def post_process_instance_segmentation(self, *args, **kwargs):
-        """
-        This method forwards all its arguments to [`OneFormerImageProcessor.post_process_instance_segmentation`].
-        Please refer to the docstring of this method for more information.
-        """
-        return self.image_processor.post_process_instance_segmentation(*args, **kwargs)
+        pass
 
     def post_process_panoptic_segmentation(self, *args, **kwargs):
-        """
-        This method forwards all its arguments to [`OneFormerImageProcessor.post_process_panoptic_segmentation`].
-        Please refer to the docstring of this method for more information.
-        """
-        return self.image_processor.post_process_panoptic_segmentation(*args, **kwargs)
+        pass
 
 
 __all__ = ["OneFormerProcessor"]

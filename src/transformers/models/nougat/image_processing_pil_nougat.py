@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Nougat."""
 
 import numpy as np
 
@@ -39,16 +25,7 @@ from ...utils import (
 )
 
 
-# Adapted from transformers.models.nougat.image_processing_nougat.NougatImageProcessorKwargs
 class NougatImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    do_crop_margin (`bool`, *optional*, defaults to `self.do_crop_margin`):
-        Whether to crop the image margins.
-    do_thumbnail (`bool`, *optional*, defaults to `self.do_thumbnail`):
-        Whether to resize the image using thumbnail method.
-    do_align_long_axis (`bool`, *optional*, defaults to `self.do_align_long_axis`):
-        Whether to align the long axis of the image with the long axis of `size` by rotating by 90 degrees.
-    """
 
     do_crop_margin: bool
     do_thumbnail: bool
@@ -168,7 +145,6 @@ class NougatImageProcessorPil(PilBackend):
         input_height, input_width = get_image_size(image, channel_dim=ChannelDimension.FIRST)
         output_height, output_width = size.height, size.width
 
-        # We always resize to the smallest of either the input or output size.
         height = min(input_height, output_height)
         width = min(input_width, output_width)
 
@@ -180,8 +156,6 @@ class NougatImageProcessorPil(PilBackend):
         elif input_width > input_height:
             height = int(input_height * width / input_width)
 
-        # Use np_resize for exact dimensions; self.resize uses shortest-edge logic and would produce
-        # different output due to rounding in get_resize_output_image_size.
         return super().resize(
             image, SizeDict(height=height, width=width), resample=PILImageResampling.BICUBIC, reducing_gap=2.0
         )

@@ -1,16 +1,3 @@
-# Copyright 2026 OpenBMB and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from collections.abc import Callable
@@ -52,12 +39,6 @@ from ..siglip.modeling_siglip import SiglipEncoder, SiglipEncoderLayer, SiglipML
 @auto_docstring(checkpoint="openbmb/MiniCPM-V-4.6")
 @strict
 class MiniCPMV4_6VisionConfig(SiglipVisionConfig):
-    r"""
-    insert_layer_id (`int`, *optional*, defaults to 6):
-        Vision encoder layer index after which the window-attention merger is applied.
-    window_kernel_size (`tuple[int, int]`, *optional*, defaults to `(2, 2)`):
-        Window size `(h, w)` for the intermediate window-attention merger.
-    """
 
     model_type = "minicpmv4_6_vision"
     insert_layer_id: int = 6
@@ -65,34 +46,16 @@ class MiniCPMV4_6VisionConfig(SiglipVisionConfig):
 
     @property
     def window_hidden_size(self) -> int:
-        return self.hidden_size * self.window_kernel_size[0] * self.window_kernel_size[1]
+        pass
 
     @property
     def window_intermediate_size(self) -> int:
-        return self.intermediate_size * self.window_kernel_size[0] * self.window_kernel_size[1]
+        pass
 
 
 @auto_docstring(checkpoint="openbmb/MiniCPM-V-4.6")
 @strict
 class MiniCPMV4_6Config(PreTrainedConfig):
-    r"""
-    insert_layer_id (`int`, *optional*, defaults to 6):
-        Vision encoder layer index after which the window-attention merger is applied.
-    image_size (`int`, *optional*, defaults to 448):
-        Base resolution for image preprocessing.
-    drop_vision_last_layer (`bool`, *optional*, defaults to `False`):
-        Whether to drop the last layer of the vision encoder.
-    image_token_id (`int`, *optional*):
-        Token id used as the image placeholder.
-    video_token_id (`int`, *optional*):
-        Token id used as the video placeholder.
-    downsample_mode (`str`, *optional*, defaults to `"16x"`):
-        Visual token downsampling ratio. `"4x"` keeps 4× more tokens.
-    merge_kernel_size (`tuple[int, int]`, *optional*, defaults to `(2, 2)`):
-        Kernel size `(h, w)` for merging adjacent visual patches in the Merger.
-    merger_times (`int`, *optional*, defaults to 1):
-        Number of iterative merge rounds in the Merger.
-    """
 
     model_type = "minicpmv4_6"
     sub_configs = {"text_config": AutoConfig, "vision_config": MiniCPMV4_6VisionConfig}
@@ -167,7 +130,6 @@ class MiniCPMV4_6VisionAttention(VisionAttention):
         self.q_proj = nn.Linear(self.dim, self.dim)
         self.out_proj = nn.Linear(self.dim, self.dim)
 
-    # diff from Qwen -> no RoPE used and unfused qkv
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -189,7 +151,6 @@ class MiniCPMV4_6VisionAttention(VisionAttention):
         )
 
         if is_flash_attention_requested(self.config):
-            # Flash Attention: Use cu_seqlens for variable length attention
             max_seqlen = get_max_seqlen(cu_seqlens, self.config, kwargs={"max_seqlen": max_seqlen})
             attn_output, _ = attention_interface(
                 self,
@@ -207,7 +168,6 @@ class MiniCPMV4_6VisionAttention(VisionAttention):
                 **kwargs,
             )
         else:
-            # Other implementations: Process each chunk separately
             lengths = cu_seqlens[1:] - cu_seqlens[:-1]
             splits = [
                 torch.split(tensor, lengths.tolist(), dim=2) for tensor in (query_states, key_states, value_states)
@@ -243,7 +203,6 @@ class MiniCPMV4_6VisionEncoderLayer(SiglipEncoderLayer):
 
 
 class MiniCPMV4_6VisionEncoder(SiglipEncoder):
-    """Transformer encoder consisting of `config.num_hidden_layers` [`MiniCPMV4_6VisionEncoderLayer`] layers."""
 
     def __init__(self, config: MiniCPMV4_6VisionConfig):
         super().__init__(config)
@@ -328,9 +287,6 @@ class MiniCPMV4_6ViTWindowAttentionMerger(nn.Module):
         hidden_states = hidden_states[:, torch.argsort(window_index), :]
         hidden_states = residual + hidden_states
 
-        # Vectorised window merge: reshape (1, batch*seq_per_img, D) → (batch, seq_per_img, D)
-        # and lift per-image (h, w) from target_sizes[0]. This assumes the input batch was
-        # packed with uniform per-image sizes (the standard NaViT preprocessing output).
         batch_size = target_sizes.shape[0]
         window_h, window_w = self.window_kernel_size
         embed_dim = hidden_states.shape[-1]
@@ -378,9 +334,7 @@ class MiniCPMV4_6VisionModel(MiniCPMV4_6VisionPreTrainedModel):
     def get_downsampled_inputs(
         self, target_sizes: torch.Tensor, max_seqlens: int | None, device: torch.device, **kwargs
     ) -> tuple[dict[str, Any], torch.Tensor, torch.Tensor]:
-        # NOTE: intentionally not checking for shapes as this is expensive to call `.any()`
         target_sizes = target_sizes // 2
-        # `max_seqlens` is only computed and used for Flash Attention.
         if max_seqlens is not None:
             max_seqlens = max_seqlens // 4
 
@@ -435,7 +389,6 @@ class MiniCPMV4_6VisionModel(MiniCPMV4_6VisionPreTrainedModel):
                 if layer_index == insert_layer_id:
                     hidden_states = self.vit_merger(hidden_states, target_sizes, **kwargs)
 
-                    # NOTE: Downsampled hidden states, and therefore other kwargs should also!
                     attn_kwargs, target_sizes, cu_seqlens = self.get_downsampled_inputs(
                         target_sizes=target_sizes, max_seqlens=max_seqlens, device=hidden_states.device, **kwargs
                     )
@@ -451,7 +404,6 @@ class MiniCPMV4_6VisionModel(MiniCPMV4_6VisionPreTrainedModel):
 class MiniCPMV4_6DownsampleMLP(nn.Module):
     def __init__(self, hidden_size: int, llm_embed_dim: int):
         super().__init__()
-        # factor 4 = two successive 2×2 spatial merges (ViT insert merger + downsample MLP)
         merged_hidden_size = hidden_size * 4
 
         self.pre_norm = nn.LayerNorm(merged_hidden_size, eps=1e-6)
@@ -475,7 +427,6 @@ class MiniCPMV4_6Merger(nn.Module):
         self.merger_times = config.merger_times
         hidden_size = config.vision_config.hidden_size
         llm_embed_dim = config.text_config.hidden_size
-        # Downsample `self.merger_times - 1` times and finally apply projection into LLM space
         mlps = [MiniCPMV4_6DownsampleMLP(hidden_size, hidden_size) for _ in range(self.merger_times - 1)]
         mlps.append(MiniCPMV4_6DownsampleMLP(hidden_size, llm_embed_dim))
         self.mlp = nn.ModuleList(mlps)
@@ -667,9 +618,6 @@ class MiniCPMV4_6Model(Lfm2VlModel):
             inputs_embeds = self.get_input_embeddings()(input_ids)
 
         if pixel_values is not None and self.config.image_token_id is not None:
-            # Pixels are always `1` in first dim due to NaViT packing, and we don't
-            # want to waste compute processing the same image `num_beams` times. Hack until
-            # @raushan adds support for encoding images once same waay as in enc-dec models
             num_beams = pixel_values.shape[0]
             vision_output = self.get_image_features(pixel_values[:1], target_sizes, downsample_mode=downsample_mode)
             image_features = (
@@ -821,16 +769,6 @@ class MiniCPMV4_6ForConditionalGeneration(MiniCPMV4_6PreTrainedModel, Generation
         input_ids: torch.LongTensor | None = None,
         **model_kwargs,
     ) -> tuple[torch.LongTensor, dict[str, Any]]:
-        # NaViT packs all images/frames into a single sequence with dim-0 = 1.
-        # We let parent repeat_interleave pixel_values / pixel_values_videos
-        # along dim-0 ([1,C,P,L] -> [num_beams,C,P,L]) so forward() can
-        # infer num_beams from shape[0], then encode only [:1].
-        #
-        # target_sizes ([K,2]) must be popped because:
-        #  - forward encodes pixel_values[:1] (original K images), so
-        #    target_sizes must stay [K,2] to match cu_seqlens computation.
-        #  - expanded [K*num_beams, 2] would define phantom segments with
-        #    no corresponding pixel data, crashing the vision encoder.
         ts_keys = ("target_sizes", "target_sizes_videos")
         saved = {k: model_kwargs.pop(k) for k in ts_keys if model_kwargs.get(k) is not None}
 

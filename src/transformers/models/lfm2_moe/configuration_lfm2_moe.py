@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -22,29 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="LiquidAI/LFM2-8B-A1B")
 @strict
 class Lfm2MoeConfig(PreTrainedConfig):
-    r"""
-    conv_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use bias in the conv layers.
-    conv_L_cache (`int`, *optional*, defaults to 3):
-        L_cache dim in the conv layers.
-    num_dense_layers (`int`, *optional*, defaults to 2):
-        Number of dense Lfm2MoeMLP layers in shallow layers(embed->dense->dense->...->dense->moe->moe...->lm_head).
-    use_expert_bias (`bool`, *optional*, defaults to `True`):
-        Whether to use the expert bias on the routing weights.
-
-    ```python
-    >>> from transformers import Lfm2MoeModel, Lfm2MoeConfig
-
-    >>> # Initializing a LFM2 Moe model
-    >>> configuration = Lfm2MoeConfig()
-
-    >>> # Initializing a model from the LFM2-8B-A1B style configuration
-    >>> model = Lfm2MoeModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "lfm2_moe"
     keys_to_ignore_at_inference = ["past_key_values"]

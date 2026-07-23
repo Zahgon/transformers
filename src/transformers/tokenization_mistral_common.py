@@ -1,16 +1,3 @@
-# Copyright 2025 Mistral AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import os
 import re
 import shutil
@@ -149,7 +136,6 @@ ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING = r"""
 
 
 class MistralTokenizerType(str, Enum):
-    """Enum for the different type of tokenizer."""
 
     spm = "spm"
     tekken = "tekken"
@@ -160,9 +146,6 @@ def _maybe_remove_lang(text: str, skip_special_tokens: bool) -> str: ...
 @overload
 def _maybe_remove_lang(text: list[str], skip_special_tokens: bool) -> list[str]: ...
 def _maybe_remove_lang(text: str | list[str], skip_special_tokens: bool) -> str | list[str]:
-    # in the specific case of Voxtral, the added f"lang:xx" (always a two char language code since it follows ISO 639-1 alpha-2 format)
-    # is not considered as a special token by mistral-common and is encoded/ decoded as normal text.
-    # Nevertheless we should remove it to ease users life.
     if not skip_special_tokens:
         return text
 
@@ -184,30 +167,6 @@ _VALID_INIT_KWARGS = {"_from_auto", "backend", "files_loaded"}
 
 @requires(backends=("mistral-common",))
 class MistralCommonBackend(PreTrainedTokenizerBase):
-    """
-    Class to wrap `mistral-common` tokenizers.
-
-    `mistral-common` is the official tokenizer library for Mistral AI models. To use it, you need to install it with:
-
-    ```bash
-    pip install transformers[mistral-common]
-    ```
-
-    Otherwise the tokenizer falls back to the Transformers implementation of the tokenizer.
-
-    For more info on `mistral-common`, see [mistral-common](https://github.com/mistralai/mistral-common).
-
-    This class is a wrapper around a `mistral_common.tokens.tokenizers.mistral.MistralTokenizer`.
-    It provides a Hugging Face compatible interface to tokenize using the official mistral-common tokenizer and inherits from the `PreTrainedTokenizerBase` class.
-
-    Here are the key behavior differences with the `PythonBackend` class:
-
-    - Pair of sequences are not supported. The signature has been kept for compatibility but all arguments related to pair of sequences are ignored. The return values for pairs are returned as `None`.
-    - The `is_split_into_words` argument is not supported.
-    - It is not possible to add new tokens to the tokenizer. Special tokens are handled differently from Transformers. In `mistral-common`, special tokens are never encoded directly. This means that: `tokenizer.encode("<s>")` will not return the ID of the `<s>` token. Instead, it will return a list of IDs corresponding to the tokenization of the string `"<s>"`. For more information, see the [mistral-common documentation](https://mistralai.github.io/mistral-common/usage/tokenizers/#special-tokens).
-
-    If you have suggestions to improve this class, please open an issue on the [mistral-common GitHub repository](https://github.com/mistralai/mistral-common/issues) if it is related to the tokenizer or on the [Transformers GitHub repository](https://github.com/huggingface/transformers/issues) if it is related to the Hugging Face interface.
-    """
 
     model_input_names: list[str] = ["input_ids", "attention_mask"]
     padding_side: str = "left"
@@ -305,36 +264,19 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
 
     @property
     def mode(self) -> ValidationMode:
-        """
-        `ValidationMode`: The mode used by the tokenizer. Possible values are:
-            - `"finetuning"` or `ValidationMode.finetuning`: The finetuning mode.
-            - `"test"` or `ValidationMode.test`: The test mode.
-            It changes how the tokenizer validates the input and prepares the request to the model.
-        """
-        return self._mode
+        pass
 
     @property
     def all_special_ids(self) -> list[int]:
-        """
-        `list[int]`: List the ids of the special tokens(`'<unk>'`, `'<cls>'`, etc.).
-        """
-        return sorted(self._all_special_ids)
+        pass
 
     @property
     def all_special_tokens(self) -> list[str]:
-        """
-        `list[str]`: A list of all unique special tokens.
-        """
-        return self._all_special_tokens
+        pass
 
     @property
     def vocab_size(self) -> int:
-        """
-        Returns the size of the vocabulary.
-
-        `int`: Size of the vocabulary.
-        """
-        return self.tokenizer.instruct_tokenizer.tokenizer.n_words
+        pass
 
     def get_vocab(self) -> dict[str, int]:
         """
@@ -347,10 +289,8 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
             `Dict[str, int]`: The vocabulary.
         """
         if self._cache_get_vocab is None:
-            # We reverse the order to make sure that the first token is the one to be returned when there are multiple tokens with the same string representation.
             vocab = self.tokenizer.instruct_tokenizer.tokenizer.vocab()
             self._cache_get_vocab = {token: self._piece_to_id(token, False) for token in vocab}
-            # Order the dict.
             self._cache_get_vocab = dict(
                 sorted(((k, v) for k, v in self._cache_get_vocab.items()), key=lambda x: x[1])
             )
@@ -448,7 +388,6 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
 
         text = self.tokenizer.decode(token_ids, special_token_policy=special_token_policy)
 
-        # Apply tokenizer-specific cleanup if available and requested
         clean_up_tokenization_spaces = (
             clean_up_tokenization_spaces
             if clean_up_tokenization_spaces is not None
@@ -700,10 +639,8 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
             return [1 if int(token_id) in self._all_special_ids else 0 for token_id in token_ids_0]
 
         if self.mode == ValidationMode.test:
-            # [BOS] seq0
             return [1] + ([0] * len(token_ids_0))
         else:
-            # [BOS] seq0 [EOS]
             return [1] + ([0] * len(token_ids_0)) + [1]
 
     def _encode_plus(  # type: ignore[override]
@@ -729,7 +666,6 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
         split_special_tokens: Literal[False] = False,
         **kwargs,
     ) -> BatchEncoding:
-        # Detect batched inputs (list of sequences)
         if text_pair is not None:
             raise ValueError("`MistralCommonBackend` does not support `text_pair != None` for `_encode_plus`.")
 
@@ -773,7 +709,6 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
                 for key, value in current_output.items():
                     batch_outputs.setdefault(key, []).append(value)
 
-                # To ensure the list is built for each sample, we need to add this.
                 if return_overflowing_tokens and not return_tensors:
                     if "overflowing_tokens" not in current_output:
                         batch_outputs.setdefault("overflowing_tokens", []).append([0])
@@ -781,8 +716,6 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
                     else:
                         one_overflowed = True
 
-            # Remove overflow-related keys before tensor conversion if return_tensors is set
-            # Slow tokenizers don't support returning these as tensors
             if return_overflowing_tokens and (return_tensors or not one_overflowed):
                 batch_outputs.pop("overflowing_tokens", None)
                 batch_outputs.pop("num_truncated_tokens", None)
@@ -887,7 +820,6 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
             **kwargs,
         )
 
-        # Validation
         if (
             return_overflowing_tokens
             and truncation_strategy == TruncationStrategy.LONGEST_FIRST
@@ -899,13 +831,11 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
                 "for instance `only_second` or `only_first`."
             )
 
-        # Defaults
         if return_token_type_ids is None:
             return_token_type_ids = "token_type_ids" in self.model_input_names
         if return_attention_mask is None:
             return_attention_mask = "attention_mask" in self.model_input_names
 
-        # Truncation
         num_special = self.num_special_tokens_to_add(pair=False) if add_special_tokens else 0
         total_len = len(ids) + len(pair_ids or []) + num_special
 
@@ -919,7 +849,6 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
                 stride=stride,
             )
 
-        # Add special tokens
         if add_special_tokens:
             sequence = self.build_inputs_with_special_tokens(ids, None)
             token_type_ids = self.create_token_type_ids_from_sequences(ids, None)
@@ -927,7 +856,6 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
             sequence = ids
             token_type_ids = [0] * len(sequence)
 
-        # Build output
         encoded_inputs = {"input_ids": sequence}
         if return_token_type_ids:
             encoded_inputs["token_type_ids"] = token_type_ids
@@ -939,10 +867,8 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
             encoded_inputs["overflowing_tokens"] = overflowing_tokens
             encoded_inputs["num_truncated_tokens"] = total_len - max_length if max_length else 0
 
-        # Check sequence length and warn if needed
         self._eventual_warn_about_too_long_sequence(encoded_inputs["input_ids"], max_length, verbose)
 
-        # Pad
         if padding_strategy != PaddingStrategy.DO_NOT_PAD or return_attention_mask:
             encoded_inputs = self.pad(
                 encoded_inputs,
@@ -1226,7 +1152,6 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
                         raise NotImplementedError(
                             "When passing audio content in apply_chat_template, `return_tensors` must be None since we cannot batch the audio inputs. The returned audio will be a list of numpy arrays."
                         )
-                    # Transformers convention is audio for plural audio (audio does not take a "s")
                     out.data["audio"] = audios
                 return out
             else:
@@ -1286,11 +1211,9 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
             )
 
         if self.mode == ValidationMode.test:
-            # [BOS] seq0
             return [self.bos_token_id] + token_ids_0
 
         else:
-            # [BOS] seq0 [EOS]
             return [self.bos_token_id] + token_ids_0 + [self.eos_token_id]
 
     def create_token_type_ids_from_sequences(self, token_ids_0: list[int], token_ids_1: None = None) -> list[int]:
@@ -1491,7 +1414,6 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
         if init_inputs:
             raise ValueError("`init_inputs` are not supported by `MistralCommonBackend.from_pretrained`.")
 
-        # Handle kwargs and AutoTokenizer/AutoProcessor case
         valid_kwargs = _VALID_INIT_KWARGS.union(
             {"trust_remote_code", "_from_pipeline", "_commit_hash", "dtype", "subfolder"}
         )
@@ -1601,7 +1523,6 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
         return mode
 
     def __repr__(self) -> str:
-        # MistralCommonBackend does not implement added_tokens_decoder, so we need a custom repr
         return (
             f"{self.__class__.__name__}(name_or_path='{self.name_or_path}',"
             f" vocab_size={self.vocab_size}, model_max_length={self.model_max_length},"
@@ -1672,5 +1593,4 @@ class MistralCommonBackend(PreTrainedTokenizerBase):
         raise NotImplementedError("`MistralCommonBackend` does not implement `save_vocabulary`.")
 
 
-# Backward compatibility alias for codebases still importing the legacy name.
 MistralCommonTokenizer = MistralCommonBackend

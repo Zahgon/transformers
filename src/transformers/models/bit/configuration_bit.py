@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""BiT model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,32 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="google/bit-50")
 @strict
 class BitConfig(BackboneConfigMixin, PreTrainedConfig):
-    r"""
-    layer_type (`str`, *optional*, defaults to `"preactivation"`):
-        The layer to use, it can be either `"preactivation"` or `"bottleneck"`.
-    global_padding (`str`, *optional*):
-        Padding strategy to use for the convolutional layers. Can be either `"valid"`, `"same"`, or `None`.
-    num_groups (`int`, *optional*, defaults to 32):
-        Number of groups used for the `BitGroupNormActivation` layers.
-    embedding_dynamic_padding (`bool`, *optional*, defaults to `False`):
-        Whether or not to make use of dynamic padding for the embedding layer.
-    width_factor (`int`, *optional*, defaults to 1):
-        The width factor for the model.
-
-    Example:
-    ```python
-    >>> from transformers import BitConfig, BitModel
-
-    >>> # Initializing a BiT bit-50 style configuration
-    >>> configuration = BitConfig()
-
-    >>> # Initializing a model (with random weights) from the bit-50 style configuration
-    >>> model = BitModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "bit"
     layer_types = ["preactivation", "bottleneck"]
@@ -84,12 +44,7 @@ class BitConfig(BackboneConfigMixin, PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.layer_type not in self.layer_types:
-            raise ValueError(f"layer_type={self.layer_type} is not one of {','.join(self.layer_types)}")
-
-        if self.global_padding not in self.supported_padding:
-            raise ValueError(f"Padding strategy {self.global_padding} not supported")
+        pass
 
 
 __all__ = ["BitConfig"]

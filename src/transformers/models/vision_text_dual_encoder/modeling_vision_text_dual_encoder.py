@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch VisionTextDualEncoder model."""
 
 import torch
 from torch import nn
@@ -29,12 +15,10 @@ from .configuration_vision_text_dual_encoder import VisionTextDualEncoderConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.clip.modeling_clip.contrastive_loss
 def contrastive_loss(logits: torch.Tensor) -> torch.Tensor:
     return nn.functional.cross_entropy(logits, torch.arange(len(logits), device=logits.device))
 
 
-# Copied from transformers.models.clip.modeling_clip.image_text_contrastive_loss
 def image_text_contrastive_loss(similarity: torch.Tensor) -> torch.Tensor:
     caption_loss = contrastive_loss(similarity)
     image_loss = contrastive_loss(similarity.T)
@@ -70,7 +54,6 @@ class VisionTextDualEncoderModel(PreTrainedModel):
             if not isinstance(config, self.config_class):
                 raise ValueError(f"config: {config} has to be of type {self.config_class}")
 
-        # initialize with config
         super().__init__(config)
 
         if vision_model is None:
@@ -85,8 +68,6 @@ class VisionTextDualEncoderModel(PreTrainedModel):
         self.vision_model = vision_model
         self.text_model = text_model
 
-        # make sure that the individual model's config refers to the shared config
-        # so that the updates to the config will be synced
         self.config.vision_config._attn_implementation = self.vision_model.config._attn_implementation
         self.config.text_config._attn_implementation = self.text_model.config._attn_implementation
         self.vision_model.config = self.config.vision_config
@@ -264,11 +245,9 @@ class VisionTextDualEncoderModel(PreTrainedModel):
         text_embeds = text_outputs[1]  # pooler_output
         text_embeds = self.text_projection(text_embeds)
 
-        # normalized features
         image_embeds = image_embeds / image_embeds.norm(dim=-1, keepdim=True)
         text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True)
 
-        # cosine similarity as logits
         logit_scale = self.logit_scale.exp()
         logits_per_text = torch.matmul(text_embeds, image_embeds.t()) * logit_scale
         logits_per_image = logits_per_text.T
@@ -299,114 +278,7 @@ class VisionTextDualEncoderModel(PreTrainedModel):
         *model_args,
         **kwargs,
     ) -> PreTrainedModel:
-        """
-        Params:
-            vision_model_name_or_path (`str`, *optional*, defaults to `None`):
-                Information necessary to initiate the vision model. Can be either:
-
-                    - A string, the *model id* of a pretrained model hosted inside a model repo on huggingface.co.
-                    - A path to a *directory* containing model weights saved using
-                      [`~PreTrainedModel.save_pretrained`], e.g., `./my_model_directory/`.
-                    - a path to a *PyTorch checkpoint folder* (e.g, `./pt_model`). In this case, a configuration
-                      object should be provided as `config` argument.
-
-            text_model_name_or_path (`str`, *optional*):
-                Information necessary to initiate the text model. Can be either:
-
-                    - A string, the *model id* of a pretrained model hosted inside a model repo on huggingface.co.
-                    - A path to a *directory* containing model weights saved using
-                      [`~PreTrainedModel.save_pretrained`], e.g., `./my_model_directory/`.
-                    - a path to a *PyTorch checkpoint folder* (e.g, `./pt_model`). In this case, a configuration
-                      object should be provided as `config` argument.
-
-            model_args (remaining positional arguments, *optional*):
-                All remaining positional arguments will be passed to the underlying model's `__init__` method.
-
-            kwargs (remaining dictionary of keyword arguments, *optional*):
-                Can be used to update the configuration object (after it being loaded) and initiate the model (e.g.,
-                `output_attentions=True`).
-
-                - To update the text configuration, use the prefix *text_* for each configuration parameter.
-                - To update the vision configuration, use the prefix *vision_* for each configuration parameter.
-                - To update the parent model configuration, do not use a prefix for each configuration parameter.
-
-                Behaves differently depending on whether a `config` is provided or automatically loaded.
-
-        Example:
-
-        ```python
-        >>> from transformers import VisionTextDualEncoderModel
-
-        >>> # initialize a model from pretrained ViT and BERT models. Note that the projection layers will be randomly initialized.
-        >>> model = VisionTextDualEncoderModel.from_vision_text_pretrained(
-        ...     "google/vit-base-patch16-224", "google-bert/bert-base-uncased"
-        ... )
-        >>> # saving model after fine-tuning
-        >>> model.save_pretrained("./vit-bert")
-        >>> # load fine-tuned model
-        >>> model = VisionTextDualEncoderModel.from_pretrained("./vit-bert")
-        ```"""
-        kwargs_vision = {
-            argument[len("vision_") :]: value for argument, value in kwargs.items() if argument.startswith("vision_")
-        }
-
-        kwargs_text = {
-            argument[len("text_") :]: value for argument, value in kwargs.items() if argument.startswith("text_")
-        }
-
-        # remove vision, text kwargs from kwargs
-        for key in kwargs_vision:
-            del kwargs["vision_" + key]
-        for key in kwargs_text:
-            del kwargs["text_" + key]
-
-        # Load and initialize the vision and text model
-        vision_model = kwargs_vision.pop("model", None)
-        if vision_model is None:
-            if vision_model_name_or_path is None:
-                raise ValueError(
-                    "If `vision_model` is not defined as an argument, a `vision_model_name_or_path` has to be defined"
-                )
-
-            if "config" not in kwargs_vision:
-                vision_config = AutoConfig.from_pretrained(vision_model_name_or_path)
-
-            if vision_config.model_type == "clip":
-                kwargs_vision["config"] = vision_config.vision_config
-                vision_model = CLIPVisionModel.from_pretrained(vision_model_name_or_path, *model_args, **kwargs_vision)
-                # TODO: Should we use the pre-trained projection as well ?
-            else:
-                kwargs_vision["config"] = vision_config
-                vision_model = AutoModel.from_pretrained(vision_model_name_or_path, *model_args, **kwargs_vision)
-
-        text_model = kwargs_text.pop("model", None)
-        if text_model is None:
-            if text_model_name_or_path is None:
-                raise ValueError(
-                    "If `text_model` is not defined as an argument, a `text_model_name_or_path` has to be defined"
-                )
-
-            if "config" not in kwargs_text:
-                text_config = AutoConfig.from_pretrained(text_model_name_or_path)
-                kwargs_text["config"] = text_config
-
-            text_model = AutoModel.from_pretrained(text_model_name_or_path, *model_args, **kwargs_text)
-
-        # instantiate config with corresponding kwargs
-        config = VisionTextDualEncoderConfig.from_vision_text_configs(vision_model.config, text_model.config, **kwargs)
-
-        # init model
-        model = cls(config=config, vision_model=vision_model, text_model=text_model)
-
-        # the projection layers are always newly initialized when loading the model
-        # using pre-trained vision and text model.
-        logger.warning(
-            "The projection layer and logit scale weights `['visual_projection.weight', 'text_projection.weight',"
-            " 'logit_scale']` are newly initialized. You should probably TRAIN this model on a down-stream task to be"
-            " able to use it for predictions and inference."
-        )
-
-        return model
+        pass
 
 
 __all__ = ["VisionTextDualEncoderModel"]

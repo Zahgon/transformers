@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import numpy as np
 
@@ -30,29 +17,6 @@ logger = logging.get_logger(__name__)
 
 @requires(backends=("torch",))
 class VoxtralRealtimeFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a VOXTRAL_REALTIME feature extractor.
-
-    This feature extractor inherits from [`~feature_extraction_sequence_utils.SequenceFeatureExtractor`] which contains
-    most of the main methods. Users should refer to this superclass for more information regarding those methods.
-
-    This class extracts mel-filter bank features from raw speech using a custom numpy implementation of the `Short Time
-    Fourier Transform` which should match pytorch's `torch.stft` equivalent.
-
-    Args:
-            feature_size (`int`, *optional*, defaults to 128):
-                The feature dimension of the extracted features.
-            sampling_rate (`int`, *optional*, defaults to 16000):
-                The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
-            hop_length (`int`, *optional*, defaults to 160):
-                Length of the overlapping windows for the STFT used to obtain the Mel Frequency coefficients.
-            n_fft (`int`, *optional*, defaults to 512):
-                Size of the Fourier transform.
-            win_length (`int`, *optional*, defaults to 400):
-                The window length for the STFT computation.
-            padding_value (`float`, *optional*, defaults to 0.0):
-                Padding value used to pad the audio. Should correspond to silences.
-    """
 
     model_input_names = ["input_features", "attention_mask"]
 
@@ -84,28 +48,7 @@ class VoxtralRealtimeFeatureExtractor(SequenceFeatureExtractor):
         self.global_log_mel_max = global_log_mel_max
 
     def _torch_extract_fbank_features(self, waveform, device: str = "cpu", center: bool = True):
-        window = torch.hann_window(self.n_fft, device=device)
-        stft = torch.stft(waveform, self.n_fft, self.hop_length, window=window, return_complex=True, center=center)
-        magnitudes = stft[..., :-1].abs() ** 2
-
-        mel_filters = torch.from_numpy(self.mel_filters).to(device, torch.float32)
-        mel_spec = mel_filters.T @ magnitudes
-
-        log_spec = torch.clamp(mel_spec, min=1e-10).log10()
-        if self.global_log_mel_max is not None:
-            log_spec_max = torch.tensor(
-                self.global_log_mel_max,
-                device=log_spec.device,
-                dtype=log_spec.dtype,
-            )
-        else:
-            log_spec_max = log_spec.max()
-
-        log_spec = torch.maximum(log_spec, log_spec_max - 8.0)
-        log_spec = (log_spec + 4.0) / 4.0
-        if device != "cpu":
-            log_spec = log_spec.detach().cpu()
-        return log_spec
+        pass
 
     def __call__(
         self,
@@ -191,7 +134,6 @@ class VoxtralRealtimeFeatureExtractor(SequenceFeatureExtractor):
                 "Failing to do so can result in silent errors that might be hard to debug."
             )
 
-        # Convert to torch tensor
         if isinstance(raw_speech, np.ndarray):
             raw_speech = torch.tensor(raw_speech)
         elif isinstance(raw_speech, (list, tuple)):

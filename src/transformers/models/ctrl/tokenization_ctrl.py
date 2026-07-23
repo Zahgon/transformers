@@ -1,17 +1,3 @@
-# Copyright 2018 Salesforce and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for Salesforce CTRL."""
 
 import json
 
@@ -105,21 +91,6 @@ def get_pairs(word):
 
 
 class CTRLTokenizer(PreTrainedTokenizer):
-    """
-    Construct a CTRL tokenizer. Based on Byte-Pair-Encoding.
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            Path to the vocabulary file.
-        merges_file (`str`):
-            Path to the merges file.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     control_codes = CONTROL_CODES
@@ -144,7 +115,7 @@ class CTRLTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        return len(self.encoder)
+        pass
 
     def get_vocab(self):
         return dict(self.encoder, **self.added_tokens_encoder)
@@ -216,11 +187,6 @@ class CTRLTokenizer(PreTrainedTokenizer):
         out_string = " ".join(tokens).replace("@@ ", "").strip()
         return out_string
 
-    # def decode(self, token_ids, skip_special_tokens=False, clean_up_tokenization_spaces=True):
-    #     filtered_tokens = ' '.join(self.convert_ids_to_tokens(token_ids, skip_special_tokens=skip_special_tokens))
-    #     tokens_generated_so_far = re.sub('(@@ )', '', string=filtered_tokens)
-    #     tokens_generated_so_far = re.sub('(@@ ?$)', '', string=tokens_generated_so_far)
-    #     return ''.join(tokens_generated_so_far)
 
 
 __all__ = ["CTRLTokenizer"]

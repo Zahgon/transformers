@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert UniSpeech checkpoint."""
 
 import argparse
 import json
@@ -68,11 +54,9 @@ def set_recursively(hf_pointer, key, value, full_name, weight_type, is_finetuned
     for attribute in key.split("."):
         if is_finetuned:
             if attribute in ["quantizer", "project_q", "project_hid"]:
-                # those layers are only relevant for pretraining and should be dropped
                 return
 
             if attribute == "ctc_proj":
-                # we should rename `ctc_proj` to `lm_head` for fine-tuned phoneme models
                 attribute = "lm_head"
 
         hf_pointer = getattr(hf_pointer, attribute)
@@ -133,7 +117,6 @@ def recursively_load_weights(fairseq_model, hf_model, is_finetuned):
                     elif "bias" in name:
                         weight_type = "bias"
                     elif "weight" in name:
-                        # TODO: don't match quantizer.weight_proj
                         weight_type = "weight"
                     else:
                         weight_type = None
@@ -189,72 +172,7 @@ def load_conv_layer(full_name, value, feature_extractor, unused_weights, use_gro
 def convert_unispeech_checkpoint(
     checkpoint_path, pytorch_dump_folder_path, config_path=None, dict_path=None, is_finetuned=True
 ):
-    """
-    Copy/paste/tweak model's weights to transformers design.
-    """
-    if config_path is not None:
-        config = UniSpeechConfig.from_pretrained(config_path)
-    else:
-        config = UniSpeechConfig()
-
-    if is_finetuned:
-        if dict_path:
-            target_dict = Dictionary.load_from_json(dict_path)
-
-            # important change bos & pad token id since CTC symbol is <pad> and
-            # not <s> as in fairseq
-            config.bos_token_id = target_dict.pad_index
-            config.pad_token_id = target_dict.bos_index
-            config.eos_token_id = target_dict.eos_index
-            config.vocab_size = len(target_dict.symbols)
-            vocab_path = os.path.join(pytorch_dump_folder_path, "vocab.json")
-            if not os.path.isdir(pytorch_dump_folder_path):
-                logger.error(f"--pytorch_dump_folder_path ({pytorch_dump_folder_path}) should be a directory")
-                return
-            os.makedirs(pytorch_dump_folder_path, exist_ok=True)
-            vocab_dict = target_dict.indices
-
-            # fairseq has the <pad> and <s> switched
-            vocab_dict["<pad>"] = 42
-            vocab_dict["<s>"] = 43
-            with open(vocab_path, "w", encoding="utf-8") as vocab_handle:
-                json.dump(vocab_dict, vocab_handle)
-            tokenizer = Wav2Vec2PhonemeCTCTokenizer(
-                vocab_path,
-                unk_token=target_dict.unk_word,
-                pad_token=target_dict.pad_word,
-                bos_token=target_dict.bos_word,
-                eos_token=target_dict.eos_word,
-                word_delimiter_token="|",
-                do_lower_case=False,
-            )
-            return_attention_mask = config.feat_extract_norm == "layer"
-            feature_extractor = Wav2Vec2FeatureExtractor(
-                feature_size=1,
-                sampling_rate=16000,
-                padding_value=0,
-                do_normalize=True,
-                return_attention_mask=return_attention_mask,
-            )
-            processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
-            processor.save_pretrained(pytorch_dump_folder_path)
-
-        hf_unispeech = UniSpeechForCTC(config)
-    else:
-        hf_unispeech = UniSpeechForPreTraining(config)
-
-    if is_finetuned:
-        model, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task(
-            [checkpoint_path], arg_overrides={"data": "/".join(dict_path.split("/")[:-1]), "w2v_path": checkpoint_path}
-        )
-    else:
-        model, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task([checkpoint_path])
-
-    model = model[0].eval()
-
-    recursively_load_weights(model, hf_unispeech, is_finetuned)
-
-    hf_unispeech.save_pretrained(pytorch_dump_folder_path)
+    pass
 
 
 if __name__ == "__main__":

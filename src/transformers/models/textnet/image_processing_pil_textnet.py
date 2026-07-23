@@ -1,17 +1,3 @@
-# Copyright 2024 the Fast authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for TextNet."""
 
 import numpy as np
 
@@ -31,19 +17,13 @@ from ...processing_utils import ImagesKwargs, Unpack
 from ...utils import TensorType, auto_docstring
 
 
-# Adapted from transformers.models.textnet.image_processing_textnet.TextNetImageProcessorKwargs
 class TextNetImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    size_divisor (`int`, *optional*, defaults to `self.size_divisor`):
-        Ensures height and width are rounded to a multiple of this value after resizing.
-    """
 
     size_divisor: int
 
 
 @auto_docstring
 class TextNetImageProcessorPil(PilBackend):
-    """PIL backend for TextNet with size_divisor resize."""
 
     valid_kwargs = TextNetImageProcessorKwargs
 
@@ -84,7 +64,6 @@ class TextNetImageProcessorPil(PilBackend):
             default_to_square=False,
             input_data_format=ChannelDimension.FIRST,
         )
-        # Round up to be divisible by size_divisor
         if height % size_divisor != 0:
             height += size_divisor - (height % size_divisor)
         if width % size_divisor != 0:

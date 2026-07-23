@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from io import BytesIO
 from typing import Any, overload
 
@@ -39,20 +26,6 @@ logger = logging.get_logger(__name__)
 
 @add_end_docstrings(build_pipeline_init_args(has_image_processor=True, has_video_processor=True))
 class VideoClassificationPipeline(Pipeline):
-    """
-    Video classification pipeline using any `AutoModelForVideoClassification`. This pipeline predicts the class of a
-    video.
-
-    This video classification pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"video-classification"`.
-
-    See the list of available models on
-    [huggingface.co/models](https://huggingface.co/models?filter=video-classification).
-
-    The pipeline supports models that use either an image processor (legacy video models such as VideoMAE, ViViT, and
-    TimeSformer) or a video processor (newer models such as VJEPA2). When both are present the video processor takes
-    precedence; when neither is found the pipeline will raise an error.
-    """
 
     _load_processor = False
     _load_image_processor = None
@@ -148,7 +121,6 @@ class VideoClassificationPipeline(Pipeline):
         if num_frames is None:
             num_frames = self.model.config.num_frames
 
-        # Decode the video manually because image processors can't decode or sample frames
         if self.video_processor is None:
             if video.startswith("http://") or video.startswith("https://"):
                 video = BytesIO(httpx.get(video, follow_redirects=True).content)

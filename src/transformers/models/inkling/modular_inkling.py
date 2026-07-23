@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 # coding=utf-8
 
 import math
@@ -90,15 +77,11 @@ class InklingTextConfig(PreTrainedConfig):
         "embedding_multiplier": "logits_mup_width_multiplier",
         "sliding_window": "sliding_window_size",
         "num_local_experts": "n_routed_experts",
-        # checkpoints store `sconv_kernel_size`; without the mapping a fresh config has no such
-        # attribute (InklingAttention reads it) and a checkpoint value would bypass `conv_kernel_size`
         "sconv_kernel_size": "conv_kernel_size",
-        # checkpoints advertise the context length as `model_max_length`
         "model_max_length": "max_position_embeddings",
     }
 
     vocab_size: int = 201024
-    # `unembed` row count when the checkpoint head is not padded to `vocab_size` (big model: 200058)
     unpadded_vocab_size: int | None = None
     hidden_size: int = 6144
     num_hidden_layers: int = 66
@@ -121,7 +104,6 @@ class InklingTextConfig(PreTrainedConfig):
     mlp_layer_types: list[str] | None = None
     intermediate_size: int = 24576
     hidden_act: str = "silu"
-    # MoE
     moe_intermediate_size: int = 3072
     n_routed_experts: int = 256
     num_experts_per_tok: int = 6
@@ -136,7 +118,6 @@ class InklingTextConfig(PreTrainedConfig):
     pad_token_id: int | None = None
     bos_token_id: int | None = 1
     eos_token_id: int | None = 2
-    # MTP related fields
     num_mtp_layers: int | None = None
     chain_hidden_post_norm: bool = False
     mtp_hidden_states_first: bool = True
@@ -158,28 +139,17 @@ class InklingTextConfig(PreTrainedConfig):
         if kwargs.get("dense_intermediate_size") is not None:
             self.intermediate_size = kwargs.pop("dense_intermediate_size")
 
-        # The architecture contains 4 conv modules per layer, each needing a different conv cache
         self.number_of_conv_states = 4
 
         super().__post_init__(**kwargs)
 
     @property
     def mtp_layer_types(self):
-        if self.num_mtp_layers is not None:
-            if self.mtp_local_layer_ids is None:
-                return ["hybrid"] * self.num_mtp_layers
-            else:
-                return [
-                    "hybrid_sliding" if i in self.mtp_local_layer_ids else "hybrid" for i in range(self.num_mtp_layers)
-                ]
-        return None
+        pass
 
-    # MTP layers are always dense MLP
     @property
     def mtp_mlp_layer_types(self):
-        if self.num_mtp_layers is not None:
-            return ["dense"] * self.num_mtp_layers
-        return None
+        pass
 
 
 @strict
@@ -218,7 +188,6 @@ class InklingVisionConfig(PreTrainedConfig):
 
 @strict
 class InklingConfig(PreTrainedConfig):
-    """Top-level multimodal config (`InklingMMConfig` in the SGLang source)."""
 
     model_type = "inkling_mm_model"
     sub_configs = {
@@ -236,7 +205,6 @@ class InklingConfig(PreTrainedConfig):
     audio_bos_token_id: int = 200020
 
     def __post_init__(self, **kwargs):
-        # checkpoints carry the MTP fields in a top-level `mtp_config` block
         mtp_config = kwargs.get("mtp_config") or {}
         if isinstance(self.text_config, dict):
             self.text_config.setdefault("num_mtp_layers", mtp_config.get("num_nextn_predict_layers"))
@@ -276,11 +244,6 @@ class InklingRMSNorm(LlamaRMSNorm):
 
 
 class InklingRelativeLogits(nn.Module):
-    """hidden states conditioned relative position bias. `proj` is a trained bank of bias-vs-distance profiles; each token's
-    `relative_states` mixes them into one bias value per backward distance
-    (`sglang RelLogitsProj` + the FA4 `score_mod`, materialized densely). The bias is zero
-    outside `0 <= distance < rel_extent`; causality and padding stay in the attention mask.
-    """
 
     def __init__(self, d_rel: int, rel_extent: int):
         super().__init__()
@@ -293,7 +256,6 @@ class InklingRelativeLogits(nn.Module):
         query_positions: torch.Tensor,
         key_positions: torch.Tensor,
     ) -> torch.Tensor:
-        # relative_states: [batch, q_len, num_heads, d_rel] -> bias: [batch, num_heads, q_len, kv_len]
         rel_logits = (relative_states @ self.proj).transpose(1, 2)
         distance = (query_positions[:, None] - key_positions[None, :])[None, None, :, :]
         gather_index = distance.clamp(0, self.rel_extent - 1).expand(*rel_logits.shape[:2], -1, -1)
@@ -341,7 +303,6 @@ class InklingAttention(nn.Module):
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         self.sliding_window = config.sliding_window_size if self.is_sliding else None
         self.rel_extent = config.sliding_window_size if self.is_sliding else config.rel_extent
-        # q/k are RMS-normalized per head, hence 1/d rather than 1/sqrt(d)
         self.scaling = 1.0 / self.head_dim
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
@@ -383,10 +344,8 @@ class InklingAttention(nn.Module):
 
         q_length = query_states.shape[2]
         if past_key_values is not None:
-            # Important to get those values before updating the cache to be correct
             kv_length, kv_offset = past_key_values.get_mask_sizes(q_length, self.layer_idx)
             q_offset = past_key_values.get_query_offset(self.layer_idx)
-            # Update the cache
             key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx)
         else:
             kv_length = key_states.shape[2]
@@ -397,7 +356,6 @@ class InklingAttention(nn.Module):
         relative_states = relative_states.view(*input_shape, self.num_heads, -1)
         position_bias = self.rel_logits_proj(relative_states, q_positions, kv_positions)
 
-        # original impl applies log scalnig in f32
         if not self.is_sliding and self.config.log_scaling_n_floor is not None:
             effective_n = (q_positions + 1).float()
             tau = 1.0 + self.config.log_scaling_alpha * torch.log(
@@ -465,7 +423,6 @@ class InklingTopkRouter(nn.Module):
         flat = hidden_states.reshape(-1, self.hidden_dim)
         router_logits = F.linear(flat, self.weight)
 
-        # same as `self.route_tokens_to_experts` from before, prob same as our MoE and can be copied
         scores = router_logits.sigmoid()
         routed_scores = scores[..., : -self.n_shared_experts]
         scores_for_choice = routed_scores + self.e_score_correction_bias
@@ -490,10 +447,6 @@ class InklingSharedExperts(nn.Module):
         super().__init__()
         self.n_shared_experts = config.n_shared_experts
         intermediate_dim = config.moe_intermediate_size
-        # TP loader cuts shards on the raw tensor but validates shapes on the target, so a Transpose
-        # conversion op breaks sharded loads. The runtime transpose(1, 2) is not a per-forward
-        # cost: it is a stride-metadata view, so the same
-        # matmul layout every nn.Linear runs
         self.gate_proj = nn.Parameter(torch.empty(config.n_shared_experts, intermediate_dim, config.hidden_size))
         self.up_proj = nn.Parameter(torch.empty(config.n_shared_experts, intermediate_dim, config.hidden_size))
         self.down_proj = nn.Parameter(torch.empty(config.n_shared_experts, config.hidden_size, intermediate_dim))
@@ -514,7 +467,6 @@ class InklingSharedExperts(nn.Module):
 
 
 class InklingMoE(nn.Module):
-    """Gate -> routed experts (+ shared experts), TML flavour."""
 
     def __init__(self, config):
         super().__init__()
@@ -601,7 +553,6 @@ class InklingShortConvolution(nn.Module):
         conv_mask: torch.Tensor | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ):
-        # Keep the computation in fp32
         input_dtype = hidden_states.dtype
         hidden_states = hidden_states.float()
 
@@ -616,7 +567,6 @@ class InklingShortConvolution(nn.Module):
 
         if use_precomputed_states and seq_len == 1 and not past_key_values.layers[self.layer_idx].record_past:
             conv_state = past_key_values.layers[self.layer_idx].conv_states[self.conv_idx]
-            # Single-token cached decode: the fused per-step kernel updates the conv state in-place.
             hidden_states = causal_conv1d_update(
                 hidden_states, conv_state, self.conv1d.weight.squeeze(1), self.conv1d.bias
             )
@@ -630,7 +580,6 @@ class InklingShortConvolution(nn.Module):
                 hidden_states, self.conv1d.weight.squeeze(1), self.conv1d.bias, seq_idx=kwargs.get("seq_idx")
             )
 
-            # Drop the additional previous states
             if use_precomputed_states:
                 hidden_states = hidden_states[:, :, -seq_len:]
 
@@ -695,8 +644,6 @@ class InklingPreTrainedModel(PreTrainedModel):
     supports_gradient_checkpointing = True
     _no_split_modules = ["InklingDecoderLayer"]
     _skip_keys_device_placement = ["past_key_values"]
-    # The relative position bias flows through the attention interface as a `position_bias` (duh)
-    # kwarg that only the eager path consumes; other backends need a score_mod/kernel
     _supports_flash_attn = False
     _supports_sdpa = True
     _supports_flex_attn = True
@@ -729,8 +676,6 @@ class InklingPreTrainedModel(PreTrainedModel):
             init.normal_(module.up_proj, mean=0.0, std=std)
             init.normal_(module.down_proj, mean=0.0, std=std)
         elif isinstance(module, InklingAudioModelEmbeddings):
-            # `_init_weights` runs with `self` being either the top model (`InklingConfig`) or the audio
-            # sub-model (`InklingAudioConfig`), so resolve the audio config from whichever we have.
             audio_config = getattr(self.config, "audio_config", self.config)
             init.copy_(
                 module.audio_tokens_offsets,
@@ -755,7 +700,6 @@ class InklingTextModel(InklingPreTrainedModel):
         self.embed_norm = InklingRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -785,7 +729,6 @@ class InklingTextModel(InklingPreTrainedModel):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
             mask_kwargs = {
                 "config": self.config,
@@ -819,7 +762,6 @@ class InklingTextModel(InklingPreTrainedModel):
 
 
 class InklingForCausalLM(Gemma3ForCausalLM):
-    # `embed` and `unembed` are separate tensors in the checkpoints, never tied
     _tied_weights_keys = {}
     _tp_plan = {"lm_head": "rowwise_split_input"}
 
@@ -865,7 +807,6 @@ class InklingForCausalLM(Gemma3ForCausalLM):
         )
 
         hidden_states = outputs.last_hidden_state / self.config.logits_mup_width_multiplier
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
         unpadded_vocab_size = self.config.unpadded_vocab_size
@@ -1012,7 +953,6 @@ def plan_out_scales(
 
         _, idxs_np = linear_sum_assignment(cost_matrix.cpu().numpy())
         idxs = torch.tensor(idxs_np, device=device)
-        # idxs = torch.softmax(-cost_matrix * 10, dim=1).argmax(dim=1)
 
     idxs[0] = 0
     idxs[-1] = scales.shape[0] - 1
@@ -1029,7 +969,6 @@ class InklingVisionModel(InklingPreTrainedModel):
             config.num_channels,
         )
 
-        # num_hidden_layers - 1 to encoder and the last to proj to text hidden dim
         self.encoder_layers = nn.ModuleList()
         for i, (start_scale, end_scale) in enumerate(zip(self.scales[:-1], self.scales[1:])):
             shuffle_mult = (
@@ -1071,7 +1010,6 @@ class InklingVisionModel(InklingPreTrainedModel):
     """
 )
 class InklingModel(InklingPreTrainedModel):
-    # we are filtering the logits/labels so we shouldn't divide the loss based on num_items_in_batch
     accepts_loss_kwargs = False
 
     def __init__(self, config: InklingConfig):
@@ -1192,7 +1130,6 @@ class InklingModel(InklingPreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.language_model.embed_norm(self.get_input_embeddings()(input_ids))
 
-        # Merge text and images
         if pixel_values is not None:
             image_features = self.get_image_features(pixel_values).pooler_output
             image_features = image_features.to(inputs_embeds.device, inputs_embeds.dtype)
@@ -1201,7 +1138,6 @@ class InklingModel(InklingPreTrainedModel):
             )
             inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
 
-        # Merge text and audio
         audio_features = None
         if audio_input_ids is not None:
             audio_features = self.get_audio_features(audio_input_ids, audio_input_ids_mask).last_hidden_state
@@ -1211,7 +1147,6 @@ class InklingModel(InklingPreTrainedModel):
             )
             inputs_embeds = inputs_embeds.masked_scatter(special_audio_mask, audio_features)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
             mask_kwargs = {
                 "config": self.config.get_text_config(),
@@ -1251,18 +1186,13 @@ class InklingModel(InklingPreTrainedModel):
     """
 )
 class InklingForConditionalGeneration(InklingPreTrainedModel, GenerationMixin):
-    # `embed` and `unembed` are separate tensors in the checkpoints, never tied
     _tied_weights_keys = {}
     _tp_plan = {"lm_head": "rowwise_split_input"}
-    # we are filtering the logits/labels so we shouldn't divide the loss based on num_items_in_batch
-    # Fix: https://github.com/huggingface/transformers/issues/40564
     accepts_loss_kwargs = False
 
     def __init__(self, config: InklingConfig):
         super().__init__(config)
         self.model = InklingModel(config)
-        # checkpoints store `unembed` padded to vocab_size; logits are sliced to
-        # unpadded_vocab_size in forward, like sglang
         self.lm_head = nn.Linear(config.text_config.hidden_size, config.text_config.vocab_size, bias=False)
         self.post_init()
 
@@ -1351,7 +1281,6 @@ class InklingForConditionalGeneration(InklingPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs[0] / self.config.text_config.logits_mup_width_multiplier
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
         unpadded_vocab_size = self.config.text_config.unpadded_vocab_size
@@ -1387,7 +1316,6 @@ class InklingForConditionalGeneration(InklingPreTrainedModel, GenerationMixin):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- custom `pixel_values/audio_input_ids` handling
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
             past_key_values=past_key_values,

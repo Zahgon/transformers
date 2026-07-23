@@ -1,19 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Feature extractor class for SeamlessM4T
-"""
 
 import numpy as np
 
@@ -33,27 +17,6 @@ logger = logging.get_logger(__name__)
 
 
 class SeamlessM4TFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a SeamlessM4T feature extractor.
-
-    This feature extractor inherits from [`SequenceFeatureExtractor`] which contains most of the main methods. Users
-    should refer to this superclass for more information regarding those methods.
-
-    This class extracts mel-filter bank features from raw speech.
-
-    Args:
-        feature_size (`int`, *optional*, defaults to 80):
-            The feature dimension of the extracted features.
-        sampling_rate (`int`, *optional*, defaults to 16000):
-            The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
-        num_mel_bins (`int`, *optional*, defaults to 80):
-            Number of Mel-frequency bins.
-        padding_value (`float`, *optional*, defaults to 0.0):
-            The value that is used to fill the padding vectors.
-        stride (`int`, *optional*, defaults to 2):
-            Stride used to reshape audios from shape (batch_size,num_frames,num_mel_bins) to
-            (batch_size,num_frames//stride,num_mel_bins*stride).
-    """
 
     model_input_names = ["input_features", "attention_mask"]
 
@@ -87,55 +50,16 @@ class SeamlessM4TFeatureExtractor(SequenceFeatureExtractor):
         super().__init__(feature_size=feature_size, sampling_rate=sampling_rate, padding_value=padding_value, **kwargs)
 
     @staticmethod
-    # Copied from transformers.models.wav2vec2.feature_extraction_wav2vec2.Wav2Vec2FeatureExtractor.zero_mean_unit_var_norm
     def zero_mean_unit_var_norm(
         input_values: list[np.ndarray], attention_mask: list[np.ndarray], padding_value: float = 0.0
     ) -> list[np.ndarray]:
-        """
-        Every array in the list is normalized to have zero mean and unit variance
-        """
-        if attention_mask is not None:
-            attention_mask = np.array(attention_mask, np.int32)
-            normed_input_values = []
-
-            for vector, length in zip(input_values, attention_mask.sum(-1)):
-                normed_slice = (vector - vector[:length].mean()) / np.sqrt(vector[:length].var() + 1e-7)
-                if length < normed_slice.shape[0]:
-                    normed_slice[length:] = padding_value
-
-                normed_input_values.append(normed_slice)
-        else:
-            normed_input_values = [(x - x.mean()) / np.sqrt(x.var() + 1e-7) for x in input_values]
-
-        return normed_input_values
+        pass
 
     def _extract_fbank_features(
         self,
         waveform: np.ndarray,
     ) -> np.ndarray:
-        """
-        Get mel-filter bank features using Numpy method to mimic Kaldi.
-        """
-        # by default, it extracts the left channel if stereo
-        if len(waveform.shape) == 2:
-            waveform = waveform[0]
-
-        waveform = np.squeeze(waveform) * (2**15)  # Kaldi compliance: 16-bit signed integers
-        features = spectrogram(
-            waveform,
-            self.window,
-            frame_length=400,
-            hop_length=160,
-            fft_length=512,
-            power=2.0,
-            center=False,
-            preemphasis=0.97,
-            mel_filters=self.mel_filters,
-            log_mel="log",
-            mel_floor=1.192092955078125e-07,
-            remove_dc_offset=True,
-        ).T
-        return features
+        pass
 
     def __call__(
         self,
@@ -246,21 +170,17 @@ class SeamlessM4TFeatureExtractor(SequenceFeatureExtractor):
         elif isinstance(raw_speech, np.ndarray) and raw_speech.dtype is np.dtype(np.float64):
             raw_speech = raw_speech.astype(np.float32)
 
-        # always return batch
         if not is_batched:
             raw_speech = [raw_speech]
 
-        # extract fbank features
         features = [self._extract_fbank_features(waveform) for waveform in raw_speech]
 
         if do_normalize_per_mel_bins:
-            # torch defaults to ddof=1, and numpy defaults to ddof=0
             features = [
                 (x - np.expand_dims(x.mean(0), 0)) / np.sqrt(np.expand_dims(x.var(0, ddof=1), 0) + 1e-7)
                 for x in features
             ]
 
-        # convert into correct format for padding
         encoded_inputs = BatchFeature({"input_features": features})
 
         padded_inputs = self.pad(
@@ -273,7 +193,6 @@ class SeamlessM4TFeatureExtractor(SequenceFeatureExtractor):
             return_tensors="np",
         )
 
-        # SeamlessM4T needs to process extracted features
         input_features = padded_inputs.get("input_features")
         attention_mask = padded_inputs.pop("attention_mask")
 

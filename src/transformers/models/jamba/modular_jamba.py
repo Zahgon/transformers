@@ -1,21 +1,3 @@
-# Copyright 2024 AI21 Labs Ltd. and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections.abc import Callable
 
 import torch
@@ -94,12 +76,6 @@ class JambaAttention(LlamaAttention):
 
 
 class JambaMambaMixer(nn.Module):
-    """
-    Compute ∆, A, B, C, and D the state space parameters and compute the `contextualized_states`.
-    A, D are input independent (see Mamba paper [1] Section 3.5.2 "Interpretation of A" for why A isn't selective)
-    ∆, B, C are input-dependent (this is a key difference between Mamba and the linear time invariant S4,
-    and is why Mamba is called **selective** state spaces)
-    """
 
     def __init__(self, config: JambaConfig, layer_idx):
         super().__init__()
@@ -124,15 +100,10 @@ class JambaMambaMixer(nn.Module):
         self.activation = config.hidden_act
         self.act = ACT2FN[config.hidden_act]
 
-        # projection of the input hidden states
         self.in_proj = nn.Linear(self.hidden_size, self.intermediate_size * 2, bias=self.use_bias)
-        # selective projection used to make dt, B and C input dependent
         self.x_proj = nn.Linear(self.intermediate_size, self.time_step_rank + self.ssm_state_size * 2, bias=False)
-        # time step projection (discretization)
         self.dt_proj = nn.Linear(self.time_step_rank, self.intermediate_size, bias=True)
 
-        # S4D real initialization. These are not discretized!
-        # The core is to load them, compute the discrete states, then write the updated state. Keeps the memory bounded
         A = torch.arange(1, self.ssm_state_size + 1)[None, :]
         A = A.expand(self.intermediate_size, -1).contiguous()
 
@@ -180,17 +151,13 @@ class JambaMambaMixer(nn.Module):
         use_precomputed_states = (
             cache_params is not None and cache_params.has_previous_state(self.layer_idx) and seq_len == 1
         )
-        # 1. Gated MLP's linear projection
         projected_states = self.in_proj(hidden_states).transpose(1, 2)
 
-        # We can't use `mamba_inner_fn` even if in training and without cache params because we have the
-        # inner layernorms which isn't supported by this fused kernel
         hidden_states, gate = projected_states.chunk(2, dim=1)
 
         if attention_mask is not None:
             hidden_states = hidden_states * attention_mask.unsqueeze(1)
 
-        # 2. Convolution sequence transformation
         conv_weights = self.conv1d.weight.view(self.conv1d.weight.size(0), self.conv1d.weight.size(2))
         if use_precomputed_states:
             hidden_states = causal_conv1d_update(
@@ -210,8 +177,6 @@ class JambaMambaMixer(nn.Module):
         if attention_mask is not None:
             hidden_states = hidden_states * attention_mask.unsqueeze(1)
 
-        # 3. State Space Model sequence transformation
-        # 3.a. input varying initialization of time_step, B and C
         ssm_parameters = self.x_proj(hidden_states.transpose(1, 2))
         time_step, B, C = torch.split(
             ssm_parameters, [self.time_step_rank, self.ssm_state_size, self.ssm_state_size], dim=-1
@@ -221,12 +186,6 @@ class JambaMambaMixer(nn.Module):
         B = self.b_layernorm(B)
         C = self.c_layernorm(C)
 
-        # Here we need to apply dt_proj without the bias, as the bias is added in the selective scan kernel.
-        # This is a hack to apply dt_proj while still using the forward pass of `torch.nn.Linear`, which is needed
-        # in order to make quantization work. Quantization code replaces `torch.nn.Linear` layers with quantized
-        # linear layers, and requires to call the forward pass directly.
-        # Quantized model can't work with the original code:
-        # ```discrete_time_step = self.dt_proj.weight @ time_step.transpose(1, 2)```
         time_proj_bias = self.dt_proj.bias.data
         with torch.no_grad():
             self.dt_proj.bias.data = torch.zeros_like(self.dt_proj.bias.data)
@@ -235,7 +194,6 @@ class JambaMambaMixer(nn.Module):
             self.dt_proj.bias.data = time_proj_bias
 
         A = -torch.exp(self.A_log.float())
-        # 3.c perform the recurrence y ← SSM(A, B, C)(x)
         time_proj_bias = time_proj_bias.float() if time_proj_bias is not None else None
         if use_precomputed_states:
             scan_outputs = selective_state_update(
@@ -266,16 +224,13 @@ class JambaMambaMixer(nn.Module):
             if ssm_state is not None and cache_params is not None:
                 cache_params.update_recurrent_state(ssm_state, self.layer_idx)
 
-        # 4. Final linear projection
         contextualized_states = self.out_proj(scan_outputs.transpose(1, 2))
 
         return contextualized_states
 
-    # fmt: off
     def slow_forward(self, input_states, cache_params: Cache | None = None, attention_mask: torch.LongTensor | None = None):
         batch_size, seq_len, _ = input_states.shape
         dtype = input_states.dtype
-        # 1. Gated MLP's linear projection
         projected_states = self.in_proj(input_states).transpose(1, 2)
         hidden_states, gate = projected_states.chunk(2, dim=1)
 
@@ -283,7 +238,6 @@ class JambaMambaMixer(nn.Module):
             hidden_states = hidden_states * attention_mask.unsqueeze(1)
 
         if cache_params is not None and cache_params.has_previous_state(self.layer_idx):
-            # In training mode, we don't want to perform in-place operations on ssm_state so we can compute the backwards pass
             ssm_state = cache_params.layers[self.layer_idx].recurrent_states[0].clone()
         else:
             ssm_state = torch.zeros(
@@ -291,7 +245,6 @@ class JambaMambaMixer(nn.Module):
                 device=hidden_states.device, dtype=dtype
             )
 
-        # 2. Convolution sequence transformation
         if cache_params is not None:
             if cache_params.has_previous_state(self.layer_idx) and seq_len == 1:
                 conv_state = cache_params.update_conv_state(hidden_states, self.layer_idx)[..., -self.conv_kernel_size:]
@@ -312,8 +265,6 @@ class JambaMambaMixer(nn.Module):
         if attention_mask is not None:
             hidden_states = hidden_states * attention_mask.unsqueeze(1)
 
-        # 3. State Space Model sequence transformation
-        # 3.a. Selection:  [batch, seq_len, self.time_step_rank + self.ssm_state_size * 2]
         ssm_parameters = self.x_proj(hidden_states.transpose(1, 2))
         time_step, B, C = torch.split(
             ssm_parameters, [self.time_step_rank, self.ssm_state_size, self.ssm_state_size], dim=-1
@@ -326,12 +277,10 @@ class JambaMambaMixer(nn.Module):
         discrete_time_step = self.dt_proj(time_step)
         discrete_time_step = nn.functional.softplus(discrete_time_step).transpose(1, 2)
 
-        # 3.b. Discretization: B and C to [batch, seq_len, intermediate_size, ssm_state_size] (SRAM)
         A = -torch.exp(self.A_log.float())
         discrete_A = torch.exp(A[None, :, None, :] * discrete_time_step[:, :, :, None])
         discrete_B = discrete_time_step[:, :, :, None] * B[:, None, :, :].float()
         deltaB_u = discrete_B * hidden_states[:, :, :, None].float()
-        # 3.c perform the recurrence y ← SSM(A, B, C)(x)
         scan_outputs = []
         for i in range(seq_len):
             ssm_state = discrete_A[:, :, i, :] * ssm_state + deltaB_u[:, :, i, :]
@@ -344,10 +293,8 @@ class JambaMambaMixer(nn.Module):
         if cache_params is not None:
             cache_params.update_recurrent_state(ssm_state, self.layer_idx)
 
-        # 4. Final linear projection
         contextualized_states = self.out_proj(scan_output.transpose(1, 2))
         return contextualized_states
-    # fmt: on
 
     @force_accelerate_hooks("conv1d")
     def forward(
@@ -380,16 +327,6 @@ class JambaExperts(MixtralExperts):
 
 
 class JambaSparseMoeBlock(nn.Module):
-    """
-    This implementation is
-    strictly equivalent to standard MoE with full capacity (no
-    dropped tokens). It's faster since it formulates MoE operations
-    in terms of block-sparse operations to accommodate imbalanced
-    assignments of tokens to experts, whereas standard MoE either
-    (1) drop tokens at the cost of reduced performance or (2) set
-    capacity factor to number of experts and thus waste computation
-    and memory on padding.
-    """
 
     def __init__(self, config: JambaConfig):
         super().__init__()
@@ -536,7 +473,6 @@ class JambaModel(JambaPreTrainedModel):
         self.final_layernorm = JambaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -567,7 +503,6 @@ class JambaModel(JambaPreTrainedModel):
             position_ids = position_ids.unsqueeze(0)
 
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -575,7 +510,6 @@ class JambaModel(JambaPreTrainedModel):
                 "past_key_values": past_key_values,
                 "position_ids": position_ids,
             }
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
                 "linear_attention": create_recurrent_attention_mask(**mask_kwargs),

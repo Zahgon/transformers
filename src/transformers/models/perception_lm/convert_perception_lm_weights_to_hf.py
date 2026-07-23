@@ -1,15 +1,3 @@
-# Copyright 2025 Meta Platforms, Inc. and the HuggingFace Inc. team. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import argparse
 import gc
 import json
@@ -183,12 +171,7 @@ def write_json(text, path):
 
 
 def write_weights(state_dict, index_dict, param_count, filename):
-    for k, v in state_dict.items():
-        index_dict["weight_map"][k] = filename
-        param_count += v.numel()
-    torch.save(state_dict, filename)
-    print(f"Saved {filename}")
-    return param_count
+    pass
 
 
 def write_model(
@@ -221,23 +204,18 @@ def write_model(
         num_key_value_heads = n_heads
         key_value_dim = dim
 
-    # permute for sliced rotary
     def permute(w, n_heads, dim1=dim, dim2=dim):
         return w.view(n_heads, dim1 // n_heads // 2, 2, dim2).transpose(1, 2).reshape(dim1, dim2)
 
     with tempfile.TemporaryDirectory() as tmp_model_path:
         print(f"Fetching all parameters from the checkpoint at {input_base_path}.")
-        # Load weights
         if num_shards == 1:
-            # Not sharded
-            # (The sharded implementation would also work, but this is simpler.)
             loaded = torch.load(
                 os.path.join(input_base_path, "consolidated.pth"),
                 map_location="cpu",
                 weights_only=True,
             )
         else:
-            # Sharded
             checkpoint_list = sorted([file for file in os.listdir(input_base_path) if file.endswith(".pth")])
             print("Loading in order:", checkpoint_list)
             loaded = [
@@ -346,7 +324,6 @@ def write_model(
         torch.save(state_dict, os.path.join(tmp_model_path, filename))
         print(f"Saved {filename}")
 
-        # Write configs
         index_dict["metadata"] = {"total_size": param_count * 2}
         write_json(index_dict, os.path.join(tmp_model_path, "pytorch_model.bin.index.json"))
         ffn_dim_multiplier = model_params.get("ffn_dim_multiplier", 1)
@@ -401,9 +378,7 @@ def write_model(
         )
         generation_config.save_pretrained(tmp_model_path)
 
-        # Make space so we can load the model properly now.
         del state_dict
-        # output_weight = loaded.get("output.weight", None)
         del loaded
         gc.collect()
 
@@ -411,12 +386,7 @@ def write_model(
         model = PerceptionLMForConditionalGeneration.from_pretrained(
             tmp_model_path, dtype=torch.bfloat16, low_cpu_mem_usage=True
         )
-        # if not tie_word_embeddings:
-        #     if output_weight is None:
-        #         raise ValueError("Output weight/lm_head is not found in the checkpoint.")
-        #     model.lm_head.load_state_dict({"weight": output_weight})
 
-        # Avoid saving this as part of the config.
         del model.config._name_or_path
         model.config.dtype = torch.bfloat16
 
@@ -461,11 +431,9 @@ class Llama3Converter(TikTokenConverter):
             self.converted_tokenizer.video_token, add_special_tokens=False
         )[0]
         self.update_post_processor(self.converted_tokenizer)
-        # finer special_tokens_map.json
         self.converted_tokenizer._bos_token = BOS_ADDED_TOKEN
         self.converted_tokenizer._eos_token = EOT_ADDED_TOKEN
 
-    # We can't do this while building the tokenizer because we have no easy access to the bos token id
     def update_post_processor(self, tokenizer):
         tokenizer._tokenizer.post_processor = processors.Sequence(
             [
@@ -575,7 +543,6 @@ def main():
     )
     args = parser.parse_args()
     if args.special_tokens is None:
-        # no special tokens by default
         args.special_tokens = DEFAULT_SPECIAL_TOKENS.get("perception_lm", [])
 
     params = read_json(os.path.join(args.input_dir, "params.json"))

@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from dataclasses import dataclass
@@ -71,85 +58,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="PaddlePaddle/PP-DocLayoutV3_safetensors")
 @strict
 class PPDocLayoutV3Config(PreTrainedConfig):
-    r"""
-    initializer_bias_prior_prob (`float`, *optional*):
-        The prior probability used by the bias initializer to initialize biases for `enc_score_head` and `class_embed`.
-        If `None`, `prior_prob` computed as `prior_prob = 1 / (num_labels + 1)` while initializing model weights.
-    freeze_backbone_batch_norms (`bool`, *optional*, defaults to `True`):
-        Whether to freeze the batch normalization layers in the backbone.
-    encoder_in_channels (`list`, *optional*, defaults to `[512, 1024, 2048]`):
-        Multi level features input for encoder.
-    feat_strides (`list[int]`, *optional*, defaults to `[8, 16, 32]`):
-        Strides used in each feature map.
-    encode_proj_layers (`list[int]`, *optional*, defaults to `[2]`):
-        Indexes of the projected layers to be used in the encoder.
-    positional_encoding_temperature (`int`, *optional*, defaults to 10000):
-        The temperature parameter used to create the positional encodings.
-    encoder_activation_function (`str`, *optional*, defaults to `"gelu"`):
-        The non-linear activation function (function or string) in the encoder and pooler. If string, `"gelu"`,
-        `"relu"`, `"silu"` and `"gelu_new"` are supported.
-    eval_size (`tuple[int, int]`, *optional*):
-        Height and width used to computes the effective height and width of the position embeddings after taking
-        into account the stride.
-    normalize_before (`bool`, *optional*, defaults to `False`):
-        Determine whether to apply layer normalization in the transformer encoder layer before self-attention and
-        feed-forward modules.
-    hidden_expansion (`float`, *optional*, defaults to 1.0):
-        Expansion ratio to enlarge the dimension size of RepVGGBlock and CSPRepLayer.
-    mask_feature_channels (`list[int]`, *optional*, defaults to `[64, 64]`):
-        The channels of the multi-level features for mask enhancement.
-    x4_feat_dim (`int`, *optional*, defaults to 128):
-        The dimension of the x4 feature map.
-    d_model (`int`, *optional*, defaults to 256):
-        Dimension of the layers exclude hybrid encoder.
-    num_prototypes (`int`, *optional*, defaults to 32):
-        Dimension of the layers exclude mask query head.
-    label_noise_ratio (`float`, *optional*, defaults to 0.4):
-        The fraction of denoising labels to which random noise should be added.
-    box_noise_scale (`float`, *optional*, defaults to 0.4):
-        Scale or magnitude of noise to be added to the bounding boxes.
-    mask_enhanced (`bool`, *optional*, defaults to `True`):
-        Whether to use enhanced masked attention.
-    num_queries (`int`, *optional*, defaults to 300):
-        Number of object queries.
-    decoder_in_channels (`list`, *optional*, defaults to `[256, 256, 256]`):
-        Multi level features dimension for decoder
-    decoder_ffn_dim (`int`, *optional*, defaults to 1024):
-        Dimension of the "intermediate" (often named feed-forward) layer in decoder.
-    num_feature_levels (`int`, *optional*, defaults to 3):
-        The number of input feature levels.
-    decoder_n_points (`int`, *optional*, defaults to 4):
-        The number of sampled keys in each feature level for each attention head in the decoder.
-    decoder_activation_function (`str`, *optional*, defaults to `"relu"`):
-        The non-linear activation function (function or string) in the decoder. If string, `"gelu"`,
-        `"relu"`, `"silu"` and `"gelu_new"` are supported.
-    num_denoising (`int`, *optional*, defaults to 100):
-        The total number of denoising tasks or queries to be used for contrastive denoising.
-    learn_initial_query (`bool`, *optional*, defaults to `False`):
-        Indicates whether the initial query embeddings for the decoder should be learned during training
-    anchor_image_size (`tuple[int, int]`, *optional*):
-        Height and width of the input image used during evaluation to generate the bounding box anchors. If None, automatic generate anchor is applied.
-    disable_custom_kernels (`bool`, *optional*, defaults to `True`):
-        Whether to disable custom kernels.
-    global_pointer_head_size (`int`, *optional*, defaults to 64):
-        The size of the global pointer head.
-    gp_dropout_value (`float`, *optional*, defaults to 0.1):
-        The dropout probability in the global pointer head.
-
-    Examples:
-
-    ```python
-    >>> from transformers import PPDocLayoutV3Config, PPDocLayoutV3ForObjectDetection
-
-    >>> # Initializing a PP-DocLayoutV3 configuration
-    >>> configuration = PPDocLayoutV3Config()
-
-    >>> # Initializing a model (with random weights) from the configuration
-    >>> model = PPDocLayoutV3ForObjectDetection(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "pp_doclayout_v3"
     sub_configs = {"backbone_config": AutoConfig}
@@ -241,7 +149,6 @@ class PPDocLayoutV3ImageProcessor(TorchvisionBackend):
     do_rescale = True
     do_normalize = True
 
-    # We require `self.resize(..., antialias=False)` to approximate the output of `cv2.resize`
     def _preprocess(
         self,
         images: list["torch.Tensor"],
@@ -261,7 +168,6 @@ class PPDocLayoutV3ImageProcessor(TorchvisionBackend):
         return_tensors: str | TensorType | None,
         **kwargs,
     ) -> BatchFeature:
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -270,14 +176,11 @@ class PPDocLayoutV3ImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_center_crop:
                 stacked_images = self.center_crop(stacked_images, crop_size)
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -338,7 +241,6 @@ class PPDocLayoutV3ImageProcessor(TorchvisionBackend):
                 )
                 angle = np.degrees(np.arccos(angle_cos))
                 if abs(angle - sharp_angle_thresh) < 1:
-                    # Calculate the new point based on the direction of two vectors.
                     dir_vec = vector_1 / np.linalg.norm(vector_1) + vector_2 / np.linalg.norm(vector_2)
                     dir_vec = dir_vec / np.linalg.norm(dir_vec)
                     step_size = (np.linalg.norm(vector_1) + np.linalg.norm(vector_2)) / 2
@@ -382,7 +284,6 @@ class PPDocLayoutV3ImageProcessor(TorchvisionBackend):
             x_min, y_min, x_max, y_max = boxes[i].astype(np.int32)
             box_w, box_h = x_max - x_min, y_max - y_min
 
-            # default rect
             rect = np.array(
                 [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]],
                 dtype=np.float32,
@@ -392,7 +293,6 @@ class PPDocLayoutV3ImageProcessor(TorchvisionBackend):
                 polygon_points.append(rect)
                 continue
 
-            # crop mask
             x_coordinates = [int(round((x_min * scale_width).item())), int(round((x_max * scale_width).item()))]
             x_start, x_end = np.clip(x_coordinates, 0, mask_width)
             y_coordinates = [int(round((y_min * scale_height).item())), int(round((y_max * scale_height).item()))]
@@ -402,7 +302,6 @@ class PPDocLayoutV3ImageProcessor(TorchvisionBackend):
                 polygon_points.append(rect)
                 continue
 
-            # resize mask to match box size
             resized_mask = cv2.resize(cropped_mask.astype(np.uint8), (box_w, box_h), interpolation=cv2.INTER_NEAREST)
 
             polygon = self._mask2polygon(resized_mask)
@@ -616,26 +515,6 @@ def mask_to_box_coordinate(mask, dtype):
 
 @dataclass
 class PPDocLayoutV3DecoderOutput(RTDetrDecoderOutput):
-    r"""
-    intermediate_hidden_states (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, hidden_size)`):
-        Stacked intermediate hidden states (output of each layer of the decoder).
-    intermediate_logits (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, sequence_length, config.num_labels)`):
-        Stacked intermediate logits (logits of each layer of the decoder).
-    intermediate_reference_points (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, sequence_length, hidden_size)`):
-        Stacked intermediate reference points (reference points of each layer of the decoder).
-    intermediate_predicted_corners (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked intermediate predicted corners (predicted corners of each layer of the decoder).
-    initial_reference_points (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked initial reference points (initial reference points of each layer of the decoder).
-    cross_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` and `config.add_cross_attention=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights of the decoder's cross-attention layer, after the attention softmax,
-        used to compute the weighted average in the cross-attention heads.
-    decoder_out_order_logits (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, config.num_queries, config.num_queries)`):
-        Stacked order logits (order logits of each layer of the decoder).
-    decoder_out_masks (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, config.num_queries, 200, 200)`):
-        Stacked masks (masks of each layer of the decoder).
-    """
 
     decoder_out_order_logits: torch.FloatTensor | None = None
     decoder_out_masks: torch.FloatTensor | None = None
@@ -648,40 +527,6 @@ class PPDocLayoutV3DecoderOutput(RTDetrDecoderOutput):
 )
 @dataclass
 class PPDocLayoutV3ModelOutput(RTDetrModelOutput):
-    r"""
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_queries, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the decoder of the model.
-    intermediate_hidden_states (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, hidden_size)`):
-        Stacked intermediate hidden states (output of each layer of the decoder).
-    intermediate_logits (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, sequence_length, config.num_labels)`):
-        Stacked intermediate logits (logits of each layer of the decoder).
-    intermediate_reference_points (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked intermediate reference points (reference points of each layer of the decoder).
-    intermediate_predicted_corners (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked intermediate predicted corners (predicted corners of each layer of the decoder).
-    initial_reference_points (`torch.FloatTensor` of shape `(batch_size, num_queries, 4)`):
-        Initial reference points used for the first decoder layer.
-    init_reference_points (`torch.FloatTensor` of shape `(batch_size, num_queries, 4)`):
-        Initial reference points sent through the Transformer decoder.
-    enc_topk_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.num_labels)`):
-        Predicted bounding boxes scores where the top `config.two_stage_num_proposals` scoring bounding boxes are
-        picked as region proposals in the encoder stage. Output of bounding box binary classification (i.e.
-        foreground and background).
-    enc_topk_bboxes (`torch.FloatTensor` of shape `(batch_size, sequence_length, 4)`):
-        Logits of predicted bounding boxes coordinates in the encoder stage.
-    enc_outputs_class (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.num_labels)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Predicted bounding boxes scores where the top `config.two_stage_num_proposals` scoring bounding boxes are
-        picked as region proposals in the first stage. Output of bounding box binary classification (i.e.
-        foreground and background).
-    enc_outputs_coord_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, 4)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Logits of predicted bounding boxes coordinates in the first stage.
-    denoising_meta_values (`dict`):
-        Extra dictionary for the denoising related values.
-    out_order_logits (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, config.num_queries, config.num_queries)`):
-        Stacked order logits (order logits of each layer of the decoder).
-    out_masks (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, config.num_queries, 200, 200)`):
-        Stacked masks (masks of each layer of the decoder).
-    """
 
     out_order_logits: torch.FloatTensor | None = None
     out_masks: torch.FloatTensor | None = None
@@ -776,11 +621,6 @@ class PPDocLayoutV3EncoderMaskOutput(nn.Module):
 
 
 class PPDocLayoutV3HybridEncoder(RTDetrHybridEncoder):
-    """
-    Main difference to `RTDetrHybridEncoder`:
-        1. Mask Feature Head: Added `PPDocLayoutV3MaskFeatFPN` module (`self.mask_feature_head`) for document - specific mask feature generation.
-        2. Extra Conv Layers: Introduced `self.encoder_mask_lateral` and `self.encoder_mask_output` for mask feature processing and output.
-    """
 
     def __init__(self, config: PPDocLayoutV3Config):
         super().__init__()
@@ -813,20 +653,16 @@ class PPDocLayoutV3HybridEncoder(RTDetrHybridEncoder):
         """
         feature_maps = inputs_embeds
 
-        # AIFI: Apply transformer encoder to specified feature levels
         if self.config.encoder_layers > 0:
             for i, enc_ind in enumerate(self.encode_proj_layers):
                 feature_maps[enc_ind] = self.aifi[i](feature_maps[enc_ind], **kwargs)
 
-        # top-down FPN
         fpn_feature_maps = [feature_maps[-1]]
         for idx, (lateral_conv, fpn_block) in enumerate(zip(self.lateral_convs, self.fpn_blocks)):
             backbone_feature_map = feature_maps[self.num_fpn_stages - idx - 1]
             top_fpn_feature_map = fpn_feature_maps[-1]
-            # apply lateral block
             top_fpn_feature_map = lateral_conv(top_fpn_feature_map)
             fpn_feature_maps[-1] = top_fpn_feature_map
-            # apply fpn block
             top_fpn_feature_map = F.interpolate(top_fpn_feature_map, scale_factor=2.0, mode="nearest")
             fused_feature_map = torch.concat([top_fpn_feature_map, backbone_feature_map], dim=1)
             new_fpn_feature_map = fpn_block(fused_feature_map)
@@ -834,7 +670,6 @@ class PPDocLayoutV3HybridEncoder(RTDetrHybridEncoder):
 
         fpn_feature_maps.reverse()
 
-        # bottom-up PAN
         pan_feature_maps = [fpn_feature_maps[0]]
         for idx, (downsample_conv, pan_block) in enumerate(zip(self.downsample_convs, self.pan_blocks)):
             top_pan_feature_map = pan_feature_maps[-1]
@@ -856,10 +691,6 @@ class PPDocLayoutV3HybridEncoder(RTDetrHybridEncoder):
 
 
 class PPDocLayoutV3Decoder(RTDetrDecoder):
-    """
-    Main difference to `RTDetrDecoder`:
-        A new mask generation process is introduced at each decoder layer.
-    """
 
     def __init__(self, config: PPDocLayoutV3Config):
         super().__init__()
@@ -904,7 +735,6 @@ class PPDocLayoutV3Decoder(RTDetrDecoder):
         if inputs_embeds is not None:
             hidden_states = inputs_embeds
 
-        # decoder layers
         intermediate = ()
         intermediate_reference_points = ()
         intermediate_logits = ()
@@ -913,7 +743,6 @@ class PPDocLayoutV3Decoder(RTDetrDecoder):
 
         reference_points = F.sigmoid(reference_points)
 
-        # https://github.com/lyuwenyu/RT-DETR/blob/94f5e16708329d2f2716426868ec89aa774af016/rtdetr_pytorch/src/zoo/rtdetr/rtdetr_decoder.py#L252
         for idx, decoder_layer in enumerate(self.layers):
             reference_points_input = reference_points.unsqueeze(2)
             object_queries_position_embeddings = self.query_pos_head(reference_points)
@@ -930,7 +759,6 @@ class PPDocLayoutV3Decoder(RTDetrDecoder):
                 **kwargs,
             )
 
-            # hack implementation for iterative bounding box refinement
             if self.bbox_embed is not None:
                 predicted_corners = self.bbox_embed(hidden_states)
                 new_reference_points = F.sigmoid(predicted_corners + inverse_sigmoid(reference_points))
@@ -941,7 +769,6 @@ class PPDocLayoutV3Decoder(RTDetrDecoder):
                 (new_reference_points,) if self.bbox_embed is not None else (reference_points,)
             )
 
-            # get_pred_class_order_and_mask
             out_query = norm(hidden_states)
             mask_query_embed = mask_query_head(out_query)
             batch_size, mask_dim, _ = mask_query_embed.shape
@@ -960,7 +787,6 @@ class PPDocLayoutV3Decoder(RTDetrDecoder):
                 order_logits = global_pointer(order_head[idx](valid_query))
                 decoder_out_order_logits += (order_logits,)
 
-        # Keep batch_size as first dimension
         intermediate = torch.stack(intermediate, dim=1)
         intermediate_reference_points = torch.stack(intermediate_reference_points, dim=1)
         if self.class_embed is not None:
@@ -1066,7 +892,6 @@ class PPDocLayoutV3Model(RTDetrModel):
                 x4_feat,
                 **kwargs,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a PPDocLayoutV3HybridEncoderOutput when return_dict=True
         elif not isinstance(encoder_outputs, PPDocLayoutV3HybridEncoderOutput):
             encoder_outputs = PPDocLayoutV3HybridEncoderOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -1075,20 +900,16 @@ class PPDocLayoutV3Model(RTDetrModel):
                 mask_feat=encoder_outputs[-1],
             )
 
-        # Equivalent to def _get_encoder_input
-        # https://github.com/lyuwenyu/RT-DETR/blob/94f5e16708329d2f2716426868ec89aa774af016/rtdetr_pytorch/src/zoo/rtdetr/rtdetr_decoder.py#L412
         sources = []
         for level, source in enumerate(encoder_outputs.last_hidden_state):
             sources.append(self.decoder_input_proj[level](source))
 
-        # Lowest resolution feature maps are obtained via 3x3 stride 2 convolutions on the final stage
         if self.config.num_feature_levels > len(sources):
             _len_sources = len(sources)
             sources.append(self.decoder_input_proj[_len_sources](encoder_outputs.last_hidden_state[-1]))
             for i in range(_len_sources + 1, self.config.num_feature_levels):
                 sources.append(self.decoder_input_proj[i](encoder_outputs.last_hidden_state[-1]))
 
-        # Prepare encoder inputs (by flattening)
         source_flatten = []
         spatial_shapes_list = []
         spatial_shapes = torch.empty((len(sources), 2), device=device, dtype=torch.long)
@@ -1102,7 +923,6 @@ class PPDocLayoutV3Model(RTDetrModel):
         source_flatten = torch.cat(source_flatten, 1)
         level_start_index = torch.cat((spatial_shapes.new_zeros((1,)), spatial_shapes.prod(1).cumsum(0)[:-1]))
 
-        # prepare denoising training
         if self.training and self.config.num_denoising > 0 and labels is not None:
             (
                 denoising_class,
@@ -1125,17 +945,13 @@ class PPDocLayoutV3Model(RTDetrModel):
         device = source_flatten.device
         dtype = source_flatten.dtype
 
-        # prepare input for decoder
         if self.training or self.config.anchor_image_size is None:
-            # Pass spatial_shapes as tuple to make it hashable and make sure
-            # lru_cache is working for generate_anchors()
             spatial_shapes_tuple = tuple(spatial_shapes_list)
             anchors, valid_mask = self.generate_anchors(spatial_shapes_tuple, device=device, dtype=dtype)
         else:
             anchors, valid_mask = self.anchors, self.valid_mask
             anchors, valid_mask = anchors.to(device, dtype), valid_mask.to(device, dtype)
 
-        # use the valid_mask to selectively retain values in the feature map where the mask is `True`
         memory = valid_mask.to(source_flatten.dtype) * source_flatten
 
         output_memory = self.enc_output(memory)
@@ -1149,7 +965,6 @@ class PPDocLayoutV3Model(RTDetrModel):
             dim=1, index=topk_ind.unsqueeze(-1).repeat(1, 1, enc_outputs_coord_logits.shape[-1])
         )
 
-        # _get_pred_class_and_mask
         batch_ind = torch.arange(memory.shape[0], device=output_memory.device).unsqueeze(1)
         target = output_memory[batch_ind, topk_ind]
         out_query = self.decoder_norm(target)
@@ -1162,7 +977,6 @@ class PPDocLayoutV3Model(RTDetrModel):
             dim=1, index=topk_ind.unsqueeze(-1).repeat(1, 1, enc_outputs_class.shape[-1])
         )
 
-        # extract region features
         if self.config.learn_initial_query:
             target = self.weight_embedding.tile([batch_size, 1, 1])
         else:
@@ -1185,7 +999,6 @@ class PPDocLayoutV3Model(RTDetrModel):
 
         init_reference_points = reference_points_unact.detach()
 
-        # decoder
         decoder_outputs = self.decoder(
             inputs_embeds=target,
             encoder_hidden_states=source_flatten,
@@ -1229,10 +1042,6 @@ class PPDocLayoutV3Model(RTDetrModel):
 @auto_docstring
 @dataclass
 class PPDocLayoutV3HybridEncoderOutput(BaseModelOutput):
-    r"""
-    mask_feat (`torch.FloatTensor` of shape `(batch_size, config.num_queries, 200, 200)`):
-        Mask features for each query in the batch.
-    """
 
     mask_feat: torch.FloatTensor = None
 
@@ -1240,45 +1049,6 @@ class PPDocLayoutV3HybridEncoderOutput(BaseModelOutput):
 @auto_docstring
 @dataclass
 class PPDocLayoutV3ForObjectDetectionOutput(ModelOutput):
-    r"""
-    logits (`torch.FloatTensor` of shape `(batch_size, num_queries, num_classes + 1)`):
-        Classification logits (including no-object) for all queries.
-    pred_boxes (`torch.FloatTensor` of shape `(batch_size, num_queries, 4)`):
-        Normalized boxes coordinates for all queries, represented as (center_x, center_y, width, height). These
-        values are normalized in [0, 1], relative to the size of each individual image in the batch (disregarding
-        possible padding). You can use [`~PPDocLayoutV3ImageProcessor.post_process_object_detection`] to retrieve the
-        unnormalized (absolute) bounding boxes.
-    order_logits (`tuple` of `torch.FloatTensor` of shape `(batch_size, num_queries, num_queries)`):
-        Order logits of the final layer of the decoder.
-    out_masks (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, height, width)`):
-        Masks of the final layer of the decoder.
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_queries, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the decoder of the model.
-    intermediate_hidden_states (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, hidden_size)`):
-        Stacked intermediate hidden states (output of each layer of the decoder).
-    intermediate_logits (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, config.num_labels)`):
-        Stacked intermediate logits (logits of each layer of the decoder).
-    intermediate_reference_points (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked intermediate reference points (reference points of each layer of the decoder).
-    intermediate_predicted_corners (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked intermediate predicted corners (predicted corners of each layer of the decoder).
-    initial_reference_points (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked initial reference points (initial reference points of each layer of the decoder).
-    init_reference_points (`torch.FloatTensor` of shape  `(batch_size, num_queries, 4)`):
-        Initial reference points sent through the Transformer decoder.
-    enc_topk_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.num_labels)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Logits of predicted bounding boxes coordinates in the encoder.
-    enc_topk_bboxes (`torch.FloatTensor` of shape `(batch_size, sequence_length, 4)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Logits of predicted bounding boxes coordinates in the encoder.
-    enc_outputs_class (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.num_labels)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Predicted bounding boxes scores where the top `config.two_stage_num_proposals` scoring bounding boxes are
-        picked as region proposals in the first stage. Output of bounding box binary classification (i.e.
-        foreground and background).
-    enc_outputs_coord_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, 4)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Logits of predicted bounding boxes coordinates in the first stage.
-    denoising_meta_values (`dict`):
-        Extra dictionary for the denoising related values
-    """
 
     logits: torch.FloatTensor | None = None
     pred_boxes: torch.FloatTensor | None = None

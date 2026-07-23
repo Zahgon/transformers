@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Blt model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -26,14 +12,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="itazap/blt-1b-hf")
 @strict
 class BltLocalEncoderConfig(PreTrainedConfig):
-    r"""
-    cross_attn_all_layers (`bool`, *optional*, defaults to `True`):
-        Whether all attention layers have cross attention.
-    cross_attn_k (`int`, *optional*, defaults to 2):
-        Number of cross-attention heads used in the model.
-    hidden_size_global (`int`, *int*, defaults to 2048):
-        Hidden size of the global transformer layer.
-    """
 
     model_type = "blt_local_encoder"
     default_theta = 500000.0
@@ -64,14 +42,6 @@ class BltLocalEncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="itazap/blt-1b-hf")
 @strict
 class BltLocalDecoderConfig(PreTrainedConfig):
-    r"""
-    cross_attn_all_layers (`bool`, *optional*, defaults to `True`):
-        Whether all attention layers have cross attention.
-    cross_attn_k (`int`, *optional*, defaults to 2):
-        Number of cross-attention heads used in the model.
-    hidden_size_global (`int`, *int*, defaults to 2048):
-        Hidden size of the global transformer layer.
-    """
 
     model_type = "blt_local_decoder"
     default_theta = 500000.0
@@ -163,45 +133,6 @@ class BltPatcherConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="itazap/blt-1b-hf")
 @strict
 class BltConfig(PreTrainedConfig):
-    r"""
-    patch_in_forward (`bool`, *optional*, defaults to `True`):
-        Whether to perform patching during the forward pass.
-    patch_size (`int`, *optional*, defaults to 4):
-        Size of the patches used in the patching mechanism.
-    patching_mode (`str`, *optional*, defaults to `"entropy"`):
-        The mode used for patching, such as entropy-based patching.
-    patching_threshold (`float`, *optional*, defaults to 1.34):
-        Threshold value used for determining when to apply patches.
-    patching_batch_size (`int`, *optional*, defaults to 1):
-        Batch size used during the patching process.
-    max_patch_length (`int`, *optional*):
-        Maximum length of patches that can be generated.
-    cross_attn_k (`int`, *optional*, defaults to 2):
-        Number of cross-attention heads used in the model.
-    encoder_hash_byte_group_size (`list`, *optional*):
-        List of byte group sizes used in the encoder hash function.
-    encoder_hash_byte_group_vocab (`int`, *optional*, defaults to 500002):
-        Vocabulary size for the encoder hash byte groups.
-    encoder_hash_byte_group_nb_functions (`int`, *optional*, defaults to 1):
-        Number of hash functions used in the encoder byte grouping.
-    patcher_config (`BltPatcherConfig`, *optional*):
-        Configuration for the patcher component of the model.
-    global_config (`BltGlobalTransformerConfig`, *optional*):
-        Configuration for the global transformer component of the model.
-
-    Example:
-    ```python
-    >>> from transformers import BltModel, BltConfig
-
-    >>> # Initializing a Blt configuration
-    >>> configuration = BltConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = BltModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "blt"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -240,7 +171,6 @@ class BltConfig(PreTrainedConfig):
     def __post_init__(self, **kwargs):
         self.encoder_hash_byte_group_size = self.encoder_hash_byte_group_size or [3, 4, 5, 6, 7, 8]
 
-        # Initialize component configurations
         if self.patcher_config is None:
             self.patcher_config = BltPatcherConfig(initializer_range=self.initializer_range)
             logger.info("patcher_config is None, using default Blt patcher config")
@@ -269,7 +199,6 @@ class BltConfig(PreTrainedConfig):
             self.global_config.setdefault("initializer_range", self.initializer_range)
             self.global_config = BltGlobalTransformerConfig(**self.global_config)
 
-        # Determine if token embedding projection is needed based on dimension mismatch (7b)
         encoder_cross_output_size = self.encoder_config.hidden_size * self.cross_attn_k
         self.global_config.encoder_cross_output_size = (
             encoder_cross_output_size if encoder_cross_output_size != self.global_config.hidden_size else None

@@ -1,17 +1,3 @@
-# Copyright 2022 Microsoft Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch CvT model."""
 
 import collections.abc
 from dataclasses import dataclass
@@ -37,10 +23,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class BaseModelOutputWithCLSToken(ModelOutput):
-    r"""
-    cls_token_value (`torch.FloatTensor` of shape `(batch_size, 1, hidden_size)`):
-        Classification token at the output of the last layer of the model.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     cls_token_value: torch.FloatTensor | None = None
@@ -48,9 +30,6 @@ class BaseModelOutputWithCLSToken(ModelOutput):
 
 
 class CvtEmbeddings(nn.Module):
-    """
-    Construct the CvT embeddings.
-    """
 
     def __init__(self, patch_size, num_channels, embed_dim, stride, padding, dropout_rate):
         super().__init__()
@@ -66,9 +45,6 @@ class CvtEmbeddings(nn.Module):
 
 
 class CvtConvEmbeddings(nn.Module):
-    """
-    Image to Conv Embedding.
-    """
 
     def __init__(self, patch_size, num_channels, embed_dim, stride, padding):
         super().__init__()
@@ -81,11 +57,9 @@ class CvtConvEmbeddings(nn.Module):
         pixel_values = self.projection(pixel_values)
         batch_size, num_channels, height, width = pixel_values.shape
         hidden_size = height * width
-        # rearrange "b c h w -> b (h w) c"
         pixel_values = pixel_values.view(batch_size, num_channels, hidden_size).permute(0, 2, 1)
         if self.normalization:
             pixel_values = self.normalization(pixel_values)
-        # rearrange "b (h w) c" -> b c h w"
         pixel_values = pixel_values.permute(0, 2, 1).view(batch_size, num_channels, height, width)
         return pixel_values
 
@@ -114,7 +88,6 @@ class CvtSelfAttentionLinearProjection(nn.Module):
     def forward(self, hidden_state):
         batch_size, num_channels, height, width = hidden_state.shape
         hidden_size = height * width
-        # rearrange " b c h w -> b (h w) c"
         hidden_state = hidden_state.view(batch_size, num_channels, hidden_size).permute(0, 2, 1)
         return hidden_state
 
@@ -177,14 +150,12 @@ class CvtSelfAttention(nn.Module):
     def rearrange_for_multi_head_attention(self, hidden_state):
         batch_size, hidden_size, _ = hidden_state.shape
         head_dim = self.embed_dim // self.num_heads
-        # rearrange 'b t (h d) -> b h t d'
         return hidden_state.view(batch_size, hidden_size, self.num_heads, head_dim).permute(0, 2, 1, 3)
 
     def forward(self, hidden_state, height, width):
         if self.with_cls_token:
             cls_token, hidden_state = torch.split(hidden_state, [1, height * width], 1)
         batch_size, hidden_size, num_channels = hidden_state.shape
-        # rearrange "b (h w) c -> b c h w"
         hidden_state = hidden_state.permute(0, 2, 1).view(batch_size, num_channels, height, width)
 
         key = self.convolution_projection_key(hidden_state)
@@ -207,17 +178,12 @@ class CvtSelfAttention(nn.Module):
         attention_probs = self.dropout(attention_probs)
 
         context = torch.einsum("bhlt,bhtv->bhlv", [attention_probs, value])
-        # rearrange"b h t d -> b t (h d)"
         _, _, hidden_size, _ = context.shape
         context = context.permute(0, 2, 1, 3).contiguous().view(batch_size, hidden_size, self.num_heads * head_dim)
         return context
 
 
 class CvtSelfOutput(nn.Module):
-    """
-    The residual connection is defined in CvtLayer instead of here (as is the case with other models), due to the
-    layernorm applied before each block.
-    """
 
     def __init__(self, embed_dim, drop_rate):
         super().__init__()
@@ -293,13 +259,7 @@ class CvtOutput(nn.Module):
         return hidden_state
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->CvtDropPath
 class CvtDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -315,13 +275,10 @@ class CvtDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class CvtLayer(nn.Module):
-    """
-    CvtLayer composed by attention layers, normalization and multi-layer perceptrons (mlps).
-    """
 
     def __init__(
         self,
@@ -371,14 +328,11 @@ class CvtLayer(nn.Module):
         attention_output = self_attention_output
         attention_output = self.drop_path(attention_output)
 
-        # first residual connection
         hidden_state = attention_output + hidden_state
 
-        # in Cvt, layernorm is also applied after self-attention
         layer_output = self.layernorm_after(hidden_state)
         layer_output = self.intermediate(layer_output)
 
-        # second residual connection is done here
         layer_output = self.output(layer_output, hidden_state)
         layer_output = self.drop_path(layer_output)
         return layer_output
@@ -431,7 +385,6 @@ class CvtStage(nn.Module):
         cls_token = None
         hidden_state = self.embedding(hidden_state)
         batch_size, num_channels, height, width = hidden_state.shape
-        # rearrange b c h w -> b (h w) c"
         hidden_state = hidden_state.view(batch_size, num_channels, height * width).permute(0, 2, 1)
         if self.config.cls_token[self.stage]:
             cls_token = self.cls_token.expand(batch_size, -1, -1)
@@ -553,12 +506,10 @@ class CvtForImageClassification(CvtPreTrainedModel):
         self.num_labels = config.num_labels
         self.cvt = CvtModel(config, add_pooling_layer=False)
         self.layernorm = nn.LayerNorm(config.embed_dim[-1])
-        # Classifier head
         self.classifier = (
             nn.Linear(config.embed_dim[-1], config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -589,7 +540,6 @@ class CvtForImageClassification(CvtPreTrainedModel):
             sequence_output = self.layernorm(cls_token)
         else:
             batch_size, num_channels, height, width = sequence_output.shape
-            # rearrange "b c h w -> b (h w) c"
             sequence_output = sequence_output.view(batch_size, num_channels, height * width).permute(0, 2, 1)
             sequence_output = self.layernorm(sequence_output)
 

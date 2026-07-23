@@ -1,22 +1,3 @@
-# Copyright 2024 EleutherAI and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""GraniteMoe model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -28,20 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="ibm-granite/granite-speech-3.2-8b")
 @strict
 class GraniteMoeConfig(PreTrainedConfig):
-    r"""
-    ```python
-    >>> from transformers import GraniteMoeModel, GraniteMoeConfig
-
-    >>> # Initializing a GraniteMoe granitemoe-3b style configuration
-    >>> configuration = GraniteMoeConfig()
-
-    >>> # Initializing a model from the granitemoe-7b style configuration
-    >>> model = GraniteMoeModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "granitemoe"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -74,7 +41,6 @@ class GraniteMoeConfig(PreTrainedConfig):
     router_aux_loss_coef: float | None = 0.001
 
     def __post_init__(self, **kwargs):
-        # for backward compatibility
         if self.num_key_value_heads is None:
             self.num_key_value_heads = self.num_attention_heads
 

@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Dilated Neighborhood Attention Transformer model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,24 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="shi-labs/dinat-mini-in1k-224")
 @strict
 class DinatConfig(BackboneConfigMixin, PreTrainedConfig):
-    r"""
-    dilations (`list[list[int]]`, *optional*, defaults to `[[1, 8, 1], [1, 4, 1, 4], [1, 2, 1, 2, 1, 2], [1, 1, 1, 1, 1]]`):
-        Dilation value of each NA layer in the Transformer encoder.
-
-    Example:
-
-    ```python
-    >>> from transformers import DinatConfig, DinatModel
-
-    >>> # Initializing a Dinat shi-labs/dinat-mini-in1k-224 style configuration
-    >>> configuration = DinatConfig()
-
-    >>> # Initializing a model (with random weights) from the shi-labs/dinat-mini-in1k-224 style configuration
-    >>> model = DinatModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "dinat"
 
@@ -72,8 +40,6 @@ class DinatConfig(BackboneConfigMixin, PreTrainedConfig):
         self.num_layers = len(self.depths)
         self.dilations = self.dilations or [[1, 8, 1], [1, 4, 1, 4], [1, 2, 1, 2, 1, 2], [1, 1, 1, 1, 1]]
 
-        # we set the hidden_size attribute in order to make Dinat work with VisionEncoderDecoderModel
-        # this indicates the channel dimension after the last stage of the model
         self.hidden_size = int(self.embed_dim * 2 ** (len(self.depths) - 1))
         self.stage_names = ["stem"] + [f"stage{idx}" for idx in range(1, len(self.depths) + 1)]
         self.set_output_features_output_indices(

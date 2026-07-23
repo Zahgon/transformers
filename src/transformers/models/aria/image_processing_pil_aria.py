@@ -1,17 +1,3 @@
-# Copyright 2024 The Rhymes-AI Teams Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Aria."""
 
 import math
 
@@ -30,18 +16,7 @@ from ...processing_utils import ImagesKwargs, Unpack
 from ...utils import TensorType, auto_docstring
 
 
-# Adapted from transformers.models.aria.image_processing_aria.AriaImageProcessorKwargs
 class AriaImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    max_image_size (`int`, *optional*, defaults to `self.max_image_size`):
-        Maximum image size. Must be either 490 or 980.
-    min_image_size (`int`, *optional*, defaults to `self.min_image_size`):
-        Minimum image size. Images smaller than this in any dimension will be scaled up.
-    split_resolutions (`list[list[int]]`, *optional*, defaults to `self.split_resolutions`):
-        A list of possible resolutions as (height, width) pairs for splitting high-resolution images into patches.
-    split_image (`bool`, *optional*, defaults to `self.split_image`):
-        Whether to split the image into patches using the best matching resolution from `split_resolutions`.
-    """
 
     max_image_size: int
     min_image_size: int
@@ -99,7 +74,6 @@ class AriaImageProcessorPil(PilBackend):
         """Pad an image to a target resolution while maintaining aspect ratio."""
         new_resolution = get_patch_output_size(image, target_resolution, input_data_format=ChannelDimension.FIRST)
         padding_hw = self._get_padding_size(new_resolution, target_resolution)
-        # CHW format: pad channel dim with zeros, then height/width
         padding = ((0, 0), padding_hw[0], padding_hw[1])
         return np.pad(image, padding, mode="constant", constant_values=0)
 
@@ -207,31 +181,7 @@ class AriaImageProcessorPil(PilBackend):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None):
-        """
-        A utility that returns number of image patches for a given image size.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`, *optional*):
-                Any kwargs to override defaults of the image processor.
-
-        Returns:
-            `int`: Number of patches per image.
-        """
-        split_image = images_kwargs.get("split_image", self.split_image)
-        max_image_size = images_kwargs.get("max_image_size", self.max_image_size)
-        split_resolutions = images_kwargs.get("split_resolutions", self.split_resolutions)
-
-        resized_height, resized_width = select_best_resolution((height, width), split_resolutions)
-        num_patches = (
-            1
-            if not split_image
-            else math.ceil(resized_height / max_image_size) * math.ceil(resized_width / max_image_size)
-        )
-        return num_patches
+        pass
 
 
 __all__ = ["AriaImageProcessorPil"]

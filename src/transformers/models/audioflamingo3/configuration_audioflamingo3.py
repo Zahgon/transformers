@@ -1,17 +1,3 @@
-# Copyright 2025 NVIDIA CORPORATION and the HuggingFace Inc. team. All rights
-# reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -24,24 +10,6 @@ from ..auto import CONFIG_MAPPING, AutoConfig
 @auto_docstring(checkpoint="nvidia/audio-flamingo-3-hf")
 @strict
 class AudioFlamingo3EncoderConfig(PreTrainedConfig):
-    r"""
-    max_source_positions (`int`, *optional*, defaults to 1500):
-        The maximum sequence length of log-mel filter-bank features that this model might ever be used with.
-
-    Example:
-
-    ```python
-    >>> from transformers import AudioFlamingo3EncoderConfig, AudioFlamingo3Encoder
-
-    >>> # Initializing an AudioFlamingo3EncoderConfig
-    >>> configuration = AudioFlamingo3EncoderConfig()
-
-    >>> # Initializing an AudioFlamingo3Encoder (with random weights)
-    >>> model = AudioFlamingo3Encoder(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "audioflamingo3_encoder"
 
@@ -71,27 +39,6 @@ class AudioFlamingo3EncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="nvidia/audio-flamingo-3-hf")
 @strict
 class AudioFlamingo3Config(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import AudioFlamingo3ForConditionalGeneration, AudioFlamingo3Config, AudioFlamingo3EncoderConfig, Qwen2Config
-
-    >>> # Initializing an AudioFlamingo3Encoder config
-    >>> audio_config = AudioFlamingo3EncoderConfig()
-
-    >>> # Initializing a Qwen2 config
-    >>> text_config = Qwen2Config()
-
-    >>> # Initializing an AudioFlamingo3 configuration
-    >>> configuration = AudioFlamingo3Config(audio_config, text_config)
-
-    >>> # Initializing a model from the audioflamingo3 style configuration
-    >>> model = AudioFlamingo3ForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "audioflamingo3"
     sub_configs = {"audio_config": AutoConfig, "text_config": AutoConfig}

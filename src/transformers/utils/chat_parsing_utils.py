@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from __future__ import annotations
 
@@ -31,15 +18,11 @@ def _gemma4_json_to_json(text: str) -> str:
     strings = []
 
     def _capture(m):
-        strings.append(m.group(1))
-        return f"\x00{len(strings) - 1}\x00"
+        pass
 
-    # Grab the inside of gemma-quotes and store them for later
     text = re.sub(r'<\|"\|>(.*?)<\|"\|>', _capture, text, flags=re.DOTALL)
-    # Add quotes to the bare keys elsewhere
     text = re.sub(r"(?<=[{,])(\w+):", r'"\1":', text)
 
-    # Put the inside of the quotes back afterwards
     for i, s in enumerate(strings):
         text = text.replace(f"\x00{i}\x00", json.dumps(s))
 
@@ -47,10 +30,8 @@ def _gemma4_json_to_json(text: str) -> str:
 
 
 def _parse_re_match(node_match: re.Match) -> dict | str:
-    # If the regex has named groups, return a dict of those groups
     if node_match.groupdict():
         return {key: val for key, val in node_match.groupdict().items() if val is not None}
-    # Otherwise the regex must have exactly one unnamed group, and we return that
     else:
         groups = list(node_match.groups())
         if len(groups) > 1:
@@ -80,15 +61,12 @@ def recursive_parse(
         The parsed data structure for the current node.
     """
 
-    # If the schema has a const, we just return that value and do absolutely nothing else
     if "const" in node_schema:
         return node_schema["const"]
 
-    # If the node content is None, we return None. EZ.
     if node_content is None:
         return None
 
-    # If not, we have to do a little parsing. First, set some vars and do basic validation
     node_type = node_schema.get("type")
     has_regex = (
         "x-regex" in node_schema
@@ -117,7 +95,6 @@ def recursive_parse(
     if node_regex_iterator is not None:
         if node_type != "array":
             raise TypeError(f"Schema node with type {node_type} cannot use x-regex-iterator.\nSchema: {node_schema}")
-        # Note that this can be applied after a standard node-regex search
         node_content = [
             _parse_re_match(node_match)
             for node_match in re.finditer(node_regex_iterator, node_content, flags=re.DOTALL)
@@ -127,7 +104,6 @@ def recursive_parse(
     if node_regex_to_dict is not None:
         if node_type != "object":
             raise TypeError(f"Schema node with type {node_type} cannot use x-regex-key-value.\nSchema: {node_schema}")
-        # Note that this can be applied after a standard node-regex search
         output_content = {}
         for node_match in re.finditer(node_regex_to_dict, node_content, flags=re.DOTALL):
             match_groups = _parse_re_match(node_match)
@@ -142,8 +118,6 @@ def recursive_parse(
         if not node_content:
             return None
 
-    # Next, if the node has a parser, apply it. We do this after regexes so that the regex can extract
-    # a substring to parse, if needed.
     if "x-parser" in node_schema:
         parser = node_schema["x-parser"]
         if parser == "gemma4-tool-call":
@@ -180,12 +154,9 @@ def recursive_parse(
         else:
             raise ValueError(f"Unknown parser {parser} for schema node: {node_schema}")
 
-    # Finally, handle parsed content based on schema type and recurse if required
     if node_type == "object":
         parsed_schema = {}
         if isinstance(node_content, str):
-            # This means we don't have a regex at this level, so all of our child nodes need to parse the whole
-            # string themselves to extract their value.
             if "properties" not in node_schema:
                 raise ValueError(
                     f"Object node received string content but has no regex or parser to handle it.\n"
@@ -205,7 +176,6 @@ def recursive_parse(
                 elif "default" in child_node:
                     parsed_schema[key] = child_node["default"]
             additional_schema = node_schema.get("additionalProperties", True)
-            # We want to check only for False values; {} is "falsy" but should pass through
             if additional_schema is not False:
                 additional_schema = additional_schema if isinstance(additional_schema, dict) else {}
                 for key, value in node_content.items():
@@ -236,7 +206,6 @@ def recursive_parse(
         elif "prefixItems" in node_schema:
             if not isinstance(node_content, list):
                 if len(node_schema["prefixItems"]) == 1:
-                    # If there's only one prefix item, this is a single item array, we can just wrap the string
                     node_content = [node_content]
                 else:
                     raise TypeError(f"Expected a list or regex for schema node with type array, got {node_content}")
@@ -293,7 +262,6 @@ def recursive_parse(
             else:
                 raise ValueError(f"Invalid boolean value: {node_content}")
         else:
-            # String type
             if not isinstance(node_content, str):
                 raise TypeError(
                     f"Expected a string for schema node with type string, got {type(node_content).__name__}: {node_content}"

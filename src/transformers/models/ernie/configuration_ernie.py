@@ -1,18 +1,3 @@
-# Copyright 2022 The Google AI Language Team Authors and The HuggingFace Inc. team.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""ERNIE model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,26 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="nghuyong/ernie-3.0-base-zh")
 @strict
 class ErnieConfig(PreTrainedConfig):
-    r"""
-    task_type_vocab_size (`int`, *optional*, defaults to 3):
-        The vocabulary size of the `task_type_ids` for ERNIE2.0/ERNIE3.0 model
-    use_task_id (`bool`, *optional*, defaults to `False`):
-        Whether or not the model support `task_type_ids`
-
-    Examples:
-
-    ```python
-    >>> from transformers import ErnieConfig, ErnieModel
-
-    >>> # Initializing a ERNIE nghuyong/ernie-3.0-base-zh style configuration
-    >>> configuration = ErnieConfig()
-
-    >>> # Initializing a model (with random weights) from the nghuyong/ernie-3.0-base-zh style configuration
-    >>> model = ErnieModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "ernie"
 

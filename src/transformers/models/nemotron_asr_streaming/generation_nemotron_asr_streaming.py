@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from types import GeneratorType
 
@@ -31,13 +18,6 @@ class NemotronAsrStreamingGenerateOutput(ParakeetRNNTGenerateOutput): ...
 
 
 class NemotronAsrStreamingGenerationMixin(ParakeetRNNTGenerationMixin):
-    """Generation mixin for NemotronAsrStreaming RNN-T models.
-
-    Inherits the shared transducer machinery from [`ParakeetRNNTGenerationMixin`] (encoder frame tracking,
-    decoder cache preparation, encoder-exhaustion stopping, per-step durations and output-buffer sizing) and
-    extends it with cache-aware ``chunked_limited`` streaming: ``input_features`` may be a generator of mel
-    chunks, which are encoded incrementally and appended to the encoder frame buffer as the decoder consumes it.
-    """
 
     def _update_model_kwargs_for_generation(self, outputs, model_kwargs, *args, **kwargs):
         model_kwargs = super()._update_model_kwargs_for_generation(outputs, model_kwargs, *args, **kwargs)
@@ -71,7 +51,6 @@ class NemotronAsrStreamingGenerationMixin(ParakeetRNNTGenerationMixin):
                 )
                 model_kwargs["encoder_valid_lengths"] = model_kwargs["encoder_valid_lengths"] + pooler.shape[1]
 
-        # Recompute exhaustion now that the buffer may have grown (drives the inherited EncoderExhaustedCriteria).
         self._encoder_finished = model_kwargs["encoder_frame_idxs"] >= model_kwargs["encoder_valid_lengths"]
         return model_kwargs
 
@@ -84,11 +63,8 @@ class NemotronAsrStreamingGenerationMixin(ParakeetRNNTGenerationMixin):
         input_ids_length,
         inputs_tensor,
     ):
-        # When the user hasn't explicitly set max_length/max_new_tokens, size the output buffer. The actual
-        # stopping is handled by the encoder-exhaustion stopping criteria; this just sizes the buffer generously.
         if has_default_max_length and generation_config.max_new_tokens is None:
             if getattr(self, "_streaming", False):
-                # Streaming: total audio length is unknown, so the buffer can't be derived from the input.
                 generation_config.max_length = int(1e9)
                 has_default_max_length = False  # prevent super() from overwriting
         return super()._prepare_generated_length(
@@ -153,7 +129,6 @@ class NemotronAsrStreamingGenerationMixin(ParakeetRNNTGenerationMixin):
             model_kwargs["input_features_generator"] = generator
             return first_chunk, "input_features", model_kwargs
 
-        # Offline: encode the full mel spectrogram up front. Delegate to Parakeet's shared implementation.
         return super()._prepare_model_inputs(inputs, bos_token_id, model_kwargs)
 
     def _prepare_encoder_decoder_kwargs_for_generation(
@@ -191,10 +166,6 @@ class NemotronAsrStreamingGenerationMixin(ParakeetRNNTGenerationMixin):
     def prepare_inputs_for_generation(self, input_ids, *args, **kwargs):
         from .modeling_nemotron_asr_streaming import NemotronAsrStreamingEncoderModelOutput
 
-        # Bypass ParakeetRNNTGenerationMixin's `prepare_inputs_for_generation` (it would build a
-        # `ParakeetEncoderModelOutput`, which `NemotronAsrStreamingForRNNT.forward` does not recognize via isinstance
-        # and would mangle into `pooler_output=None`). Go straight to the base GenerationMixin and select the
-        # current encoder frame into a `NemotronAsrStreamingEncoderModelOutput`.
         model_inputs = GenerationMixin.prepare_inputs_for_generation(self, input_ids, *args, **kwargs)
         encoder_frame_idxs = model_inputs.pop("encoder_frame_idxs").to(
             model_inputs["encoder_outputs"].pooler_output.device
@@ -224,7 +195,6 @@ class NemotronAsrStreamingGenerationMixin(ParakeetRNNTGenerationMixin):
                 )
             self._streaming_num_lookahead_tokens = num_lookahead_tokens
         try:
-            # Parakeet's generate() runs the decoding loop and assembles sequences + per-step durations.
             outputs = super().generate(inputs=inputs, generation_config=generation_config, **kwargs)
         finally:
             for attr in ("_streaming", "_stream_exhausted", "_streaming_num_lookahead_tokens"):

@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 
@@ -54,24 +41,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="PaddlePaddle/PP-OCRv5_server_det_safetensors")
 @strict
 class PPOCRV5ServerDetConfig(PreTrainedConfig):
-    r"""
-    interpolate_mode (`str`, *optional*, defaults to `"nearest"`):
-        The interpolation mode used for upsampling or downsampling feature maps in the neck network.
-    neck_out_channels (`int`, *optional*, defaults to 256):
-        The number of output channels from the neck network, responsible for feature fusion and refinement.
-    reduce_factor (`int`, *optional*, defaults to 2):
-        The channel reduction factor used in the neck blocks to balance performance and complexity.
-    intraclass_block_number (`int`, *optional*, defaults to 4):
-        The number of Intra-Class Block modules used for enhancing feature representation.
-    intraclass_block_config (`dict`, *optional*, defaults to `None`):
-        Configuration for the Intra-Class Block modules, if any, used for enhancing feature representation.
-    scale_factor (`int`, *optional*, defaults to 2):
-        The scaling factor used for spatial resolution adjustments in the feature maps.
-    scale_factor_list (`list[int]`, *optional*, defaults to `None`):
-        A list of scaling factors used for spatial resolution adjustments in the feature maps.
-    kernel_list (`list[int]`, *optional*, defaults to `[3, 2, 2]`):
-        The list of kernel sizes for convolutional layers in the head network for multi-scale feature extraction.
-    """
 
     sub_configs = {"backbone_config": AutoConfig}
     model_type = "pp_ocrv5_server_det"
@@ -104,20 +73,11 @@ class PPOCRV5ServerDetConfig(PreTrainedConfig):
             **kwargs,
         )
 
-        # For object detection pipeline compatibility: single class "text"
         self.id2label = {0: "text"} if self.id2label is None else self.id2label
         super().__post_init__(**kwargs)
 
 
 class PPOCRV5ServerDetImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    limit_side_len (`int`, *optional*, defaults to `960`):
-        Maximum or minimum side length.
-    limit_type (`str`, *optional*, defaults to `max`):
-        Resizing strategy: "max", "min", or "resize_long".
-    max_side_limit (`int`, *optional* defaults to `4000`):
-        Maximum allowed side length.
-    """
 
     limit_side_len: int
     limit_type: str
@@ -159,13 +119,8 @@ class PPOCRV5ServerDetImageProcessor(TorchvisionBackend):
     ) -> BatchFeature:
         target_sizes = []
 
-        # Group images by their original spatial shape to enable batched resizing (optimization for efficiency)
-        # [Key Change] Unlike the original implementation, we now track target shapes for each original shape group
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
-        # Store resized image batches mapped to their original shape keys
         resized_images_grouped = {}
-        # [Key Change] Core addition: Mapping from original image shape to target resize shape
-        # This dict ensures consistent target shape handling across all subsequent operations (resize/processing)
         target_shape_per_shape = {}
         for shape, stacked_images in grouped_images.items():
             if do_resize:
@@ -180,14 +135,12 @@ class PPOCRV5ServerDetImageProcessor(TorchvisionBackend):
         if do_resize:
             target_sizes = [target_shape_per_shape[grouped_images_index[i][0]] for i in range(len(images))]
 
-        # Group images by size for further processing
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
-            # BGR to RGB conversion
             stacked_images = stacked_images[:, [2, 1, 0], :, :]
             processed_images_grouped[shape] = stacked_images
 
@@ -209,13 +162,11 @@ class PPOCRV5ServerDetImageProcessor(TorchvisionBackend):
         Returns:
             np.ndarray: Expanded contour of shape (M, 2).
         """
-        # --- 1. Parameter calculation ---
         polygon = contour_box.reshape(-1, 2).astype(np.float32)
         perimeter = cv2.arcLength(polygon, True)
         area = cv2.contourArea(polygon)
         offset_distance = area * unclip_ratio / perimeter
 
-        # --- 2. Determine polygon orientation and edge normals ---
         x, y = polygon[:, 0], polygon[:, 1]
         is_counter_clockwise = (x @ np.roll(y, -1) - y @ np.roll(x, -1)) > 0.0
 
@@ -228,7 +179,6 @@ class PPOCRV5ServerDetImageProcessor(TorchvisionBackend):
         else:
             normals = np.stack([-edge_directions[:, 1], edge_directions[:, 0]], axis=1)
 
-        # --- 3. Calculate new vertices from intersecting shifted edge lines ---
         shifted_points = polygon + offset_distance * normals
 
         prev_shifted_points = np.roll(shifted_points, 1, axis=0)
@@ -248,7 +198,6 @@ class PPOCRV5ServerDetImageProcessor(TorchvisionBackend):
 
         new_vertices = prev_shifted_points + prev_edge_directions * intersection_param[:, None]
 
-        # --- 4. Handle near-parallel adjacent edges with a fallback ---
         if np.any(is_parallel_mask):
             prev_normals = np.roll(normals, 1, axis=0)
             fallback_points = polygon + 0.5 * offset_distance * (prev_normals + normals)
@@ -487,11 +436,6 @@ class PPOCRV5ServerDetImageProcessor(TorchvisionBackend):
 
 
 class PPOCRV5ServerDetIntraclassBlock(nn.Module):
-    """
-    Intra-Class Relationship Block. It uses multi-scale convolution (7x7, 5x5, 3x3)
-    and asymmetric kernels (e.g., 7x1, 1x7) to capture long-range spatial dependencies
-    within text regions.
-    """
 
     def __init__(
         self,
@@ -570,11 +514,6 @@ class PPOCRV5ServerDetIntraclassBlock(nn.Module):
 
 
 class PPOCRV5ServerDetNeck(nn.Module):
-    """
-    Large Kernel Path Aggregation Network (Neck) for PPOCRV5 Server Detection.
-    Fuses multi-scale features from backbone stages (stage 2 to stage 5) via top-down and bottom-up paths,
-    enhanced with large kernel convolution for better spatial dependency modeling.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -686,9 +625,6 @@ class PPOCRV5ServerDetNeck(nn.Module):
 
 
 class PPOCRV5ServerDetConvBatchnormLayer(nn.Module):
-    """
-    A basic wrapper for Convolution-BatchNorm-Activation, typically used for head components.
-    """
 
     def __init__(
         self,
@@ -732,10 +668,6 @@ class PPOCRV5ServerDetConvBatchnormLayer(nn.Module):
 
 
 class PPOCRV5ServerDetSegmentationHead(nn.Module):
-    """
-    Standard segmentation head for generating probability maps. It uses transposed
-    convolution to upsample the feature map back to the original image size.
-    """
 
     def __init__(
         self,
@@ -776,10 +708,6 @@ class PPOCRV5ServerDetSegmentationHead(nn.Module):
 
 
 class PPOCRV5ServerDetLocalModule(nn.Module):
-    """
-    Local Refinement Module that refines the initial probability map by
-    concatenating it with higher-resolution features.
-    """
 
     def __init__(self, in_channels: int, out_channels: int, hidden_act: str):
         super().__init__()
@@ -801,17 +729,12 @@ class PPOCRV5ServerDetLocalModule(nn.Module):
 
     def forward(self, hidden_states: torch.Tensor, init_map: torch.Tensor) -> torch.Tensor:
         hidden_states = torch.cat([init_map, hidden_states], dim=1)
-        # last Conv
         hidden_states = self.convolution_backbone(hidden_states)
         hidden_states = self.convolution_final(hidden_states)
         return hidden_states
 
 
 class PPOCRV5ServerDetHead(nn.Module):
-    """
-    PPOCRV5ServerDetHead implements the Progressive Fusion Head with Local refinement,
-    the core detection head of PP-OCRv5.
-    """
 
     def __init__(self, config: PPOCRV5ServerDetConfig):
         super().__init__()
@@ -833,10 +756,6 @@ class PPOCRV5ServerDetHead(nn.Module):
 
 
 class PPOCRV5ServerDetPreTrainedModel(PreTrainedModel):
-    """
-    Base class for all PPOCRV5 Server Det pre-trained models. Handles model initialization,
-    configuration, and loading of pre-trained weights, following the Transformers library conventions.
-    """
 
     config: PPOCRV5ServerDetConfig
     base_model_prefix = "pp_ocrv5_server_det"

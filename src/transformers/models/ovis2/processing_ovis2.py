@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from ...feature_extraction_utils import BatchFeature
@@ -103,27 +90,7 @@ class Ovis2Processor(ProcessorMixin):
         text: list[TextInput],
         grids: list[list[int]],
     ):
-        processed_text = []
-        grid_index = 0
-        for sample in text:
-            while "<image>" in sample:
-                grid = grids[grid_index]
-                row, col = grid[0], grid[1]
-                placeholder = f"<IMG_START>{'<IMG_ATOM>' * self.image_seq_length}<IMG_GRID>"
-                if row * col > 1:
-                    for r in range(row):
-                        for c in range(col):
-                            placeholder += f"{'<IMG_ATOM>' * self.image_seq_length}"
-                            if c < col - 1:
-                                placeholder += "<IMG_COL>"
-                        if r < row - 1:
-                            placeholder += "<IMG_ROW>"
-                placeholder += "<IMG_END>"
-
-                sample = sample.replace("<image>", placeholder, 1)
-                grid_index += 1
-            processed_text.append(sample)
-        return processed_text
+        pass
 
     def batch_decode(self, *args, **kwargs):
         """
@@ -141,9 +108,7 @@ class Ovis2Processor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        image_processor_input_names = self.image_processor.model_input_names
-        return list(tokenizer_input_names) + list(image_processor_input_names)
+        pass
 
 
 __all__ = ["Ovis2Processor"]

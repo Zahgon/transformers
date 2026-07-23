@@ -72,7 +72,6 @@ def apply_rotary_pos_emb_interleave(q, k, cos, sin, position_ids=None, unsqueeze
     Returns:
         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
     """
-    # `cos`/`sin` are `cat(freqs, freqs)`; the first half holds the per-pair angle.
     cos = cos[..., : cos.shape[-1] // 2].unsqueeze(unsqueeze_dim)
     sin = sin[..., : sin.shape[-1] // 2].unsqueeze(unsqueeze_dim)
 
@@ -127,13 +126,10 @@ class DeepseekV3Experts(Qwen2MoeExperts):
 
 
 class DeepseekV3MoE(DeepseekV2Moe):
-    """
-    A mixed expert module containing shared experts.
-    """
+    pass
 
 
 class DeepseekV3Attention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: DeepseekV3Config, layer_idx: int):
         super().__init__()

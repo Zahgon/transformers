@@ -1,17 +1,3 @@
-# Copyright 2023 The Fairseq Authors, Microsoft Research, and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Number Normalizer class for SpeechT5."""
 
 import re
 
@@ -47,9 +33,6 @@ class EnglishNumberNormalizer:
             "decillion",
         ]
 
-        # Define a dictionary to map currency symbols to their names
-        # Top most traded currencies according to
-        # https://en.wikipedia.org/wiki/Template:Most_traded_currencies
         self.currency_symbols = {
             "$": " dollars",
             "€": " euros",
@@ -115,7 +98,6 @@ class EnglishNumberNormalizer:
         else:
             integer_part, decimal_part = number, "00"
 
-        # Extract currency symbol if present
         currency_symbol = ""
         for symbol, name in self.currency_symbols.items():
             if integer_part.startswith(symbol):
@@ -129,7 +111,6 @@ class EnglishNumberNormalizer:
                     integer_part = "-" + integer_part[len(symbol) + 1 :]
                     break
 
-        # Extract 'minus' prefix for negative numbers
         minus_prefix = ""
         if integer_part.startswith("-"):
             minus_prefix = "minus "
@@ -158,8 +139,6 @@ class EnglishNumberNormalizer:
 
         spelled_integer = " ".join(parts)
 
-        # Format the spelt-out number based on conditions, such as:
-        # If it has decimal parts, currency symbol, minus prefix, etc
         if decimal_part == "00":
             return (
                 f"{minus_prefix}{spelled_integer}{percent_suffix}{currency_symbol}"
@@ -178,13 +157,10 @@ class EnglishNumberNormalizer:
         """
         Convert numbers / number-like quantities in a string to their spelt-out counterparts
         """
-        # Form part of the pattern for all currency symbols
         pattern = r"(?<!\w)(-?\$?\€?\£?\¢?\¥?\₹?\₽?\฿?\₺?\₴?\₣?\₡?\₱?\₪?\₮?\₩?\₦?\₫?\﷼?\d+(?:\.\d{1,2})?%?)(?!\w)"
 
-        # Find and replace commas in numbers (15,000 -> 15000, etc)
         text = re.sub(r"(\d+,\d+)", lambda match: match.group(1).replace(",", ""), text)
 
-        # Use regex to find and replace numbers in the text
         converted_text = re.sub(pattern, lambda match: self.convert(match.group(1)), text)
         converted_text = re.sub(" +", " ", converted_text)
 

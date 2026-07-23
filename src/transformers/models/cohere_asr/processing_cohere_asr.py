@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from ...audio_utils import AudioInput
 from ...processing_utils import ProcessingKwargs, ProcessorMixin, Unpack
@@ -56,25 +43,7 @@ class CohereAsrProcessor(ProcessorMixin):
         super().__init__(feature_extractor, tokenizer)
 
     def get_decoder_prompt_ids(self, language: str, punctuation: bool = True) -> list[int]:
-        """Build the decoder prompt token IDs for the given language and punctuation settings."""
-        if language not in LANGUAGES:
-            raise ValueError(
-                f"Unsupported language: {language!r}. Supported languages: {', '.join(sorted(LANGUAGES))}."
-            )
-        pnc_token = "<|pnc|>" if punctuation else "<|nopnc|>"
-        tokens = [
-            "▁",
-            "<|startofcontext|>",
-            "<|startoftranscript|>",
-            "<|emo:undefined|>",
-            f"<|{language}|>",
-            f"<|{language}|>",
-            pnc_token,
-            "<|noitn|>",
-            "<|notimestamp|>",
-            "<|nodiarize|>",
-        ]
-        return self.tokenizer.convert_tokens_to_ids(tokens)
+        pass
 
     @auto_docstring
     def __call__(
@@ -171,8 +140,7 @@ class CohereAsrProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        feature_extractor_input_names = self.feature_extractor.model_input_names
-        return feature_extractor_input_names + ["labels"]
+        pass
 
 
 __all__ = ["CohereAsrProcessor"]

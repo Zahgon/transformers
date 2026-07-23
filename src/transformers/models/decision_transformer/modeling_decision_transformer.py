@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Team The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch DecisionTransformer model."""
 
 import math
 from collections.abc import Callable
@@ -43,7 +29,6 @@ from .configuration_decision_transformer import DecisionTransformerConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.gpt2.modeling_gpt2.eager_attention_forward
 def eager_attention_forward(module, query, key, value, attention_mask, scaling=None, dropout=0.0, **kwargs):
     if scaling is None:
         scaling = query.size(-1) ** -0.5
@@ -55,7 +40,6 @@ def eager_attention_forward(module, query, key, value, attention_mask, scaling=N
 
     attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
-    # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op otherwise
     attn_weights = attn_weights.type(value.dtype)
     attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
 
@@ -65,7 +49,6 @@ def eager_attention_forward(module, query, key, value, attention_mask, scaling=N
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.gpt2.modeling_gpt2.GPT2Attention with GPT2->DecisionTransformerGPT2
 class DecisionTransformerGPT2Attention(nn.Module):
     def __init__(self, config, is_cross_attention=False, layer_idx=None):
         super().__init__()
@@ -86,7 +69,6 @@ class DecisionTransformerGPT2Attention(nn.Module):
         self.is_cross_attention = is_cross_attention
         self.layer_idx = layer_idx
 
-        # Precompute unified scaling factor (accounts for both head_dim and layer-wise scaling)
         self.scaling = 1.0
         if self.scale_attn_weights:
             self.scaling = self.head_dim**-0.5
@@ -105,26 +87,21 @@ class DecisionTransformerGPT2Attention(nn.Module):
         self.is_causal = not is_cross_attention
 
     def _upcast_and_reordered_attn(self, query, key, value, attention_mask=None):
-        # Use `torch.baddbmm` (a bit more efficient w/ alpha param for scaling -- from Megatron-LM)
         bsz, num_heads, q_seq_len, dk = query.size()
         _, _, k_seq_len, _ = key.size()
 
-        # Preallocate attn_weights for `baddbmm`
         attn_weights = torch.empty(bsz * num_heads, q_seq_len, k_seq_len, dtype=torch.float32, device=query.device)
 
-        # Upcast (turn off autocast) and reorder (Scale K by 1 / root(dk))
         with maybe_autocast(query.device.type, enabled=False):
             q, k = query.reshape(-1, q_seq_len, dk), key.transpose(-1, -2).reshape(-1, dk, k_seq_len)
             attn_weights = torch.baddbmm(attn_weights, q.float(), k.float(), beta=0, alpha=self.scaling)
             attn_weights = attn_weights.reshape(bsz, num_heads, q_seq_len, k_seq_len)
 
         if attention_mask is not None:
-            # Apply the attention mask
             attn_weights = attn_weights + attention_mask
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
-        # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op if otherwise
         if attn_weights.dtype != torch.float32:
             raise RuntimeError("Error with upcasting, attn_weights does not have dtype torch.float32")
         attn_weights = attn_weights.type(value.dtype)
@@ -150,7 +127,6 @@ class DecisionTransformerGPT2Attention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_layer from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -166,7 +142,6 @@ class DecisionTransformerGPT2Attention(nn.Module):
             query_states = self.q_attn(hidden_states)
             attention_mask = encoder_attention_mask
 
-            # Try to get key/value states from cache if possible
             if past_key_values is not None and is_updated:
                 key_states = curr_past_key_values.layers[self.layer_idx].keys
                 value_states = curr_past_key_values.layers[self.layer_idx].values
@@ -188,7 +163,6 @@ class DecisionTransformerGPT2Attention(nn.Module):
             past_key_values is not None and is_cross_attention and not is_updated
         ):
             key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-            # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
             if is_cross_attention:
                 past_key_values.is_updated[self.layer_idx] = True
 
@@ -220,7 +194,6 @@ class DecisionTransformerGPT2Attention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.gpt2.modeling_gpt2.GPT2MLP with GPT2->DecisionTransformerGPT2
 class DecisionTransformerGPT2MLP(nn.Module):
     def __init__(self, intermediate_size, config):
         super().__init__()
@@ -238,9 +211,7 @@ class DecisionTransformerGPT2MLP(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.gpt2.modeling_gpt2.GPT2Block with GPT2->DecisionTransformerGPT2
 class DecisionTransformerGPT2Block(GradientCheckpointingLayer):
-    # Ignore copy
     def __init__(self, config, layer_idx=None):
         super().__init__()
         hidden_size = config.hidden_size
@@ -277,11 +248,9 @@ class DecisionTransformerGPT2Block(GradientCheckpointingLayer):
             use_cache=use_cache,
             **kwargs,
         )
-        # residual connection
         hidden_states = attn_output + residual
 
         if encoder_hidden_states is not None:
-            # add one self-attention block for cross-attention
             if not hasattr(self, "crossattention"):
                 raise ValueError(
                     f"If `encoder_hidden_states` are passed, {self} has to be instantiated with "
@@ -296,13 +265,11 @@ class DecisionTransformerGPT2Block(GradientCheckpointingLayer):
                 encoder_hidden_states=encoder_hidden_states,
                 encoder_attention_mask=encoder_attention_mask,
             )
-            # residual connection
             hidden_states = residual + cross_attn_output
 
         residual = hidden_states
         hidden_states = self.ln_2(hidden_states)
         feed_forward_hidden_states = self.mlp(hidden_states)
-        # residual connection
         hidden_states = residual + feed_forward_hidden_states
 
         return hidden_states
@@ -320,7 +287,6 @@ class DecisionTransformerGPT2PreTrainedModel(PreTrainedModel):
         "cross_attentions": OutputRecorder(DecisionTransformerGPT2Attention, layer_name=".crossattention", index=1),
     }
 
-    # No longer used as we directly use our masks instead
     _keys_to_ignore_on_load_unexpected = ["attn.bias", "crossattention.bias"]
 
     @torch.no_grad()
@@ -328,16 +294,9 @@ class DecisionTransformerGPT2PreTrainedModel(PreTrainedModel):
         """Initialize the weights."""
         super()._init_weights(module)
 
-        # Reinitialize selected weights subject to the OpenAI GPT-2 Paper Scheme:
-        #   > A modified initialization which accounts for the accumulation on the residual path with model depth. Scale
-        #   > the weights of residual layers at initialization by a factor of 1/√N where N is the # of residual layers.
-        #   >   -- GPT-2 :: https://openai.com/blog/better-language-models/
-        #
-        # Reference (Megatron-LM): https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/model/gpt_model.py
         if isinstance(module, PreTrainedModel):
             for name, p in module.named_parameters():
                 if "c_proj" in name and "weight" in name:
-                    # Special Scaled Initialization --> There are 2 Layer Norms per Transformer Block
                     init.normal_(p, mean=0.0, std=self.config.initializer_range / math.sqrt(2 * self.config.n_layer))
 
 
@@ -358,7 +317,6 @@ class DecisionTransformerGPT2Model(DecisionTransformerGPT2PreTrainedModel):
 
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -391,7 +349,6 @@ class DecisionTransformerGPT2Model(DecisionTransformerGPT2PreTrainedModel):
         if token_type_ids is not None:
             token_type_ids = token_type_ids.view(-1, inputs_embeds.shape[1])
 
-        # based on pattern from src/transformers/models/whisper/modeling_whisper.py::WhisperDecoder and similar addition in GPT2Model
         if use_cache:
             if past_key_values is None:
                 past_key_values = DynamicCache(config=self.config)
@@ -404,7 +361,6 @@ class DecisionTransformerGPT2Model(DecisionTransformerGPT2PreTrainedModel):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # Attention mask.
         attention_mask = create_causal_mask(
             config=self.config,
             inputs_embeds=inputs_embeds,
@@ -465,14 +421,6 @@ class DecisionTransformerGPT2Model(DecisionTransformerGPT2PreTrainedModel):
 )
 @dataclass
 class DecisionTransformerOutput(ModelOutput):
-    r"""
-    state_preds (`torch.FloatTensor` of shape `(batch_size, sequence_length, state_dim)`):
-        Environment state predictions
-    action_preds (`torch.FloatTensor` of shape `(batch_size, sequence_length, action_dim)`):
-        Model action predictions
-    return_preds (`torch.FloatTensor` of shape `(batch_size, sequence_length, 1)`):
-        Predicted returns for each state
-    """
 
     state_preds: torch.FloatTensor | None = None
     action_preds: torch.FloatTensor | None = None
@@ -483,10 +431,6 @@ class DecisionTransformerOutput(ModelOutput):
 
 
 class DecisionTransformerPreTrainedModel(PreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
 
     config: DecisionTransformerConfig
     base_model_prefix = "decision_transformer"
@@ -500,19 +444,11 @@ class DecisionTransformerPreTrainedModel(PreTrainedModel):
     """
 )
 class DecisionTransformerModel(DecisionTransformerPreTrainedModel):
-    """
-
-    The model builds upon the GPT2 architecture to perform autoregressive prediction of actions in an offline RL
-    setting. Refer to the paper for more details: https://huggingface.co/papers/2106.01345
-
-    """
 
     def __init__(self, config):
         super().__init__(config)
         self.config = config
         self.hidden_size = config.hidden_size
-        # note: the only difference between this GPT2Model and the default Huggingface version
-        # is that the positional embeddings are removed (since we'll add those ourselves)
         self.encoder = DecisionTransformerGPT2Model(config)
 
         self.embed_timestep = nn.Embedding(config.max_ep_len, config.hidden_size)
@@ -522,14 +458,12 @@ class DecisionTransformerModel(DecisionTransformerPreTrainedModel):
 
         self.embed_ln = nn.LayerNorm(config.hidden_size)
 
-        # note: we don't predict states or returns for the paper
         self.predict_state = torch.nn.Linear(config.hidden_size, config.state_dim)
         self.predict_action = nn.Sequential(
             *([nn.Linear(config.hidden_size, config.act_dim)] + ([nn.Tanh()] if config.action_tanh else []))
         )
         self.predict_return = torch.nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -604,22 +538,17 @@ class DecisionTransformerModel(DecisionTransformerPreTrainedModel):
         batch_size, seq_length = states.shape[0], states.shape[1]
 
         if attention_mask is None:
-            # attention mask for GPT: 1 if can be attended to, 0 if not
             attention_mask = torch.ones((batch_size, seq_length), dtype=torch.long)
 
-        # embed each modality with a different head
         state_embeddings = self.embed_state(states)
         action_embeddings = self.embed_action(actions)
         returns_embeddings = self.embed_return(returns_to_go)
         time_embeddings = self.embed_timestep(timesteps)
 
-        # time embeddings are treated similar to positional embeddings
         state_embeddings = state_embeddings + time_embeddings
         action_embeddings = action_embeddings + time_embeddings
         returns_embeddings = returns_embeddings + time_embeddings
 
-        # this makes the sequence look like (R_1, s_1, a_1, R_2, s_2, a_2, ...)
-        # which works nice in an autoregressive sense since states predict actions
         stacked_inputs = (
             torch.stack((returns_embeddings, state_embeddings, action_embeddings), dim=1)
             .permute(0, 2, 1, 3)
@@ -627,14 +556,12 @@ class DecisionTransformerModel(DecisionTransformerPreTrainedModel):
         )
         stacked_inputs = self.embed_ln(stacked_inputs)
 
-        # to make the attention mask fit the stacked inputs, have to stack it as well
         stacked_attention_mask = (
             torch.stack((attention_mask, attention_mask, attention_mask), dim=1)
             .permute(0, 2, 1)
             .reshape(batch_size, 3 * seq_length)
         )
         device = stacked_inputs.device
-        # we feed in the input embeddings (not word indices as in NLP) to the model
         encoder_outputs = self.encoder(
             inputs_embeds=stacked_inputs,
             attention_mask=stacked_attention_mask,
@@ -645,11 +572,8 @@ class DecisionTransformerModel(DecisionTransformerPreTrainedModel):
         )
         x = encoder_outputs[0]
 
-        # reshape x so that the second dimension corresponds to the original
-        # returns (0), states (1), or actions (2); i.e. x[:,1,t] is the token for s_t
         x = x.reshape(batch_size, seq_length, 3, self.hidden_size).permute(0, 2, 1, 3)
 
-        # get predictions
         return_preds = self.predict_return(x[:, 2])  # predict next return given state and action
         state_preds = self.predict_state(x[:, 2])  # predict next state given state and action
         action_preds = self.predict_action(x[:, 1])  # predict next action given state

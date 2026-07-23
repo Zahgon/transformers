@@ -1,17 +1,3 @@
-# Copyright 2020 The SqueezeBert authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SqueezeBert model."""
 
 import math
 
@@ -43,7 +29,6 @@ logger = logging.get_logger(__name__)
 
 
 class SqueezeBertEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -54,7 +39,6 @@ class SqueezeBertEmbeddings(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -85,10 +69,6 @@ class SqueezeBertEmbeddings(nn.Module):
 
 
 class MatMulWrapper(nn.Module):
-    """
-    Wrapper for torch.matmul(). This makes flop-counting easier to implement. Note that if you directly call
-    torch.matmul() in your code, the flop counter will typically ignore the flops of the matmul.
-    """
 
     def __init__(self):
         super().__init__()
@@ -105,11 +85,6 @@ class MatMulWrapper(nn.Module):
 
 
 class SqueezeBertLayerNorm(nn.LayerNorm):
-    """
-    This is a nn.LayerNorm subclass that accepts NCW data layout and performs normalization in the C dimension.
-
-    N = batch C = channels W = sequence length
-    """
 
     def __init__(self, hidden_size, eps=1e-12):
         nn.LayerNorm.__init__(self, normalized_shape=hidden_size, eps=eps)  # instantiates self.{weight, bias, eps}
@@ -121,9 +96,6 @@ class SqueezeBertLayerNorm(nn.LayerNorm):
 
 
 class ConvDropoutLayerNorm(nn.Module):
-    """
-    ConvDropoutLayerNorm: Conv, Dropout, LayerNorm
-    """
 
     def __init__(self, cin, cout, groups, dropout_prob):
         super().__init__()
@@ -141,9 +113,6 @@ class ConvDropoutLayerNorm(nn.Module):
 
 
 class ConvActivation(nn.Module):
-    """
-    ConvActivation: Conv, Activation
-    """
 
     def __init__(self, cin, cout, groups, act):
         super().__init__()
@@ -196,7 +165,6 @@ class SqueezeBertSelfAttention(nn.Module):
         """
         new_x_shape = (x.size()[0], self.num_attention_heads, self.attention_head_size, x.size()[-1])  # [N, C1, C2, W]
         x = x.view(*new_x_shape)
-        # no `permute` needed
         return x
 
     def transpose_output(self, x):
@@ -223,18 +191,13 @@ class SqueezeBertSelfAttention(nn.Module):
         key_layer = self.transpose_key_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_score = self.matmul_qk(query_layer, key_layer)
         attention_score = attention_score / math.sqrt(self.attention_head_size)
-        # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
         if attention_mask is not None:
             attention_score = attention_score + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = self.softmax(attention_score)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = self.matmul_qkv(attention_probs, value_layer)
@@ -308,7 +271,6 @@ class SqueezeBertEncoder(nn.Module):
         output_hidden_states=False,
         return_dict=True,
     ):
-        # [batch_size, sequence_length, hidden_size] --> [batch_size, hidden_size, sequence_length]
         hidden_states = hidden_states.permute(0, 2, 1)
 
         all_hidden_states = () if output_hidden_states else None
@@ -327,7 +289,6 @@ class SqueezeBertEncoder(nn.Module):
             if output_attentions:
                 all_attentions += (layer_output["attention_score"],)
 
-        # [batch_size, hidden_size, sequence_length] --> [batch_size, sequence_length, hidden_size]
         hidden_states = hidden_states.permute(0, 2, 1)
 
         if output_hidden_states:
@@ -347,8 +308,6 @@ class SqueezeBertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -377,13 +336,10 @@ class SqueezeBertLMPredictionHead(nn.Module):
         super().__init__()
         self.transform = SqueezeBertPredictionHeadTransform(config)
 
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=True)
 
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
-        # Need a link between the two variables so that the bias is correctly resized with `resize_token_embeddings`
 
     def forward(self, hidden_states):
         hidden_states = self.transform(hidden_states)
@@ -425,7 +381,6 @@ class SqueezeBertModel(SqueezeBertPreTrainedModel):
         self.encoder = SqueezeBertEncoder(config)
         self.pooler = SqueezeBertPooler(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -514,7 +469,6 @@ class SqueezeBertForMaskedLM(SqueezeBertPreTrainedModel):
         self.transformer = SqueezeBertModel(config)
         self.cls = SqueezeBertOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -593,7 +547,6 @@ class SqueezeBertForSequenceClassification(SqueezeBertPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, self.config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -678,7 +631,6 @@ class SqueezeBertForMultipleChoice(SqueezeBertPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -782,7 +734,6 @@ class SqueezeBertForTokenClassification(SqueezeBertPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -847,7 +798,6 @@ class SqueezeBertForQuestionAnswering(SqueezeBertPreTrainedModel):
         self.transformer = SqueezeBertModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -887,12 +837,10 @@ class SqueezeBertForQuestionAnswering(SqueezeBertPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

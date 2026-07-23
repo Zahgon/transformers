@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Processor class for Dia"""
 
 import math
 from pathlib import Path
@@ -31,25 +17,6 @@ if is_soundfile_available():
 
 
 class DiaAudioKwargs(AudioKwargs, total=False):
-    """
-    bos_token_id (`int`, *optional*, defaults to `1026`):
-        The token ID used as the beginning-of-sequence token for audio codebooks. This token is prepended to each
-        audio sequence during encoding.
-    eos_token_id (`int`, *optional*, defaults to `1024`):
-        The token ID used as the end-of-sequence token for audio codebooks. This token is appended to audio sequences
-        during training (when `generation=False`) to mark the end of the audio.
-    pad_token_id (`int`, *optional*, defaults to `1025`):
-        The token ID used for padding audio codebook sequences. This token is used to fill positions in the delay
-        pattern where no valid audio token exists.
-    delay_pattern (`list[int]`, *optional*, defaults to `[0, 8, 9, 10, 11, 12, 13, 14, 15]`):
-        A list of delay values (in frames) for each codebook channel. The delay pattern creates temporal offsets
-        between different codebook channels, allowing the model to capture dependencies across channels. Each value
-        represents the number of frames to delay that specific channel.
-    generation (`bool`, *optional*, defaults to `True`):
-        Whether the processor is being used for generation (text-to-speech) or training. When `True`, the processor
-        prepares inputs for generation mode where audio is generated from text. When `False`, it prepares inputs for
-        training where both text and audio are provided.
-    """
 
     bos_token_id: int
     eos_token_id: int
@@ -123,7 +90,6 @@ class DiaProcessor(ProcessorMixin):
 
         data = {}
 
-        # Text
         if isinstance(text, str):
             text = [text]
         elif not (isinstance(text, (list, tuple)) and all(isinstance(t, str) for t in text)):
@@ -132,7 +98,6 @@ class DiaProcessor(ProcessorMixin):
         encodings = self.tokenizer(text, **text_kwargs)
         data.update(encodings)
 
-        # Audio
         delay_pattern = audio_kwargs.pop("delay_pattern", None)
         audio_bos_token_id = audio_kwargs.pop("bos_token_id", None)
         audio_eos_token_id = audio_kwargs.pop("eos_token_id", None)
@@ -158,7 +123,6 @@ class DiaProcessor(ProcessorMixin):
         num_channels = len(delay_pattern)
         max_delay = max(delay_pattern)
 
-        # Voice cloning generation / general training
         if audio is not None:
             audio = make_list_of_audio(audio)
             input_audios = self.feature_extractor(audio, **audio_kwargs)
@@ -168,17 +132,13 @@ class DiaProcessor(ProcessorMixin):
 
             decoder_input_ids = []
             decoder_attention_mask = []
-            # TODO: dac with batching is currently broken, but non-batch is working
-            # refer to https://gist.github.com/vasqu/643a45b680cf39fd7467271ee2eb6f80 for a validation script
             for padding_mask, audio in zip(input_audios["padding_mask"], input_audios["input_values"]):
-                # get current length with hop length in mind (as if it were sampled as a single audio)
                 base_pad_len = self.feature_extractor.hop_length
                 current_audio_len = math.ceil(padding_mask.sum(dim=-1) / base_pad_len) * base_pad_len
 
                 encoded_sequence_len = current_audio_len // compression_rate
                 padding_len = max_encoded_sequence_len - encoded_sequence_len
 
-                # compute non-padded forward pass; one extra bos (and eos if training) is added
                 with torch.no_grad():
                     audio = audio[None, ..., :current_audio_len].to(self.audio_tokenizer.device)
                     input_ids = self.audio_tokenizer.encode(audio).audio_codes.transpose(1, 2)
@@ -188,8 +148,6 @@ class DiaProcessor(ProcessorMixin):
                         input_ids, pad=(0, 0, 0, 1, 0, 0), mode="constant", value=audio_eos_token_id
                     )
 
-                # apply padding
-                # +1 for the bos within the real sequence
                 input_ids = torch.nn.functional.pad(
                     input_ids, pad=(0, 0, padding_len + 1, 0, 0, 0), mode="constant", value=audio_bos_token_id
                 )
@@ -202,12 +160,9 @@ class DiaProcessor(ProcessorMixin):
 
             decoder_input_ids = torch.cat(decoder_input_ids, dim=0)
             decoder_attention_mask = torch.cat(decoder_attention_mask, dim=0)
-        # TTS generation
         elif generation:
-            # all bos to start with TTS
             decoder_input_ids = torch.full((batch_size, 1, num_channels), audio_bos_token_id, dtype=torch.long)
 
-            # we preemptively add the delay
             decoder_attention_mask = torch.ones(size=(batch_size, 1 + max_delay), dtype=torch.long)
         else:
             raise ValueError("If you try to train, you should provide audio data as well.")
@@ -218,7 +173,6 @@ class DiaProcessor(ProcessorMixin):
                 f"audio samples = {decoder_input_ids.shape[0]} instead."
             )
 
-        # prepare shift indices per delay
         max_seq_len = decoder_attention_mask.shape[-1]
         max_audio_len = max_seq_len - max_delay
         precomputed_idx = self.build_indices(
@@ -229,8 +183,6 @@ class DiaProcessor(ProcessorMixin):
             revert=False,
         )
 
-        # create delay pattern input
-        # the pad token will be used for masking which input is valid for prediction during generation
         prefill = torch.full(
             (batch_size, max_seq_len, num_channels),
             fill_value=audio_pad_token_id,
@@ -248,7 +200,6 @@ class DiaProcessor(ProcessorMixin):
         data.update({"decoder_input_ids": delayed_decoder_input_ids, "decoder_attention_mask": decoder_attention_mask})
 
         if output_labels:
-            # Base idea is to shift on the sequence dim
             labels = data["decoder_input_ids"].clone()[:, 1:]
             labels[labels == audio_pad_token_id] = -100
             labels[labels == audio_bos_token_id] = -100
@@ -288,18 +239,15 @@ class DiaProcessor(ProcessorMixin):
                 "and `delay_pattern`. You may have accidentally overwritten one of those."
             )
 
-        # either decode the whole audio sequence or only the generated parts
         if audio_prompt_len is not None:
             audio_prompt_len = torch.tensor(audio_prompt_len, device=decoder_input_ids.device, dtype=torch.long)
             start_of_generation_idx = audio_prompt_len[None].expand(decoder_input_ids.shape[0])
         else:
             start_of_generation_idx = (decoder_input_ids[:, :, 0] == audio_bos_token_id).sum(dim=-1)
-        # -1 for the eos token
         end_of_generation_idx = (
             decoder_input_ids.shape[1] - (decoder_input_ids[:, :, 0] == audio_pad_token_id).sum(dim=-1) - 1
         )
 
-        # revert delay
         bsz, seq_len, num_channels = decoder_input_ids.shape
         precomputed_idx = self.build_indices(
             bsz=bsz,
@@ -311,16 +259,12 @@ class DiaProcessor(ProcessorMixin):
 
         output_sequences = self.apply_audio_delay(
             audio=decoder_input_ids,
-            # We do not care about these values as we cut them out
-            # with `start_of_generation_idx` and `end_of_generation_idx`
             pad_token_id=-1,
             bos_token_id=-1,
             precomputed_idx=precomputed_idx,
         ).transpose(1, 2)
 
-        # retrieve the correct sequences each
         audios = []
-        # TODO: see above, dac doesn't work in batches yet
         with torch.no_grad():
             for i in range(start_of_generation_idx.shape[0]):
                 output_i = output_sequences[i, :, start_of_generation_idx[i] : end_of_generation_idx[i]][None, ...]
@@ -352,54 +296,15 @@ class DiaProcessor(ProcessorMixin):
         decoder_attention_mask: "torch.Tensor",
         **kwargs: Unpack[DiaProcessorKwargs],
     ) -> int:
-        """Utility function to get the audio prompt length."""
-        output_kwargs = self._merge_kwargs(
-            DiaProcessorKwargs,
-            **kwargs,
-        )
-        audio_kwargs = output_kwargs["audio_kwargs"]
+        pass
 
-        delay_pattern = audio_kwargs.pop("delay_pattern", None)
-        if delay_pattern is None:
-            raise ValueError(
-                "To enable the utility of retrieving the prompt length for Dia, we need the "
-                "`delay_pattern`. You may have accidentally overwritten this."
-            )
-        return decoder_attention_mask.shape[1] - max(delay_pattern)
-
-    # Copied from transformers.models.csm.processing_csm.CsmProcessor.save_audio with Csm->Dia
     def save_audio(
         self,
         audio: AudioInput,
         saving_path: str | Path | list[str | Path],
         **kwargs: Unpack[DiaProcessorKwargs],
     ):
-        # TODO: @eustlb, this should be in AudioProcessor
-        requires_backends(self, ["soundfile"])
-
-        # ensure correct audio input
-        audio = make_list_of_audio(audio)
-
-        # ensure correct saving path
-        if isinstance(saving_path, (str, Path)):
-            saving_path = [saving_path]
-        elif not (isinstance(saving_path, (list, tuple)) and all(isinstance(p, (str, Path)) for p in saving_path)):
-            raise ValueError("Invalid input path. Please provide a string, or a list of strings")
-
-        if len(audio) != len(saving_path):
-            raise ValueError("The number of audio and saving paths must be the same")
-
-        output_kwargs = self._merge_kwargs(
-            DiaProcessorKwargs,
-            **kwargs,
-        )
-        audio_kwargs = output_kwargs["audio_kwargs"]
-        sampling_rate = audio_kwargs["sampling_rate"]
-
-        for audio_value, p in zip(audio, saving_path):
-            if isinstance(audio_value, torch.Tensor):
-                audio_value = audio_value.cpu().float().numpy()
-            sf.write(p, audio_value, sampling_rate)
+        pass
 
     @staticmethod
     def build_indices(
@@ -416,14 +321,11 @@ class DiaProcessor(ProcessorMixin):
         """
         delay_array = torch.tensor(delay_pattern, dtype=torch.int32)
 
-        # (0..seq_len-1)
         sequence_idx = torch.arange(seq_len, dtype=torch.int32)[None, :].expand(bsz, seq_len)[..., None]
-        # + or - delay depending if we delay or revert the delay
         if not revert:
             sequence_idx = sequence_idx - delay_array[None, None, :]
         else:
             sequence_idx = sequence_idx + delay_array[None, None, :]
-        # if delay goes over the range we clamp back to valid values
         valid_sequence_idx = torch.clamp(sequence_idx, 0, seq_len - 1)
 
         batch_idx = torch.arange(bsz, dtype=torch.int32)[:, None, None].expand(bsz, seq_len, num_channels)
@@ -456,17 +358,14 @@ class DiaProcessor(ProcessorMixin):
         Returns:
             final_audio: delayed or reverted audio tokens of shape [bsz, seq_len, num_channels]
         """
-        # Move everything to the same device
         device = audio.device
         sequence_idx, all_idx = precomputed_idx
         sequence_idx = sequence_idx.to(device)
         all_idx = all_idx.to(device)
 
-        # Gather per precomputed indices
         batch_idx, valid_sequence_idx, channel_idx = torch.unbind(all_idx, dim=-1)
         gathered_audio = audio[batch_idx, valid_sequence_idx, channel_idx].view(audio.size())
 
-        # Mask according to negative sequence_idx => BOS; sequence_idx >= seq_len => PAD
         mask_bos = sequence_idx < 0
         mask_pad = sequence_idx >= audio.shape[1]
         final_audio = torch.where(mask_bos, bos_token_id, torch.where(mask_pad, pad_token_id, gathered_audio))

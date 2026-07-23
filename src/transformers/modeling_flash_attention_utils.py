@@ -1,16 +1,3 @@
-# Copyright 2025 The Fairseq Authors and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import importlib
 import inspect
 import os
@@ -39,7 +26,6 @@ from .utils.import_utils import PACKAGE_DISTRIBUTION_MAPPING, is_tracing
 logger = logging.get_logger(__name__)
 
 
-# TODO Deprecate when all models have the attention interface
 def flash_attn_supports_top_left_mask():
     if is_flash_attn_2_available() or is_flash_attn_3_available() or is_flash_attn_4_available():
         return False
@@ -49,7 +35,6 @@ def flash_attn_supports_top_left_mask():
     return is_npu_fa2_top_left_aligned_causal_mask()
 
 
-# TODO Deprecate when all models have the attention interface
 def is_flash_attn_available():
     return (
         is_flash_attn_4_available()
@@ -60,7 +45,6 @@ def is_flash_attn_available():
     )
 
 
-# Mapping from flash attention implementations to their kernel fallback repositories.
 
 FLASH_ATTN_KERNEL_FALLBACK = {
     "flash_attention_2": "kernels-community/flash-attn2",
@@ -71,10 +55,6 @@ FLASH_ATTN_KERNEL_FALLBACK = {
 }
 
 
-# Meta information on each mainline FA compatibility:
-#   1. The import structure and availability
-#   2. Device support (with custom ones that use other workarounds, e.g. kernels)
-#   3. Supported major cuda devices, e.g. Hopper, Blackwell. Mostly found in the newest FA versions
 FLASH_ATTENTION_COMPATIBILITY_MATRIX = {
     2: {
         "flash_attn_version": 2,
@@ -121,7 +101,6 @@ FLASH_ATTENTION_COMPATIBILITY_MATRIX = {
 }
 
 
-# `globals()` is not compatible with dynamo, hence we have do define them in global scope ourselves
 _loaded_implementation = None
 _flash_fn = None
 _flash_varlen_fn = None
@@ -129,14 +108,11 @@ _flash_with_kvcache_fn = None
 _pad_fn = None
 _unpad_fn = None
 
-# function that processes kwargs, generalized to handle any supported kwarg within the function
 _process_flash_kwargs_fn = None
-# exceptions where hf API doesn't match the original flash attention API
 _hf_api_to_flash_mapping = {
     "dropout": "dropout_p",
     "sliding_window": "window_size",
 }
-# alternative names within the different flash attention APIs, e.g. for attention sinks
 _flash_api_alternative_names = {"s_aux": "learnable_sink"}
 
 
@@ -167,8 +143,6 @@ def _lazy_imports(
         from flash_attn import flash_attn_func, flash_attn_varlen_func, flash_attn_with_kvcache
         from flash_attn.bert_padding import pad_input, unpad_input
     elif is_torch_npu_available():
-        # Package `flash-attn` is unavailable on Ascend NPU, which will cause ImportError
-        # Flash-Attention2 related apis for Ascend NPU must be imported from `.integrations.npu_flash_attention` module
         from .integrations.npu_flash_attention import npu_flash_attn_func as flash_attn_func
         from .integrations.npu_flash_attention import npu_flash_attn_varlen_func as flash_attn_varlen_func
         from .integrations.npu_flash_attention import npu_flash_attn_with_kvcache as flash_attn_with_kvcache
@@ -179,13 +153,10 @@ def _lazy_imports(
             from flash_attn.cute import flash_attn_func, flash_attn_varlen_func
 
             flash_attn_with_kvcache = None  # not supported yet
-        # Kernels fallback
         else:
             from .integrations.hub_kernels import load_and_register_attn_kernel
 
-            # Map standard attention names to hub kernel repos
             kernel_repo = FLASH_ATTN_KERNEL_FALLBACK.get(implementation, implementation)
-            # We want to explicitly register the name with `paged|` if found
             kernel_implementation = f"paged|{implementation}" if is_paged else kernel_repo
             kernel = load_and_register_attn_kernel(
                 kernel_implementation, attention_wrapper, allow_all_kernels=allow_all_kernels
@@ -194,10 +165,6 @@ def _lazy_imports(
             flash_attn_func = getattr(kernel, "flash_attn_func", None)
             flash_attn_varlen_func = getattr(kernel, "flash_attn_varlen_func", None)
             flash_attn_with_kvcache = getattr(kernel, "flash_attn_with_kvcache", None)
-            # Block-sparse kernels (e.g. ``kernels-staging/msa``) expose ``sparse_atten_func`` rather than
-            # ``flash_attn_varlen_func``. ``load_and_register_attn_kernel`` already registered their dedicated
-            # wrapper into ``ALL_ATTENTION_FUNCTIONS``, so they dispatch through the attention interface and
-            # never touch the flash varlen globals -- preloading them here is a no-op, not an error.
             if flash_attn_varlen_func is None and hasattr(kernel, "sparse_atten_func"):
                 return flash_attn_func, flash_attn_varlen_func, flash_attn_with_kvcache, pad_input, unpad_input
             if flash_attn_varlen_func is None:
@@ -265,8 +232,6 @@ def lazy_import_flash_attention(
         _flash_fn, _flash_varlen_fn, _flash_with_kvcache_fn, _pad_fn, _unpad_fn = _lazy_imports(
             implementation, attention_wrapper, allow_all_kernels=allow_all_kernels
         )
-        # Block-sparse kernels register their own attention interface and expose no varlen fn to introspect;
-        # skip building the kwargs-support map (it is only consumed by the flash varlen path they never take).
         _process_flash_kwargs_fn = _lazy_define_process_function(_flash_varlen_fn) if _flash_varlen_fn else None
 
     return (_flash_fn, _flash_varlen_fn, _flash_with_kvcache_fn, _pad_fn, _unpad_fn), _process_flash_kwargs_fn
@@ -290,62 +255,16 @@ def _index_first_axis(tensor, indices):
     after flattening the first two dimensions of the tensor. This is functionally equivalent to
     FA2's `index_first_axis` and replaces the need to import it.
     """
-    # The input tensor is expected to be of shape (batch, seq_len, ...). We flatten the first
-    # two dimensions to get (total_tokens, ...) before indexing.
     reshaped_tensor = tensor.reshape(-1, *tensor.shape[2:])
     return reshaped_tensor[indices]
 
 
 def _unpad_input(hidden_states, attention_mask, unused_mask=None):
-    """
-    unpad_input function for flash attention variants that do not have them within their pkg themselves, e.g. fa3.
-
-    Arguments:
-        hidden_states: (batch, seqlen, ...)
-        attention_mask: (batch, seqlen), bool / int, 1 means valid and 0 means not valid.
-        unused_mask: (batch, seqlen), bool / int, 1 means the element is allocated but unused.
-
-    Return:
-        hidden_states: (total_nnz, ...), where total_nnz = number of tokens selected in attention_mask + unused_mask.
-        indices: (total_nnz), the indices of masked tokens from the flattened input sequence.
-        cu_seqlens: (batch + 1), the cumulative sequence lengths, used to index into hidden_states.
-        max_seqlen_in_batch: int
-        seqused: (batch), returns the number of tokens selected in attention_mask + unused_mask.
-    """
-    all_masks = (attention_mask + unused_mask) if unused_mask is not None else attention_mask
-    seqlens_in_batch = all_masks.sum(dim=-1, dtype=torch.int32)
-    used_seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
-    indices = torch.nonzero(all_masks.flatten(), as_tuple=False).flatten()
-    # using .item() here is required to prevent a performance regression (#46693)
-    max_seqlen_in_batch = seqlens_in_batch.max().item()
-    cu_seqlens = F.pad(torch.cumsum(seqlens_in_batch, dim=0, dtype=torch.int32), (1, 0))
-
-    return (
-        _index_first_axis(hidden_states, indices),
-        indices,
-        cu_seqlens,
-        max_seqlen_in_batch,
-        used_seqlens_in_batch,
-    )
+    pass
 
 
 def _pad_input(hidden_states, indices, batch, seqlen):
-    """
-    pad_input function for flash attention variants that do not have them within their pkg themselves, e.g. fa3.
-
-    Arguments:
-        hidden_states: (total_nnz, ...), where total_nnz = number of tokens in selected in attention_mask.
-        indices: (total_nnz), the indices that represent the non-masked tokens of the original padded input sequence.
-        batch: int, batch size for the padded sequence.
-        seqlen: int, maximum sequence length for the padded sequence.
-
-    Return:
-        hidden_states: (batch, seqlen, ...)
-    """
-    dim = hidden_states.shape[1:]
-    output = torch.zeros((batch * seqlen), *dim, device=hidden_states.device, dtype=hidden_states.dtype)
-    output[indices] = hidden_states
-    return output.view(batch, seqlen, *dim)
+    pass
 
 
 def _get_unpad_data(attention_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, int]:
@@ -366,7 +285,6 @@ def _get_unpad_data(attention_mask: torch.Tensor) -> tuple[torch.Tensor, torch.T
     """
     seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
     indices = torch.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
-    # using .item() here is required to prevent a performance regression (#46693)
     max_seqlen_in_batch = seqlens_in_batch.max().item()
     cu_seqlens = F.pad(torch.cumsum(seqlens_in_batch, dim=0, dtype=torch.int32), (1, 0))
     return (
@@ -419,8 +337,6 @@ def _upad_input(
     """
     indices_k, cu_seqlens_k, max_seqlen_in_batch_k = _get_unpad_data(attention_mask)
 
-    # With static caches, the k/v states may be larger than the mask -> we need to slice them to avoid generating garbage
-    # It's a bit of an anti-pattern, but otherwise we silently compute wrong attentions scores
     if key_layer.shape[1] > (seq_len := attention_mask.shape[-1]):
         key_layer, value_layer = key_layer[:, :seq_len, :, :], value_layer[:, :seq_len, :, :]
 
@@ -441,7 +357,6 @@ def _upad_input(
         indices_q = cu_seqlens_q[:-1]
         query_layer = query_layer.squeeze(1)
     else:
-        # The -q_len: slice assumes left padding.
         attention_mask = attention_mask[:, -query_length:]
         query_layer, indices_q, cu_seqlens_q, max_seqlen_in_batch_q, *_ = unpad_input_func(query_layer, attention_mask)
 
@@ -484,9 +399,6 @@ def prepare_fa_kwargs_from_position_ids(position_ids):
     )
     cu_seq_lens_k = cu_seq_lens_q
 
-    # https://github.com/Dao-AILab/flash-attention/blob/2dd8078adc1d9b74e315ee99718c0dea0de8eeb6/flash_attn/flash_attn_interface.py#L1423-L1424
-    # We should use cu_seq_lens instead of position_ids to get the max length since position_ids is not always increasing
-    # for some models (e.g. qwen2-vl).
     max_length_q = cu_seq_lens_q.diff().max()
     max_length_k = max_length_q
 
@@ -566,19 +478,6 @@ def fa_peft_integration_check(
 
 
 class FlashAttentionKwargs(TypedDict, total=False):
-    """
-    Keyword arguments for Flash Attention with Compile.
-
-    Attributes:
-        cu_seq_lens_q (`torch.LongTensor`, *optional*)
-            Gets cumulative sequence length for query state.
-        cu_seq_lens_k (`torch.LongTensor`, *optional*)
-            Gets cumulative sequence length for key state.
-        max_length_q (`int`, *optional*):
-            Maximum sequence length for query state.
-        max_length_k (`int`, *optional*):
-            Maximum sequence length for key state.
-    """
 
     cu_seq_lens_q: torch.LongTensor | None
     cu_seq_lens_k: torch.LongTensor | None
@@ -602,91 +501,7 @@ def _process_flash_attention_kwargs(
     supports_mapping: dict[str, bool] | None = None,
     **kwargs,
 ):
-    """
-    Returns a set of kwargs that are passed down to the according flash attention function based on
-    requested features and whether it is supported - depends on the version and kernel implementation
-    which is dynamically configured at `lazy_import_flash_attention`. The (un)supported features can be
-    inspected in `supports_mapping`, see `_lazy_define_process_function` for more details.
-
-    Args:
-        query_length (`int`):
-            Length of the query states
-        key_length (`int`):
-            Length of the key states
-        is_causal (`bool`):
-            Whether we perform causal (decoder) attention or full attention.
-        dropout (`float`):
-            Attention dropout.
-        softmax_scale (`float`, *optional*):
-            The scaling of QK^T before applying softmax. Default to `1 / sqrt(head_dim)`.
-        sliding_window (`int`, *optional*):
-            The size of the sliding window, i.e. we look at a max of `sliding_window` tokens back.
-        use_top_left_mask (`bool`):
-            Deprecated behavior of older versions of flash attention requiring different masking.
-        softcap (`float`, *optional*):
-            Softcap for the attention logits, used e.g. in gemma2.
-        deterministic (`bool`, *optional*):
-            Determines if the deterministic option introduced in flash_attn>=2.4.1 is enabled.
-        s_aux (`torch.Tensor`, *optional*):
-            Attention sink auxiliary that adds a `bias` to the attention calculation via an additional head.
-        max_seqlen_q (`Union[int, torch.IntTensor]`, *optional*):
-            The maximum sequence length in the query tensor during a varlen forward.
-        max_seqlen_k (`Union[int, torch.IntTensor]`, *optional*):
-            The maximum sequence length in the key/value tensor during a varlen forward.
-    Return:
-        flash_kwargs (`dict`):
-            A dict of kwargs that are requested and supported.
-    """
-    flash_kwargs = {
-        "causal": is_causal and not (use_top_left_mask and query_length == 1),
-        "softmax_scale": softmax_scale,
-    }
-
-    if supports_mapping["dropout_p"]:
-        flash_kwargs["dropout_p"] = dropout
-
-    if supports_mapping["window_size"] and sliding_window is not None and key_length > sliding_window:
-        # The flash attention API sets inclusive boundaries, i.e. (4, 0) would take 4 tokens to the left
-        # and the current token for a total size of 5. However, we usually define our window sizes by
-        # their total window size (when causal). Encoder models as of now seldom use SWA and when they
-        # do, they must align with this symmetric logic, i.e. for a total of `2*sliding_window + 1`.
-        flash_kwargs["window_size"] = (sliding_window - 1, sliding_window - 1)
-
-    if supports_mapping["deterministic"]:
-        flash_kwargs["deterministic"] = (
-            deterministic if deterministic is not None else os.getenv("FLASH_ATTENTION_DETERMINISTIC", "0") == "1"
-        )
-
-    if supports_mapping["softcap"] and softcap is not None:
-        flash_kwargs["softcap"] = softcap
-
-    if ((legacy_sink_param := supports_mapping["s_aux"]) or supports_mapping["learnable_sink"]) and s_aux is not None:
-        if legacy_sink_param:
-            flash_kwargs["s_aux"] = s_aux  # e.g. FA3 (vllm)
-        else:
-            flash_kwargs["learnable_sink"] = s_aux  # FA4
-
-    # There is a limitation of the flash attention API, as the function `flash_attn_varlen_func`
-    # may require `max_length_q`, `max_length_k` to be passed as `int` and not `torch.Tensor`.
-    #
-    # You can either set
-    #   - Env: `TORCHDYNAMO_CAPTURE_SCALAR_OUTPUTS=1`
-    #   - Before compiling: `torch._dynamo.config.capture_scalar_outputs = True`
-    # to allow torch compile to handle scalar outputs in those cases.
-    same_max_seqlen = max_seqlen_q is max_seqlen_k  # to avoid 2x device syncs
-    if supports_mapping["max_seqlen_q"] and max_seqlen_q is not None:
-        if not isinstance(max_seqlen_q, int) and is_tracing(max_seqlen_q):
-            max_seqlen_q = max_seqlen_q.item()
-        flash_kwargs["max_seqlen_q"] = max_seqlen_q
-
-    if supports_mapping["max_seqlen_k"] and max_seqlen_k is not None:
-        if same_max_seqlen and flash_kwargs["max_seqlen_q"] is not None:
-            max_seqlen_k = flash_kwargs["max_seqlen_q"]
-        elif not isinstance(max_seqlen_k, int) and is_tracing(max_seqlen_k):
-            max_seqlen_k = max_seqlen_k.item()
-        flash_kwargs["max_seqlen_k"] = max_seqlen_k
-
-    return flash_kwargs
+    pass
 
 
 def _flash_attention_forward(
@@ -734,12 +549,10 @@ def _flash_attention_forward(
         attn_implementation
     )
 
-    # PEFT possibly silently casts tensors to fp32, this potentially reconverts to correct dtype or is a no op
     query_states, key_states, value_states = fa_peft_integration_check(
         query_states, key_states, value_states, target_dtype
     )
 
-    # Extract the flash attention kwargs that have been requested (and are supported by the implementation)
     flash_kwargs = partial(
         process_flash_kwargs_fn,
         query_length=query_length,
@@ -754,26 +567,16 @@ def _flash_attention_forward(
         **kwargs,
     )
 
-    # We will use `flash_varlen_fn` to prevent cross-example attention and also allow padding free approach under two cases:
-    # Case 1. If position ids is provided and the position ids indicate packed sequences, see `_is_packed_sequence`.
-    # Case 2. Some models pass directly pre-computed `cu_seqlens` so we don't need to infer it from position ids. It is safe to
-    # use `flash_varlen_fn` knowing we already have all necessary the kwargs.
-    #
-    # NOTE: it is user's responsibility to take care of flattening `position_ids` if that's needed by the model.
-    # See #39121 for more information.
     is_fa_with_position_ids = _is_packed_sequence(position_ids, batch_size=query_states.size(0))
     is_fa_with_varlen_kwargs = all(
         kwarg is not None for kwarg in (cu_seq_lens_q, cu_seq_lens_k, max_length_q, max_length_k)
     )
 
-    # Contains at least one padding token in the sequence
     if attention_mask is not None:
         q, k, v, indices_q, (cu_seq_lens_q, cu_seq_lens_k), (max_length_q, max_length_k) = _upad_input(
             query_states, key_states, value_states, attention_mask, query_length, unpad_fn
         )
 
-        # TODO for now this is required to work with
-        # https://huggingface.co/kernels-community/metal-flash-sdpa/blob/main/torch-ext/metal_flash_sdpa/__init__.py
         if "mps" in str(q.device):
             cu_seq_lens_k = cu_seq_lens_k.clone()
 
@@ -790,7 +593,6 @@ def _flash_attention_forward(
 
         out = pad_fn(out_unpad, indices_q, query_states.size(0), query_length)
 
-    # Padding free, i.e. sequences flattened into one total sequence
     elif is_fa_with_varlen_kwargs or is_fa_with_position_ids:
         if cu_seq_lens_q is None or cu_seq_lens_k is None:
             q, k, v, (cu_seq_lens_q, cu_seq_lens_k), (max_length_q, max_length_k) = _prepare_from_posids(
@@ -801,8 +603,6 @@ def _flash_attention_forward(
             k = key_states.reshape(-1, key_states.size(-2), key_states.size(-1))
             v = value_states.reshape(-1, value_states.size(-2), value_states.size(-1))
 
-        # TODO for now this is required to work with
-        # https://huggingface.co/kernels-community/metal-flash-sdpa/blob/main/torch-ext/metal_flash_sdpa/__init__.py
         if "mps" in str(q.device):
             cu_seq_lens_k = cu_seq_lens_k.clone()
 
@@ -819,7 +619,6 @@ def _flash_attention_forward(
 
         out = out.view(query_states.size(0), -1, out.size(-2), out.size(-1))
 
-    # No padding
     else:
         out = flash_fn(query_states, key_states, value_states, **flash_kwargs())
         if isinstance(out, tuple):

@@ -1,17 +1,3 @@
-# Copyright 2025 The Qwen Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Qwen3-VL model."""
 
 import warnings
 from collections.abc import Callable
@@ -77,10 +63,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring
 @dataclass
 class BaseModelOutputWithDeepstackFeatures(BaseModelOutputWithPooling):
-    r"""
-    deepstack_features (`List[torch.FloatTensor]`, *optional*):
-        List of hidden-states (feature maps) from deepstack layers.
-    """
 
     deepstack_features: list[torch.FloatTensor] | None = None
 
@@ -88,14 +70,6 @@ class BaseModelOutputWithDeepstackFeatures(BaseModelOutputWithPooling):
 @auto_docstring(checkpoint="Qwen/Qwen3-VL-4B-Instruct")
 @strict
 class Qwen3VLVisionConfig(PreTrainedConfig):
-    r"""
-    out_hidden_size (`int`, *optional*, defaults to 3584):
-        The output hidden size of the vision model.
-    num_position_embeddings (`int`, *optional*, defaults to 2304):
-        The maximum sequence length that this model might ever be used with
-    deepstack_visual_indexes (`list[int]`, *optional*, defaults to `[8, 16, 24]`):
-        Indexed of layers for deepstack embeddings.
-    """
 
     model_type = "qwen3_vl_vision"
     base_config_key = "vision_config"
@@ -118,21 +92,6 @@ class Qwen3VLVisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3-VL-4B-Instruct")
 @strict
 class Qwen3VLTextConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Qwen3VLTextModel, Qwen3VLTextConfig
-
-    >>> # Initializing a Qwen3VL style configuration
-    >>> configuration = Qwen3VLTextConfig()
-
-    >>> # Initializing a model from the Qwen3-VL-7B style configuration
-    >>> model = Qwen3VLTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qwen3_vl_text"
     base_config_key = "text_config"
@@ -166,21 +125,6 @@ class Qwen3VLTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3-VL-4B-Instruct")
 @strict
 class Qwen3VLConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Qwen3VLForConditionalGeneration, Qwen3VLConfig
-
-    >>> # Initializing a Qwen3-VL style configuration
-    >>> configuration = Qwen3VLConfig()
-
-    >>> # Initializing a model from the Qwen3-VL-4B style configuration
-    >>> model = Qwen3VLForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qwen3_vl"
     sub_configs = {"vision_config": Qwen3VLVisionConfig, "text_config": Qwen3VLTextConfig}
@@ -196,7 +140,6 @@ class Qwen3VLConfig(PreTrainedConfig):
 
     def __post_init__(self, **kwargs):
         if isinstance(self.vision_config, dict):
-            # old ckpt with incorrect model type -> override manually
             if self.vision_config.get("model_type") == "qwen3_vl":
                 self.vision_config["model_type"] = "qwen3_vl_vision"
             self.vision_config = self.sub_configs["vision_config"](**self.vision_config)
@@ -299,8 +242,6 @@ class Qwen3VLTextRotaryEmbedding(LlamaRotaryEmbedding):
     @torch.no_grad()
     @dynamic_rope_update  # power user: used with advanced RoPE types (e.g. dynamic rope)
     def forward(self, x, position_ids):
-        # In contrast to other models, Qwen3VL has different position ids for the grids
-        # So we expand the inv_freq to shape (3, ...)
         if position_ids.ndim == 2:
             position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
         inv_freq_expanded = (
@@ -456,27 +397,10 @@ class Qwen3VLVisionModel(Qwen3VLPreTrainedModel):
         self.post_init()
 
     def rot_pos_emb(self, grid_thw: torch.Tensor) -> torch.Tensor:
-        warnings.warn(
-            f"`{self.__class__.__name__}.rot_pos_emb` is deprecated and will be removed in v5.11. Use `get_vision_position_ids` from `transformers.vision_utils` and apply the rotary embedding module.",
-            FutureWarning,
-            stacklevel=2,
-        )
-        position_ids = get_vision_position_ids(grid_thw, self.spatial_merge_size)
-        rotary_pos_emb = self.rotary_pos_emb(position_ids)
-        return rotary_pos_emb
+        pass
 
     def fast_pos_embed_interpolate(self, grid_thw):
-        warnings.warn(
-            f"`{self.__class__.__name__}.fast_pos_embed_interpolate` is deprecated and will be removed in v5.11. Use `get_vision_bilinear_indices_and_weights` from `transformers.vision_utils` and apply `self.pos_embed`.",
-            FutureWarning,
-            stacklevel=2,
-        )
-        bilinear_indices, bilinear_weights = get_vision_bilinear_indices_and_weights(
-            grid_thw,
-            num_grid_per_side=self.num_grid_per_side,
-            spatial_merge_size=self.config.spatial_merge_size,
-        )
-        return (self.pos_embed(bilinear_indices) * bilinear_weights[:, :, None]).sum(0)
+        pass
 
     @merge_with_config_defaults
     @capture_outputs
@@ -572,7 +496,6 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel, Qwen3Model):
         past_key_values: Cache | None = None,
         inputs_embeds: torch.FloatTensor | None = None,
         use_cache: bool | None = None,
-        # args for deepstack
         visual_pos_masks: torch.Tensor | None = None,
         deepstack_visual_embeds: list[torch.Tensor] | None = None,
         **kwargs: Unpack[FlashAttentionKwargs],
@@ -588,14 +511,12 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel, Qwen3Model):
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        # torch.jit.trace() doesn't support cache objects in the output
         if use_cache and past_key_values is None and not torch.jit.is_tracing():
             past_key_values = DynamicCache(config=self.config)
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # the hard coded `4` is for text, temporal, height and width.
         if position_ids is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
@@ -619,10 +540,8 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel, Qwen3Model):
 
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-        # decoder layers
         for layer_idx, decoder_layer in enumerate(self.layers):
             layer_outputs = decoder_layer(
                 hidden_states,
@@ -634,7 +553,6 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel, Qwen3Model):
             )
             hidden_states = layer_outputs
 
-            # add visual features to the hidden states of first several layers
             if deepstack_visual_embeds is not None and layer_idx in range(len(deepstack_visual_embeds)):
                 hidden_states = self._deepstack_process(
                     hidden_states,
@@ -687,7 +605,6 @@ class Qwen3VLModel(Qwen2VLModel):
             mrope_position_deltas (`torch.Tensor` of shape `(batch_size)`)
         """
 
-        # Separate video grid thw into multiple grids because timestamps are used to separate videos.
         if video_grid_thw is not None:
             video_grid_thw = torch.repeat_interleave(video_grid_thw, video_grid_thw[:, 0], dim=0)
             video_grid_thw[:, 0] = 1
@@ -735,7 +652,6 @@ class Qwen3VLModel(Qwen2VLModel):
         video_grid_thw (`torch.LongTensor` of shape `(num_videos, 3)`, *optional*):
             The temporal, height and width of feature shape of each video in LLM.
         """
-        # Same implementation as for images
         return self.get_image_features(pixel_values_videos, video_grid_thw, **kwargs)
 
     @auto_docstring
@@ -796,7 +712,6 @@ class Qwen3VLModel(Qwen2VLModel):
         visual_pos_masks = None
         deepstack_visual_embeds = None
         if image_mask is not None and video_mask is not None:
-            # aggregate visual_pos_masks and deepstack_visual_embeds
             image_mask = image_mask[..., 0]
             video_mask = video_mask[..., 0]
             visual_pos_masks = image_mask | video_mask
@@ -938,7 +853,6 @@ class Qwen3VLForConditionalGeneration(Qwen2_5_VLForConditionalGeneration):
 
         hidden_states = outputs[0]
 
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -970,7 +884,6 @@ class Qwen3VLForConditionalGeneration(Qwen2_5_VLForConditionalGeneration):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -1000,11 +913,6 @@ class Qwen3VLForConditionalGeneration(Qwen2_5_VLForConditionalGeneration):
         input_ids: torch.LongTensor | None = None,
         **model_kwargs,
     ) -> tuple[torch.LongTensor, dict[str, Any]]:
-        # Overwritten -- Qwen3VL use timestamps and remove second_per_grid_ts
-        # Support for expanding tensors without a batch size dimension
-        # e.g., pixel_values, image_grid_thw, pixel_values_videos, video_grid_thw
-        # pixel_values.shape[0] is sum(seqlen_images for samples)
-        # image_grid_thw.shape[0] is sum(num_images for samples)
 
         if expand_size == 1:
             return input_ids, model_kwargs
@@ -1018,15 +926,10 @@ class Qwen3VLForConditionalGeneration(Qwen2_5_VLForConditionalGeneration):
                 input_ids, inputs_embeds=model_kwargs.get("inputs_embeds", None)
             )
 
-            # video_nums: (batch_size,)
-            # since video_nums is the number of videos in the input dependent on the input_ids(vision_start),
-            # but qwen3vl append vision_start to each frame of each video, so we need to recover the real video_nums according to video_grid_thw
             if video_grid_thw is not None:
                 cumulative_frame_counts = torch.cumsum(video_grid_thw[:, 0], dim=0)
                 cumulative_token_video_counts = torch.cumsum(video_nums, dim=0)
-                # Find video boundaries in cumulative_frame_counts
                 video_boundary_indices = torch.searchsorted(cumulative_frame_counts, cumulative_token_video_counts)
-                # example: video_boundary_indices = [3, 5] means video_nums = [4, 2]
                 video_nums = torch.diff(torch.cat([-video_boundary_indices.new_ones(1), video_boundary_indices]))
 
             def _repeat_interleave_samples(x, lengths, repeat_times):
@@ -1037,15 +940,12 @@ class Qwen3VLForConditionalGeneration(Qwen2_5_VLForConditionalGeneration):
 
             for key in dict_to_expand:
                 if key == "pixel_values":
-                    # split images into samples
                     samples = torch.split(image_grid_thw, list(image_nums))
-                    # compute the sequence length of images for each sample
                     lengths = [torch.prod(sample, dim=1).sum() for sample in samples]
                     dict_to_expand[key] = _repeat_interleave_samples(
                         dict_to_expand[key], lengths=lengths, repeat_times=expand_size
                     )
                 elif key == "image_grid_thw":
-                    # get the num of images for each sample
                     lengths = list(image_nums)
                     dict_to_expand[key] = _repeat_interleave_samples(
                         dict_to_expand[key], lengths=lengths, repeat_times=expand_size
@@ -1122,45 +1022,10 @@ class Qwen3VLProcessor(Qwen2VLProcessor):
         )
 
     def replace_video_token(self, video_inputs: dict, video_idx: int) -> str:
-        merge_length = self.video_processor.merge_size**2
-        num_frames = video_inputs["video_grid_thw"][video_idx][0]
-        frame_seqlen = video_inputs["video_grid_thw"][video_idx][1:].prod() // merge_length
-        metadata = video_inputs["video_metadata"][video_idx]
-        video_placeholder = ""
-
-        if metadata.fps is None:
-            logger.warning_once(
-                "Qwen3VL requires frame timestamps to construct prompts, but the `fps` of the input video could not be inferred. "
-                "Probably `video_metadata` was missing from inputs and you passed pre-sampled frames. "
-                "Defaulting to `fps=24`. Please provide `video_metadata` for more accurate results."
-            )
-        metadata.fps = 24 if metadata.fps is None else metadata.fps
-
-        # if timestamps are not provided, calculate them
-        curr_timestamp = self._calculate_timestamps(
-            metadata.frames_indices,
-            metadata.fps,
-            self.video_processor.temporal_patch_size,
-        )
-
-        for frame_idx in range(num_frames):
-            curr_time = curr_timestamp[frame_idx]
-            video_placeholder += f"<{curr_time:.1f} seconds>"
-            video_placeholder += self.vision_start_token + self.video_token * frame_seqlen + self.vision_end_token
-        return video_placeholder
+        pass
 
     def _calculate_timestamps(self, indices: list[int] | np.ndarray, video_fps: float, merge_size: int = 2):
-        if not isinstance(indices, list):
-            indices = indices.tolist()
-        if len(indices) % merge_size != 0:
-            indices.extend(indices[-1] for _ in range(merge_size - len(indices) % merge_size))
-        timestamps = [idx / video_fps for idx in indices]
-        # @JJJYmmm frames are merged by self.merge_size, \
-        # so we need to average the timestamps between the first/last frame within the temporal patch
-        timestamps = [
-            (timestamps[i] + timestamps[i + merge_size - 1]) / 2 for i in range(0, len(timestamps), merge_size)
-        ]
-        return timestamps
+        pass
 
 
 __all__ = [

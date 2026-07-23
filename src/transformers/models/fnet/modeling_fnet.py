@@ -1,17 +1,3 @@
-# Copyright 2021 Google Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch FNet model."""
 
 from dataclasses import dataclass
 from functools import partial
@@ -49,39 +35,19 @@ from .configuration_fnet import FNetConfig
 logger = logging.get_logger(__name__)
 
 
-# Adapted from https://github.com/google-research/google-research/blob/master/f_net/fourier.py
 def _two_dim_matmul(x, matrix_dim_one, matrix_dim_two):
-    """Applies 2D matrix multiplication to 3D input arrays."""
-    seq_length = x.shape[1]
-    matrix_dim_one = matrix_dim_one[:seq_length, :seq_length]
-    x = x.type(torch.complex64)
-    return torch.einsum("bij,jk,ni->bnk", x, matrix_dim_two, matrix_dim_one)
+    pass
 
 
-# # Adapted from https://github.com/google-research/google-research/blob/master/f_net/fourier.py
 def two_dim_matmul(x, matrix_dim_one, matrix_dim_two):
-    return _two_dim_matmul(x, matrix_dim_one, matrix_dim_two)
+    pass
 
 
-# Adapted from https://github.com/google-research/google-research/blob/master/f_net/fourier.py
 def fftn(x):
-    """
-    Applies n-dimensional Fast Fourier Transform (FFT) to input array.
-
-    Args:
-        x: Input n-dimensional array.
-
-    Returns:
-        n-dimensional Fourier transform of input n-dimensional array.
-    """
-    out = x
-    for axis in reversed(range(x.ndim)[1:]):  # We don't need to apply FFT to last axis
-        out = torch.fft.fft(out, axis=axis)
-    return out
+    pass
 
 
 class FNetEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -90,11 +56,9 @@ class FNetEmbeddings(nn.Module):
         self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
 
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        # NOTE: This is the project layer and will be needed. The original code allows for different embedding and different model dimensions.
         self.projection = nn.Linear(config.hidden_size, config.hidden_size)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -114,9 +78,6 @@ class FNetEmbeddings(nn.Module):
         if position_ids is None:
             position_ids = self.position_ids[:, :seq_length]
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
                 buffered_token_type_ids = self.token_type_ids[:, :seq_length]
@@ -168,10 +129,6 @@ class FNetBasicFourierTransform(nn.Module):
             self.fourier_transform = fftn
 
     def forward(self, hidden_states):
-        # NOTE: We do not use torch.vmap as it is not integrated into PyTorch stable versions.
-        # Interested users can modify the code to use vmap from the nightly versions, getting the vmap from here:
-        # https://pytorch.org/docs/master/generated/torch.vmap.html. Note that fourier transform methods will need
-        # change accordingly.
 
         outputs = self.fourier_transform(hidden_states).real
         return (outputs,)
@@ -200,7 +157,6 @@ class FNetFourierTransform(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->FNet
 class FNetIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -216,7 +172,6 @@ class FNetIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput with Bert->FNet
 class FNetOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -285,7 +240,6 @@ class FNetEncoder(nn.Module):
         return BaseModelOutput(last_hidden_state=hidden_states, hidden_states=all_hidden_states)
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler with Bert->FNet
 class FNetPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -293,15 +247,12 @@ class FNetPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPredictionHeadTransform with Bert->FNet
 class FNetPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -342,7 +293,6 @@ class FNetOnlyMLMHead(nn.Module):
         return prediction_scores
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOnlyNSPHead with Bert->FNet
 class FNetOnlyNSPHead(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -353,7 +303,6 @@ class FNetOnlyNSPHead(nn.Module):
         return seq_relationship_score
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPreTrainingHeads with Bert->FNet
 class FNetPreTrainingHeads(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -386,16 +335,6 @@ class FNetPreTrainedModel(PreTrainedModel):
 )
 @dataclass
 class FNetForPreTrainingOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when `labels` is provided, `torch.FloatTensor` of shape `(1,)`):
-        Total loss as the sum of the masked language modeling loss and the next sequence prediction
-        (classification) loss.
-    prediction_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    seq_relationship_logits (`torch.FloatTensor` of shape `(batch_size, 2)`):
-        Prediction scores of the next sequence prediction (classification) head (scores of True/False continuation
-        before SoftMax).
-    """
 
     loss: torch.FloatTensor | None = None
     prediction_logits: torch.FloatTensor | None = None
@@ -405,12 +344,6 @@ class FNetForPreTrainingOutput(ModelOutput):
 
 @auto_docstring
 class FNetModel(FNetPreTrainedModel):
-    """
-
-    The model can behave as an encoder, following the architecture described in [FNet: Mixing Tokens with Fourier
-    Transforms](https://huggingface.co/papers/2105.03824) by James Lee-Thorp, Joshua Ainslie, Ilya Eckstein, Santiago Ontanon.
-
-    """
 
     def __init__(self, config, add_pooling_layer=True):
         r"""
@@ -425,7 +358,6 @@ class FNetModel(FNetPreTrainedModel):
 
         self.pooler = FNetPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -524,7 +456,6 @@ class FNetForPreTraining(FNetPreTrainedModel):
         self.fnet = FNetModel(config)
         self.cls = FNetPreTrainingHeads(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -618,7 +549,6 @@ class FNetForMaskedLM(FNetPreTrainedModel):
         self.fnet = FNetModel(config)
         self.cls = FNetOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -684,7 +614,6 @@ class FNetForNextSentencePrediction(FNetPreTrainedModel):
         self.fnet = FNetModel(config)
         self.cls = FNetOnlyNSPHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -769,7 +698,6 @@ class FNetForSequenceClassification(FNetPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -843,7 +771,6 @@ class FNetForMultipleChoice(FNetPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -938,7 +865,6 @@ class FNetForTokenClassification(FNetPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -976,7 +902,6 @@ class FNetForTokenClassification(FNetPreTrainedModel):
         loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
-            # Only keep active parts of the loss
             loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
 
         if not return_dict:
@@ -996,7 +921,6 @@ class FNetForQuestionAnswering(FNetPreTrainedModel):
         self.fnet = FNetModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1032,12 +956,10 @@ class FNetForQuestionAnswering(FNetPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

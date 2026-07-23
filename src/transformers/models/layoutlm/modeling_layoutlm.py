@@ -1,17 +1,3 @@
-# Copyright 2018 The Microsoft Research Asia LayoutLM Team Authors and the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch LayoutLM model."""
 
 from collections.abc import Callable
 
@@ -46,7 +32,6 @@ LayoutLMLayerNorm = nn.LayerNorm
 
 
 class LayoutLMEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -121,7 +106,6 @@ class LayoutLMEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.align.modeling_align.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -144,7 +128,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextSelfAttention with AlignText->LayoutLM
 class LayoutLMSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -199,7 +182,6 @@ class LayoutLMSelfAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput with Bert->LayoutLM
 class LayoutLMSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -214,7 +196,6 @@ class LayoutLMSelfOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextAttention with AlignText->LayoutLM
 class LayoutLMAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -237,7 +218,6 @@ class LayoutLMAttention(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate
 class LayoutLMIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -253,7 +233,6 @@ class LayoutLMIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput with Bert->LayoutLM
 class LayoutLMOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -268,7 +247,6 @@ class LayoutLMOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextLayer with AlignText->LayoutLM
 class LayoutLMLayer(GradientCheckpointingLayer):
     def __init__(self, config):
         super().__init__()
@@ -302,7 +280,6 @@ class LayoutLMLayer(GradientCheckpointingLayer):
         return layer_output
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextEncoder with AlignText->LayoutLM
 class LayoutLMEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -328,7 +305,6 @@ class LayoutLMEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler
 class LayoutLMPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -336,15 +312,12 @@ class LayoutLMPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPredictionHeadTransform with Bert->LayoutLM
 class LayoutLMPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -362,14 +335,11 @@ class LayoutLMPredictionHeadTransform(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertLMPredictionHead with Bert->LayoutLM
 class LayoutLMLMPredictionHead(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.transform = LayoutLMPredictionHeadTransform(config)
 
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=True)
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
@@ -379,7 +349,6 @@ class LayoutLMLMPredictionHead(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOnlyMLMHead with Bert->LayoutLM
 class LayoutLMOnlyMLMHead(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -420,7 +389,6 @@ class LayoutLMModel(LayoutLMPreTrainedModel):
         self.encoder = LayoutLMEncoder(config)
         self.pooler = LayoutLMPooler(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -539,7 +507,6 @@ class LayoutLMForMaskedLM(LayoutLMPreTrainedModel):
         self.layoutlm = LayoutLMModel(config)
         self.cls = LayoutLMOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -656,7 +623,6 @@ class LayoutLMForSequenceClassification(LayoutLMPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -784,7 +750,6 @@ class LayoutLMForTokenClassification(LayoutLMPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -890,7 +855,6 @@ class LayoutLMForQuestionAnswering(LayoutLMPreTrainedModel):
         self.layoutlm = LayoutLMModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -978,12 +942,10 @@ class LayoutLMForQuestionAnswering(LayoutLMPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

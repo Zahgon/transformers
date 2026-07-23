@@ -1,17 +1,3 @@
-# Copyright 2018 Google AI, Google Brain and the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ALBERT model."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -47,9 +33,6 @@ logger = logging.get_logger(__name__)
 
 
 class AlbertEmbeddings(nn.Module):
-    """
-    Construct the embeddings from word, position and token_type embeddings.
-    """
 
     def __init__(self, config: AlbertConfig):
         super().__init__()
@@ -60,7 +43,6 @@ class AlbertEmbeddings(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.embedding_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -85,12 +67,8 @@ class AlbertEmbeddings(nn.Module):
         if position_ids is None:
             position_ids = self.position_ids[:, :seq_length]
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
-                # NOTE: We assume either pos ids to have bsz == 1 (broadcastable) or bsz == effective bsz (input_shape[0])
                 buffered_token_type_ids = self.token_type_ids.expand(position_ids.shape[0], -1)
                 buffered_token_type_ids = torch.gather(buffered_token_type_ids, dim=1, index=position_ids)
                 token_type_ids = buffered_token_type_ids.expand(batch_size, seq_length)
@@ -110,7 +88,6 @@ class AlbertEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -124,7 +101,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -176,7 +152,6 @@ class AlbertAttention(nn.Module):
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.attention_head_size)
 
-        # get all proj
         query_layer = self.query(hidden_states).view(*hidden_shape).transpose(1, 2)
         key_layer = self.key(hidden_states).view(*hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(*hidden_shape).transpose(1, 2)
@@ -236,10 +211,7 @@ class AlbertLayer(nn.Module):
         return hidden_states
 
     def ff_chunk(self, attention_output: torch.Tensor) -> torch.Tensor:
-        ffn_output = self.ffn(attention_output)
-        ffn_output = self.activation(ffn_output)
-        ffn_output = self.ffn_output(ffn_output)
-        return ffn_output
+        pass
 
 
 class AlbertLayerGroup(nn.Module):
@@ -276,7 +248,6 @@ class AlbertTransformer(nn.Module):
         hidden_states = self.embedding_hidden_mapping_in(hidden_states)
 
         for i in range(self.config.num_hidden_layers):
-            # Index of the hidden group
             group_idx = int(i / (self.config.num_hidden_layers / self.config.num_hidden_groups))
 
             hidden_states = self.albert_layer_groups[group_idx](
@@ -319,16 +290,6 @@ class AlbertPreTrainedModel(PreTrainedModel):
 )
 @dataclass
 class AlbertForPreTrainingOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when `labels` is provided, `torch.FloatTensor` of shape `(1,)`):
-        Total loss as the sum of the masked language modeling loss and the next sequence prediction
-        (classification) loss.
-    prediction_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    sop_logits (`torch.FloatTensor` of shape `(batch_size, 2)`):
-        Prediction scores of the next sequence prediction (classification) head (scores of True/False continuation
-        before SoftMax).
-    """
 
     loss: torch.FloatTensor | None = None
     prediction_logits: torch.FloatTensor | None = None
@@ -361,7 +322,6 @@ class AlbertModel(AlbertPreTrainedModel):
 
         self.attn_implementation = config._attn_implementation
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> nn.Embedding:
@@ -431,7 +391,6 @@ class AlbertForPreTraining(AlbertPreTrainedModel):
         self.predictions = AlbertMLMHead(config)
         self.sop_classifier = AlbertSOPHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self) -> nn.Linear:
@@ -560,7 +519,6 @@ class AlbertForMaskedLM(AlbertPreTrainedModel):
         self.albert = AlbertModel(config, add_pooling_layer=False)
         self.predictions = AlbertMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self) -> nn.Linear:
@@ -662,7 +620,6 @@ class AlbertForSequenceClassification(AlbertPreTrainedModel):
         self.dropout = nn.Dropout(config.classifier_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, self.config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -744,7 +701,6 @@ class AlbertForTokenClassification(AlbertPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, self.config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -800,7 +756,6 @@ class AlbertForQuestionAnswering(AlbertPreTrainedModel):
         self.albert = AlbertModel(config, add_pooling_layer=False)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -835,12 +790,10 @@ class AlbertForQuestionAnswering(AlbertPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)
@@ -868,7 +821,6 @@ class AlbertForMultipleChoice(AlbertPreTrainedModel):
         self.dropout = nn.Dropout(config.classifier_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

@@ -1,17 +1,3 @@
-# Copyright 2024 University of Sydney and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch VitPose model."""
 
 from dataclasses import dataclass
 
@@ -30,7 +16,6 @@ from .configuration_vitpose import VitPoseConfig
 
 logger = logging.get_logger(__name__)
 
-# General docstring
 
 
 @auto_docstring(
@@ -40,16 +25,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class VitPoseEstimatorOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Loss is not supported at this moment. See https://github.com/ViTAE-Transformer/ViTPose/tree/main/mmpose/models/losses for further detail.
-    heatmaps (`torch.FloatTensor` of shape `(batch_size, num_keypoints, height, width)`):
-        Heatmaps as predicted by the model.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
-        one for the output of each stage) of shape `(batch_size, sequence_length, hidden_size)`. Hidden-states
-        (also called feature maps) of the model at the output of each stage.
-    """
 
     loss: torch.FloatTensor | None = None
     heatmaps: torch.FloatTensor | None = None
@@ -107,21 +82,15 @@ def flip_back(output_flipped, flip_pairs, target_type="gaussian-heatmap"):
     output_flipped = output_flipped.reshape(batch_size, -1, channels, height, width)
     output_flipped_back = output_flipped.clone()
 
-    # Swap left-right parts
     left_indices, right_indices = flip_pairs.unbind(-1)
     output_flipped_back[:, left_indices, ...] = output_flipped[:, right_indices, ...]
     output_flipped_back[:, right_indices, ...] = output_flipped[:, left_indices, ...]
     output_flipped_back = output_flipped_back.reshape((batch_size, num_keypoints, height, width))
-    # Flip horizontally
     output_flipped_back = output_flipped_back.flip(-1)
     return output_flipped_back
 
 
 class VitPoseSimpleDecoder(nn.Module):
-    """
-    Simple decoding head consisting of a ReLU activation, 4x upsampling and a 3x3 convolution, turning the
-    feature maps into heatmaps.
-    """
 
     def __init__(self, config: VitPoseConfig):
         super().__init__()
@@ -133,7 +102,6 @@ class VitPoseSimpleDecoder(nn.Module):
         )
 
     def forward(self, hidden_state: torch.Tensor, flip_pairs: torch.Tensor | None = None) -> torch.Tensor:
-        # Transform input: ReLU + upsample
         hidden_state = self.activation(hidden_state)
         hidden_state = self.upsampling(hidden_state)
         heatmaps = self.conv(hidden_state)
@@ -145,10 +113,6 @@ class VitPoseSimpleDecoder(nn.Module):
 
 
 class VitPoseClassicDecoder(nn.Module):
-    """
-    Classic decoding head consisting of a 2 deconvolutional blocks, followed by a 1x1 convolution layer,
-    turning the feature maps into heatmaps.
-    """
 
     def __init__(self, config: VitPoseConfig):
         super().__init__()
@@ -193,7 +157,6 @@ class VitPoseForPoseEstimation(VitPosePreTrainedModel):
 
         self.backbone = load_backbone(config)
 
-        # add backbone attributes
         if not hasattr(self.backbone.config, "hidden_size"):
             raise ValueError("The backbone should have a hidden_size attribute")
         if not hasattr(self.backbone.config, "image_size"):
@@ -203,7 +166,6 @@ class VitPoseForPoseEstimation(VitPosePreTrainedModel):
 
         self.head = VitPoseSimpleDecoder(config) if config.use_simple_decoder else VitPoseClassicDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -257,7 +219,6 @@ class VitPoseForPoseEstimation(VitPosePreTrainedModel):
             **kwargs,
         )
 
-        # Turn output hidden states in tensor of shape (batch_size, num_channels, height, width)
         sequence_output = outputs.feature_maps[-1]
         batch_size = sequence_output.shape[0]
         patch_height = self.config.backbone_config.image_size[0] // self.config.backbone_config.patch_size[0]

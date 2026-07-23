@@ -42,23 +42,6 @@ _HIDDEN_STATES_START_POSITION = 2
 )
 @dataclass
 class Wav2Vec2ConformerForPreTrainingOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when `sample_negative_indices` are passed, `torch.FloatTensor` of shape `(1,)`):
-        Total loss as the sum of the contrastive loss (L_m) and the diversity loss (L_d) as stated in the [official
-        paper](https://huggingface.co/papers/2006.11477).
-    projected_states (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.proj_codevector_dim)`):
-        Hidden-states of the model projected to *config.proj_codevector_dim* that can be used to predict the masked
-        projected quantized states.
-    projected_quantized_states (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.proj_codevector_dim)`):
-        Quantized extracted feature vectors projected to *config.proj_codevector_dim* representing the positive
-        target vectors for contrastive loss.
-    codevector_perplexity (`torch.FloatTensor` of shape `(1,)`):
-        The perplexity of the codevector distribution, used to measure the diversity of the codebook.
-    contrastive_loss (*optional*, returned when `sample_negative_indices` are passed, `torch.FloatTensor` of shape `(1,)`):
-        The contrastive loss (L_m) as stated in the [official paper](https://huggingface.co/papers/2006.11477).
-    diversity_loss (*optional*, returned when `sample_negative_indices` are passed, `torch.FloatTensor` of shape `(1,)`):
-        The diversity loss (L_d) as stated in the [official paper](https://huggingface.co/papers/2006.11477).
-    """
 
     loss: torch.FloatTensor | None = None
     projected_states: torch.FloatTensor | None = None
@@ -75,9 +58,6 @@ class Wav2Vec2ConformerPositionalConvEmbedding(Wav2Vec2PositionalConvEmbedding):
 
 
 class Wav2Vec2ConformerRotaryPositionalEmbedding(nn.Module):
-    """Rotary positional embedding
-    Reference : https://blog.eleuther.ai/rotary-embeddings/ Paper: https://huggingface.co/papers/2104.09864
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -96,20 +76,17 @@ class Wav2Vec2ConformerRotaryPositionalEmbedding(nn.Module):
             return self.cached_rotary_positional_embedding
 
         self.cached_sequence_length = sequence_length
-        # Embeddings are computed in the dtype of the inv_freq constant
         time_stamps = torch.arange(sequence_length).type_as(self.inv_freq)
         freqs = torch.einsum("i,j->ij", time_stamps, self.inv_freq)
         embeddings = torch.cat((freqs, freqs), dim=-1)
 
         cos_embeddings = embeddings.cos()[:, None, None, :]
         sin_embeddings = embeddings.sin()[:, None, None, :]
-        # Computed embeddings are cast to the dtype of the hidden state inputs
         self.cached_rotary_positional_embedding = torch.stack([cos_embeddings, sin_embeddings]).type_as(hidden_states)
         return self.cached_rotary_positional_embedding
 
 
 class Wav2Vec2ConformerRelPositionalEmbedding(nn.Module):
-    """Relative positional encoding module."""
 
     def __init__(self, config):
         super().__init__()
@@ -118,17 +95,11 @@ class Wav2Vec2ConformerRelPositionalEmbedding(nn.Module):
         self.register_buffer("pe", self.extend_pe(torch.tensor(0.0).expand(1, self.max_len)), persistent=False)
 
     def extend_pe(self, x, pe=None):
-        # Reset the positional encodings
         if pe is not None:
-            # self.pe contains both positive and negative parts
-            # the length of self.pe is 2 * input_len - 1
             if pe.size(1) >= x.size(1) * 2 - 1:
                 if pe.dtype != x.dtype or pe.device != x.device:
                     pe = pe.to(dtype=x.dtype, device=x.device)
                 return pe
-        # Suppose `i` is the position of query vector and `j` is the
-        # position of key vector. We use positive relative positions when keys
-        # are to the left (i>j) and negative relative positions otherwise (i<j).
         pe_positive = torch.zeros(x.size(1), self.d_model)
         pe_negative = torch.zeros(x.size(1), self.d_model)
         position = torch.arange(0, x.size(1), dtype=torch.int64).float().unsqueeze(1)
@@ -140,9 +111,6 @@ class Wav2Vec2ConformerRelPositionalEmbedding(nn.Module):
         pe_negative[:, 0::2] = torch.sin(-1 * position * div_term)
         pe_negative[:, 1::2] = torch.cos(-1 * position * div_term)
 
-        # Reverse the order of positive indices and concat both positive and
-        # negative indices. This is used to support the shifting trick
-        # as in https://huggingface.co/papers/1901.02860
         pe_positive = torch.flip(pe_positive, [0]).unsqueeze(0)
         pe_negative = pe_negative[1:].unsqueeze(0)
         pe = torch.cat([pe_positive, pe_negative], dim=1)
@@ -170,7 +138,6 @@ class Wav2Vec2ConformerFeedForward(Wav2Vec2FeedForward):
 
 
 class Wav2Vec2ConformerConvolutionModule(nn.Module):
-    """Convolution block used in the conformer block"""
 
     def __init__(self, config):
         super().__init__()
@@ -209,16 +176,11 @@ class Wav2Vec2ConformerConvolutionModule(nn.Module):
 
     def forward(self, hidden_states):
         hidden_states = self.layer_norm(hidden_states)
-        # exchange the temporal dimension and the feature dimension
         hidden_states = hidden_states.transpose(1, 2)
 
-        # GLU mechanism
-        # => (batch, 2*channel, dim)
         hidden_states = self.pointwise_conv1(hidden_states)
-        # => (batch, channel, dim)
         hidden_states = self.glu(hidden_states)
 
-        # 1D Depthwise Conv
         hidden_states = self.depthwise_conv(hidden_states)
         hidden_states = self.batch_norm(hidden_states)
         hidden_states = self.activation(hidden_states)
@@ -230,9 +192,6 @@ class Wav2Vec2ConformerConvolutionModule(nn.Module):
 
 
 class Wav2Vec2ConformerSelfAttention(nn.Module):
-    """Construct an Wav2Vec2ConformerSelfAttention object.
-    Can be enhanced with rotary or relative position embeddings.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -249,10 +208,7 @@ class Wav2Vec2ConformerSelfAttention(nn.Module):
         self.dropout = nn.Dropout(p=config.attention_dropout)
 
         if self.position_embeddings_type == "relative":
-            # linear transformation for positional encoding
             self.linear_pos = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
-            # these two learnable bias are used in matrix c and matrix d
-            # as described in https://huggingface.co/papers/1901.02860 Section 3.3
             self.pos_bias_u = nn.Parameter(torch.zeros(self.num_heads, self.head_size))
             self.pos_bias_v = nn.Parameter(torch.zeros(self.num_heads, self.head_size))
 
@@ -263,10 +219,8 @@ class Wav2Vec2ConformerSelfAttention(nn.Module):
         relative_position_embeddings: torch.Tensor | None = None,
         output_attentions: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
-        # self-attention mechanism
         batch_size, sequence_length, hidden_size = hidden_states.size()
 
-        # make sure query/key states can be != value states
         query_key_states = hidden_states
         value_states = hidden_states
 
@@ -277,12 +231,10 @@ class Wav2Vec2ConformerSelfAttention(nn.Module):
                 )
             query_key_states = self._apply_rotary_embedding(query_key_states, relative_position_embeddings)
 
-        # project query_key_states and value_states
         query = self.linear_q(query_key_states).view(batch_size, -1, self.num_heads, self.head_size)
         key = self.linear_k(query_key_states).view(batch_size, -1, self.num_heads, self.head_size)
         value = self.linear_v(value_states).view(batch_size, -1, self.num_heads, self.head_size)
 
-        # => (batch, head, time1, d_k)
         query = query.transpose(1, 2)
         key = key.transpose(1, 2)
         value = value.transpose(1, 2)
@@ -293,26 +245,20 @@ class Wav2Vec2ConformerSelfAttention(nn.Module):
                     "`relative_position_embeddings` has to be defined when `self.position_embeddings_type =="
                     " 'relative'"
                 )
-            # apply relative_position_embeddings to qk scores
-            # as proposed in Transformer_XL: https://huggingface.co/papers/1901.02860
             scores = self._apply_relative_embeddings(
                 query=query, key=key, relative_position_embeddings=relative_position_embeddings
             )
         else:
             scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(self.head_size)
 
-        # apply attention_mask if necessary
         if attention_mask is not None:
             scores = scores + attention_mask
 
-        # => (batch, head, time1, time2)
         probs = torch.softmax(scores, dim=-1)
         probs = self.dropout(probs)
 
-        # => (batch, head, time1, d_k)
         hidden_states = torch.matmul(probs, value)
 
-        # => (batch, time1, hidden_size)
         hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, self.num_heads * self.head_size)
         hidden_states = self.linear_out(hidden_states)
 
@@ -325,7 +271,6 @@ class Wav2Vec2ConformerSelfAttention(nn.Module):
         cos = relative_position_embeddings[0, :sequence_length, ...]
         sin = relative_position_embeddings[1, :sequence_length, ...]
 
-        # rotate hidden_states with rotary embeddings
         hidden_states = hidden_states.transpose(0, 1)
         rotated_states_begin = hidden_states[..., : self.head_size // 2]
         rotated_states_end = hidden_states[..., self.head_size // 2 :]
@@ -338,8 +283,6 @@ class Wav2Vec2ConformerSelfAttention(nn.Module):
         return hidden_states
 
     def _apply_relative_embeddings(self, query, key, relative_position_embeddings):
-        # 1. project positional embeddings
-        # => (batch, head, 2*time1-1, d_k)
         proj_relative_position_embeddings = self.linear_pos(relative_position_embeddings)
         proj_relative_position_embeddings = proj_relative_position_embeddings.view(
             relative_position_embeddings.size(0), -1, self.num_heads, self.head_size
@@ -347,22 +290,14 @@ class Wav2Vec2ConformerSelfAttention(nn.Module):
         proj_relative_position_embeddings = proj_relative_position_embeddings.transpose(1, 2)
         proj_relative_position_embeddings = proj_relative_position_embeddings.transpose(2, 3)
 
-        # 2. Add bias to query
-        # => (batch, head, time1, d_k)
         query = query.transpose(1, 2)
         q_with_bias_u = (query + self.pos_bias_u).transpose(1, 2)
         q_with_bias_v = (query + self.pos_bias_v).transpose(1, 2)
 
-        # 3. attention score: first compute matrix a and matrix c
-        # as described in https://huggingface.co/papers/1901.02860 Section 3.3
-        # => (batch, head, time1, time2)
         scores_ac = torch.matmul(q_with_bias_u, key.transpose(-2, -1))
 
-        # 4. then compute matrix b and matrix d
-        # => (batch, head, time1, 2*time1-1)
         scores_bd = torch.matmul(q_with_bias_v, proj_relative_position_embeddings)
 
-        # 5. shift matrix b and matrix d
         zero_pad = torch.zeros((*scores_bd.size()[:3], 1), device=scores_bd.device, dtype=scores_bd.dtype)
         scores_bd_padded = torch.cat([zero_pad, scores_bd], dim=-1)
         scores_bd_padded_shape = scores_bd.size()[:2] + (scores_bd.shape[3] + 1, scores_bd.shape[2])
@@ -370,34 +305,27 @@ class Wav2Vec2ConformerSelfAttention(nn.Module):
         scores_bd = scores_bd_padded[:, :, 1:].view_as(scores_bd)
         scores_bd = scores_bd[:, :, :, : scores_bd.size(-1) // 2 + 1]
 
-        # 6. sum matrices
-        # => (batch, head, time1, time2)
         scores = (scores_ac + scores_bd) / math.sqrt(self.head_size)
 
         return scores
 
 
 class Wav2Vec2ConformerEncoderLayer(GradientCheckpointingLayer):
-    """Conformer block based on https://huggingface.co/papers/2005.08100."""
 
     def __init__(self, config):
         super().__init__()
         embed_dim = config.hidden_size
         dropout = config.attention_dropout
 
-        # Feed-forward 1
         self.ffn1_layer_norm = nn.LayerNorm(embed_dim)
         self.ffn1 = Wav2Vec2ConformerFeedForward(config)
 
-        # Self-Attention
         self.self_attn_layer_norm = nn.LayerNorm(embed_dim)
         self.self_attn_dropout = nn.Dropout(dropout)
         self.self_attn = Wav2Vec2ConformerSelfAttention(config)
 
-        # Conformer Convolution
         self.conv_module = Wav2Vec2ConformerConvolutionModule(config)
 
-        # Feed-forward 2
         self.ffn2_layer_norm = nn.LayerNorm(embed_dim)
         self.ffn2 = Wav2Vec2ConformerFeedForward(config)
         self.final_layer_norm = nn.LayerNorm(embed_dim)
@@ -409,14 +337,12 @@ class Wav2Vec2ConformerEncoderLayer(GradientCheckpointingLayer):
         relative_position_embeddings: torch.Tensor | None = None,
         output_attentions: bool = False,
     ):
-        # 1. Feed-Forward 1 layer
         residual = hidden_states
         hidden_states = self.ffn1_layer_norm(hidden_states)
         hidden_states = self.ffn1(hidden_states)
         hidden_states = hidden_states * 0.5 + residual
         residual = hidden_states
 
-        # 2. Self-Attention layer
         hidden_states = self.self_attn_layer_norm(hidden_states)
         hidden_states, attn_weigts = self.self_attn(
             hidden_states=hidden_states,
@@ -427,12 +353,10 @@ class Wav2Vec2ConformerEncoderLayer(GradientCheckpointingLayer):
         hidden_states = self.self_attn_dropout(hidden_states)
         hidden_states = hidden_states + residual
 
-        # 3. Convolutional Layer
         residual = hidden_states
         hidden_states = self.conv_module(hidden_states)
         hidden_states = residual + hidden_states
 
-        # 4. Feed-Forward 2 Layer
         residual = hidden_states
         hidden_states = self.ffn2_layer_norm(hidden_states)
         hidden_states = self.ffn2(hidden_states)
@@ -472,11 +396,9 @@ class Wav2Vec2ConformerEncoder(nn.Module):
         all_self_attentions = () if output_attentions else None
 
         if attention_mask is not None:
-            # make sure padded tokens output 0
             expand_attention_mask = attention_mask.unsqueeze(-1).repeat(1, 1, hidden_states.shape[2])
             hidden_states[~expand_attention_mask] = 0.0
 
-            # extend attention_mask
             attention_mask = 1.0 - attention_mask[:, None, None, :].to(dtype=hidden_states.dtype)
             attention_mask = attention_mask * torch.finfo(hidden_states.dtype).min
             attention_mask = attention_mask.expand(
@@ -496,12 +418,10 @@ class Wav2Vec2ConformerEncoder(nn.Module):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             dropout_probability = torch.rand([])
 
             skip_the_layer = self.training and dropout_probability < self.config.layerdrop
             if not skip_the_layer or synced_gpus:
-                # under fsdp or deepspeed zero3 all gpus must run in sync
                 layer_outputs = layer(
                     hidden_states,
                     attention_mask=attention_mask,
@@ -553,11 +473,9 @@ class Wav2Vec2ConformerPreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         """Initialize the weights"""
         super()._init_weights(module)
-        # Wav2Vec2ForPreTraining last 2 linear layers need standard Linear init.
         if isinstance(module, Wav2Vec2ConformerForPreTraining):
             module.project_hid.reset_parameters()
             module.project_q.reset_parameters()
-        # gumbel softmax requires special init
         elif isinstance(module, Wav2Vec2ConformerGumbelVectorQuantizer):
             init.normal_(module.weight_proj.weight, mean=0.0, std=1)
             init.zeros_(module.weight_proj.bias)
@@ -600,8 +518,6 @@ class Wav2Vec2ConformerPreTrainedModel(PreTrainedModel):
         add_adapter = self.config.add_adapter if add_adapter is None else add_adapter
 
         def _conv_out_length(input_length, kernel_size, stride):
-            # 1D convolutional layer output length formula taken
-            # from https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html
             return torch.div(input_length - kernel_size, stride, rounding_mode="floor") + 1
 
         for kernel_size, stride in zip(self.config.conv_kernel, self.config.conv_stride):
@@ -616,8 +532,6 @@ class Wav2Vec2ConformerPreTrainedModel(PreTrainedModel):
     def _get_feature_vector_attention_mask(
         self, feature_vector_length: int, attention_mask: torch.LongTensor, add_adapter=None
     ):
-        # Effectively attention_mask.sum(-1), but not inplace to be able to run
-        # on inference mode.
         non_padded_lengths = attention_mask.cumsum(dim=-1)[:, -1]
 
         output_lengths = self._get_feat_extract_output_lengths(non_padded_lengths, add_adapter=add_adapter)
@@ -628,7 +542,6 @@ class Wav2Vec2ConformerPreTrainedModel(PreTrainedModel):
         attention_mask = torch.zeros(
             (batch_size, feature_vector_length), dtype=attention_mask.dtype, device=attention_mask.device
         )
-        # these two operations makes sure that all values before the output lengths idxs are attended to
         attention_mask[(torch.arange(attention_mask.shape[0], device=attention_mask.device), output_lengths - 1)] = 1
         attention_mask = attention_mask.flip([-1]).cumsum(-1).flip([-1]).bool()
         return attention_mask
@@ -647,7 +560,6 @@ class Wav2Vec2ConformerModel(Wav2Vec2ConformerPreTrainedModel, Wav2Vec2Model):
         self.feature_extractor = Wav2Vec2ConformerFeatureEncoder(config)
         self.feature_projection = Wav2Vec2ConformerFeatureProjection(config)
 
-        # model only needs masking vector if mask prob is > 0.0
         if config.mask_time_prob > 0.0 or config.mask_feature_prob > 0.0:
             self.masked_spec_embed = nn.Parameter(torch.Tensor(config.hidden_size).uniform_())
 
@@ -655,7 +567,6 @@ class Wav2Vec2ConformerModel(Wav2Vec2ConformerPreTrainedModel, Wav2Vec2Model):
 
         self.adapter = Wav2Vec2ConformerAdapter(config) if config.add_adapter else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
 

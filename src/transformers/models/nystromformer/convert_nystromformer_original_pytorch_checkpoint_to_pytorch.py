@@ -1,18 +1,4 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Convert Nystromformer checkpoints from the original repository."""
 
 import argparse
 
@@ -60,39 +46,15 @@ def rename_key(orig_key):
 
 
 def convert_checkpoint_helper(config, orig_state_dict):
-    for key in orig_state_dict.copy():
-        val = orig_state_dict.pop(key)
-
-        if ("pooler" in key) or ("sen_class" in key) or ("conv.bias" in key):
-            continue
-        else:
-            orig_state_dict[rename_key(key)] = val
-
-    orig_state_dict["cls.predictions.bias"] = orig_state_dict["cls.predictions.decoder.bias"]
-    orig_state_dict["nystromformer.embeddings.position_ids"] = (
-        torch.arange(config.max_position_embeddings).expand((1, -1)) + 2
-    )
-
-    return orig_state_dict
+    pass
 
 
 def convert_nystromformer_checkpoint(checkpoint_path, nystromformer_config_file, pytorch_dump_path):
-    orig_state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)["model_state_dict"]
-    config = NystromformerConfig.from_json_file(nystromformer_config_file)
-    model = NystromformerForMaskedLM(config)
-
-    new_state_dict = convert_checkpoint_helper(config, orig_state_dict)
-
-    model.load_state_dict(new_state_dict)
-    model.eval()
-    model.save_pretrained(pytorch_dump_path)
-
-    print(f"Checkpoint successfully converted. Model saved at {pytorch_dump_path}")
+    pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--pytorch_model_path", default=None, type=str, required=True, help="Path to Nystromformer pytorch checkpoint."
     )

@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Data2VecText model."""
 
 import math
 
@@ -83,7 +69,6 @@ class Data2VecAudioPositionalConvLayer(nn.Module):
 
         self.padding = Data2VecAudioPadLayer(config.conv_pos_kernel_size)
         self.activation = ACT2FN[config.feat_extract_activation]
-        # no learnable parameters
         self.layer_norm = nn.LayerNorm(config.hidden_size, elementwise_affine=False)
 
     def forward(self, hidden_states):
@@ -181,7 +166,6 @@ class Data2VecAudioModel(Data2VecAudioPreTrainedModel, Wav2Vec2Model):
         self.feature_extractor = Data2VecAudioFeatureEncoder(config)
         self.feature_projection = Data2VecAudioFeatureProjection(config)
 
-        # model only needs masking vector if mask prob is > 0.0
         if config.mask_time_prob > 0.0 or config.mask_feature_prob > 0.0:
             self.masked_spec_embed = nn.Parameter(torch.Tensor(config.hidden_size).uniform_())
 
@@ -189,15 +173,10 @@ class Data2VecAudioModel(Data2VecAudioPreTrainedModel, Wav2Vec2Model):
 
         self.adapter = Data2VecAudioAdapter(config) if config.add_adapter else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def freeze_feature_encoder(self):
-        """
-        Calling this function will disable the gradient computation for the feature encoder so that its parameter will
-        not be updated during training.
-        """
-        self.feature_extractor._freeze_parameters()
+        pass
 
     def forward(self, **super_kwargs):
         return super().forward(**super_kwargs)
@@ -228,7 +207,6 @@ class Data2VecAudioForCTC(Data2VecAudioPreTrainedModel, Wav2Vec2ForCTC):
         )
         self.lm_head = nn.Linear(output_hidden_size, config.vocab_size)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def freeze_base_model(self):

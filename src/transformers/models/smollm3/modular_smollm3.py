@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable
 
@@ -44,27 +31,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="HuggingFaceTB/SmolLM3-3B")
 @strict
 class SmolLM3Config(PreTrainedConfig):
-    r"""
-    no_rope_layers (`List[int]`, *optional*):
-        List with at least the same length as the number of layers in the model.
-        A `1` at an index position indicates that the corresponding layer will use RoPE,
-        while a `0` indicates that it's a NoPE layer.
-    no_rope_layer_interval (`int`, *optional*, defaults to 4):
-        If `no_rope_layers` is `None`, it will be created using a NoPE layer every
-        `no_rope_layer_interval` layers.
-
-    ```python
-    >>> from transformers import SmolLM3Model, SmolLM3Config
-
-    >>> # Initializing a SmolLM3 style configuration
-    >>> configuration = SmolLM3Config()
-
-    >>> # Initializing a model from the SmolLM3 style configuration
-    >>> model = SmolLM3Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "smollm3"
     keys_to_ignore_at_inference = ["past_key_values"]

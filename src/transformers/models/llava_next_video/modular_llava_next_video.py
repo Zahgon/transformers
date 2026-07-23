@@ -1,16 +1,3 @@
-# Copyright 2024 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from typing import Literal
@@ -46,33 +33,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="llava-hf/LLaVA-NeXT-Video-7B-hf")
 @strict
 class LlavaNextVideoConfig(PreTrainedConfig):
-    r"""
-    image_grid_pinpoints (`List`, *optional*, defaults to `[[336, 672], [672, 336], [672, 672], [1008, 336], [336, 1008]]`):
-        A list of possible resolutions to use for processing high resolution images. Each item in the list should be a tuple or list
-        of the form `(height, width)`.
-    spatial_pool_mode (`str`, *optional*, defaults to `"average"`):
-        Pooling mode to use for videos. Can be "average", "max" or "conv".
-    spatial_pool_stride (`int`, *optional*, defaults to 2):
-        Stride used in the pooling layer for videos.
-
-    Example:
-
-    ```python
-    >>> from transformers import LlavaNextVideoForConditionalGeneration, LlavaNextVideoConfig, CLIPVisionConfig, LlamaConfig
-
-    >>> # Initializing a CLIP-vision config
-    >>> vision_config = CLIPVisionConfig()
-
-    >>> # Initializing a Llama config
-    >>> text_config = LlamaConfig()
-
-    >>> configuration = LlavaNextVideoConfig(vision_config, text_config)
-
-    >>> model = LlavaNextVideoForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "llava_next_video"
     attribute_map = {
@@ -124,9 +84,6 @@ class LlavaNextVideoConfig(PreTrainedConfig):
             else [[336, 672], [672, 336], [672, 672], [1008, 336], [336, 1008]]
         )
 
-        # The default value is `False` but this config is used with many model types
-        # Attr `tie_word_embeddings` was saved in text config for those models, so we
-        # need an ugly workaround and forward-pass the attr from text config
         if not self.tie_word_embeddings and self.text_config.tie_word_embeddings:
             self.tie_word_embeddings = self.text_config.tie_word_embeddings
 
@@ -134,41 +91,11 @@ class LlavaNextVideoConfig(PreTrainedConfig):
 
 
 class LlavaNextVideoModelOutputWithPast(LlavaNextModelOutputWithPast):
-    r"""
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size `(batch_size, num_images, sequence_length, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    video_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor`  of size `(batch_size * num_frames, num_videos, sequence_length, hidden_size)`.
-        video_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
 
     video_hidden_states: torch.FloatTensor | None = None
 
 
 class LlavaNextVideoCausalLMOutputWithPast(LlavaNextCausalLMOutputWithPast):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size (batch_size * num_patches, num_images, sequence_length, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    video_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor`  of size `(batch_size * num_frames, num_videos, sequence_length, hidden_size)`.
-        video_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
 
     video_hidden_states: torch.FloatTensor | None = None
 
@@ -252,7 +179,6 @@ class LlavaNextVideoModel(LlavaNextModel):
             The feature selection strategy used to select the vision feature from the vision backbone.
             Can be one of `"default"` or `"full"`
         """
-        # ! infer image_num_patches from image_sizes
         image_num_patches = [
             image_size_to_num_patches(
                 image_size=imsize,
@@ -262,11 +188,9 @@ class LlavaNextVideoModel(LlavaNextModel):
             for imsize in image_sizes
         ]
         if pixel_values.dim() == 5:
-            # stacked if input is (batch_size, num_patches, num_channels, height, width)
             _pixel_values_list = [pix_val[:num_patch] for pix_val, num_patch in zip(pixel_values, image_num_patches)]
             pixel_values = torch.cat(_pixel_values_list, dim=0)
         elif pixel_values.dim() != 4:
-            # otherwise has to be stacked from list of (num_patches, num_channels, height, width)
             raise ValueError(f"pixel_values of shape {pixel_values.shape}, expect to be of 4 or 5 dimensions")
 
         image_outputs = self.vision_tower(
@@ -275,8 +199,6 @@ class LlavaNextVideoModel(LlavaNextModel):
             return_dict=True,
             **kwargs,
         )
-        # If we have one vision feature layer, return the corresponding hidden states,
-        # otherwise, select the hidden states of each feature layer and concatenate them
         if isinstance(vision_feature_layer, int):
             selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
         else:
@@ -331,8 +253,6 @@ class LlavaNextVideoModel(LlavaNextModel):
             **kwargs,
         )
 
-        # If we have one vision feature layer, return the corresponding hidden states,
-        # otherwise, select the hidden states of each feature layer and concatenate them
         if isinstance(vision_feature_layer, int):
             selected_video_features = video_outputs.hidden_states[vision_feature_layer]
         else:
@@ -342,7 +262,6 @@ class LlavaNextVideoModel(LlavaNextModel):
         if vision_feature_select_strategy == "default":
             selected_video_features = selected_video_features[:, 1:]
 
-        # Same as image features except that video has pooling layer
         video_features = self.vision_resampler(selected_video_features)
         video_features = self.multi_modal_projector(video_features)
         video_features = torch.split(video_features, frames, dim=0)
@@ -598,7 +517,6 @@ class LlavaNextVideoForConditionalGeneration(LlavaNextForConditionalGeneration):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -631,7 +549,6 @@ class LlavaNextVideoForConditionalGeneration(LlavaNextForConditionalGeneration):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- extra custom processing
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -643,10 +560,6 @@ class LlavaNextVideoForConditionalGeneration(LlavaNextForConditionalGeneration):
             **kwargs,
         )
 
-        # Pixel values are used only in the first iteration if available
-        # In subsequent iterations, they are already merged with text and cached
-        # NOTE: first iteration doesn't have to be prefill, it can be the first
-        # iteration with a question and cached system prompt (continue generate from cache)
         if is_first_iteration or not kwargs.get("use_cache", True):
             model_inputs["pixel_values"] = pixel_values
             model_inputs["pixel_values_videos"] = pixel_values_videos

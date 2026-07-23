@@ -1,26 +1,4 @@
-# Copyright 2025 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-r"""Utility to convert Gemma models from Orbax to HF Transformers checkpoint.
-
-python src/transformers/models/gemma3n/convert_gemma3n_weights.py \
-    --variant='gemma3n_e4b' \
-    --tokenizer_path="$HOME/tokenizers/gemma-3n-tokenizer.model" \
-    --checkpoint_path="$HOME/checkpoints/gemma-3n-orbax/" \
-    --output_path="$HOME/checkpoints/gemma-3n-safetensors/"
-"""
 
 import re
 from collections.abc import Iterable, Mapping
@@ -49,7 +27,6 @@ from transformers.image_utils import PILImageResampling
 from transformers.tokenization_utils_sentencepiece import SentencePieceExtractor
 
 
-# ==== Internal Constants and Classes ====
 
 
 _CHAT_TEMPLATE = """{{ bos_token }}
@@ -114,7 +91,6 @@ _TRANSFORMER_FINAL_NORM = "transformer/final_norm"
 _TRANSFORMER_POST_TRAINING_PREFIX = "rlx_networks/policy_network/"
 _TRANSFORMER_POST_TRAINING_PREFIX_LEN = len(_TRANSFORMER_POST_TRAINING_PREFIX)
 
-# _MOBILE_NET_CONFIG = Gemma3nVisionConfig.from_pretrained("")
 
 _MOBILE_NET_PREFIX = "mobilenet"
 _MOBILE_NET_TIMM_SUMMED_BLOCK_SIZES = [3, 8, 45, 84]
@@ -166,7 +142,6 @@ _VARIANTS: Mapping[str, Gemma3nConfig] = {
 }
 
 
-# ==== Flags ====
 
 _AUDIO_DTYPE = flags.DEFINE_enum(
     name="audio_dtype",
@@ -471,8 +446,6 @@ def convert_transformer_weights(
     elif path == _TRANSFORMER_EMBEDDER:
         if param == "input_embedding":
             converted_paths.append("embed_tokens.weight")
-            # Gemma 3n model doesn't have soft tokens or "end of" tokens for images and audio in its input and output
-            # embeddings, so we resize to avoid bugs observed with Mllama
             pre_expansion_embeddings = weights
             pad_token_slice = slice(config.pad_token_id, config.pad_token_id + 1)
             new_embeddings = np.repeat(pre_expansion_embeddings[pad_token_slice], 256, axis=0)
@@ -486,7 +459,6 @@ def convert_transformer_weights(
                 )
             )
     elif path.startswith(_TRANSFORMER_EMBEDDER):
-        # TODO: ryanmullins - support multimodal norms and projections
         if path.endswith("per_layer_model_projection"):
             converted_paths.append("per_layer_model_projection.weight")
             converted_weights.append(
@@ -706,8 +678,6 @@ def main(*args):
     config.text_config.dtype = getattr(torch, _TRANSFORMER_DTYPE.value)
     config.vision_config.dtype = getattr(torch, _VISION_DTYPE.value)
     if _INCLUDE_CHAT_TEMPLATE.value:
-        # Chat template is included for instruction tuned models, which treat
-        # both "<eos>" and "<end_of_turn>" as generation stoppers.
         config.eos_token_id = [1, 106]
 
     logging.info(

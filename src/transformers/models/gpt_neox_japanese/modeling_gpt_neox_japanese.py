@@ -1,17 +1,3 @@
-# Copyright 2022 ABEJA, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch GPTNeoX model."""
 
 import math
 from collections.abc import Callable
@@ -53,7 +39,6 @@ class GPTNeoXJapanesePreTrainedModel(PreTrainedModel):
                 init.zeros_(module.dense_bias)
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->GPTNeoXJapanese
 class GPTNeoXJapaneseRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
@@ -97,7 +82,6 @@ class GPTNeoXJapaneseRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
@@ -126,7 +110,6 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-# Copied from transformers.models.llama.modeling_llama.apply_rotary_pos_emb
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
 
@@ -173,7 +156,6 @@ class GPTNeoXJapaneseAttention(nn.Module):
 
         self.query_key_value = nn.Linear(config.hidden_size, 3 * config.hidden_size, bias=False)
         self.dense = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
-        # Activate bias if the last layer
         self.use_bias = use_bias
         self.dense_bias = nn.Parameter(torch.zeros(config.hidden_size)) if use_bias else None
 
@@ -188,22 +170,15 @@ class GPTNeoXJapaneseAttention(nn.Module):
         position_embeddings: tuple[torch.Tensor, torch.Tensor] | None = None,
         **kwargs,
     ):
-        # Compute QKV
-        # Attention heads [batch, seq_len, hidden_size]
-        #   --> [batch, seq_len, (np * 3 * head_size)]
         qkv = self.query_key_value(hidden_states)
 
-        # [batch, seq_len, (num_heads * 3 * head_size)]
-        #   --> [batch, seq_len, num_heads, 3 * head_size]
         new_qkv_shape = qkv.size()[:-1] + (self.num_attention_heads, 3 * self.head_size)
         qkv = qkv.view(*new_qkv_shape)
 
-        # [batch, seq_len, num_attention_heads, 3 * head_size] --> 3 [batch, num_attention_heads, seq_len, head_size]
         query = qkv[..., : self.head_size].permute(0, 2, 1, 3)
         key = qkv[..., self.head_size : 2 * self.head_size].permute(0, 2, 1, 3)
         value = qkv[..., 2 * self.head_size :].permute(0, 2, 1, 3)
 
-        # Compute rotary embeddings on rotary_ndims
         query_rot = query[..., : self.rotary_ndims]
         query_pass = query[..., self.rotary_ndims :]
         key_rot = key[..., : self.rotary_ndims]
@@ -214,14 +189,11 @@ class GPTNeoXJapaneseAttention(nn.Module):
         query = torch.cat((query, query_pass), dim=-1).contiguous()
         key = torch.cat((key, key_pass), dim=-1).contiguous()
 
-        # Cache QKV values
         if layer_past is not None:
             key, value = layer_past.update(key, value, self.layer_idx)
 
-        # Compute attention
         attn_output, attn_weights = self._attn(query, key, value, attention_mask)
 
-        # Reshape outputs
         attn_output = self._merge_heads(attn_output, self.num_attention_heads, self.head_size)
         attn_output = self.dense(attn_output)
 
@@ -232,11 +204,8 @@ class GPTNeoXJapaneseAttention(nn.Module):
         """
         Splits hidden dim into attn_head_size and num_attention_heads
         """
-        # tensor: [bs, seq_len, hidden_size]
         new_shape = tensor.size()[:-1] + (num_attention_heads, attn_head_size)
-        # -> [bs, seq_len, num_attention_heads, attn_head_size]
         tensor = tensor.view(new_shape)
-        # -> [bs, num_attention_heads, seq_len, attn_head_size]
         tensor = tensor.permute(0, 2, 1, 3)
         return tensor
 
@@ -245,23 +214,17 @@ class GPTNeoXJapaneseAttention(nn.Module):
         """
         Merges attn_head_size dim and num_attn_heads dim into hidden dim
         """
-        # tensor [bs, num_attention_heads, seq_len, attn_head_size]
         tensor = tensor.permute(0, 2, 1, 3).contiguous()
-        # -> [bs, seq_len, num_attention_heads, attn_head_size]
         tensor = tensor.view(tensor.size(0), tensor.size(1), num_attention_heads * attn_head_size)
-        # -> [bs, seq_len, hidden_size]
         return tensor
 
     def _attn(self, query, key, value, attention_mask=None):
-        # q, k, v: [bs, num_attention_heads, seq_len, attn_head_size]
-        # compute causal mask from causal mask buffer
         batch_size, num_attention_heads, query_length, attn_head_size = query.size()
         key_length = key.size(-2)
 
         query = query.view(batch_size * num_attention_heads, query_length, attn_head_size)
         key = key.view(batch_size * num_attention_heads, key_length, attn_head_size)
 
-        # [batch_size * num_heads, q_length, kv_length]
         attn_scores = torch.zeros(
             batch_size * num_attention_heads,
             query_length,
@@ -315,7 +278,6 @@ class GPTNeoXJapaneseMLP(nn.Module):
         super().__init__()
         intermediate_size = int(config.hidden_size * config.intermediate_multiple_size)
         self.dense_h_to_4h = nn.Linear(config.hidden_size, intermediate_size, bias=False)
-        # Project back to h.
         self.dense_4h_to_h = nn.Linear(intermediate_size, config.hidden_size, bias=False)
         self.act = ACT2FN[config.hidden_act]
 
@@ -332,7 +294,6 @@ class GPTNeoXJapaneseLayer(nn.Module):
         self.layer_number = layer_number
         self.input_layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.post_attention_layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        # activate bias only last layer
         self.attention = GPTNeoXJapaneseAttention(
             config=config, use_bias=layer_number == config.num_hidden_layers - 1, layer_idx=layer_number
         )
@@ -362,7 +323,6 @@ class GPTNeoXJapaneseLayer(nn.Module):
             position_embeddings=position_embeddings,
         )
 
-        # attn_output = (atten_output + bias) + residual
         attn_output = bias_dropout_add(
             attn_output,
             bias=attn_bias.expand_as(residual) if attn_bias is not None else attn_bias,
@@ -372,7 +332,6 @@ class GPTNeoXJapaneseLayer(nn.Module):
         )
         mlp_output = self.mlp(self.post_attention_layernorm(attn_output))
 
-        # attn_output = (mlp_output + mlp_bias) + atten_output
         attn_output = bias_dropout_add(
             mlp_output, bias=None, residual=attn_output, prob=self.hidden_dropout, training=self.training
         )
@@ -393,7 +352,6 @@ class GPTNeoXJapaneseModel(GPTNeoXJapanesePreTrainedModel):
         self.final_layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.rotary_emb = GPTNeoXJapaneseRotaryEmbedding(config=config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -484,7 +442,6 @@ class GPTNeoXJapaneseModel(GPTNeoXJapanesePreTrainedModel):
                 all_attentions = all_attentions + (outputs[1],)
 
         hidden_states = self.final_layer_norm(hidden_states)
-        # Add last hidden state
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -516,7 +473,6 @@ class GPTNeoXJapaneseForCausalLM(GPTNeoXJapanesePreTrainedModel, GenerationMixin
         self.gpt_neox_japanese = GPTNeoXJapaneseModel(config)
         self.embed_out = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -579,7 +535,6 @@ class GPTNeoXJapaneseForCausalLM(GPTNeoXJapanesePreTrainedModel, GenerationMixin
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.embed_out(hidden_states[:, slice_indices, :])
 

@@ -1,19 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for Pixtral.
-"""
 
 import numpy as np
 
@@ -49,14 +33,12 @@ class PixtralProcessorKwargs(ProcessingKwargs, total=False):
     }
 
 
-# Copied from transformers.models.idefics2.processing_idefics2.is_url
 def is_url(val) -> bool:
-    return isinstance(val, str) and val.startswith("http")
+    pass
 
 
-# Copied from transformers.models.idefics2.processing_idefics2.is_image_or_image_url
 def is_image_or_image_url(elem):
-    return is_url(elem) or is_valid_image(elem)
+    pass
 
 
 @auto_docstring
@@ -100,7 +82,7 @@ class PixtralProcessor(ProcessorMixin):
 
     @property
     def image_token_ids(self) -> list[int]:
-        return [self.image_token_id, self.image_break_token_id, self.image_end_token_id]
+        pass
 
     @auto_docstring
     def __call__(
@@ -139,10 +121,8 @@ class PixtralProcessor(ProcessorMixin):
         elif not isinstance(text, list) and not isinstance(text[0], str):
             raise TypeError("Invalid input text. Please provide a string, or a list of strings")
 
-        # try to expand inputs in processing if we have the necessary parts
         prompt_strings = text
         if image_inputs.get("pixel_values") is not None:
-            # Replace the image token with the expanded image token sequence
             image_sizes = iter(image_inputs["image_sizes"])
             prompt_strings = []
             replace_strings = []
@@ -155,7 +135,6 @@ class PixtralProcessor(ProcessorMixin):
                     replace_tokens = [
                         [self.image_token] * num_width_tokens + [self.image_break_token]
                     ] * num_height_tokens
-                    # Flatten list
                     replace_tokens = [item for sublist in replace_tokens for item in sublist]
                     replace_tokens[-1] = self.image_end_token
                     replace_str = "".join(replace_tokens)
@@ -169,7 +148,6 @@ class PixtralProcessor(ProcessorMixin):
 
         return_tensors = output_kwargs["text_kwargs"].pop("return_tensors", None)
         return_mm_token_type_ids = output_kwargs["text_kwargs"].pop("return_mm_token_type_ids", False)
-        # Remove return_token_type_ids as MistralCommonBackend doesn't support it
         output_kwargs["text_kwargs"].pop("return_token_type_ids", None)
         text_inputs = self.tokenizer(prompt_strings, **output_kwargs["text_kwargs"], return_tensors=None)
         self._check_special_mm_tokens(prompt_strings, text_inputs, modalities=["image"])
@@ -179,46 +157,11 @@ class PixtralProcessor(ProcessorMixin):
         return BatchFeature(data={**text_inputs, **image_inputs}, tensor_type=return_tensors)
 
     def _get_num_multimodal_tokens(self, image_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-
-        Args:
-            image_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (height, width) per each image.
-
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-        vision_data = {}
-        if image_sizes is not None:
-            images_kwargs = PixtralProcessorKwargs._defaults.get("images_kwargs", {})
-            images_kwargs.update(kwargs)
-
-            size = images_kwargs.get("size", None) or self.image_processor.size
-            patch_size = self.patch_size * self.spatial_merge_size
-
-            num_image_tokens = []
-            for height, width in image_sizes:
-                resized_height, resized_width = get_resize_output_image_size(
-                    np.zeros((height, width, 3)),
-                    size=(size["longest_edge"], size["longest_edge"]),
-                    patch_size=(patch_size, patch_size),
-                )
-                num_height_tokens = resized_height // patch_size
-                num_width_tokens = resized_width // patch_size
-                num_image_tokens.append((num_width_tokens + 1) * num_height_tokens)
-
-            num_image_patches = [1] * len(image_sizes)
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-
-        return MultiModalData(**vision_data)
+        pass
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        image_processor_input_names = self.image_processor.model_input_names
-        return tokenizer_input_names + image_processor_input_names + ["image_sizes"]
+        pass
 
 
 __all__ = ["PixtralProcessor"]

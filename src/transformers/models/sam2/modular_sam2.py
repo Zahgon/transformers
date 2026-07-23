@@ -1,17 +1,3 @@
-# Copyright 2025 The Meta AI Authors and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SAM 2 model."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -72,10 +58,6 @@ logger = logging.get_logger(__name__)
 
 
 class Sam2ImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    mask_size (`dict[str, int]`, *optional*):
-        The size `{"height": int, "width": int}` to resize the segmentation maps to.
-    """
 
     mask_size: dict[str, int]
 
@@ -94,7 +76,6 @@ class Sam2ImageProcessor(SamImageProcessor):
 
     valid_kwargs = Sam2ImageProcessorKwargs
 
-    # disable SAM padding logic
     do_pad = None
     pad_size = None
     mask_pad_size = None
@@ -193,13 +174,9 @@ class Sam2ImageProcessor(SamImageProcessor):
             return pred_masks
 
         device = pred_masks.device
-        # "max_obj_inds": object index of the object with the highest score at each location
         max_obj_inds = torch.argmax(pred_masks, dim=0, keepdim=True)
-        # "batch_obj_inds": object index of each object slice (along dim 0) in `pred_masks`
         batch_obj_inds = torch.arange(batch_size, device=device)[:, None, None, None]
         keep = max_obj_inds == batch_obj_inds
-        # suppress overlapping regions' scores below -10.0 so that the foreground regions
-        # don't overlap (here sigmoid(-10.0)=4.5398e-05)
         pred_masks = torch.where(keep, pred_masks, torch.clamp(pred_masks, max=-10.0))
         return pred_masks
 
@@ -240,7 +217,6 @@ class Sam2ImageProcessor(SamImageProcessor):
         """
         if isinstance(original_sizes, (torch.Tensor, np.ndarray)):
             original_sizes = original_sizes.tolist()
-        # TODO: add connected components kernel for postprocessing
         output_masks = []
         for i, original_size in enumerate(original_sizes):
             if isinstance(masks[i], np.ndarray):
@@ -266,16 +242,6 @@ class Sam2ImageProcessor(SamImageProcessor):
 @auto_docstring(custom_intro="Base class for the vision encoder's outputs.")
 @dataclass
 class Sam2VisionEncoderOutput(BaseModelOutputWithPooling):
-    r"""
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, height, width, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the model.
-    fpn_hidden_states (`tuple(torch.FloatTensor)`):
-        Tuple of `torch.FloatTensor` (one for each feature level, from high to low resolution) of shape
-        `(batch_size, hidden_size, height, width)`. Feature maps from the Feature Pyramid Network neck.
-    fpn_position_encoding (`tuple(torch.FloatTensor)`):
-        Tuple of `torch.FloatTensor` (one for each feature level, from high to low resolution) of shape
-        `(batch_size, hidden_size, height, width)`. Positional encodings corresponding to the `fpn_hidden_states`.
-    """
 
     fpn_hidden_states: torch.FloatTensor | None = None
     fpn_position_encoding: torch.FloatTensor | None = None
@@ -284,27 +250,6 @@ class Sam2VisionEncoderOutput(BaseModelOutputWithPooling):
 @auto_docstring(custom_intro="Base class for the Sam2 model's output.")
 @dataclass
 class Sam2ImageSegmentationOutput(ModelOutput):
-    r"""
-    iou_scores (`torch.FloatTensor` of shape `(batch_size, point_batch_size, num_masks)`):
-        The Intersection over Union (IoU) scores of the predicted masks.
-    pred_masks (`torch.FloatTensor` of shape `(batch_size, point_batch_size, num_masks, height, width)`):
-        The predicted low-resolution masks. This is an alias for `low_res_masks`. These masks need to be post-processed
-        by the processor to be brought to the original image size.
-    object_score_logits (`torch.FloatTensor` of shape `(batch_size, point_batch_size, 1)`):
-        Logits for the object score, indicating if an object is present.
-    image_embeddings (`tuple(torch.FloatTensor)`):
-        The features from the FPN, which are used by the mask decoder. This is a tuple of `torch.FloatTensor` where each
-        tensor has shape `(batch_size, channels, height, width)`.
-    vision_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of each stage) of shape `(batch_size, height, width, hidden_size)`.
-        Hidden-states of the vision model at the output of each stage.
-    vision_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length, sequence_length)`.
-        Attentions weights of the vision model.
-    mask_decoder_attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length, sequence_length)`.
-        Attentions weights of the mask decoder.
-    """
 
     iou_scores: torch.FloatTensor | None = None
     pred_masks: torch.FloatTensor | None = None
@@ -316,18 +261,6 @@ class Sam2ImageSegmentationOutput(ModelOutput):
 
 
 class Sam2PatchEmbeddings(nn.Module):
-    r"""
-    Turns pixel values into patch embeddings for transformer consumption.
-
-    Args:
-        pixel_values (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
-            Pixel values. Pixel values can be obtained using
-            [`AutoImageProcessor`]. See [`Sam2ImageProcessor.__call__`] for details.
-
-    Returns:
-        embeddings (`torch.FloatTensor`):
-            Patch embeddings depend on image_size, patch_kernel_size, patch_stride and patch_padding
-    """
 
     def __init__(self, config: Sam2HieraDetConfig):
         super().__init__()
@@ -377,7 +310,6 @@ class Sam2VisionNeck(nn.Module):
         fpn_hidden_states = ()
         fpn_position_encoding = ()
 
-        # forward in top-down order (from low to high resolution)
         n = len(self.convs) - 1
         for i in range(n, -1, -1):
             lateral_features = hidden_states[i].permute(0, 3, 1, 2)
@@ -407,10 +339,8 @@ class Sam2VisionNeck(nn.Module):
 def do_pool(x: torch.Tensor, query_stride: int | None = None) -> torch.Tensor:
     if query_stride is None:
         return x
-    # (B, H, W, C) -> (B, C, H, W)
     x = x.permute(0, 3, 1, 2)
     x = nn.functional.max_pool2d(x, kernel_size=query_stride, stride=query_stride, ceil_mode=False)
-    # (B, C, H', W') -> (B, H', W', C)
     x = x.permute(0, 2, 3, 1)
     return x
 
@@ -442,21 +372,17 @@ class Sam2MultiScaleAttention(nn.Module):
 
     def forward(self, hidden_states: torch.Tensor, **kwargs) -> torch.Tensor:
         batch_size, height, width, _ = hidden_states.shape
-        # qkv with shape (B, H * W, 3, nHead, C)
         qkv = self.qkv(hidden_states).reshape(batch_size, height * width, 3, self.num_attention_heads, -1)
-        # q, k, v with shape (B, H * W, nheads, C)
         query, key, value = torch.unbind(qkv, 2)
 
         attn_weights = (query * self.scale) @ key.transpose(-2, -1)
         attn_weights = torch.nn.functional.softmax(attn_weights, dtype=torch.float32, dim=-1).to(query.dtype)
 
-        # Q pooling (for downsample at stage changes)
         if self.query_stride:
             query = do_pool(query.reshape(batch_size, height, width, -1), self.query_stride)
             height, width = query.shape[1:3]  # downsampled shape
             query = query.reshape(batch_size, height * width, self.num_attention_heads, -1)
 
-        # transpose query, key, value to (B, nHead, H * W, C)
         query = query.transpose(1, 2)
         key = key.transpose(1, 2)
         value = value.transpose(1, 2)
@@ -521,7 +447,6 @@ class Sam2MultiScaleBlock(GradientCheckpointingLayer):
     ):
         super().__init__()
 
-        # take embed dim from previous stage if first block of stage
         self.dim = (
             config.embed_dim_per_stage[stage_idx - 1]
             if stage_idx > 0 and block_idx == 0
@@ -529,14 +454,12 @@ class Sam2MultiScaleBlock(GradientCheckpointingLayer):
         )
         self.dim_out = config.embed_dim_per_stage[stage_idx]
         self.layer_norm1 = nn.LayerNorm(self.dim, eps=config.layer_norm_eps)
-        # take window size from previous stage if first block of stage
         self.window_size = (
             config.window_size_per_stage[stage_idx - 1]
             if stage_idx > 0 and block_idx == 0
             else config.window_size_per_stage[stage_idx]
         )
         self.window_size = 0 if total_block_idx in config.global_attention_blocks else self.window_size
-        # use query stride for first block of stage if stage is a query pool stage
         self.query_stride = (
             config.query_stride if 0 < stage_idx <= config.num_query_pool_stages and block_idx == 0 else None
         )
@@ -568,31 +491,26 @@ class Sam2MultiScaleBlock(GradientCheckpointingLayer):
 
         hidden_states = self.layer_norm1(hidden_states)
 
-        # Skip connection
         if self.dim != self.dim_out:
             residual = do_pool(self.proj(hidden_states), self.query_stride)
 
-        # Window partition
         window_size = self.window_size
         if self.window_size > 0:
             H, W = hidden_states.shape[1], hidden_states.shape[2]
             hidden_states, pad_hw = window_partition(hidden_states, window_size)
 
-        # Window Attention + Q Pooling (if stage change)
         attn_output = self.attn(
             hidden_states=hidden_states,
             **kwargs,
         )
         hidden_states = attn_output
         if self.query_stride:
-            # Shapes have changed due to Q pooling
             window_size = self.window_size // self.query_stride[0]
             H, W = residual.shape[1:3]
             pad_h = (-H) % window_size
             pad_w = (-W) % window_size
             pad_hw = (H + pad_h, W + pad_w)
 
-        # Reverse window partition
         if self.window_size > 0:
             hidden_states = window_unpartition(hidden_states, window_size, pad_hw, (H, W))
 
@@ -610,12 +528,6 @@ class Sam2MultiScaleBlock(GradientCheckpointingLayer):
 )
 @dataclass
 class Sam2HieraDetModelOutput(ModelOutput):
-    r"""
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, height, width, hidden_size)`):
-        hidden-states at the output of the last layer of the model.
-    intermediate_hidden_states (`tuple[torch.FloatTensor]` of shape `(batch_size, height, width, hidden_size)`):
-        Sequence of hidden-states at the output of the intermediate layers of the model.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     intermediate_hidden_states: tuple[torch.FloatTensor, ...] | None = None
@@ -669,7 +581,6 @@ class Sam2HieraDetModel(Sam2PreTrainedModel):
         super().__init__(config)
 
         self.patch_embed = Sam2PatchEmbeddings(config)
-        # Windowed positional embedding (https://huggingface.co/papers/2311.05613)
         self.pos_embed = nn.Parameter(
             torch.zeros(1, config.hidden_size, *config.window_positional_embedding_background_size)
         )
@@ -762,13 +673,11 @@ class Sam2VisionModel(Sam2PreTrainedModel):
         if pixel_values is None:
             raise ValueError("You have to specify pixel_values")
 
-        # Forward through backbone
         backbone_output = self.backbone(pixel_values, **kwargs)
         hidden_states = backbone_output.last_hidden_state
         intermediate_hidden_states = backbone_output.intermediate_hidden_states
 
         fpn_hidden_states, fpn_position_encoding = self.neck(intermediate_hidden_states)
-        # Select last `num_feature_levels` feature levels from FPN and reverse order to get features from high to low resolution
         fpn_hidden_states = fpn_hidden_states[-self.num_feature_levels :][::-1]
         fpn_position_encoding = fpn_position_encoding[-self.num_feature_levels :][::-1]
 
@@ -797,12 +706,10 @@ class Sam2PositionalEmbedding(nn.Module):
             coordinates[:, :, :, 1] = coordinates[:, :, :, 1] / input_shape[0]
         coordinates.to(torch.float32)
 
-        # assuming coords are in [0, 1]^2 square and have d_1 x ... x d_n x 2 shape
         coordinates = 2 * coordinates - 1
         coordinates = coordinates.to(self.positional_embedding.dtype)
         coordinates = coordinates @ self.positional_embedding
         coordinates = 2 * np.pi * coordinates
-        # outputs d_1 x ... x d_n x channel shape
         return torch.cat([torch.sin(coordinates), torch.cos(coordinates)], dim=-1)
 
 
@@ -834,18 +741,14 @@ class Sam2PromptEncoder(SamPromptEncoder):
         input_shape = (self.input_image_size, self.input_image_size)
         point_embedding = self.shared_embedding(points, input_shape)
 
-        # torch.where and expanding the labels tensor is required by the ONNX export
         point_embedding = torch.where(labels[..., None] == -1, self.not_a_point_embed.weight, point_embedding)
 
-        # This is required for the ONNX export. The dtype, device need to be explicitly
-        # specified as otherwise torch.onnx.export interprets as double
         point_embedding = torch.where(
             labels[..., None] != -10,
             point_embedding,
             torch.zeros_like(point_embedding),
         )
 
-        # Add point embeddings for labels >= 0
         point_embedding = point_embedding + self.point_embed(labels.clamp(min=0)) * (labels >= 0).unsqueeze(-1)
 
         return point_embedding
@@ -854,7 +757,6 @@ class Sam2PromptEncoder(SamPromptEncoder):
         """Embeds box prompts."""
         boxes = boxes + 0.5  # Shift to center of pixel
         coords = boxes.view(*boxes.shape[:2], 2, 2)
-        # add padding point for consistency with the original implementation
         coords = torch.nn.functional.pad(coords, (0, 0, 0, 1), mode="constant", value=0)
         corner_embedding = self.shared_embedding(coords, (self.input_image_size, self.input_image_size))
         corner_embedding[:, :, 0, :] += self.point_embed.weight[2]
@@ -864,10 +766,6 @@ class Sam2PromptEncoder(SamPromptEncoder):
 
 
 class Sam2Attention(nn.Module):
-    """
-    SAM2's attention layer that allows for downscaling the size of the embedding after projection to queries, keys, and
-    values.
-    """
 
     def __init__(self, config, downsample_rate=None):
         super().__init__()
@@ -893,7 +791,6 @@ class Sam2Attention(nn.Module):
         attention_similarity: torch.Tensor | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # Input projections
         batch_size, point_batch_size = query.shape[:2]
         new_shape = (batch_size * point_batch_size, -1, self.num_attention_heads, self.head_dim)
 
@@ -906,8 +803,6 @@ class Sam2Attention(nn.Module):
         )
 
         if is_flash_attention_requested(self.config) and attention_similarity is not None:
-            # Target guided masks are represented as float masks and are incompatible with Flash Attention
-            # Fallback to SDPA for this call only so the rest of the model can still benefit from FA
             attention_interface = ALL_ATTENTION_FUNCTIONS["sdpa"]
             logger.warning_once(
                 "Falling back to SDPA for target-guided attention because "
@@ -1003,7 +898,6 @@ class Sam2MaskDecoder(SamMaskDecoder):
         multi-mask outputs (based on output token 1~3) the mask with the highest predicted
         IoU score. This is intended to ensure a valid mask for both clicking and tracking.
         """
-        # The best mask from multimask output tokens (1~3)
         multimask_logits = all_mask_logits[:, :, 1:, :, :]
         multimask_iou_scores = all_iou_scores[:, :, 1:]
         best_scores_inds = torch.argmax(multimask_iou_scores, dim=-1)  # [B, P]
@@ -1014,13 +908,11 @@ class Sam2MaskDecoder(SamMaskDecoder):
         best_multimask_logits = torch.gather(multimask_logits, 2, best_scores_inds_expanded)  # [B, P, 1, H, W]
         best_multimask_iou_scores = torch.gather(multimask_iou_scores, 2, best_scores_inds.unsqueeze(-1))  # [B, P, 1]
 
-        # The mask from singlemask output token 0 and its stability score
         singlemask_logits = all_mask_logits[:, :, 0:1, :, :]
         singlemask_iou_scores = all_iou_scores[:, :, 0:1]
         stability_scores = self._get_stability_scores(singlemask_logits)
         is_stable = stability_scores >= self.dynamic_multimask_stability_thresh
 
-        # Dynamically fall back to best multimask output upon low stability scores.
         mask_logits_out = torch.where(
             is_stable[..., None, None].expand_as(singlemask_logits),
             singlemask_logits,
@@ -1068,7 +960,6 @@ class Sam2MaskDecoder(SamMaskDecoder):
         """
         batch_size, num_channels, height, width = image_embeddings.shape
         point_batch_size = sparse_prompt_embeddings.shape[1]
-        # Concatenate output tokens
         output_tokens = torch.cat(
             [
                 self.obj_score_token.weight,
@@ -1085,11 +976,9 @@ class Sam2MaskDecoder(SamMaskDecoder):
             tokens = output_tokens
         point_embeddings = tokens.to(self.iou_token.weight.dtype)
 
-        # Expand per-image data in batch direction to be per-mask
         image_embeddings = image_embeddings + dense_prompt_embeddings
         image_embeddings = image_embeddings.repeat_interleave(point_batch_size, dim=0)
         image_positional_embeddings = image_positional_embeddings.repeat_interleave(point_batch_size, 0)
-        # Run the transformer
         point_embeddings, image_embeddings = self.transformer(
             point_embeddings=point_embeddings,
             image_embeddings=image_embeddings,
@@ -1101,7 +990,6 @@ class Sam2MaskDecoder(SamMaskDecoder):
         iou_token_out = point_embeddings[:, :, 1, :]
         mask_tokens_out = point_embeddings[:, :, 2 : (2 + self.num_mask_tokens), :]
 
-        # Upscale mask embeddings and predict masks using the mask tokens
         image_embeddings = image_embeddings.transpose(2, 3).view(
             batch_size * point_batch_size, num_channels, height, width
         )
@@ -1123,11 +1011,9 @@ class Sam2MaskDecoder(SamMaskDecoder):
         upscaled_embedding = upscaled_embedding.view(batch_size, point_batch_size, num_channels, height * width)
         masks = (hyper_in @ upscaled_embedding).view(batch_size, point_batch_size, -1, height, width)
 
-        # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)
         object_score_logits = self.pred_obj_score_head(point_embeddings[:, :, 0, :])
 
-        # Select the correct mask or masks for output
         if multimask_output:
             mask_slice = slice(1, None)
             masks = masks[:, :, mask_slice, :, :]
@@ -1159,13 +1045,11 @@ class Sam2Model(SamModel):
         self.shared_image_embedding = Sam2PositionalEmbedding(config.prompt_encoder_config)
         self.vision_encoder = AutoModel.from_config(config.vision_config)
         self.prompt_encoder = Sam2PromptEncoder(config.prompt_encoder_config)
-        # The module using it is not a PreTrainedModel subclass so we need this
         config.mask_decoder_config._attn_implementation = config._attn_implementation
         self.mask_decoder = Sam2MaskDecoder(config.mask_decoder_config)
 
         self.num_feature_levels = config.vision_config.num_feature_levels
         self.backbone_feature_sizes = config.vision_config.backbone_feature_sizes
-        # a single token to indicate no memory embedding from previous frames
         self.hidden_dim = config.vision_config.fpn_hidden_size
         self.no_memory_embedding = torch.nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
 
@@ -1201,10 +1085,8 @@ class Sam2Model(SamModel):
         image_outputs = self.get_image_features(pixel_values, return_dict=True, **kwargs)
         feature_maps = image_outputs.fpn_hidden_states
 
-        # add no memory embedding to the last feature map
         feature_maps[-1] = feature_maps[-1] + self.no_memory_embedding
 
-        # reshape feature maps to the same shape as the backbone feature sizes
         image_embeddings = [
             feat.permute(1, 2, 0).view(batch_size, -1, *feat_size)
             for feat, feat_size in zip(feature_maps, self.backbone_feature_sizes)
@@ -1228,13 +1110,10 @@ class Sam2Model(SamModel):
         feature_maps = vision_outputs.fpn_hidden_states
         feature_maps_position_embeddings = vision_outputs.fpn_position_encoding
 
-        # precompute projected level 0 and level 1 features in SAM decoder
-        # to avoid running it again on every SAM click
         feature_maps = list(feature_maps)
         feature_maps[0] = self.mask_decoder.conv_s0(feature_maps[0])
         feature_maps[1] = self.mask_decoder.conv_s1(feature_maps[1])
 
-        # flatten NxCxHxW to HWxNxC
         feature_maps = [feature_map.flatten(2).permute(2, 0, 1) for feature_map in feature_maps]
         feature_maps_position_embeddings = [
             feature_maps_position_embeddings.flatten(2).permute(2, 0, 1)
@@ -1350,7 +1229,6 @@ class Sam2Model(SamModel):
                 )
 
         image_positional_embeddings = self.get_image_wide_positional_embeddings()
-        # repeat with batch size
         batch_size = pixel_values.shape[0] if pixel_values is not None else image_embeddings[-1].shape[0]
         image_positional_embeddings = image_positional_embeddings.repeat(batch_size, 1, 1, 1)
 
@@ -1363,10 +1241,8 @@ class Sam2Model(SamModel):
             vision_hidden_states = image_outputs.hidden_states
             vision_attentions = image_outputs.attentions
 
-            # add no memory embedding to the last feature map
             feature_maps[-1] = feature_maps[-1] + self.no_memory_embedding
 
-            # reshape feature maps to the same shape as the backbone feature sizes
             image_embeddings = [
                 feat.permute(1, 2, 0).view(batch_size, -1, *feat_size)
                 for feat, feat_size in zip(feature_maps, self.backbone_feature_sizes)
@@ -1376,15 +1252,12 @@ class Sam2Model(SamModel):
             input_labels = torch.ones_like(input_points[:, :, :, 0], dtype=torch.int, device=input_points.device)
 
         if input_points is None and input_boxes is None:
-            # If no points are provide, pad with an empty point (with label -1)
             input_points = torch.zeros(
                 batch_size, 1, 1, 2, dtype=image_embeddings[-1].dtype, device=image_embeddings[-1].device
             )
             input_labels = -torch.ones(batch_size, 1, 1, dtype=torch.int32, device=image_embeddings[-1].device)
 
         if input_masks is not None:
-            # If mask_inputs is provided, downsize it into low-res mask input if needed
-            # and feed it as a dense mask prompt into the SAM mask encoder
             if input_masks.shape[-2:] != self.prompt_encoder.mask_input_size:
                 input_masks = F.interpolate(
                     input_masks.float(),

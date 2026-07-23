@@ -1,17 +1,3 @@
-# Copyright 2022, UCLA NLP, The Facebook AI Research Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch PLBART model."""
 
 import math
 
@@ -137,8 +123,6 @@ class PLBartModel(PLBartPreTrainedModel):
             Default behavior:
             generate a tensor that ignores pad tokens in `decoder_input_ids`. Causal mask will also be used by default.
         """
-        # different to other models, PLBart automatically creates decoder_input_ids from
-        # input_ids if no decoder_input_ids are provided
         if decoder_input_ids is None and decoder_inputs_embeds is None:
             decoder_input_ids = shift_tokens_right(input_ids, self.config.pad_token_id)
 

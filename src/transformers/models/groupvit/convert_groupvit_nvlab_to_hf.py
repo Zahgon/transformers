@@ -1,22 +1,4 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""
-Convert GroupViT checkpoints from the original repository.
-
-URL: https://github.com/NVlabs/GroupViT
-"""
 
 import argparse
 from io import BytesIO
@@ -29,7 +11,6 @@ from transformers import CLIPProcessor, GroupViTConfig, GroupViTModel
 
 
 def rename_key(name):
-    # vision encoder
     if "img_encoder.pos_embed" in name:
         name = name.replace("img_encoder.pos_embed", "vision_model.embeddings.position_embeddings")
     if "img_encoder.patch_embed.proj" in name:
@@ -52,7 +33,6 @@ def rename_key(name):
         name = name.replace("norm2", "layer_norm2")
     if "img_encoder.norm" in name:
         name = name.replace("img_encoder.norm", "vision_model.layernorm")
-    # text encoder
     if "text_encoder.token_embedding" in name:
         name = name.replace("text_encoder.token_embedding", "text_model.embeddings.token_embedding")
     if "text_encoder.positional_embedding" in name:
@@ -71,7 +51,6 @@ def rename_key(name):
         name = name.replace("text_encoder", "text_model")
     if "ln_final" in name:
         name = name.replace("ln_final", "final_layer_norm")
-    # projection layers
     if "img_projector.linear_hidden." in name:
         name = name.replace("img_projector.linear_hidden.", "visual_projection.")
     if "img_projector.linear_out." in name:
@@ -89,8 +68,6 @@ def convert_state_dict(orig_state_dict, config):
         val = orig_state_dict.pop(key)
 
         if "qkv" in key:
-            # weights and biases of the key, value and query projections of vision encoder's attention layers require special treatment:
-            # we need to split them up into separate matrices/vectors
             key_split = key.split(".")
             stage_num, layer_num = int(key_split[2]), int(key_split[4])
             dim = config.vision_config.hidden_size
@@ -115,8 +92,6 @@ def convert_state_dict(orig_state_dict, config):
                     f"vision_model.encoder.stages.{stage_num}.layers.{layer_num}.self_attn.v_proj.bias"
                 ] = val[-dim:]
         elif "in_proj" in key:
-            # weights and biases of the key, value and query projections of text encoder's attention layers require special treatment:
-            # we need to split them up into separate matrices/vectors
             key_split = key.split(".")
             layer_num = int(key_split[3])
             dim = config.text_config.hidden_size
@@ -132,7 +107,6 @@ def convert_state_dict(orig_state_dict, config):
                 orig_state_dict[f"text_model.encoder.layers.{layer_num}.self_attn.v_proj.bias"] = val[-dim:]
         else:
             new_name = rename_key(key)
-            # squeeze if necessary
             if (
                 "text_projection.0" in new_name
                 or "text_projection.3" in new_name
@@ -146,7 +120,6 @@ def convert_state_dict(orig_state_dict, config):
     return orig_state_dict
 
 
-# We will verify our results on an image of cute cats
 def prepare_img():
     url = "http://images.cocodataset.org/val2017/000000039769.jpg"
     with httpx.stream("GET", url) as response:
@@ -158,42 +131,7 @@ def prepare_img():
 def convert_groupvit_checkpoint(
     checkpoint_path, pytorch_dump_folder_path, model_name="groupvit-gcc-yfcc", push_to_hub=False
 ):
-    """
-    Copy/paste/tweak model's weights to the Transformers design.
-    """
-    config = GroupViTConfig()
-    model = GroupViTModel(config).eval()
-
-    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)["model"]
-    new_state_dict = convert_state_dict(state_dict, config)
-    missing_keys, unexpected_keys = model.load_state_dict(new_state_dict, strict=False)
-    assert missing_keys == ["text_model.embeddings.position_ids"]
-    assert (unexpected_keys == ["multi_label_logit_scale"]) or (len(unexpected_keys) == 0)
-
-    # verify result
-    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-    image = prepare_img()
-    inputs = processor(text=["a photo of a cat", "a photo of a dog"], images=image, padding=True, return_tensors="pt")
-
-    with torch.no_grad():
-        outputs = model(**inputs)
-
-    if model_name == "groupvit-gcc-yfcc":
-        expected_logits = torch.tensor([[13.3523, 6.3629]])
-    elif model_name == "groupvit-gcc-redcaps":
-        expected_logits = torch.tensor([[16.1873, 8.6230]])
-    else:
-        raise ValueError(f"Model name {model_name} not supported.")
-    assert torch.allclose(outputs.logits_per_image, expected_logits, atol=1e-3)
-
-    processor.save_pretrained(pytorch_dump_folder_path)
-    model.save_pretrained(pytorch_dump_folder_path)
-    print("Successfully saved processor and model to", pytorch_dump_folder_path)
-
-    if push_to_hub:
-        print("Pushing to the hub...")
-        processor.push_to_hub(repo_id=f"nielsr/{model_name}")
-        model.push_to_hub(repo_id=f"nielsr/{model_name}")
+    pass
 
 
 if __name__ == "__main__":

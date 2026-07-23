@@ -1,19 +1,3 @@
-# Copyright 2025 Deepseek AI and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for Janus.
-"""
 
 from ...feature_extraction_utils import BatchFeature
 from ...image_utils import ImageInput
@@ -32,12 +16,6 @@ DEFAULT_SYSTEM_PROMPT = (
 
 
 class JanusTextKwargs(TextKwargs, total=False):
-    """
-    generation_mode (`str`, *optional*, defaults to `"text"`):
-        The generation mode indicating which modality to generate. Can be one of `"text"` or `"image"`. When set
-        to `"text"`, the processor prepares inputs for text generation. When set to `"image"`, it prepares inputs
-        for image generation by appending image start tokens to the prompt.
-    """
 
     generation_mode: str
 
@@ -109,8 +87,7 @@ class JanusProcessor(ProcessorMixin):
         return model_inputs
 
     def replace_image_token(self, image_inputs: dict, image_idx: int) -> str:
-        one_img_tokens = self.image_start_token + (self.image_token * self.num_image_tokens) + self.image_end_token
-        return one_img_tokens
+        pass
 
     def postprocess(self, images: ImageInput, **kwargs):
         """

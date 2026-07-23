@@ -1,17 +1,3 @@
-# Copyright 2021 The OpenAI Team Authors and HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch OpenAI ImageGPT model."""
 
 import math
 from typing import Any
@@ -52,7 +38,6 @@ class ImageGPTLayerNorm(nn.Module):
         self.weight = nn.Parameter(torch.Tensor(hidden_size))
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
-        # input is not mean centered
         tensor = tensor / torch.sqrt(torch.mean(torch.square(tensor), axis=-1, keepdim=True) + self.eps)
         tensor = tensor * self.weight
         return tensor
@@ -84,7 +69,6 @@ class ImageGPTAttention(nn.Module):
         self.scale_attn_weights = config.scale_attn_weights
         self.is_cross_attention = is_cross_attention
 
-        # Layer-wise attention scaling, reordering, and upcasting
         self.scale_attn_by_inverse_layer_idx = config.scale_attn_by_inverse_layer_idx
         self.layer_idx = layer_idx
         self.reorder_and_upcast_attn = config.reorder_and_upcast_attn
@@ -105,27 +89,21 @@ class ImageGPTAttention(nn.Module):
         if self.scale_attn_weights:
             attn_weights = attn_weights / torch_float(value.size(-1) ** 0.5)
 
-        # Layer-wise attention scaling
         if self.scale_attn_by_inverse_layer_idx:
             attn_weights = attn_weights / float(self.layer_idx + 1)
 
         if not self.is_cross_attention:
-            # if only "normal" attention layer implements causal mask
             query_length, key_length = query.size(-2), key.size(-2)
             causal_mask = self.bias[:, :, key_length - query_length : key_length, :key_length]
             mask_value = torch.finfo(attn_weights.dtype).min
-            # Need to be a tensor, otherwise we get error: `RuntimeError: expected scalar type float but found double`.
-            # Need to be on the same device, otherwise `RuntimeError: ..., x and y to be on the same device`
             mask_value = torch.tensor(mask_value, dtype=attn_weights.dtype, device=attn_weights.device)
             attn_weights = torch.where(causal_mask, attn_weights, mask_value)
 
         if attention_mask is not None:
-            # Apply the attention mask
             attn_weights = attn_weights + attention_mask
 
         attn_weights = nn.Softmax(dim=-1)(attn_weights)
 
-        # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op otherwise
         attn_weights = attn_weights.type(value.dtype)
         attn_weights = self.attn_dropout(attn_weights)
 
@@ -134,14 +112,11 @@ class ImageGPTAttention(nn.Module):
         return attn_output, attn_weights
 
     def _upcast_and_reordered_attn(self, query, key, value, attention_mask=None):
-        # Use `torch.baddbmm` (a bit more efficient w/ alpha param for scaling -- from Megatron-LM)
         bsz, num_heads, q_seq_len, dk = query.size()
         _, _, k_seq_len, _ = key.size()
 
-        # Preallocate attn_weights for `baddbmm`
         attn_weights = torch.empty(bsz * num_heads, q_seq_len, k_seq_len, dtype=torch.float32, device=query.device)
 
-        # Compute Scale Factor
         scale_factor = 1.0
         if self.scale_attn_weights:
             scale_factor /= float(value.size(-1)) ** 0.5
@@ -149,29 +124,23 @@ class ImageGPTAttention(nn.Module):
         if self.scale_attn_by_inverse_layer_idx:
             scale_factor /= float(self.layer_idx + 1)
 
-        # Upcast (turn off autocast) and reorder (Scale K by 1 / root(dk))
         with maybe_autocast(query.device.type, enabled=False):
             q, k = query.reshape(-1, q_seq_len, dk), key.transpose(-1, -2).reshape(-1, dk, k_seq_len)
             attn_weights = torch.baddbmm(attn_weights, q.float(), k.float(), beta=0, alpha=scale_factor)
             attn_weights = attn_weights.reshape(bsz, num_heads, q_seq_len, k_seq_len)
 
         if not self.is_cross_attention:
-            # if only "normal" attention layer implements causal mask
             query_length, key_length = query.size(-2), key.size(-2)
             causal_mask = self.bias[:, :, key_length - query_length : key_length, :key_length]
             mask_value = torch.finfo(attn_weights.dtype).min
-            # Need to be a tensor, otherwise we get error: `RuntimeError: expected scalar type float but found double`.
-            # Need to be on the same device, otherwise `RuntimeError: ..., x and y to be on the same device`
             mask_value = torch.tensor(mask_value, dtype=attn_weights.dtype, device=attn_weights.device)
             attn_weights = torch.where(causal_mask, attn_weights, mask_value)
 
         if attention_mask is not None:
-            # Apply the attention mask
             attn_weights = attn_weights + attention_mask
 
         attn_weights = nn.Softmax(dim=-1)(attn_weights)
 
-        # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op if otherwise
         if attn_weights.dtype != torch.float32:
             raise RuntimeError("Error with upcasting, attn_weights does not have dtype torch.float32")
         attn_weights = attn_weights.type(value.dtype)
@@ -215,7 +184,6 @@ class ImageGPTAttention(nn.Module):
             if isinstance(layer_past, EncoderDecoderCache):
                 is_updated = layer_past.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = layer_past.cross_attention_cache
                 else:
                     curr_past_key_values = layer_past.self_attention_cache
@@ -231,7 +199,6 @@ class ImageGPTAttention(nn.Module):
                 )
 
             if layer_past is not None and is_updated:
-                # reuse k,v, cross_attentions, and compute only q
                 query = self.q_attn(hidden_states)
                 key = curr_past_key_values.layers[self.layer_idx].keys
                 value = curr_past_key_values.layers[self.layer_idx].values
@@ -246,9 +213,7 @@ class ImageGPTAttention(nn.Module):
             value = value.view(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2)
 
         if layer_past is not None:
-            # save all key/value_states to cache to be re-used for fast auto-regressive generation
             key, value = curr_past_key_values.update(key, value, self.layer_idx)
-            # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
             if is_cross_attention:
                 layer_past.is_updated[self.layer_idx] = True
 
@@ -321,11 +286,9 @@ class ImageGPTBlock(GradientCheckpointingLayer):
         )
         attn_output = attn_outputs[0]
         outputs = attn_outputs[1:]
-        # residual connection
         hidden_states = attn_output + residual
 
         if encoder_hidden_states is not None:
-            # add one self-attention block for cross-attention
             if not hasattr(self, "crossattention"):
                 raise ValueError(
                     f"If `encoder_hidden_states` are passed, {self} has to be instantiated with "
@@ -342,14 +305,12 @@ class ImageGPTBlock(GradientCheckpointingLayer):
                 output_attentions=output_attentions,
             )
             attn_output = cross_attn_outputs[0]
-            # residual connection
             hidden_states = residual + attn_output
             outputs = outputs + cross_attn_outputs[1:]  # add cross attentions if we output attention weights
 
         residual = hidden_states
         hidden_states = self.ln_2(hidden_states)
         feed_forward_hidden_states = self.mlp(hidden_states)
-        # residual connection
         hidden_states = residual + feed_forward_hidden_states
 
         return (hidden_states,) + outputs
@@ -369,16 +330,9 @@ class ImageGPTPreTrainedModel(PreTrainedModel):
         """Initialize the weights."""
         super()._init_weights(module)
 
-        # Reinitialize selected weights subject to the OpenAI GPT-2 Paper Scheme:
-        #   > A modified initialization which accounts for the accumulation on the residual path with model depth. Scale
-        #   > the weights of residual layers at initialization by a factor of 1/√N where N is the # of residual layers.
-        #   >   -- GPT-2 :: https://openai.com/blog/better-language-models/
-        #
-        # Reference (Megatron-LM): https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/model/gpt_model.py
         if isinstance(module, PreTrainedModel):
             for name, p in module.named_parameters():
                 if "c_proj" in name and "weight" in name:
-                    # Special Scaled Initialization --> There are 2 Layer Norms per Transformer Block
                     init.normal_(p, mean=0.0, std=self.config.initializer_range / math.sqrt(2 * self.config.n_layer))
         elif isinstance(module, ImageGPTAttention):
             max_positions = module.config.max_position_embeddings
@@ -405,7 +359,6 @@ class ImageGPTModel(ImageGPTPreTrainedModel):
         self.ln_f = ImageGPTLayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -565,7 +518,6 @@ class ImageGPTModel(ImageGPTPreTrainedModel):
         hidden_states = self.ln_f(hidden_states)
         hidden_states = hidden_states.view(*output_shape)
 
-        # Add last hidden state
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -599,7 +551,6 @@ class ImageGPTForCausalImageModeling(ImageGPTPreTrainedModel, GenerationMixin):
         self.transformer = ImageGPTModel(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size - 1, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -693,10 +644,8 @@ class ImageGPTForCausalImageModeling(ImageGPTPreTrainedModel, GenerationMixin):
 
         loss = None
         if labels is not None:
-            # Shift so that tokens < n predict n
             shift_logits = lm_logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
-            # Flatten the tokens
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
 
@@ -727,7 +676,6 @@ class ImageGPTForImageClassification(ImageGPTPreTrainedModel):
         self.transformer = ImageGPTModel(config)
         self.score = nn.Linear(config.n_embd, self.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -796,9 +744,7 @@ class ImageGPTForImageClassification(ImageGPTPreTrainedModel):
             return_dict=return_dict,
         )
         hidden_states = transformer_outputs[0]
-        # average-pool the hidden states along the sequence dimension
         pooled_hidden_states = hidden_states.mean(dim=1)
-        # project from (batch_size, hidden_size) to (batch_size, num_labels)
         logits = self.score(pooled_hidden_states)
 
         loss = None

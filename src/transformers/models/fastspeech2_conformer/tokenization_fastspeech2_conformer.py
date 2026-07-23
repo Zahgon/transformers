@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for FastSpeech2Conformer."""
 
 import json
 import os
@@ -28,24 +14,6 @@ VOCAB_FILES_NAMES = {"vocab_file": "vocab.json"}
 
 
 class FastSpeech2ConformerTokenizer(PreTrainedTokenizer):
-    """
-    Construct a FastSpeech2Conformer tokenizer.
-
-    Args:
-        vocab_file (`str`):
-            Path to the vocabulary file.
-        bos_token (`str`, *optional*, defaults to `"<sos/eos>"`):
-            The begin of sequence token. Note that for FastSpeech2, it is the same as the `eos_token`.
-        eos_token (`str`, *optional*, defaults to `"<sos/eos>"`):
-            The end of sequence token. Note that for FastSpeech2, it is the same as the `bos_token`.
-        pad_token (`str`, *optional*, defaults to `"<blank>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        should_strip_spaces (`bool`, *optional*, defaults to `False`):
-            Whether or not to strip the spaces from the list of tokens.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -85,23 +53,20 @@ class FastSpeech2ConformerTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        return len(self.decoder)
+        pass
 
     def get_vocab(self):
         "Returns vocab as a dict"
         return dict(self.encoder, **self.added_tokens_encoder)
 
     def prepare_for_tokenization(self, text, is_split_into_words=False, **kwargs):
-        # expand symbols
         text = regex.sub(";", ",", text)
         text = regex.sub(":", ",", text)
         text = regex.sub("-", " ", text)
         text = regex.sub("&", "and", text)
 
-        # strip unnecessary symbols
         text = regex.sub(r"[\(\)\[\]\<\>\"]+", "", text)
 
-        # strip whitespaces
         text = regex.sub(r"\s+", " ", text)
 
         text = text.upper()
@@ -110,7 +75,6 @@ class FastSpeech2ConformerTokenizer(PreTrainedTokenizer):
 
     def _tokenize(self, text):
         """Returns a tokenized string."""
-        # phonemize
         tokens = self.g2p(text)
 
         if self.should_strip_spaces:
@@ -128,14 +92,12 @@ class FastSpeech2ConformerTokenizer(PreTrainedTokenizer):
         """Converts an index (integer) in a token (str) using the vocab."""
         return self.decoder.get(index, self.unk_token)
 
-    # Override since phonemes cannot be converted back to strings
     def decode(self, token_ids, **kwargs):
         logger.warning(
             "Phonemes cannot be reliably converted to a string due to the one-many mapping, converting to tokens instead."
         )
         return self.convert_ids_to_tokens(token_ids)
 
-    # Override since phonemes cannot be converted back to strings
     def convert_tokens_to_string(self, tokens, **kwargs):
         logger.warning(
             "Phonemes cannot be reliably converted to a string due to the one-many mapping, returning the tokens."

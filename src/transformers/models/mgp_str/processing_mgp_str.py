@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Processor class for MGP-STR."""
 
 from transformers import AutoTokenizer
 from transformers.utils import is_torch_available
@@ -156,47 +142,17 @@ class MgpstrProcessor(ProcessorMixin):
         return dec_strs, conf_scores
 
     def char_decode(self, sequences):
-        """
-        Convert a list of lists of char token ids into a list of strings by calling char tokenizer.
-
-        Args:
-            sequences (`torch.Tensor`):
-                List of tokenized input ids.
-        Returns:
-            `list[str]`: The list of char decoded sentences.
-        """
-        decode_strs = [seq.replace(" ", "") for seq in self.char_tokenizer.batch_decode(sequences)]
-        return decode_strs
+        pass
 
     def bpe_decode(self, sequences):
-        """
-        Convert a list of lists of bpe token ids into a list of strings by calling bpe tokenizer.
-
-        Args:
-            sequences (`torch.Tensor`):
-                List of tokenized input ids.
-        Returns:
-            `list[str]`: The list of bpe decoded sentences.
-        """
-        return self.bpe_tokenizer.batch_decode(sequences)
+        pass
 
     def wp_decode(self, sequences):
-        """
-        Convert a list of lists of word piece token ids into a list of strings by calling word piece tokenizer.
-
-        Args:
-            sequences (`torch.Tensor`):
-                List of tokenized input ids.
-        Returns:
-            `list[str]`: The list of wp decoded sentences.
-        """
-        decode_strs = [seq.replace(" ", "") for seq in self.wp_tokenizer.batch_decode(sequences)]
-        return decode_strs
+        pass
 
     @property
     def model_input_names(self):
-        image_processor_input_names = self.image_processor.model_input_names
-        return image_processor_input_names + ["labels"]
+        pass
 
 
 __all__ = ["MgpstrProcessor"]

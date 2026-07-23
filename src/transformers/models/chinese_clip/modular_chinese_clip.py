@@ -1,17 +1,3 @@
-# Copyright 2022 The OFA-Sys Team Authors and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Chinese-CLIP model."""
 
 import torch
 from huggingface_hub.dataclasses import strict
@@ -54,24 +40,6 @@ from ..clip.modeling_clip import (
 @auto_docstring(checkpoint="OFA-Sys/chinese-clip-vit-base-patch16")
 @strict
 class ChineseCLIPTextConfig(CLIPTextConfig):
-    r"""
-    type_vocab_size (`int`, *optional*, defaults to 2):
-        The vocabulary size of the `token_type_ids` passed when calling [`ChineseCLIPModel`].
-
-    Example:
-
-    ```python
-    >>> from transformers import ChineseCLIPTextConfig, ChineseCLIPTextModel
-
-    >>> # Initializing a ChineseCLIPTextConfig with OFA-Sys/chinese-clip-vit-base-patch16 style configuration
-    >>> configuration = ChineseCLIPTextConfig()
-
-    >>> # Initializing a ChineseCLIPTextModel (with random weights) from the OFA-Sys/chinese-clip-vit-base-patch16 style configuration
-    >>> model = ChineseCLIPTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     vocab_size: int = 30522
     hidden_size: int = 768
@@ -93,48 +61,12 @@ class ChineseCLIPTextConfig(CLIPTextConfig):
 @auto_docstring(checkpoint="OFA-Sys/chinese-clip-vit-base-patch16")
 @strict
 class ChineseCLIPVisionConfig(CLIPVisionConfig):
-    r"""
-    Example:
-    ```python
-    >>> from transformers import ChineseCLIPVisionConfig, ChineseCLIPVisionModel
-
-    >>> # Initializing a ChineseCLIPVisionConfig with OFA-Sys/chinese-clip-vit-base-patch16 style configuration
-    >>> configuration = ChineseCLIPVisionConfig()
-
-    >>> # Initializing a ChineseCLIPVisionModel (with random weights) from the OFA-Sys/chinese-clip-vit-base-patch16 style configuration
-    >>> model = ChineseCLIPVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
+    pass
 
 
 @auto_docstring(checkpoint="OFA-Sys/chinese-clip-vit-base-patch16")
 @strict
 class ChineseCLIPConfig(CLIPConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import ChineseCLIPConfig, ChineseCLIPModel
-
-    >>> # Initializing a ChineseCLIPConfig with OFA-Sys/chinese-clip-vit-base-patch16 style configuration
-    >>> configuration = ChineseCLIPConfig()
-
-    >>> # Initializing a ChineseCLIPModel (with random weights) from the OFA-Sys/chinese-clip-vit-base-patch16 style configuration
-    >>> model = ChineseCLIPModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-
-    >>> # We can also initialize a ChineseCLIPConfig from a ChineseCLIPTextConfig and a ChineseCLIPVisionConfig
-
-    >>> # Initializing a ChineseCLIPTextConfig and ChineseCLIPVisionConfig configuration
-    >>> config_text = ChineseCLIPTextConfig()
-    >>> config_vision = ChineseCLIPVisionConfig()
-
-    >>> config = ChineseCLIPConfig(text_config=config_text, vision_config=config_vision)
-    ```"""
 
     initializer_range: float = 0.02
 
@@ -256,13 +188,6 @@ class ChineseCLIPTextEncoder(AlignTextEncoder):
 
 
 class ChineseCLIPVisionEncoder(CLIPEncoder):
-    """
-    Transformer encoder consisting of `config.num_hidden_layers` self attention layers. Each layer is a
-    [`ChineseCLIPVisionEncoderLayer`].
-
-    Args:
-        config: ChineseCLIPConfig
-    """
 
     def __init__(self, config: ChineseCLIPConfig):
         super().__init__()
@@ -305,7 +230,6 @@ class ChineseCLIPVisionModel(CLIPVisionModel):
         super().forward(**super_kwargs)
 
 
-# Dont copy from AltCLIP if you don't want to get into infinite recursion!
 @auto_docstring(
     custom_intro="""
     The text model from CHINESE_CLIP without any head or projection on top.
@@ -492,7 +416,6 @@ class ChineseCLIPModel(CLIPModel):
         >>> logits_per_image = outputs.logits_per_image  # this is the image-text similarity score
         >>> probs = logits_per_image.softmax(dim=1)  # we can take the softmax to get the label probabilities
         ```"""
-        # As CLIP with `token_type_ids`
         vision_outputs = self.get_image_features(
             pixel_values=pixel_values,
             interpolate_pos_encoding=interpolate_pos_encoding,
@@ -510,11 +433,9 @@ class ChineseCLIPModel(CLIPModel):
         image_embeds = vision_outputs.pooler_output
         text_embeds = text_outputs.pooler_output
 
-        # normalized features
         image_embeds = image_embeds / _get_vector_norm(image_embeds)
         text_embeds = text_embeds / _get_vector_norm(text_embeds)
 
-        # cosine similarity as logits
         logits_per_text = torch.matmul(text_embeds, image_embeds.t().to(text_embeds.device))
         logits_per_text = logits_per_text * self.logit_scale.exp().to(text_embeds.device)
         logits_per_image = logits_per_text.t()

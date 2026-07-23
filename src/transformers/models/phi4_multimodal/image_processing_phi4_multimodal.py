@@ -1,17 +1,3 @@
-# Copyright 2025 Microsoft and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Phi4Multimodal."""
 
 import math
 
@@ -29,12 +15,6 @@ logger = logging.get_logger(__name__)
 
 
 class Phi4MultimodalImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    patch_size (`int`, *optional*):
-        The size of the patch.
-    dynamic_hd (`int`, *optional*):
-        The maximum number of crops per image.
-    """
 
     patch_size: int
     dynamic_hd: int
@@ -84,7 +64,6 @@ class Phi4MultimodalImageProcessor(TorchvisionBackend):
         if w_crop_num * h_crop_num > max_num:
             aspect_ratio = orig_width / orig_height
 
-            # calculate the existing image aspect ratio
             target_ratios = {
                 (i, j)
                 for n in range(min_num, max_num + 1)
@@ -94,12 +73,10 @@ class Phi4MultimodalImageProcessor(TorchvisionBackend):
             }
             target_ratios = sorted(target_ratios, key=lambda x: x[0] * x[1])
 
-            # find the closest aspect ratio to the target
             target_aspect_ratio = self.find_closest_aspect_ratio(
                 aspect_ratio, target_ratios, orig_width, orig_height, image_size
             )
 
-            # calculate the target width and height
             target_width = image_size * target_aspect_ratio[0]
             target_height = image_size * target_aspect_ratio[1]
         else:
@@ -107,7 +84,6 @@ class Phi4MultimodalImageProcessor(TorchvisionBackend):
             target_height = image_size * h_crop_num
             target_aspect_ratio = (w_crop_num, h_crop_num)
 
-        # Calculate the ratio
         ratio_width = target_width / orig_width
         ratio_height = target_height / orig_height
         if ratio_width < ratio_height:

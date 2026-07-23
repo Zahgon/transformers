@@ -1,23 +1,4 @@
-# Copyright 2025 Deepseek AI and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""
-Example of run command (run from root):
-
-python src/transformers/models/janus/convert_janus_weights_to_hf.py --repo_id deepseek-ai/Janus-Pro-1B --local_dir tmp/hub_code_in --output_dir tmp/hub_code_out
-Using provided local directory: tmp/hub_code_in
-"""
 
 import argparse
 import gc
@@ -40,9 +21,7 @@ from transformers.models.janus.image_processing_janus import JanusImageProcessor
 from transformers.models.janus.processing_janus import JanusProcessor
 
 
-# Mappings
 MAPPINGS = {
-    # Vision model
     r"(?<!gen_)vision_model\.vision_tower\.blocks\.(\d+)\.attn": r"model.vision_model.encoder.layers.\1.self_attn",
     r"(?<!gen_)vision_model.vision_tower.blocks": "model.vision_model.encoder.layers",
     r"(?<!gen_)vision_model.vision_tower.pos_embed": "model.vision_model.embeddings.position_embedding.weight",
@@ -53,7 +32,6 @@ MAPPINGS = {
     r"(?P<pre>\b(vision_model|model\.vision_model)\b.*\.)norm1(?=\.|\s|$)": r"\g<pre>layer_norm1",
     r"(?P<pre>\b(vision_model|model\.vision_model)\b.*\.)norm2(?=\.|\s|$)": r"\g<pre>layer_norm2",
     r"\bvision_model\.vision_tower\.attn_pool\.[^\s$]*": None,
-    # VQ Model
     r"gen_vision_model": "model.vqmodel",
     r"(?P<pre>\b(gen_vision_model|model\.vqmodel)\b.*\.)decoder\.conv_blocks(?=\.|\s|$)": r"\g<pre>decoder.up",
     r"(?P<pre>\b(gen_vision_model|model\.vqmodel)\b.*\.)encoder\.conv_blocks(?=\.|\s|$)": r"\g<pre>encoder.down",
@@ -61,7 +39,6 @@ MAPPINGS = {
     r"(?P<pre>\b(gen_vision_model|model\.vqmodel)\b.*\.)mid\.0(?=\.|\s|$)": r"\g<pre>mid.block_1",
     r"(?P<pre>\b(gen_vision_model|model\.vqmodel)\b.*\.)mid\.1(?=\.|\s|$)": r"\g<pre>mid.attn_1",
     r"(?P<pre>\b(gen_vision_model|model\.vqmodel)\b.*\.)mid\.2(?=\.|\s|$)": r"\g<pre>mid.block_2",
-    # Aligner Modules
     r"(gen_aligner)\.layers\.0": r"model.generation_aligner.fc1",
     r"(gen_aligner)\.layers\.2": r"model.generation_aligner.hidden_layers.0",
     r"(?<!gen_)(aligner)\.layers\.0": r"model.aligner.fc1",
@@ -70,7 +47,6 @@ MAPPINGS = {
     r"(\s|^)gen_embed": r"\1model.generation_embeddings",
     r"(\s|^)gen_head": r"\1model.generation_head",
     r"\b(gen_vision_model|model\.vqmodel)\.quantize\.codebook_used": None,
-    # Language model
     r"(\s|^)language_model\.model": r"\1model.language_model",
     r"\b(model\.language_model|(?<!model\.)language_model)\.lm_head\.weight": "lm_head.weight",
 }
@@ -158,7 +134,6 @@ def convert_state_dict_to_hf(state_dict):
             else:
                 converted_state_dict[new_key] = state_dict[old_key]
 
-    # Embeddings will not have initial dimension
     pos_embed_key = "model.vision_model.embeddings.position_embedding.weight"
     converted_state_dict[pos_embed_key] = converted_state_dict[pos_embed_key].squeeze(0)
 
@@ -181,7 +156,6 @@ def ensure_model_downloaded(
         if os.path.exists(local_dir):
             print(f"Using provided local directory: {local_dir}")
         else:
-            # Create the local directory if it doesn't exist
             os.makedirs(local_dir, exist_ok=True)
             print(f"Created local directory: {local_dir}")
 
@@ -191,12 +165,10 @@ def ensure_model_downloaded(
     print(f"Ensuring {repo_id} (revision: {revision or 'latest'}) is downloaded...")
 
     try:
-        # First try to find files locally
         download_dir = snapshot_download(repo_id, revision=revision, local_files_only=True, local_dir=local_dir)
         print(f"Found model files locally at {download_dir}")
         return download_dir
     except Exception:
-        # If files not found locally, download them
         print(f"Downloading model files for {repo_id}...")
         download_dir = snapshot_download(repo_id, revision=revision, local_files_only=False, local_dir=local_dir)
         print(f"Downloaded model files to {download_dir}")
@@ -210,14 +182,12 @@ def load_model_state_dict(input_path: str) -> dict:
     index_path = os.path.join(input_path, "pytorch_model.bin.index.json")
     single_file_path = os.path.join(input_path, "pytorch_model.bin")
 
-    # Check if we have a sharded model
     if os.path.exists(index_path):
         print("Loading sharded model...")
         state_dict = {}
         with open(index_path, "r") as f:
             index = json.load(f)
 
-        # Get unique shard files and load each one only once
         unique_shard_files = sorted(set(index["weight_map"].values()))
         for shard_file in unique_shard_files:
             print(f"Loading shard {shard_file}...")
@@ -227,7 +197,6 @@ def load_model_state_dict(input_path: str) -> dict:
 
         return state_dict
 
-    # Single file model
     elif os.path.exists(single_file_path):
         print("Loading single file model...")
         return torch.load(single_file_path, map_location="cpu")
@@ -251,17 +220,14 @@ def convert_model(
     if repo_id is None and local_dir is None:
         raise ValueError("Either repo_id or local_dir must be specified")
 
-    # Create output directory if specified
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
         print(f"Created/verified output directory: {output_dir}")
 
     torch.set_default_dtype(torch.float16)
 
-    # Download or locate model files
     input_path = ensure_model_downloaded(repo_id=repo_id, revision=revision, local_dir=local_dir)
 
-    # Load configuration files
     required_files = ["config.json", "preprocessor_config.json", "special_tokens_map.json", "tokenizer_config.json"]
 
     missing_files = [f for f in required_files if not os.path.exists(os.path.join(input_path, f))]
@@ -280,7 +246,6 @@ def convert_model(
     with open(os.path.join(input_path, "tokenizer_config.json"), "r") as f:
         tokenizer_config = json.load(f)
 
-    # Create tokenizer directly from tokenizer.json if it exists
     tokenizer_json_path = os.path.join(input_path, "tokenizer.json")
     special_image_tokens = {
         "image_token": "<image_placeholder>",
@@ -295,7 +260,6 @@ def convert_model(
             extra_special_tokens=special_image_tokens,
         )
     else:
-        # Fallback to creating from text_model_id with special tokens
         tokenizer = AutoTokenizer.from_pretrained(
             text_model_id,
             bos_token=special_tokens_map["bos_token"],
@@ -306,7 +270,6 @@ def convert_model(
             extra_special_tokens=special_image_tokens,
         )
 
-    # Create image processor from config
     image_processor_kwargs = {}
     for key in ["do_normalize", "image_mean", "image_std", "min_size", "rescale_factor"]:
         if key in preprocessor_config:
@@ -320,7 +283,6 @@ def convert_model(
 
     image_processor = JanusImageProcessor(**image_processor_kwargs)
 
-    # Create processor with chat template
     processor = JanusProcessor(
         image_processor=image_processor,
         tokenizer=tokenizer,
@@ -335,7 +297,6 @@ def convert_model(
         print(f"Pushing processor to hub at {output_hub_path}...")
         processor.push_to_hub(output_hub_path)
 
-    # Create model configurations
     text_config_kwargs = {}
     for key in [
         "vocab_size",
@@ -351,7 +312,6 @@ def convert_model(
         if key in config_data["language_config"]:
             text_config_kwargs[key] = config_data["language_config"][key]
 
-    # Add token IDs from tokenizer
     text_config_kwargs.update(
         {
             "pad_token_id": tokenizer.pad_token_id,
@@ -362,12 +322,10 @@ def convert_model(
 
     text_config = LlamaConfig(**text_config_kwargs)
 
-    # Create vision config
     vision_config_kwargs = {}
     if "image_size" in config_data["vision_config"]["params"]:
         vision_config_kwargs["image_size"] = config_data["vision_config"]["params"]["image_size"]
 
-    # Add aligner params if present
     if "aligner_config" in config_data and "params" in config_data["aligner_config"]:
         if "n_embed" in config_data["aligner_config"]["params"]:
             vision_config_kwargs["projection_dim"] = config_data["aligner_config"]["params"]["n_embed"]
@@ -384,7 +342,6 @@ def convert_model(
         image_token_embed_dim=config_data["gen_head_config"]["params"]["image_token_embed"],
     )
 
-    # Create the main config
     config = JanusConfig(
         text_config=text_config,
         vision_config=vision_config,
@@ -392,13 +349,11 @@ def convert_model(
         image_token_id=tokenizer.vocab.get("<image_placeholder>"),
     )
 
-    # Save the config
     if output_dir:
         config.save_pretrained(output_dir)
     if output_hub_path:
         config.push_to_hub(output_hub_path)
 
-    # Initialize model with empty weights
     print("Creating empty model...")
     with torch.device("meta"):
         model = JanusForConditionalGeneration(config)
@@ -411,20 +366,16 @@ def convert_model(
         model.generation_config.generation_kwargs = {}
     model.generation_config.generation_kwargs["boi_token_id"] = tokenizer.vocab.get("<begin_of_image>")
 
-    # Load and convert state dict
     print("Loading state dict...")
     state_dict = load_model_state_dict(input_path)
     state_dict = convert_state_dict_to_hf(state_dict)
 
-    # Load converted state dict
     print("Loading converted weights into model...")
     model.load_state_dict(state_dict, strict=True, assign=True)
 
-    # Tie weights before any device mapping
     print("Tying weights...")
     model.tie_weights()
 
-    # Save the model
     if output_dir:
         print(f"Saving model to {output_dir}...")
         model.save_pretrained(output_dir)
@@ -435,10 +386,8 @@ def convert_model(
     del state_dict, model
     gc.collect()
 
-    # Validate the saved model if saved locally
     if output_dir:
         print("Reloading the local model to check if it's saved correctly...")
-        # TODO: warning about weights not being tied is raised here regardless of model.tie_weights() above
         JanusForConditionalGeneration.from_pretrained(output_dir, device_map="auto")
         print("Local model reloaded successfully.")
 

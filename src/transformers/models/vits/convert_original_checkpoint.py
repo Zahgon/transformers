@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert VITS checkpoint."""
 
 import argparse
 import json
@@ -161,7 +147,6 @@ def set_recursively(hf_pointer, key, value, full_name, weight_type):
     else:
         hf_shape = hf_pointer.shape
 
-    # strip off the kernel dimension at the end (original weights are Conv1d)
     if key.endswith(".k_proj") or key.endswith(".v_proj") or key.endswith(".q_proj") or key.endswith(".out_proj"):
         value = value.squeeze(-1)
 
@@ -230,7 +215,6 @@ def recursively_load_weights(fairseq_dict, hf_model):
                 elif "*" in mapped_key:
                     layer_index = name.split(key)[0].split(".")[-2]
 
-                    # remap the layer index since we removed the Flip layers
                     if "flow.flows" in mapped_key:
                         layer_index = str(int(layer_index) // 2)
                     if "duration_predictor.flows" in mapped_key or "duration_predictor.post_flows" in mapped_key:
@@ -317,7 +301,6 @@ def convert_checkpoint(
         logger.info(f"***Converting model: {checkpoint_path}***")
         is_uroman = False
 
-    # original VITS checkpoint
     if vocab_path is None:
         _pad = "_"
         _punctuation = ';:,.!?¡¿—…"«»“” '
@@ -327,10 +310,8 @@ def convert_checkpoint(
         symbol_to_id = {s: i for i, s in enumerate(symbols)}
         phonemize = True
     else:
-        # Save vocab as temporary json file
         symbols = [line.replace("\n", "") for line in open(vocab_path, encoding="utf-8")]
         symbol_to_id = {s: i for i, s in enumerate(symbols)}
-        # MMS-TTS does not use a <pad> token, so we set to the token used to space characters
         _pad = symbols[0]
         phonemize = False
 

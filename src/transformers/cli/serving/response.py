@@ -1,21 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Handler for the /v1/responses endpoint (OpenAI Responses API).
-
-Supports streaming (SSE) and non-streaming (JSON) responses.
-"""
 
 import asyncio
 import time
@@ -97,7 +79,6 @@ UNUSED_RESPONSE_FIELDS = {
 
 
 class _ResponseStreamBuilder:
-    """Builds SSE events for one streaming Responses API generation."""
 
     def __init__(self, *, request_id: str, response_defaults: dict):
         self._response_defaults = response_defaults
@@ -359,7 +340,6 @@ class _ResponseStreamBuilder:
 
 
 class ResponseHandler(BaseHandler):
-    """Handler for the ``/v1/responses`` endpoint."""
 
     _valid_params_class = TransformersResponseCreateParamsStreaming
     _unused_fields = UNUSED_RESPONSE_FIELDS
@@ -382,9 +362,6 @@ class ResponseHandler(BaseHandler):
         logger.warning(f"[Request received] Model: {model_id}, CB: {use_cb}")
         gen_manager = self.generation_state.get_manager(model_id, use_cb=use_cb)
 
-        # Two-step input conversion (chat completions skips step 1 since messages are already standard):
-        # 1. Normalize Responses API input (string/list/dict + instructions) → standard messages list
-        # 2. Transform message content for the HF processor (VLM image handling, text joining, etc.)
         messages = self._normalize_input(body)
         processor_inputs = self.get_processor_inputs_from_messages(messages, modality)
 
@@ -394,14 +371,11 @@ class ResponseHandler(BaseHandler):
             for c in (msg.get("content") if isinstance(msg.get("content"), list) else [])
         )
 
-        # Default to 32 frames for video (Gemma 4 default); some processors load all frames otherwise.
-        # Merge order (later wins): custom default -> server default → request-level kwargs.
         chat_template_kwargs: dict = {}
         if has_video:
             chat_template_kwargs["num_frames"] = 32
         chat_template_kwargs.update(self.chat_template_kwargs)
         chat_template_kwargs.update(body.get("chat_template_kwargs") or {})
-        # updates the flat tool structure to the one expected by the `apply_chat_template` method.
         tools = self._normalize_tools(body.get("tools"))
         inputs = processor.apply_chat_template(
             processor_inputs,
@@ -417,7 +391,6 @@ class ResponseHandler(BaseHandler):
             inputs = inputs.to(model.device)  # type: ignore[union-attr]
 
         gen_config = self._build_generation_config(body, model.generation_config, use_cb=use_cb)
-        # TODO: remove when CB supports per-request generation config
         if use_cb:
             gen_manager.init_cb(model, gen_config)
         tool_config = get_tool_call_config(processor, model) if body.get("tools") else None
@@ -451,7 +424,6 @@ class ResponseHandler(BaseHandler):
                 reasoning_config=reasoning_config,
             )
 
-    # ----- input conversion -----
 
     @staticmethod
     def _normalize_tools(tools: list[dict] | None) -> list[dict] | None:
@@ -498,14 +470,12 @@ class ResponseHandler(BaseHandler):
             messages = [{"role": "user", "content": inp}]
         elif isinstance(inp, list):
             if inp and "role" not in inp[0]:
-                # Flat content list (single-turn, e.g. input_text/input_image)
                 messages = [{"role": "user", "content": inp}]
             else:
                 messages = ResponseHandler._normalize_response_items(inp)
         else:
             raise HTTPException(status_code=422, detail="'input' must be a string or list")
 
-        # Prepend instructions as a system message
         if instructions:
             if messages and messages[0]["role"] == "system":
                 messages[0]["content"] = instructions
@@ -565,7 +535,6 @@ class ResponseHandler(BaseHandler):
 
         return messages
 
-    # ----- streaming -----
 
     def _streaming(
         self,
@@ -591,7 +560,6 @@ class ResponseHandler(BaseHandler):
             reasoning_config=reasoning_config,
         )
         input_ids = inputs["input_ids"]
-        # CB returns plain lists, regular path returns tensors
         input_len = len(input_ids) if isinstance(input_ids, list) else input_ids.shape[-1]
 
         response_defaults = {
@@ -599,7 +567,6 @@ class ResponseHandler(BaseHandler):
             "created_at": time.time(),
             "model": model_id,
             "object": "response",
-            # Required by pydantic but not used — echo request config back
             "tools": [],
             "parallel_tool_calls": body.get("parallel_tool_calls", False),
             "tool_choice": "auto",
@@ -610,8 +577,6 @@ class ResponseHandler(BaseHandler):
             try:
                 yield "".join(builder.start_response())
 
-                # Stream tokens — items are opened lazily so reasoning (if any)
-                # appears as a separate output item before the message item.
                 done = False
                 while not done:
                     batch = [await queue.get()]
@@ -645,15 +610,12 @@ class ResponseHandler(BaseHandler):
                     if parts:
                         yield "".join(parts)
 
-                # Close any open reasoning, then ensure a message section exists.
                 if builder.reasoning_open:
                     yield "".join(builder.finish_reasoning())
                 if not builder.message_open:
                     yield "".join(builder.start_message())
                 yield "".join(builder.finish_message())
 
-                # Tool calls are parsed after generation completes (not during streaming),
-                # because the full token sequence is needed for reliable parsing.
                 if tool_config:
                     parsed = parse_tool_calls(processor, streamer.generated_token_ids, tool_config["schema"])
                     if parsed:
@@ -664,14 +626,11 @@ class ResponseHandler(BaseHandler):
 
                 yield "".join(builder.completed(compute_usage(input_len, streamer.total_tokens)))
             except (GeneratorExit, asyncio.CancelledError):
-                # Client disconnected — abort generation to free GPU.
-                # Re-raise is mandatory: Python raises RuntimeError if GeneratorExit is swallowed.
                 streamer.cancel()
                 raise
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-    # ----- non-streaming -----
 
     async def _non_streaming(
         self,
@@ -741,14 +700,12 @@ class ResponseHandler(BaseHandler):
             output=output_items,
             object="response",
             usage=usage,
-            # Required by pydantic but not used — echo request config back
             tools=[],
             parallel_tool_calls=body.get("parallel_tool_calls", False),
             tool_choice="auto",
         )
         return JSONResponse(response.model_dump(exclude_none=True))
 
-    # ----- helpers -----
 
     def _build_generation_config(self, body: dict, model_generation_config: "GenerationConfig", use_cb: bool = False):
         """Apply Responses API params (``max_output_tokens``) on top of the base generation config."""

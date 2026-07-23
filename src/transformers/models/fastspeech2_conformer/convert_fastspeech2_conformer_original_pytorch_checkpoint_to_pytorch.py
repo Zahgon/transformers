@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert FastSpeech2Conformer checkpoint."""
 
 import argparse
 import json
@@ -85,69 +71,11 @@ CONFIG_MAPPING = {
 
 
 def remap_model_yaml_config(yaml_config_path):
-    with Path(yaml_config_path).open("r", encoding="utf-8") as f:
-        args = yaml.safe_load(f)
-        args = argparse.Namespace(**args)
-
-    remapped_config = {}
-
-    model_params = args.tts_conf["text2mel_params"]
-    # espnet_config_key -> hf_config_key, any keys not included are ignored
-    for espnet_config_key, hf_config_key in CONFIG_MAPPING.items():
-        if espnet_config_key in model_params:
-            remapped_config[hf_config_key] = model_params[espnet_config_key]
-
-    return remapped_config, args.g2p, args.token_list
+    pass
 
 
 def convert_espnet_state_dict_to_hf(state_dict):
-    new_state_dict = {}
-    for key in state_dict:
-        if "tts.generator.text2mel." in key:
-            new_key = key.replace("tts.generator.text2mel.", "")
-            if "postnet" in key:
-                new_key = new_key.replace("postnet.postnet", "speech_decoder_postnet.layers")
-                new_key = new_key.replace(".0.weight", ".conv.weight")
-                new_key = new_key.replace(".1.weight", ".batch_norm.weight")
-                new_key = new_key.replace(".1.bias", ".batch_norm.bias")
-                new_key = new_key.replace(".1.running_mean", ".batch_norm.running_mean")
-                new_key = new_key.replace(".1.running_var", ".batch_norm.running_var")
-                new_key = new_key.replace(".1.num_batches_tracked", ".batch_norm.num_batches_tracked")
-            if "feat_out" in key:
-                if "weight" in key:
-                    new_key = "speech_decoder_postnet.feat_out.weight"
-                if "bias" in key:
-                    new_key = "speech_decoder_postnet.feat_out.bias"
-            if "encoder.embed.0.weight" in key:
-                new_key = new_key.replace("0.", "")
-            if "w_1" in key:
-                new_key = new_key.replace("w_1", "conv1")
-            if "w_2" in key:
-                new_key = new_key.replace("w_2", "conv2")
-            if "predictor.conv" in key:
-                new_key = new_key.replace(".conv", ".conv_layers")
-                pattern = r"(\d)\.(\d)"
-                replacement = (
-                    r"\1.conv" if ("2.weight" not in new_key) and ("2.bias" not in new_key) else r"\1.layer_norm"
-                )
-                new_key = re.sub(pattern, replacement, new_key)
-            if "pitch_embed" in key or "energy_embed" in key:
-                new_key = new_key.replace("0", "conv")
-            if "encoders" in key:
-                new_key = new_key.replace("encoders", "conformer_layers")
-                new_key = new_key.replace("norm_final", "final_layer_norm")
-                new_key = new_key.replace("norm_mha", "self_attn_layer_norm")
-                new_key = new_key.replace("norm_ff_macaron", "ff_macaron_layer_norm")
-                new_key = new_key.replace("norm_ff", "ff_layer_norm")
-                new_key = new_key.replace("norm_conv", "conv_layer_norm")
-            if "lid_emb" in key:
-                new_key = new_key.replace("lid_emb", "language_id_embedding")
-            if "sid_emb" in key:
-                new_key = new_key.replace("sid_emb", "speaker_id_embedding")
-
-            new_state_dict[new_key] = state_dict[key]
-
-    return new_state_dict
+    pass
 
 
 @torch.no_grad()
@@ -157,34 +85,7 @@ def convert_FastSpeech2ConformerModel_checkpoint(
     pytorch_dump_folder_path,
     repo_id=None,
 ):
-    model_params, tokenizer_name, vocab = remap_model_yaml_config(yaml_config_path)
-    config = FastSpeech2ConformerConfig(**model_params)
-
-    # Prepare the model
-    model = FastSpeech2ConformerModel(config)
-
-    espnet_checkpoint = torch.load(checkpoint_path, weights_only=True)
-    hf_compatible_state_dict = convert_espnet_state_dict_to_hf(espnet_checkpoint)
-
-    model.load_state_dict(hf_compatible_state_dict)
-
-    model.save_pretrained(pytorch_dump_folder_path)
-
-    # Prepare the tokenizer
-    with TemporaryDirectory() as tempdir:
-        vocab = {token: id for id, token in enumerate(vocab)}
-        vocab_file = Path(tempdir) / "vocab.json"
-        with open(vocab_file, "w") as f:
-            json.dump(vocab, f)
-        should_strip_spaces = "no_space" in tokenizer_name
-        tokenizer = FastSpeech2ConformerTokenizer(str(vocab_file), should_strip_spaces=should_strip_spaces)
-
-    tokenizer.save_pretrained(pytorch_dump_folder_path)
-
-    if repo_id:
-        print("Pushing to the hub...")
-        model.push_to_hub(repo_id)
-        tokenizer.push_to_hub(repo_id)
+    pass
 
 
 if __name__ == "__main__":

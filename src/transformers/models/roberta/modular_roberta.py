@@ -1,18 +1,3 @@
-# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch RoBERTa model."""
 
 import torch
 import torch.nn as nn
@@ -63,7 +48,6 @@ class RobertaEmbeddings(BertEmbeddings):
     ):
         if position_ids is None:
             if input_ids is not None:
-                # Create the position ids from the input token ids. Any padded tokens remain padded.
                 position_ids = self.create_position_ids_from_input_ids(
                     input_ids, self.padding_idx, past_key_values_length
                 )
@@ -77,12 +61,8 @@ class RobertaEmbeddings(BertEmbeddings):
 
         batch_size, seq_length = input_shape
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
-                # NOTE: We assume either pos ids to have bsz == 1 (broadcastable) or bsz == effective bsz (input_shape[0])
                 buffered_token_type_ids = self.token_type_ids.to(position_ids.device).expand(position_ids.shape[0], -1)
                 buffered_token_type_ids = torch.gather(buffered_token_type_ids, dim=1, index=position_ids)
                 token_type_ids = buffered_token_type_ids.expand(batch_size, seq_length)
@@ -130,7 +110,6 @@ class RobertaEmbeddings(BertEmbeddings):
 
         Returns: torch.Tensor
         """
-        # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
         mask = input_ids.ne(padding_idx).int()
         incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
         return incremental_indices.long() + padding_idx
@@ -199,7 +178,6 @@ class RobertaForCausalLM(RobertaPreTrainedModel, GenerationMixin):
         self.roberta = RobertaModel(config, add_pooling_layer=False)
         self.lm_head = RobertaLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -274,7 +252,6 @@ class RobertaForCausalLM(RobertaPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -311,7 +288,6 @@ class RobertaForMaskedLM(RobertaPreTrainedModel):
         self.roberta = RobertaModel(config, add_pooling_layer=False)
         self.lm_head = RobertaLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -365,7 +341,6 @@ class RobertaForMaskedLM(RobertaPreTrainedModel):
 
         masked_lm_loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(prediction_scores.device)
             loss_fct = CrossEntropyLoss()
             masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
@@ -379,7 +354,6 @@ class RobertaForMaskedLM(RobertaPreTrainedModel):
 
 
 class RobertaLMHead(nn.Module):
-    """Roberta Head for masked language modeling."""
 
     def __init__(self, config):
         super().__init__()
@@ -394,7 +368,6 @@ class RobertaLMHead(nn.Module):
         x = gelu(x)
         x = self.layer_norm(x)
 
-        # project back to size of vocabulary with bias
         x = self.decoder(x)
 
         return x
@@ -415,7 +388,6 @@ class RobertaForSequenceClassification(RobertaPreTrainedModel):
         self.roberta = RobertaModel(config, add_pooling_layer=False)
         self.classifier = RobertaClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -459,7 +431,6 @@ class RobertaForSequenceClassification(RobertaPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(logits.device)
             if self.config.problem_type is None:
                 if self.num_labels == 1:
@@ -499,7 +470,6 @@ class RobertaForMultipleChoice(RobertaPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -574,7 +544,6 @@ class RobertaForMultipleChoice(RobertaPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(reshaped_logits.device)
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(reshaped_logits, labels)
@@ -600,7 +569,6 @@ class RobertaForTokenClassification(RobertaPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -645,7 +613,6 @@ class RobertaForTokenClassification(RobertaPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(logits.device)
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
@@ -659,7 +626,6 @@ class RobertaForTokenClassification(RobertaPreTrainedModel):
 
 
 class RobertaClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config):
         super().__init__()
@@ -689,7 +655,6 @@ class RobertaForQuestionAnswering(RobertaPreTrainedModel):
         self.roberta = RobertaModel(config, add_pooling_layer=False)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -735,12 +700,10 @@ class RobertaForQuestionAnswering(RobertaPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

@@ -1,17 +1,3 @@
-# Copyright (c) 2025 Baidu, Inc. and HuggingFace Inc. team. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Ernie 4.5 MoE model."""
 
 import torch
 import torch.nn.functional as F
@@ -72,11 +58,6 @@ class Ernie4_5_MoeAttention(LlamaAttention):
 
 
 class Ernie4_5_MoeStatics(nn.Module):
-    """
-    Stores MoE (Mixture of Experts) statistics
-        - Bias for the gating
-        - Additionally, usage per expert in the original codebase
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -90,11 +71,6 @@ class Ernie4_5_MoeStatics(nn.Module):
         )
 
     def forward(self, hidden_states):
-        # NOTE: This is a workaround to enable TP with a module that only has parameters
-        #
-        # Otherwise, it stays as `DTensor` when called in the "super" forward
-        #   1. All other tensors are local (`torch.Tensor`)
-        #   2. Isolate does not work on `nn.Module` which only has parameters
         return hidden_states + self.e_score_correction_bias.squeeze()
 
 
@@ -187,7 +163,6 @@ class Ernie4_5_MoeDecoderLayer(Qwen3MoeDecoderLayer):
 class Ernie4_5_MoePreTrainedModel(MixtralPreTrainedModel):
     config: Ernie4_5_MoeConfig
     _no_split_modules = ["Ernie4_5_MoeDecoderLayer"]
-    # Not supporting multi-token prediction (MTP) atm
     _keys_to_ignore_on_load_unexpected = ["mtp"]
     _can_record_outputs = {
         "router_logits": OutputRecorder(Ernie4_5_MoeTopKRouter, index=0),
@@ -221,7 +196,6 @@ class Ernie4_5_MoeModel(Ernie4_5_MoePreTrainedModel):
         self.rotary_emb = Ernie4_5_MoeRotaryEmbedding(config=config)
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -261,7 +235,6 @@ class Ernie4_5_MoeModel(Ernie4_5_MoePreTrainedModel):
 
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
@@ -295,7 +268,6 @@ class Ernie4_5_MoeForCausalLM(MixtralForCausalLM):
         self.num_experts = config.num_experts
         self.num_experts_per_tok = config.num_experts_per_tok
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

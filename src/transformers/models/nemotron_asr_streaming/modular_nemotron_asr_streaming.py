@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from collections.abc import Callable
@@ -70,100 +57,18 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="nvidia/nemotron-speech-streaming-en-0.6b")
 @strict
 class NemotronAsrStreamingEncoderConfig(ParakeetEncoderConfig):
-    r"""
-    convolution_bias (`bool`, *optional*, defaults to `True`):
-        Whether to use bias in convolutions of the conformer's convolution module.
-    conv_kernel_size (`int`, *optional*, defaults to 9):
-        The kernel size of the convolution layers in the Conformer block.
-    subsampling_factor (`int`, *optional*, defaults to 8):
-        The factor by which the input sequence is subsampled.
-    subsampling_conv_channels (`int`, *optional*, defaults to 256):
-        The number of channels in the subsampling convolution layers.
-    num_mel_bins (`int`, *optional*, defaults to 80):
-        Number of mel features.
-    subsampling_conv_kernel_size (`int`, *optional*, defaults to 3):
-        The kernel size of the subsampling convolution layers.
-    subsampling_conv_stride (`int`, *optional*, defaults to 2):
-        The stride of the subsampling convolution layers.
-    dropout_positions (`float`, *optional*, defaults to 0.0):
-        The dropout ratio for the positions in the input sequence.
-    scale_input (`bool`, *optional*, defaults to `True`):
-        Whether to scale the input embeddings.
-    sliding_window (`int`, *optional*, defaults to 71):
-        Size of the K/V attention sliding window (in subsampled encoder frames). It equals
-        `left_context + 1` (the current frame plus the left context), so the left attention context is
-        `sliding_window - 1` — the same across all supported lookaheads.
-    default_num_lookahead_tokens (`int`, *optional*, defaults to 13):
-        The right attention context (lookahead, in subsampled encoder frames) used when none is passed to the
-        forward. The supported set the model was trained with lives on [`NemotronAsrStreamingProcessor`].
-
-    Example:
-    ```python
-    >>> from transformers import NemotronAsrStreamingEncoder, NemotronAsrStreamingEncoderConfig
-
-    >>> # Initializing a `NemotronAsrStreamingEncoder` configuration
-    >>> configuration = NemotronAsrStreamingEncoderConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = NemotronAsrStreamingEncoder(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     sliding_window: int = 71
     default_num_lookahead_tokens: int = 13
 
     @property
     def subsampling_out_hidden_size(self) -> int:
-        """Flattened feature size out of the subsampling stack (`channels * remaining freq bins`); the encoder projection input dim."""
-        total_pad = (self.subsampling_conv_kernel_size - 1) + (self.subsampling_conv_stride - 1)
-        out_length = self.num_mel_bins
-        for _ in range(int(math.log2(self.subsampling_factor))):
-            out_length = (
-                out_length + total_pad - self.subsampling_conv_kernel_size
-            ) // self.subsampling_conv_stride + 1
-        return self.subsampling_conv_channels * out_length
+        pass
 
 
 @auto_docstring(checkpoint="nvidia/nemotron-speech-streaming-en-0.6b")
 @strict
 class NemotronAsrStreamingConfig(ParakeetRNNTConfig):
-    r"""
-    This is the NemotronAsrStreaming transducer configuration. The RNN-T (RNN Transducer) joint network emits token
-    logits only (so the joint head outputs just `vocab_size` logits), and during greedy decoding the encoder
-    frame pointer advances by exactly one frame on each blank emission.
-
-    decoder_hidden_size (`int`, *optional*, defaults to 640):
-        Hidden size of the LSTM prediction network (NeMo's `pred_hidden`). The joint network projects both
-        encoder and decoder outputs to this size (NeMo's `joint_hidden`, which all known checkpoints set equal
-        to `pred_hidden`).
-    num_decoder_layers (`int`, *optional*, defaults to 2):
-        Number of LSTM layers in the prediction network.
-    hidden_act (`str`, *optional*, defaults to `"relu"`):
-        Activation in the joint network.
-    max_symbols_per_step (`int`, *optional*, defaults to 10):
-        Maximum number of non-blank symbols emitted per encoder time step during greedy decoding.
-    encoder_config (`Union[dict, NemotronAsrStreamingEncoderConfig]`, *optional*):
-        The config object or dictionary of the encoder.
-    blank_token_id (`int`, *optional*, defaults to 1024):
-        Blank token id. Different from `pad_token_id` for RNN-T.
-
-    Example:
-    ```python
-    >>> from transformers import NemotronAsrStreamingForRNNT, NemotronAsrStreamingConfig
-
-    >>> # Initializing a NemotronAsrStreaming RNN-T configuration
-    >>> configuration = NemotronAsrStreamingConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = NemotronAsrStreamingForRNNT(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "nemotron_asr_streaming"
     vocab_size: int = 1025
@@ -173,30 +78,7 @@ class NemotronAsrStreamingConfig(ParakeetRNNTConfig):
 
 class NemotronAsrStreamingFeatureExtractor(ParakeetFeatureExtractor):
     def _torch_extract_fbank_features(self, waveform, device="cpu", center=True):
-        window = torch.hann_window(self.win_length, periodic=False, device=device)
-        stft = torch.stft(
-            waveform,
-            self.n_fft,
-            hop_length=self.hop_length,
-            win_length=self.win_length,
-            window=window,
-            return_complex=True,
-            pad_mode="constant",
-            center=center,
-        )
-        magnitudes = torch.view_as_real(stft)
-        magnitudes = torch.sqrt(magnitudes.pow(2).sum(-1))
-        magnitudes = magnitudes.pow(2)
-
-        # log mel spectrogram
-        mel_filters = self.mel_filters.to(device)
-        mel_spec = mel_filters @ magnitudes
-        mel_spec = torch.log(mel_spec + LOG_ZERO_GUARD_VALUE)
-
-        # (batch_size, num_mel_filters, num_frames) -> (batch_size, num_frames, num_mel_filters)
-        mel_spec = mel_spec.permute(0, 2, 1)
-
-        return mel_spec
+        pass
 
     def __call__(
         self,
@@ -264,7 +146,6 @@ class NemotronAsrStreamingFeatureExtractor(ParakeetFeatureExtractor):
                 "Failing to do so can result in silent errors that might be hard to debug."
             )
 
-        # Convert to torch tensor
         if isinstance(raw_speech, np.ndarray):
             raw_speech = torch.tensor(raw_speech)
         elif isinstance(raw_speech, (list, tuple)) and isinstance(raw_speech[0], np.ndarray):
@@ -306,7 +187,6 @@ class NemotronAsrStreamingFeatureExtractor(ParakeetFeatureExtractor):
         )
         input_features = padded_inputs.input_features.squeeze(-1)
 
-        # preemphasis
         if self.preemphasis is not None:
             timemask = torch.arange(input_features.shape[1], device=input_features.device).unsqueeze(
                 0
@@ -318,16 +198,13 @@ class NemotronAsrStreamingFeatureExtractor(ParakeetFeatureExtractor):
 
         input_features = self._torch_extract_fbank_features(input_features, device, center=center)
         if center:
-            # `center=True` pads `n_fft // 2` on each side, so the number of valid frames is `floor(L / hop)`.
             features_lengths = torch.floor_divide(
                 padded_inputs.audio_lengths + self.n_fft // 2 * 2 - self.n_fft, self.hop_length
             )
         else:
-            # `center=False` does no padding: `floor((L - n_fft) / hop) + 1` frames.
             features_lengths = torch.floor_divide(padded_inputs.audio_lengths - self.n_fft, self.hop_length) + 1
         attention_mask = torch.arange(input_features.shape[1], device=device)[None, :] < features_lengths[:, None]
 
-        # NemotronAsrStreaming never normalizes the mel features
         input_features *= attention_mask.unsqueeze(-1)
 
         return BatchFeature(
@@ -368,14 +245,12 @@ class NemotronAsrStreamingEncoderCausalConv2dCacheLayer:
                 "NemotronAsrStreamingEncoderCausalConv2dCacheLayer is not initialized. Make sure to provide conv_module to the update method."
             )
 
-        # new cache: the last `left_pad` time frames (dim 2), keeping the old cache tail on shortfall
         shortfall = max(0, self.left_pad - hidden_states.shape[2])
         if shortfall > 0:
             new_cache = torch.cat([self.cache[:, :, -shortfall:], hidden_states], dim=2)
         else:
             new_cache = hidden_states[:, :, -self.left_pad :]
 
-        # left context to prepend: the old cache, plus `init_pad` leading zeros on the first chunk
         current_cache = self.cache.clone()
         if self.is_first_chunk and self.init_pad > 0:
             init_shape = list(current_cache.shape)
@@ -426,23 +301,21 @@ class NemotronAsrStreamingEncoderCausalConv2D(nn.Conv2d):
 
     @property
     def left_pad(self):
-        return self.kernel_size[0] - self.stride[0]
+        pass
 
     @property
     def left_pad_init(self):
-        return self.kernel_size[0] - 1
+        pass
 
     @property
     def time_pad(self):
-        return (self.kernel_size[0] - 1, self.stride[0] - 1)
+        pass
 
     @property
     def freq_pad(self):
-        return (self.kernel_size[1] - 1, self.stride[1] - 1)
+        pass
 
     def output_length(self, input_lengths: torch.Tensor | None, streaming: bool = False) -> torch.Tensor | None:
-        # Streaming consumes `left_pad` cached frames on the left and no right padding; offline uses the
-        # full causal padding `(kernel - 1, stride - 1)` on the time axis.
         if input_lengths is None:
             return None
         left, right = (self.left_pad, 0) if streaming else self.time_pad
@@ -470,18 +343,6 @@ class NemotronAsrStreamingEncoderCausalConv2D(nn.Conv2d):
 )
 @dataclass
 class NemotronAsrStreamingEncoderModelOutput(BaseModelOutputWithPooling):
-    r"""
-    attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
-        Mask to avoid performing attention on padding token indices after sequence compression. Returned because the
-        sequence length may differ from the input sequence length. Mask values selected in `[0, 1]`:
-
-        - 1 for tokens that are **not masked**,
-        - 0 for tokens that are **masked**.
-    past_key_values (`Cache`, *optional*):
-        Updated attention K/V sliding-window cache from the encoder. Pass to the next chunk call.
-    padding_cache (`NemotronAsrStreamingEncoderCausalConvPaddingCache`, *optional*):
-        Unified streaming cache backing the subsampling Conv2d layers and the conformer depthwise Conv1d.
-    """
 
     attention_mask: torch.Tensor | None = None
     past_key_values: Cache | None = None
@@ -491,9 +352,7 @@ class NemotronAsrStreamingEncoderModelOutput(BaseModelOutputWithPooling):
 class NemotronAsrStreamingEncoderRelPositionalEncoding(ParakeetEncoderRelPositionalEncoding):
     @torch.no_grad()
     def forward(self, hidden_states: torch.Tensor, cached_frames: int | None = None):
-        # `cached_frames` is the number of cached left-context frames (0 offline). This Transformer-XL
         # style relative encoding spans the full key length `L = current chunk + cached_frames`, with
-        # relative distances running from `L - 1` down to `-(L - 1)`.
         seq_length = hidden_states.shape[1] + (cached_frames if cached_frames is not None else 0)
         if seq_length > self.max_position_embeddings:
             raise ValueError(
@@ -515,7 +374,6 @@ class NemotronAsrStreamingEncoderRelPositionalEncoding(ParakeetEncoderRelPositio
             freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
             sin = freqs.sin()
             cos = freqs.cos()
-            # interleave sin and cos
             pos_embed = torch.stack([sin, cos], dim=-1)
             pos_embed = pos_embed.reshape(*pos_embed.shape[:-2], -1)
 
@@ -547,19 +405,14 @@ class NemotronAsrStreamingEncoderConvolutionModule(FastSpeech2ConformerConvoluti
     ):
         hidden_states = hidden_states.transpose(1, 2)  # (B, C, T)
 
-        # GLU mechanism
         hidden_states = self.pointwise_conv1(hidden_states)
         hidden_states = nn.functional.glu(hidden_states, dim=1)
 
-        # Zero out fully-masked (padding) frames before convolution so they don't leak into valid frames.
-        # `all_masked_rows` is derived from the attention mask once in the encoder and shared across layers.
         if all_masked_rows is not None:
             hidden_states = hidden_states.masked_fill(all_masked_rows, 0.0)
 
-        # Causal depthwise conv: left context from `padding_cache` when streaming, else left-padded.
         hidden_states = self.depthwise_conv(hidden_states, padding_cache=padding_cache)
 
-        # LayerNorm expects (B, T, C).
         hidden_states = hidden_states.transpose(1, 2)
         hidden_states = self.norm(hidden_states)
         hidden_states = hidden_states.transpose(1, 2)
@@ -572,11 +425,6 @@ class NemotronAsrStreamingEncoderConvolutionModule(FastSpeech2ConformerConvoluti
 
 
 class NemotronAsrStreamingEncoderAttention(ParakeetEncoderAttention):
-    """
-    Multi-head attention with relative positional encoding.
-    The only difference with `ParakeetEncoderAttention` is the addition of the `past_key_values`.
-    See `ParakeetEncoderAttention`, and https://huggingface.co/papers/2312.17279 for more details
-    """
 
     def forward(
         self,
@@ -613,19 +461,14 @@ class NemotronAsrStreamingEncoderAttention(ParakeetEncoderAttention):
         relative_key_states = self.relative_k_proj(position_embeddings)
         relative_key_states = relative_key_states.view(batch_size, -1, self.config.num_attention_heads, self.head_dim)
 
-        # terms (b) and (d) — slice to total_key_length to cover cache + current chunk
         matrix_bd = query_states_with_bias_v @ relative_key_states.permute(0, 2, 3, 1)
         matrix_bd = self._rel_shift(matrix_bd)
         matrix_bd = matrix_bd[..., :total_key_length]
         matrix_bd = matrix_bd * self.scaling
 
         if attention_mask is not None:
-            # here the original codebase uses -10000.0 rather than float("-inf") and then manual masked fill with 0.0s
-            # see: https://github.com/NVIDIA-NeMo/NeMo/blob/8cfedd7203462cb251a914e700e5605444277561/nemo/collections/asr/parts/submodules/multi_head_attention.py#L320-L340
-            # we rather went for a straight-forward approach with float("-inf")
             matrix_bd = matrix_bd.masked_fill_(attention_mask.logical_not(), float("-inf"))
 
-        # will compute matrix_ac - terms (a) and (c) - and add matrix_bd
         attn_output, attn_weights = attention_interface(
             self,
             query=query_states_with_bias_u,
@@ -651,7 +494,6 @@ def _mask_subsampled_frames(hidden_states: torch.Tensor, lengths: torch.Tensor |
 
 
 class NemotronAsrStreamingEncoderSubsamplingLayer(nn.Module):
-    """Depthwise-separable subsampling stage: depthwise strided causal Conv2d + 1x1 pointwise Conv2d."""
 
     def __init__(self, config: NemotronAsrStreamingEncoderConfig, layer_idx: int):
         super().__init__()
@@ -684,7 +526,6 @@ class NemotronAsrStreamingEncoderSubsamplingConv2D(nn.Module):
         channels = config.subsampling_conv_channels
         num_layers = int(math.log2(config.subsampling_factor))
 
-        # stem: strided causal conv over the single-channel mel spectrogram
         self.conv_in = NemotronAsrStreamingEncoderCausalConv2D(
             1,
             channels,
@@ -692,7 +533,6 @@ class NemotronAsrStreamingEncoderSubsamplingConv2D(nn.Module):
             stride=config.subsampling_conv_stride,
             cache_key="subsampling.0",
         )
-        # depthwise-separable layers
         self.layers = nn.ModuleList(
             NemotronAsrStreamingEncoderSubsamplingLayer(config, layer_idx=i) for i in range(1, num_layers)
         )
@@ -708,12 +548,10 @@ class NemotronAsrStreamingEncoderSubsamplingConv2D(nn.Module):
         hidden_states = input_features.unsqueeze(1)
         lengths = attention_mask.sum(-1) if attention_mask is not None else None
 
-        # stem stage
         hidden_states = self.conv_in(hidden_states, padding_cache=padding_cache)
         lengths = self.conv_in.output_length(lengths, streaming=padding_cache is not None)
         hidden_states = self.act_fn(_mask_subsampled_frames(hidden_states, lengths))
 
-        # depthwise-separable stages
         for layer in self.layers:
             hidden_states, lengths = layer(hidden_states, lengths, padding_cache=padding_cache)
             hidden_states = self.act_fn(hidden_states)
@@ -769,7 +607,6 @@ class NemotronAsrStreamingEncoderBlock(ParakeetEncoderBlock):
 @auto_docstring
 class NemotronAsrStreamingPreTrainedModel(ParakeetPreTrainedModel):
     config: NemotronAsrStreamingConfig
-    # flex attention is incompatible as this model uses a float attention mask (relative position bias) across the board
     _supports_flex_attn = False
 
     def _get_subsampling_output_length(self, input_lengths: torch.Tensor):
@@ -779,7 +616,6 @@ class NemotronAsrStreamingPreTrainedModel(ParakeetPreTrainedModel):
         stride = encoder_config.subsampling_conv_stride
         num_layers = int(math.log2(encoder_config.subsampling_factor))
 
-        # The subsampling Conv2d is always causal: NeMo's CausalConv2D pads (left=kernel-1, right=stride-1).
         all_paddings = (kernel_size - 1) + (stride - 1)
         add_pad = all_paddings - kernel_size
         lengths = input_lengths
@@ -799,10 +635,7 @@ def chunked_limited_mask_function(left_ctx: int, right_ctx: int) -> Callable:
     left_context_chunks = left_ctx // chunk_size if left_ctx >= 0 else 10_000
 
     def inner_mask(batch_idx: int, head_idx: int, q_idx: int, kv_idx: int) -> bool:
-        q_chunk = torch.div(q_idx, chunk_size, rounding_mode="trunc")
-        kv_chunk = torch.div(kv_idx, chunk_size, rounding_mode="trunc")
-        chunk_diff = q_chunk - kv_chunk
-        return (chunk_diff >= 0) & (chunk_diff <= left_context_chunks)
+        pass
 
     return inner_mask
 
@@ -910,7 +743,6 @@ class NemotronAsrStreamingEncoder(ParakeetEncoder):
         hidden_states = inputs_embeds
 
         for encoder_layer in self.layers:
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -952,14 +784,6 @@ class NemotronAsrStreamingEncoder(ParakeetEncoder):
 
 @dataclass
 class NemotronAsrStreamingRNNTOutput(ParakeetRNNTOutput):
-    r"""
-    encoder_past_key_values (`Cache`, *optional*):
-        Updated encoder attention K/V sliding-window cache, returned when encoding audio with `use_cache=True`
-        (cache-aware streaming). Pass it to the next chunk's forward.
-    padding_cache (`NemotronAsrStreamingEncoderCausalConvPaddingCache`, *optional*):
-        Updated unified streaming conv cache (subsampling Conv2d + conformer depthwise Conv1d), returned when
-        encoding audio with `use_cache=True`. Pass it to the next chunk's forward.
-    """
 
     encoder_past_key_values: Cache | None = None
     padding_cache: NemotronAsrStreamingEncoderCausalConvPaddingCache | None = None

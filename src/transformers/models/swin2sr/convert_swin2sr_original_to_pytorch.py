@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert Swin2SR checkpoints from the original repository. URL: https://github.com/mv-lab/swin2sr"""
 
 import argparse
 from io import BytesIO
@@ -101,7 +87,6 @@ def rename_key(name, config):
         or "conv_last" in name
         or "aux" in name
     ):
-        # heads
         if "conv_last" in name:
             name = name.replace("conv_last", "final_convolution")
         if config.upsampler in ["pixelshuffle", "pixelshuffle_aux", "nearest+conv"]:
@@ -160,109 +145,11 @@ def convert_state_dict(orig_state_dict, config):
 
 
 def convert_swin2sr_checkpoint(checkpoint_url, pytorch_dump_folder_path, push_to_hub):
-    config = get_config(checkpoint_url)
-    model = Swin2SRForImageSuperResolution(config)
-    model.eval()
-
-    state_dict = torch.hub.load_state_dict_from_url(checkpoint_url, map_location="cpu")
-    new_state_dict = convert_state_dict(state_dict, config)
-    missing_keys, unexpected_keys = model.load_state_dict(new_state_dict, strict=False)
-
-    if len(missing_keys) > 0:
-        raise ValueError(f"Missing keys when converting: {missing_keys}")
-    for key in unexpected_keys:
-        if not ("relative_position_index" in key or "relative_coords_table" in key or "self_mask" in key):
-            raise ValueError(f"Unexpected key {key} in state_dict")
-
-    # verify values
-    url = "https://github.com/mv-lab/swin2sr/blob/main/testsets/real-inputs/shanghai.jpg?raw=true"
-    with httpx.stream("GET", url) as response:
-        image = Image.open(BytesIO(response.read())).convert("RGB")
-    processor = Swin2SRImageProcessor()
-    # pixel_values = processor(image, return_tensors="pt").pixel_values
-
-    image_size = 126 if "Jpeg" in checkpoint_url else 256
-    transforms = Compose(
-        [
-            Resize((image_size, image_size)),
-            ToTensor(),
-            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
-    pixel_values = transforms(image).unsqueeze(0)
-
-    if config.num_channels == 1:
-        pixel_values = pixel_values[:, 0, :, :].unsqueeze(1)
-
-    outputs = model(pixel_values)
-
-    # assert values
-    if "Swin2SR_ClassicalSR_X2_64" in checkpoint_url:
-        expected_shape = torch.Size([1, 3, 512, 512])
-        expected_slice = torch.tensor(
-            [[-0.7087, -0.7138, -0.6721], [-0.8340, -0.8095, -0.7298], [-0.9149, -0.8414, -0.7940]]
-        )
-    elif "Swin2SR_ClassicalSR_X4_64" in checkpoint_url:
-        expected_shape = torch.Size([1, 3, 1024, 1024])
-        expected_slice = torch.tensor(
-            [[-0.7775, -0.8105, -0.8933], [-0.7764, -0.8356, -0.9225], [-0.7976, -0.8686, -0.9579]]
-        )
-    elif "Swin2SR_CompressedSR_X4_48" in checkpoint_url:
-        # TODO values didn't match exactly here
-        expected_shape = torch.Size([1, 3, 1024, 1024])
-        expected_slice = torch.tensor(
-            [[-0.8035, -0.7504, -0.7491], [-0.8538, -0.8124, -0.7782], [-0.8804, -0.8651, -0.8493]]
-        )
-    elif "Swin2SR_Lightweight_X2_64" in checkpoint_url:
-        expected_shape = torch.Size([1, 3, 512, 512])
-        expected_slice = torch.tensor(
-            [[-0.7669, -0.8662, -0.8767], [-0.8810, -0.9962, -0.9820], [-0.9340, -1.0322, -1.1149]]
-        )
-    elif "Swin2SR_RealworldSR_X4_64_BSRGAN_PSNR" in checkpoint_url:
-        expected_shape = torch.Size([1, 3, 1024, 1024])
-        expected_slice = torch.tensor(
-            [[-0.5238, -0.5557, -0.6321], [-0.6016, -0.5903, -0.6391], [-0.6244, -0.6334, -0.6889]]
-        )
-
-    assert outputs.reconstruction.shape == expected_shape, (
-        f"Shape of reconstruction should be {expected_shape}, but is {outputs.reconstruction.shape}"
-    )
-    assert torch.allclose(outputs.reconstruction[0, 0, :3, :3], expected_slice, atol=1e-3)
-    print("Looks ok!")
-
-    url_to_name = {
-        "https://github.com/mv-lab/swin2sr/releases/download/v0.0.1/Swin2SR_ClassicalSR_X2_64.pth": (
-            "swin2SR-classical-sr-x2-64"
-        ),
-        "https://github.com/mv-lab/swin2sr/releases/download/v0.0.1/Swin2SR_ClassicalSR_X4_64.pth": (
-            "swin2SR-classical-sr-x4-64"
-        ),
-        "https://github.com/mv-lab/swin2sr/releases/download/v0.0.1/Swin2SR_CompressedSR_X4_48.pth": (
-            "swin2SR-compressed-sr-x4-48"
-        ),
-        "https://github.com/mv-lab/swin2sr/releases/download/v0.0.1/Swin2SR_Lightweight_X2_64.pth": (
-            "swin2SR-lightweight-x2-64"
-        ),
-        "https://github.com/mv-lab/swin2sr/releases/download/v0.0.1/Swin2SR_RealworldSR_X4_64_BSRGAN_PSNR.pth": (
-            "swin2SR-realworld-sr-x4-64-bsrgan-psnr"
-        ),
-    }
-    model_name = url_to_name[checkpoint_url]
-
-    if pytorch_dump_folder_path is not None:
-        print(f"Saving model {model_name} to {pytorch_dump_folder_path}")
-        model.save_pretrained(pytorch_dump_folder_path)
-        print(f"Saving image processor to {pytorch_dump_folder_path}")
-        processor.save_pretrained(pytorch_dump_folder_path)
-
-    if push_to_hub:
-        model.push_to_hub(f"caidas/{model_name}")
-        processor.push_to_hub(f"caidas/{model_name}")
+    pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--checkpoint_url",
         default="https://github.com/mv-lab/swin2sr/releases/download/v0.0.1/Swin2SR_ClassicalSR_X2_64.pth",

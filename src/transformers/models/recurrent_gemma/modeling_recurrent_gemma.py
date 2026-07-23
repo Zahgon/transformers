@@ -1,18 +1,3 @@
-# Copyright 2024 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch RecurrentGemma model."""
 
 import math
 from collections.abc import Callable
@@ -41,7 +26,6 @@ logger = logging.get_logger(__name__)
 _MAX_SQRT_GRADIENT = 1000.0
 
 
-# Copied from transformers.models.gemma.modeling_gemma.GemmaRMSNorm with Gemma->RecurrentGemma
 class RecurrentGemmaRMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
         super().__init__()
@@ -53,20 +37,16 @@ class RecurrentGemmaRMSNorm(nn.Module):
 
     def forward(self, x):
         output = self._norm(x.float())
-        # Llama does x.to(float16) * w whilst RecurrentGemma is (x * w).to(float16)
-        # See https://github.com/huggingface/transformers/pull/29402
         output = output * (1.0 + self.weight.float())
         return output.type_as(x)
 
     def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.eps}"
+        pass
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->RecurrentGemma
 class RecurrentGemmaRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
-    # Ignore copy
     def __init__(self, config: RecurrentGemmaConfig, device=None):
         super().__init__()
 
@@ -84,7 +64,6 @@ class RecurrentGemmaRotaryEmbedding(nn.Module):
         self.register_buffer("original_inv_freq", inv_freq.clone(), persistent=False)
 
     @staticmethod
-    # Ignore copy
     def compute_default_rope_parameters(
         config: RecurrentGemmaConfig | None = None,
         device: Optional["torch.device"] = None,
@@ -110,7 +89,6 @@ class RecurrentGemmaRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
@@ -132,7 +110,6 @@ class RecurrentGemmaRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-# Copied from transformers.models.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
@@ -140,7 +117,6 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-# Copied from transformers.models.gpt_neox.modeling_gpt_neox.apply_rotary_pos_emb
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
 
@@ -162,22 +138,18 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
 
-    # Keep half or full tensor for later concatenation
     rotary_dim = cos.shape[-1]
     q_rot, q_pass = q[..., :rotary_dim], q[..., rotary_dim:]
     k_rot, k_pass = k[..., :rotary_dim], k[..., rotary_dim:]
 
-    # Apply rotary embeddings on the first half or full tensor
     q_embed = (q_rot * cos) + (rotate_half(q_rot) * sin)
     k_embed = (k_rot * cos) + (rotate_half(k_rot) * sin)
 
-    # Concatenate back to full shape
     q_embed = torch.cat([q_embed, q_pass], dim=-1)
     k_embed = torch.cat([k_embed, k_pass], dim=-1)
     return q_embed, k_embed
 
 
-# Copied from transformers.models.llama.modeling_llama.repeat_kv
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -190,7 +162,6 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
-# Copied from transformers.models.llama.modeling_llama.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -217,7 +188,6 @@ def eager_attention_forward(
 
 
 class RecurrentGemmaAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: RecurrentGemmaConfig, layer_idx: int):
         super().__init__()
@@ -283,7 +253,6 @@ class RecurrentGemmaAttention(nn.Module):
 
 
 class SqrtBoundDerivative(torch.autograd.Function):
-    """Computes a square root with a gradient clipped at `_MAX_SQRT_GRADIENT`."""
 
     @staticmethod
     def forward(ctx, x: torch.Tensor) -> torch.Tensor:
@@ -293,14 +262,10 @@ class SqrtBoundDerivative(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
-        """The backward pass, which clips the `sqrt` gradient."""
-        (x,) = ctx.saved_tensors
-        clipped_x_times_4 = torch.clip(4.0 * x, min=1 / (_MAX_SQRT_GRADIENT**2))
-        return grad_output / torch.sqrt(clipped_x_times_4)
+        pass
 
 
 class RecurrentGemmaRglru(nn.Module):
-    """A Real-Gated Linear Recurrent Unit (RG-LRU) layer."""
 
     def __init__(self, config):
         super().__init__()
@@ -336,16 +301,12 @@ class RecurrentGemmaRglru(nn.Module):
         res = torch.baddbmm(self.recurrent_gate_bias[:, None, :], reshape_act, self.recurrent_gate_weight)
         recurrent_gate = torch.sigmoid(res.transpose(0, 1).reshape(batch_size, seq_len, lru_width))
 
-        # Compute the parameter `A` of the recurrence.
         log_recurrent_gate = -8.0 * recurrent_gate * nn.functional.softplus(self.recurrent_param)
         recurrent_gate = torch.exp(log_recurrent_gate)
         a_square = torch.exp(2 * log_recurrent_gate)
 
-        # Gate the input.
         gated_inputs = activations * input_gate
 
-        # Apply gamma normalization to the input. We need to clip the derivatives of
-        # `sqrt` in order to prevent NaNs during training in bfloat16. TODO a bit annoying
         multiplier = SqrtBoundDerivative.apply(1 - a_square)
         multiplier = reset + ~reset * multiplier
         normalized_x = gated_inputs * multiplier.type(activations.dtype)
@@ -359,7 +320,6 @@ class RecurrentGemmaRglru(nn.Module):
         self.recurrent_states = recurrent_states
         return hidden_states
 
-    # TODO refactor
     def _rnn_scan(
         self,
         hidden_states: torch.Tensor,
@@ -381,11 +341,9 @@ class RecurrentGemmaRglru(nn.Module):
         Returns:
         The output of the linear recurrence.
         """
-        # Multiply `a` by the reset.
         recurrent_gate = recurrent_gate * ~reset
 
         if hidden_states.shape[1] == 1:
-            # Using scan in sampling mode.
             if recurrent_states is None:  # same here, when decoding you always have cache
                 return hidden_states, hidden_states[:, 0].type(acc_dtype)
 
@@ -397,7 +355,6 @@ class RecurrentGemmaRglru(nn.Module):
                 return contextualized_states.type(hidden_states.dtype), contextualized_states[:, -1]
 
         else:
-            # Using scan in linear mode.
             if recurrent_states is None:
                 recurrent_states = torch.zeros(hidden_states[:, 0].shape, dtype=acc_dtype, device=hidden_states.device)
 
@@ -411,7 +368,6 @@ class RecurrentGemmaRglru(nn.Module):
 
 
 class RecurrentGemmaRecurrentBlock(nn.Module):
-    """Griffin and Hawk's recurrent block."""
 
     def __init__(self, config: RecurrentGemmaConfig, layer_idx: int):
         super().__init__()
@@ -451,7 +407,6 @@ class RecurrentGemmaRecurrentBlock(nn.Module):
         x_branch = x_branch.transpose(1, 2)
 
         if use_cache:
-            # Check if cache needs initialization (None or batch size mismatch)
             if self.conv1d_state is None or self.conv1d_state.shape[0] != batch_size:
                 self.conv1d_state = torch.zeros(
                     (batch_size, self.hidden_size, self.conv1d_width - 1),
@@ -482,7 +437,6 @@ class RecurrentGemmaRecurrentBlock(nn.Module):
         return hidden_states, None
 
     def _setup_cache(self, batch, device, dtype):
-        # recurrent_states always computed in full precision
         self.rg_lru.recurrent_states = torch.zeros((batch, self.lru_width), device=device, dtype=torch.float32)
         self.conv1d_state = torch.zeros((batch, self.hidden_size, self.conv1d_width - 1), device=device, dtype=dtype)
 
@@ -507,7 +461,6 @@ class RecurrentGemmaMlp(nn.Module):
 
 
 class RecurrentGemmaDecoderLayer(GradientCheckpointingLayer):
-    """Griffin and Hawk's residual block."""
 
     def __init__(self, config, layer_idx):
         super().__init__()
@@ -606,10 +559,8 @@ class RecurrentGemmaPreTrainedModel(PreTrainedModel):
                 init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             init.normal_(module.weight, mean=0.0, std=std)
-            # Here we need the check explicitly, as we slice the weight in the `zeros_` call, so it looses the flag
             if module.padding_idx is not None and not getattr(module.weight, "_is_hf_initialized", False):
                 init.zeros_(module.weight[module.padding_idx])
-        # We initialize with 0s to be 1 centered as the RMSNorm here does (1 + weight)
         elif isinstance(module, RecurrentGemmaRMSNorm):
             init.zeros_(module.weight)
         elif isinstance(module, RecurrentGemmaModel):
@@ -627,11 +578,11 @@ class RecurrentGemmaPreTrainedModel(PreTrainedModel):
 
 
 def _get_seq_length(self, layer_idx: int = 0) -> int:
-    return self.layers[self.first_attention_layer].get_seq_length()
+    pass
 
 
 def _get_mask_sizes(self, query_length: int, layer_idx: int) -> tuple[int, int]:
-    return self.layers[self.first_attention_layer].get_mask_sizes(query_length)
+    pass
 
 
 @auto_docstring
@@ -651,7 +602,6 @@ class RecurrentGemmaModel(RecurrentGemmaPreTrainedModel):
         self.register_buffer(
             "normalizer", torch.tensor(self.config.hidden_size**0.5, dtype=torch.bfloat16), persistent=False
         )
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -679,11 +629,8 @@ class RecurrentGemmaModel(RecurrentGemmaPreTrainedModel):
             self._setup_cache(self.config, hidden_states.shape[0], hidden_states.device, hidden_states.dtype)
             past_key_values = DynamicCache(config=self.config)
 
-        # Hack because the mamba layer indices will stay empty in `past_key_values`, and we want `get_seq_length` and
-        # `get_mask_sizes` to use the first attention layer by default for the mask function to create correct masks
         if past_key_values is not None:
             past_key_values.first_attention_layer = self.config.layers_block_type.index("attention")
-            # bound new methods to this instance only
             past_key_values.get_seq_length = _get_seq_length.__get__(past_key_values)
             past_key_values.get_mask_sizes = _get_mask_sizes.__get__(past_key_values)
 
@@ -714,7 +661,6 @@ class RecurrentGemmaModel(RecurrentGemmaPreTrainedModel):
         )
 
 
-# TODO: re-enable check: Copied from transformers.models.llama.modeling_llama.LlamaForCausalLM with LLAMA->RECURRENTGEMMA,Llama->RecurrentGemma,llama->gemma
 @auto_docstring
 class RecurrentGemmaForCausalLM(RecurrentGemmaPreTrainedModel, GenerationMixin):
     _tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}
@@ -725,12 +671,10 @@ class RecurrentGemmaForCausalLM(RecurrentGemmaPreTrainedModel, GenerationMixin):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
     @auto_docstring
-    # Ignore copy
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -776,11 +720,9 @@ class RecurrentGemmaForCausalLM(RecurrentGemmaPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
-        # Soft-cap the logits
         cap = self.config.logits_soft_cap
         logits = nn.functional.tanh(logits / cap) * cap
 

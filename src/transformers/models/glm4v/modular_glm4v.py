@@ -1,16 +1,3 @@
-# Copyright 2025 The ZhipuAI Inc. team and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import warnings
 from collections.abc import Callable
 
@@ -73,24 +60,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="zai-org/GLM-4.1V-9B-Thinking")
 @strict
 class Glm4vVisionConfig(PreTrainedConfig):
-    r"""
-    out_hidden_size (`int`, *optional*, defaults to 4096):
-        The output hidden size of the vision model.
-
-    Example:
-
-    ```python
-    >>> from transformers import Glm4vVisionConfig, Glm4vVisionModel
-
-    >>> # Initializing a Glm4vVisionConfig GLM-4.1V-9B style configuration
-    >>> configuration = Glm4vVisionConfig()
-
-    >>> # Initializing a model (with random weights) from the GLM-4.1V-9B configuration
-    >>> model = Glm4vVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "glm4v_vision"
     base_config_key = "vision_config"
@@ -115,26 +84,10 @@ class Glm4vVisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="zai-org/GLM-4.1V-9B-Thinking")
 @strict
 class Glm4vTextConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Glm4vTextModel, Glm4vConfig
-
-    >>> # Initializing a GLM-4.1V style configuration
-    >>> configuration = Glm4vConfig()
-
-    >>> # Initializing a model from the GLM-4.1V style configuration
-    >>> model = Glm4vTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "glm4v_text"
     base_config_key = "text_config"
     keys_to_ignore_at_inference = ["past_key_values"]
-    # Default tensor parallel plan for base model `Glm4v`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",
@@ -175,28 +128,6 @@ class Glm4vTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="zai-org/GLM-4.1V-9B-Thinking")
 @strict
 class Glm4vConfig(PreTrainedConfig):
-    r"""
-    image_start_token_id (`int`, *optional*, defaults to 151339):
-        The image start token index to encode the start of image.
-    image_end_token_id (`int`, *optional*, defaults to 151340):
-        The image end token index to encode the end of image.
-    video_start_token_id (`int`, *optional*, defaults to 151341):
-        The video start token index to encode the start of video.
-    video_end_token_id (`int`, *optional*, defaults to 151342):
-        The video end token index to encode the end of video.
-
-    ```python
-    >>> from transformers import Glm4vForConditionalGeneration, Glm4vConfig
-
-    >>> # Initializing a GLM-4.1V style configuration
-    >>> configuration = Glm4vConfig()
-
-    >>> # Initializing a model from the GLM-4.1V style configuration
-    >>> model = Glm4vForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "glm4v"
     sub_configs = {"vision_config": Glm4vVisionConfig, "text_config": Glm4vTextConfig}
@@ -226,7 +157,6 @@ class Glm4vConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
 
-# Will be used for both Text and Vision modalities
 class Glm4vRMSNorm(Glm4RMSNorm):
     pass
 
@@ -297,16 +227,13 @@ class Glm4vVisionEmbeddings(nn.Module):
         Returns:
             torch.Tensor: Embeddings with adapted position encoding added.
         """
-        # Get position embedding parameters
         pos_embed_weight = self.position_embedding.weight
         hidden_size = pos_embed_weight.shape[1]
         device = pos_embed_weight.device
 
-        # Convert inputs to tensors if needed
         if isinstance(lengths, list):
             lengths = torch.tensor(lengths, device=device, dtype=torch.long)
 
-        # Prepare 2D position embedding
         orig_size_sq = pos_embed_weight.shape[0]
         orig_size = int(orig_size_sq**0.5)
         pos_embed_2d = (
@@ -316,30 +243,24 @@ class Glm4vVisionEmbeddings(nn.Module):
             .to(device=device, dtype=torch.float32)
         )
 
-        # Calculate target dimensions for each patch
         num_tokens = embeddings.shape[0]
         token_positions = torch.arange(num_tokens, device=embeddings.device)
         seq_ids = (token_positions.unsqueeze(0) >= lengths.cumsum(0).unsqueeze(1)).sum(0)
         target_h = image_shapes[seq_ids, 1].to(dtype=torch.float32)
         target_w = image_shapes[seq_ids, 2].to(dtype=torch.float32)
 
-        # Normalize coordinates to [-1, 1] range for grid_sample
         norm_w = ((w_coords + 0.5) / target_w) * 2 - 1
         norm_h = ((h_coords + 0.5) / target_h) * 2 - 1
 
-        # Create sampling grid
         grid = torch.stack((norm_w, norm_h), dim=-1).unsqueeze(0).unsqueeze(2)
 
-        # Perform bicubic interpolation
         interpolated_embed_fp32 = F.grid_sample(
             pos_embed_2d, grid, mode=self.interpolated_method, align_corners=False, padding_mode="border"
         )
 
-        # Reshape and convert back to original dtype
         adapted_pos_embed_fp32 = interpolated_embed_fp32.squeeze(0).squeeze(-1).permute(1, 0)
         adapted_pos_embed = adapted_pos_embed_fp32.to(pos_embed_weight.dtype).to(embeddings.device)
 
-        # Add adapted position encoding to embeddings
         embeddings = embeddings + adapted_pos_embed
         return embeddings
 
@@ -367,8 +288,6 @@ class Glm4vTextRotaryEmbedding(Glm4RotaryEmbedding):
         self.mrope_section = config.rope_parameters.get("mrope_section", [8, 12, 12])
 
     def forward(self, x, position_ids):
-        # In contrast to other models, GLM-V has different position ids for the grids
-        # So we expand the inv_freq to shape (3, ...)
         inv_freq_expanded = self.inv_freq[None, None, :, None].float().expand(3, position_ids.shape[1], -1, 1)
         position_ids_expanded = position_ids[:, :, None, :].float()  # shape (3, bs, 1, positions)
 
@@ -417,30 +336,22 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
 
-    # Interleave them instead of usual shape
     cos = cos[..., : cos.shape[-1] // 2].repeat_interleave(2, dim=-1)
     sin = sin[..., : sin.shape[-1] // 2].repeat_interleave(2, dim=-1)
 
-    # Keep half or full tensor for later concatenation
     rotary_dim = cos.shape[-1]
     q_rot, q_pass = q[..., :rotary_dim], q[..., rotary_dim:]
     k_rot, k_pass = k[..., :rotary_dim], k[..., rotary_dim:]
 
-    # Apply rotary embeddings on the first half or full tensor
     q_embed = (q_rot * cos) + (rotate_half_llm(q_rot) * sin)
     k_embed = (k_rot * cos) + (rotate_half_llm(k_rot) * sin)
 
-    # Concatenate back to full shape
     q_embed = torch.cat([q_embed, q_pass], dim=-1)
     k_embed = torch.cat([k_embed, k_pass], dim=-1)
     return q_embed, k_embed
 
 
 class Glm4vTextAttention(nn.Module):
-    """
-    Multi-headed attention from 'Attention Is All You Need' paper.
-    and "Generating Long Sequences with Sparse Transformers".
-    """
 
     def __init__(self, config: Glm4vTextConfig, layer_idx: int | None = None):
         super().__init__()
@@ -536,7 +447,6 @@ class Glm4vTextDecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             position_embeddings=position_embeddings,
@@ -550,7 +460,6 @@ class Glm4vTextDecoderLayer(GradientCheckpointingLayer):
         hidden_states = self.post_self_attn_layernorm(hidden_states)
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -612,14 +521,7 @@ class Glm4vVisionModel(Glm4vPreTrainedModel):
         self.post_init()
 
     def rot_pos_emb(self, grid_thw):
-        warnings.warn(
-            f"`{self.__class__.__name__}.rot_pos_emb` is deprecated and will be removed in v5.11. Use `get_vision_position_ids` from `transformers.vision_utils` and apply the rotary embedding module.",
-            FutureWarning,
-            stacklevel=2,
-        )
-        position_ids = get_vision_position_ids(grid_thw, self.spatial_merge_size)
-        rotary_pos_emb = self.rotary_pos_emb(position_ids)
-        return rotary_pos_emb, position_ids
+        pass
 
     @merge_with_config_defaults
     @capture_outputs
@@ -711,14 +613,12 @@ class Glm4vTextModel(Qwen2_5_VLTextModel):
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        # torch.jit.trace() doesn't support cache objects in the output
         if use_cache and past_key_values is None and not torch.jit.is_tracing():
             past_key_values = DynamicCache(config=self.config)
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # the hard coded `3` is for temporal, height and width.
         if position_ids is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
@@ -726,21 +626,10 @@ class Glm4vTextModel(Qwen2_5_VLTextModel):
         elif position_ids.ndim == 2:
             position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
 
-        # NOTE: we need to pass text position ids for packing. Qwen2-VL uses 3D positions
-        # where each dim indicates visual spatial positions for temporal/height/width grids.
-        # There are two scenarios when FA2-like packed masking might be activated.
-        # 1. User specifically passed packed `position_ids` and no attention mask.
-        #    In this case we expect the user to create correct position ids for all 3 grids
-        #    and prepend text-only position ids to it. The final tensor will be [4, bs, seq-len]
-        # 2. User runs forward with no attention mask and no position ids. In this case, position ids
-        #    are prepared by the model (`get_rope_index`) as `[4, bs, seq-len]` tensor. Text-only positions are
-        #    prepended by us when creating positions so that the mask is constructed correctly. NOTE: failing to pass
-        #    text-only positions will cause incorrect mask construction, do not change `prepare_input_for_generation`
         if position_ids.ndim == 3 and position_ids.shape[0] == 4:
             text_position_ids = position_ids[0]
             position_ids = position_ids[1:]
         else:
-            # If inputs are not packed (usual 3D positions), do not prepare mask from position_ids
             text_position_ids = None
 
         mask_kwargs = {
@@ -750,7 +639,6 @@ class Glm4vTextModel(Qwen2_5_VLTextModel):
             "past_key_values": past_key_values,
             "position_ids": text_position_ids,
         }
-        # Create the masks
         causal_mask = create_causal_mask(**mask_kwargs)
 
         hidden_states = inputs_embeds
@@ -798,10 +686,8 @@ class Glm4vModel(Qwen2VLModel):
             The temporal, height and width of feature shape of each video in LLM.
         """
         pixel_values_videos = pixel_values_videos.type(self.visual.dtype)
-        # reshape video_grid_thw -> [b, 3] -> [1, h, w] * frames
         t = video_grid_thw[:, 0]
         hw = video_grid_thw[:, 1:]
-        # repeat each (h,w) row `t` times
         flattened_hw = torch.repeat_interleave(hw, t, dim=0)
         prefix_ones = video_grid_thw.new_ones(flattened_hw.shape[0], 1)
         flattened_video_grid_thw = torch.cat([prefix_ones, flattened_hw], dim=1)
@@ -835,7 +721,6 @@ class Glm4vModel(Qwen2VLModel):
             )
             special_video_mask = special_video_mask.all(-1)
         else:
-            # GLM-4.1V and GLM-4.5V special_video_mask is special_image_mask
             special_image_mask = input_ids == self.config.image_token_id
             special_video_mask = input_ids == self.config.image_token_id
 
@@ -886,7 +771,6 @@ class Glm4vModel(Qwen2VLModel):
             mrope_position_deltas (`torch.Tensor` of shape `(batch_size)`)
         """
 
-        # Separate video grid thw into multiple grids because timestamps are used to separate videos.
         if video_grid_thw is not None:
             video_grid_thw = torch.repeat_interleave(video_grid_thw, video_grid_thw[:, 0], dim=0)
             video_grid_thw[:, 0] = 1
@@ -1043,7 +927,6 @@ class Glm4vForConditionalGeneration(Qwen2_5_VLForConditionalGeneration):
 
         hidden_states = outputs[0]
 
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -1075,7 +958,6 @@ class Glm4vForConditionalGeneration(Qwen2_5_VLForConditionalGeneration):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -1140,15 +1022,11 @@ class Glm4vForConditionalGeneration(Qwen2_5_VLForConditionalGeneration):
             is_video_start = input_ids == self.config.video_start_token_id
             is_video_end = input_ids == self.config.video_end_token_id
 
-        # Cumulative sum to track if we're inside a video span
-        # We'll assume well-formed video tags (i.e. matching starts and ends)
         video_level = torch.cumsum(is_video_start.int() - is_video_end.int(), dim=1)
         inside_video = video_level > 0  # shape (batch_size, seq_length)
 
-        # Mask out image tokens that are inside video spans
         standalone_images = is_image & (~inside_video)
 
-        # Count per batch
         image_counts = standalone_images.sum(dim=1)
         video_counts = is_video_start.sum(dim=1)
 
@@ -1175,59 +1053,13 @@ class Glm4vProcessor(Qwen2VLProcessor):
         self.video_end_id = tokenizer.convert_tokens_to_ids("<|end_of_video|>")
 
     def replace_video_token(self, video_inputs: dict, video_idx: int) -> str:
-        merge_length = self.video_processor.merge_size**2
-        num_frames = video_inputs["video_grid_thw"][video_idx][0]
-        num_image_tokens = video_inputs["video_grid_thw"][video_idx].prod() // merge_length // num_frames
-        metadata = video_inputs["video_metadata"][video_idx]
-        video_structure = ""
-
-        if metadata.fps is None:
-            logger.warning_once(
-                "GLM4V requires frame timestamps to construct prompts, but the `fps` of the input video could not be inferred. "
-                "Probably `video_metadata` was missing from inputs and you passed pre-sampled frames. "
-                "Defaulting to `fps=24`. Please provide `video_metadata` for more accurate results."
-            )
-        metadata.fps = 24 if metadata.fps is None else metadata.fps
-        timestamps = metadata.timestamps[::2]  # mrope
-
-        unique_timestamps = []
-        for idx in range(0, len(timestamps)):
-            unique_timestamps.append(timestamps[idx])
-
-        selected_timestamps = unique_timestamps[:num_frames]
-        while len(selected_timestamps) < num_frames:
-            selected_timestamps.append(selected_timestamps[-1] if selected_timestamps else 0)
-
-        for frame_idx in range(num_frames):
-            timestamp_sec = selected_timestamps[frame_idx]
-            frame_structure = self.replace_frame_token_id(timestamp_sec, num_image_tokens=num_image_tokens)
-            video_structure += frame_structure
-
-        return video_structure
+        pass
 
     def create_mm_token_type_ids(self, input_ids: list) -> list[list[int]]:
-        # We have to iterate for each list separately because inputs
-        # might be non-padded lists and we can't cast numpy on that!
-        # Then cast numpy as each input for faster indexing
-        mm_token_type_ids = []
-        for input in input_ids:
-            array_ids = np.array(input)
-            mm_token_types = np.zeros_like(input)
-
-            # Replace 0 -> 2 only inside video segments because GLM4v
-            # uses the same special token to denote images and video
-            # Otherwise replace 0 -> 1 for image modality
-            starts = np.cumsum(array_ids == self.video_start_id, axis=0)
-            ends = np.cumsum(array_ids == self.video_end_id, axis=0)
-            is_video_modality = starts > ends
-
-            mm_token_types[(array_ids == self.image_token_id) & is_video_modality] = 2
-            mm_token_types[(array_ids == self.image_token_id) & (~is_video_modality)] = 1
-            mm_token_type_ids.append(mm_token_types.tolist())
-        return mm_token_type_ids
+        pass
 
     def replace_frame_token_id(self, timestamp_sec, num_image_tokens: int = 1):
-        return f"<|begin_of_image|>{self.image_token * num_image_tokens}<|end_of_image|>{int(timestamp_sec)}"
+        pass
 
 
 __all__ = [

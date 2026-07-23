@@ -37,7 +37,6 @@ class WavLMFeatureProjection(Wav2Vec2FeatureProjection):
 
 
 class WavLMAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -86,27 +85,21 @@ class WavLMAttention(nn.Module):
         """Attention layer with relative attention"""
         bsz, tgt_len, _ = hidden_states.size()
 
-        # first pass of attention layer creates position bias
         if position_bias is None:
             position_bias = self.compute_bias(tgt_len, tgt_len)
             position_bias = (
                 position_bias.unsqueeze(0).repeat(bsz, 1, 1, 1).view(bsz * self.num_heads, tgt_len, tgt_len)
             )
 
-        # Compute relative position bias:
-        # 1) get reshape hidden_states
         gated_hidden_states = hidden_states.view(hidden_states.shape[:-1] + (self.num_heads, -1))
         gated_hidden_states = gated_hidden_states.permute(0, 2, 1, 3)
 
-        # 2) project hidden states
         relative_position_proj = self.gru_rel_pos_linear(gated_hidden_states)
         relative_position_proj = relative_position_proj.view(gated_hidden_states.shape[:-1] + (2, 4)).sum(-1)
 
-        # 3) compute gate for position bias from projected hidden states
         gate_a, gate_b = torch.sigmoid(relative_position_proj).chunk(2, dim=-1)
         gate_output = gate_a * (gate_b * self.gru_rel_pos_const - 1.0) + 2.0
 
-        # 4) apply gate to position bias to compute gated position_bias
         gated_position_bias = gate_output.view(bsz * self.num_heads, -1, 1) * position_bias
         gated_position_bias = gated_position_bias.view((-1, tgt_len, tgt_len))
 
@@ -124,16 +117,12 @@ class WavLMAttention(nn.Module):
         output_attentions: bool,
     ) -> tuple[torch.FloatTensor, torch.FloatTensor]:
         """simple wrapper around torch's multi_head_attention_forward function"""
-        # self-attention assumes q = k = v
         query = key = value = hidden_states.transpose(0, 1)
         key_padding_mask = attention_mask.ne(1) if attention_mask is not None else None
 
-        # disable bias and add_zero_attn
         bias_k = bias_v = None
         add_zero_attn = False
 
-        # PyTorch 1.3.0 has F.multi_head_attention_forward defined
-        # so no problem with backwards compatibility
         attn_output, attn_weights = F.multi_head_attention_forward(
             query,
             key,
@@ -158,13 +147,9 @@ class WavLMAttention(nn.Module):
             v_proj_weight=self.v_proj.weight,
         )
 
-        # [Seq_Len, Batch Size, ...] -> [Batch Size, Seq_Len, ...]
         attn_output = attn_output.transpose(0, 1)
 
         if attn_weights is not None:
-            # IMPORTANT: Attention weights are averaged weights
-            # here which should not be the case. This is an open issue
-            # on PyTorch: https://github.com/pytorch/pytorch/issues/32590
             attn_weights = attn_weights[:, None].broadcast_to(
                 attn_weights.shape[:1] + (self.num_heads,) + attn_weights.shape[1:]
             )
@@ -308,7 +293,6 @@ class WavLMEncoder(nn.Module):
         all_self_attentions = () if output_attentions else None
 
         if attention_mask is not None:
-            # make sure padded tokens output 0
             expand_attention_mask = attention_mask.unsqueeze(-1).repeat(1, 1, hidden_states.shape[2])
             hidden_states[~expand_attention_mask] = 0
 
@@ -324,12 +308,10 @@ class WavLMEncoder(nn.Module):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             dropout_probability = torch.rand([])
 
             skip_the_layer = self.training and i > 0 and (dropout_probability < self.config.layerdrop)
             if not skip_the_layer or synced_gpus:
-                # under fsdp or deepspeed zero3 all gpus must run in sync
                 layer_outputs = layer(
                     hidden_states,
                     attention_mask=attention_mask,
@@ -385,7 +367,6 @@ class WavLMEncoderStableLayerNorm(nn.Module):
         all_self_attentions = () if output_attentions else None
 
         if attention_mask is not None:
-            # make sure padded tokens are not attended to
             expand_attention_mask = attention_mask.unsqueeze(-1).repeat(1, 1, hidden_states.shape[2])
             hidden_states[~expand_attention_mask] = 0
 
@@ -400,13 +381,10 @@ class WavLMEncoderStableLayerNorm(nn.Module):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             dropout_probability = torch.rand([])
 
             skip_the_layer = self.training and i > 0 and (dropout_probability < self.config.layerdrop)
             if not skip_the_layer or synced_gpus:
-                # under fsdp or deepspeed zero3 all gpus must run in sync
-                # XXX: could optimize this like synced_gpus in generate_utils but not sure if it's worth the code complication
                 layer_outputs = layer(
                     hidden_states,
                     attention_mask=attention_mask,
@@ -434,10 +412,6 @@ class WavLMEncoderStableLayerNorm(nn.Module):
 
 
 class WavLMGumbelVectorQuantizer(nn.Module):
-    """
-    Vector quantization using gumbel softmax. See [CATEGORICAL REPARAMETERIZATION WITH
-    GUMBEL-SOFTMAX](https://huggingface.co/papers/1611.01144) for more information.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -451,13 +425,11 @@ class WavLMGumbelVectorQuantizer(nn.Module):
                 "for concatenation."
             )
 
-        # storage for codebook variables (codewords)
         self.codevectors = nn.Parameter(
             torch.FloatTensor(1, self.num_groups * self.num_vars, config.codevector_dim // self.num_groups)
         )
         self.weight_proj = nn.Linear(config.conv_dim[-1], self.num_groups * self.num_vars)
 
-        # can be decayed for training
         self.temperature = 2
 
     @staticmethod
@@ -469,23 +441,18 @@ class WavLMGumbelVectorQuantizer(nn.Module):
     def forward(self, hidden_states):
         batch_size, sequence_length, hidden_size = hidden_states.shape
 
-        # project to codevector dim
         hidden_states = self.weight_proj(hidden_states)
         hidden_states = hidden_states.view(batch_size * sequence_length * self.num_groups, -1)
 
         if self.training:
-            # sample code vector probs via gumbel in differentiateable way
             codevector_probs = nn.functional.gumbel_softmax(hidden_states.float(), tau=self.temperature, hard=True)
             codevector_probs = codevector_probs.type_as(hidden_states)
 
-            # compute perplexity
             codevector_soft_dist = torch.softmax(
                 hidden_states.view(batch_size * sequence_length, self.num_groups, -1).float(), dim=-1
             )
             perplexity = self._compute_perplexity(codevector_soft_dist)
         else:
-            # take argmax in non-differentiable way
-            # comptute hard codevector distribution (one hot)
             codevector_idx = hidden_states.argmax(dim=-1)
             codevector_probs = hidden_states.new_zeros(*hidden_states.shape).scatter_(
                 -1, codevector_idx.view(-1, 1), 1.0
@@ -495,7 +462,6 @@ class WavLMGumbelVectorQuantizer(nn.Module):
             perplexity = self._compute_perplexity(codevector_probs)
 
         codevector_probs = codevector_probs.view(batch_size * sequence_length, -1)
-        # use probs to retrieve codevectors
         codevectors_per_group = codevector_probs.unsqueeze(-1) * self.codevectors
         codevectors = codevectors_per_group.view(batch_size * sequence_length, self.num_groups, self.num_vars, -1)
         codevectors = codevectors.sum(-2).view(batch_size, sequence_length, -1)
@@ -517,7 +483,6 @@ class WavLMPreTrainedModel(PreTrainedModel, Wav2Vec2PreTrainedModel):
     def _init_weights(self, module):
         """Initialize the weights"""
         PreTrainedModel._init_weights(self, module)
-        # gumbel softmax requires special init
         if isinstance(module, WavLMGumbelVectorQuantizer):
             init.normal_(module.weight_proj.weight, mean=0.0, std=1)
             init.zeros_(module.weight_proj.bias)

@@ -1,16 +1,3 @@
-# Copyright 2024 Microsoft Research & University of Wisconsin-Madison and the HuggingFace Inc. team. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""VideoLlava model configuration"""
 
 from typing import Literal
 
@@ -27,27 +14,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="LanguageBind/Video-LLaVA-7B-hf")
 @strict
 class VideoLlavaConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import VideoLlavaForConditionalGeneration, VideoLlavaConfig, CLIPVisionConfig, LlamaConfig
-
-    >>> # Initializing a CLIP-vision config
-    >>> vision_config = CLIPVisionConfig()
-
-    >>> # Initializing a Llama config
-    >>> text_config = LlamaConfig()
-
-    >>> # Initializing a VideoLlava video_llava-1.5-7b style configuration
-    >>> configuration = VideoLlavaConfig(vision_config, text_config)
-
-    >>> # Initializing a model from the video_llava-1.5-7b style configuration
-    >>> model = VideoLlavaForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "video_llava"
     attribute_map = {

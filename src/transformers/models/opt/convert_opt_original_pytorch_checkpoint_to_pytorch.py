@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert OPT checkpoint."""
 
 import argparse
 from pathlib import Path
@@ -32,7 +18,6 @@ def load_checkpoint(checkpoint_path):
     if "model" in sd:
         sd = torch.load(checkpoint_path, map_location="cpu", weights_only=True)["model"]
 
-    # pop unnecessary weights
     keys_to_delete = [
         "decoder.version",
         "decoder.output_projection.weight",
@@ -55,7 +40,6 @@ def load_checkpoint(checkpoint_path):
     for key in keys:
         if ".qkv_proj." in key:
             value = sd[key]
-            # We split QKV in separate Q,K,V
 
             q_name = key.replace(".qkv_proj.", ".q_proj.")
             k_name = key.replace(".qkv_proj.", ".k_proj.")
@@ -63,8 +47,6 @@ def load_checkpoint(checkpoint_path):
 
             depth = value.shape[0]
             assert depth % 3 == 0
-            # `SequeuceParallelTransformerBlock` has QKV weight is separated in K,V,Q despite the naming:
-            # https://cs.github.com/facebookresearch/metaseq/blob/51871bd73cd04c038f239ea2a26db1d7f6b37927/metaseq/modules/sequence_parallel_transformer_layer.py#L97
             k, v, q = torch.split(value, depth // 3, dim=0)
 
             sd[q_name] = q
@@ -77,27 +59,11 @@ def load_checkpoint(checkpoint_path):
 
 @torch.no_grad()
 def convert_opt_checkpoint(checkpoint_path, pytorch_dump_folder_path, config=None):
-    """
-    Copy/paste/tweak model's weights to our BERT structure.
-    """
-    state_dict = load_checkpoint(checkpoint_path)
-
-    if config is not None:
-        config = OPTConfig.from_pretrained(config)
-    else:
-        config = OPTConfig()
-
-    model = OPTModel(config).half().eval()
-    model.load_state_dict(state_dict)
-
-    # Check results
-    Path(pytorch_dump_folder_path).mkdir(exist_ok=True)
-    model.save_pretrained(pytorch_dump_folder_path)
+    pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--fairseq_path",
         type=str,

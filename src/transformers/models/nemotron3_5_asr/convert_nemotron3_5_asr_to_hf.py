@@ -1,30 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert a NeMo multilingual, prompt-conditioned cache-aware streaming RNN-T checkpoint
-(e.g. `nvidia/nemotron-3.5-asr-streaming-0.6b`) to the HuggingFace `Nemotron3_5Asr` format.
-
-Adapted from `convert_nemotron_asr_to_hf.py`. `Nemotron3_5Asr` is the multilingual extension of
-`NemotronAsr`: the encoder / decoder / joint module layout (and therefore the weight key mappings) is
-identical, plus a single new top-level module — `prompt_projector`, the language-ID prompt-fusion MLP.
-Its NeMo keys (`prompt_kernel.0/.2.*`) are remapped to the HF names (`prompt_projector.linear_1/2.*`).
-
-The multilingual differences handled here are:
-  * the target classes are `Nemotron3_5Asr*`,
-  * `num_prompts` and the `prompt_dictionary` (locale -> prompt index) are read from NeMo's
-    `model_defaults` and written into the config and processor,
-  * `prompt_intermediate_size` is derived from the `prompt_projector` shapes.
-"""
 
 import argparse
 import gc
@@ -48,14 +21,9 @@ from transformers.convert_slow_tokenizer import ParakeetConverter
 from transformers.utils.hub import cached_file
 
 
-# Encoder / decoder / joint submodule layout matches NemotronAsr (and Parakeet), so these mappings are
-# reused verbatim. The new `prompt_kernel.*` keys (NeMo's `nn.Sequential`) are remapped to the HF
-# `prompt_projector.linear_{1,2}.*` names of `Nemotron3_5AsrPromptProjector`.
 NEMO_TO_HF_WEIGHT_MAPPING = {
     r"prompt_kernel\.0\.": r"prompt_projector.linear_1.",
     r"prompt_kernel\.2\.": r"prompt_projector.linear_2.",
-    # NeMo's `pre_encode.conv` is a flat Sequential (conv, relu, dwconv, pwconv, relu, dwconv, pwconv, relu).
-    # HF splits it into a stem (`conv_in`) plus depthwise-separable `layers`.
     r"encoder\.pre_encode\.conv\.0\.": r"encoder.subsampling.conv_in.",
     r"encoder\.pre_encode\.conv\.2\.": r"encoder.subsampling.layers.0.depthwise_conv.",
     r"encoder\.pre_encode\.conv\.3\.": r"encoder.subsampling.layers.0.pointwise_conv.",
@@ -63,8 +31,6 @@ NEMO_TO_HF_WEIGHT_MAPPING = {
     r"encoder\.pre_encode\.conv\.6\.": r"encoder.subsampling.layers.1.pointwise_conv.",
     r"encoder\.pre_encode\.out\.": r"encoder.subsampling.linear.",
     r"encoder\.pos_enc\.": r"encoder.encode_positions.",
-    # NeMo stores the conformer conv norm under `conv.batch_norm` regardless of whether it is a
-    # BatchNorm or (for cache-aware checkpoints) a LayerNorm; HF names it `conv.norm`.
     r"encoder\.layers\.(\d+)\.conv\.batch_norm\.": r"encoder.layers.\1.conv.norm.",
     r"linear_([kv])": r"\1_proj",
     r"linear_out": r"o_proj",
@@ -73,7 +39,6 @@ NEMO_TO_HF_WEIGHT_MAPPING = {
     r"linear_pos": r"relative_k_proj",
 }
 
-# RNN-T decoder (prediction network) and joint network.
 NEMO_RNNT_WEIGHT_MAPPING = {
     r"decoder\.prediction\.embed\.": r"decoder.embedding.",
     r"decoder\.prediction\.dec_rnn\.lstm\.": r"decoder.lstm.",
@@ -176,7 +141,6 @@ def _resolve_prompt_conditioning(nemo_config: dict) -> tuple[int, dict]:
             "targets the multilingual, prompt-conditioned Nemotron 3.5 ASR checkpoints; for the English "
             "(non-prompted) model use `convert_nemotron_asr_to_hf.py` instead."
         )
-    # NeMo stores keys like `'no'` (Norwegian) that YAML may parse as the boolean False; normalize to str.
     prompt_dictionary = {str(k): int(v) for k, v in prompt_dictionary.items()}
     return int(num_prompts), prompt_dictionary
 
@@ -194,7 +158,6 @@ def write_processor(nemo_config: dict, model_files, output_dir, push_to_repo_id=
     if tokenizer_converted_fast.convert_tokens_to_ids("<pad>") is None:
         tokenizer_converted_fast.add_tokens([AddedToken("<pad>", normalized=False, special=True)])
         print(f"Added <pad> token at ID: {tokenizer_converted_fast.convert_tokens_to_ids('<pad>')}")
-    # Transducer models need a separate blank token at the end of the vocab.
     tokenizer_converted_fast.add_tokens([AddedToken("<blank>", normalized=False, special=True)])
     print(f"Added <blank> token at ID: {tokenizer_converted_fast.convert_tokens_to_ids('<blank>')}")
     tokenizer_converted_fast.add_special_tokens(
@@ -203,9 +166,6 @@ def write_processor(nemo_config: dict, model_files, output_dir, push_to_repo_id=
             "unk_token": AddedToken("<unk>", normalized=False, special=True),
         }
     )
-    # The multilingual model emits a language tag (e.g. `<en-US>`) in automatic-detection mode. These tags
-    # are regular BPE vocab tokens in the NeMo checkpoint; mark them as special tokens (keeping their ids)
-    # so `batch_decode(..., skip_special_tokens=True)` strips them, Whisper-style.
     language_tag_pattern = re.compile(r"^<[a-z]{2,3}-[A-Za-z]{2}>$")
     language_tags = sorted(t for t in tokenizer_converted_fast.get_vocab() if language_tag_pattern.match(t))
     tokenizer_converted_fast.add_special_tokens(
@@ -213,8 +173,6 @@ def write_processor(nemo_config: dict, model_files, output_dir, push_to_repo_id=
     )
     print(f"Marked {len(language_tags)} language-tag tokens as special: {language_tags}")
 
-    # NemotronAsrStreamingFeatureExtractor (reused directly; like NemotronAsrFeatureExtractor) has no
-    # normalization step at all, so NeMo's `preprocessor.normalize` is dropped rather than translated.
     feature_extractor_config_keys_mapping = {
         "sample_rate": "sampling_rate",
         "window_size": "win_length",
@@ -240,7 +198,6 @@ def write_processor(nemo_config: dict, model_files, output_dir, push_to_repo_id=
         if key in feature_extractor_keys_to_ignore:
             continue
         if key in feature_extractor_config_keys_mapping:
-            # NeMo stores window size/stride in seconds; the feature extractor wants samples.
             if key in ["window_size", "window_stride"]:
                 value = int(value * nemo_config["preprocessor"]["sample_rate"])
             converted_feature_extractor_config[feature_extractor_config_keys_mapping[key]] = value
@@ -249,9 +206,6 @@ def write_processor(nemo_config: dict, model_files, output_dir, push_to_repo_id=
 
     feature_extractor = NemotronAsrStreamingFeatureExtractor(**converted_feature_extractor_config)
 
-    # Carry the model's supported right attention contexts onto the processor so it can validate
-    # `streaming_latency_ms` and emit `num_lookahead_tokens`. NeMo stores a single [left, right] pair, a list
-    # of pairs (multi-lookahead), or [-1, -1] for full (offline) context.
     att_context_size = nemo_config["encoder"].get("att_context_size")
     supported_num_lookahead_tokens = default_num_lookahead_tokens = None
     if att_context_size is not None and att_context_size not in ([-1, -1], [[-1, -1]]):
@@ -295,16 +249,12 @@ def convert_encoder_config(nemo_config):
         "reduction",
         "reduction_factor",
         "reduction_position",
-        # Multi-lookahead training-only sampling probs; inference uses the first context only.
         "att_context_probs",
-        # These are inherent to the cache-aware architecture and not represented in the HF config: the
-        # conv module is always layer-norm + fully causal, and the subsampling is always causal.
         "att_context_style",
         "conv_norm_type",
         "conv_context_size",
         "causal_downsampling",
     ]
-    # ff_expansion_factor combines with d_model to give intermediate_size in HF.
     ff_expansion = nemo_config["encoder"].get("ff_expansion_factor")
     d_model = nemo_config["encoder"].get("d_model")
     if ff_expansion is not None and d_model is not None:
@@ -325,9 +275,7 @@ def convert_encoder_config(nemo_config):
         "dropout_att": "attention_dropout",
         "xscaling": "scale_input",
         "use_bias": "attention_bias",
-        # Derived from ff_expansion_factor * d_model in NeMo; consumed as hidden_size * factor here.
         "__intermediate_size__": "intermediate_size",
-        # Cache-aware (streaming-trained) field.
         "att_context_size": "att_context_size",
     }
     converted_encoder_config = {}
@@ -337,9 +285,6 @@ def convert_encoder_config(nemo_config):
             continue
         if key in encoder_config_keys_mapping:
             if key == "att_context_size":
-                # NeMo stores a single [left, right] pair, a list of pairs (multi-lookahead), or [-1, -1]
-                # for full (offline) context. The shared left context becomes `sliding_window` (= left + 1)
-                # and the per-lookahead rights become `supported_num_lookahead_tokens`.
                 if value in ([-1, -1], [[-1, -1]]):
                     continue
                 pairs = value if isinstance(value[0], (list, tuple)) else [value]
@@ -390,8 +335,6 @@ def convert_rnnt_config(nemo_config, encoder_config, prompt_intermediate_size):
     max_symbols_per_step = nemo_config.get("decoding", {}).get("greedy", {}).get("max_symbols", 10)
 
     num_prompts, prompt_dictionary = _resolve_prompt_conditioning(nemo_config)
-    # Match NeMo's default of `target_lang="auto"`: condition on the auto language-detection slot when no
-    # `prompt_ids` are provided.
     default_prompt_id = int(prompt_dictionary.get("auto", 101))
 
     print(
@@ -427,11 +370,9 @@ def load_and_convert_rnnt_state_dict(model_files):
         if key.endswith("featurizer.window") or key.endswith("featurizer.fb"):
             print(f"Skipping preprocessing weight: {key}")
             continue
-        # Skip the auxiliary CTC head weights present in some hybrid checkpoints.
         if key.startswith("ctc_decoder.") or "ctc_loss" in key:
             print(f"Skipping auxiliary CTC weight: {key}")
             continue
-        # `prompt_kernel.*` (the language-ID fusion MLP) is remapped to `prompt_projector.linear_{1,2}.*`.
         converted_key = convert_key(key, all_mappings)
         converted_state_dict[converted_key] = value
 
@@ -442,7 +383,6 @@ def write_rnnt_model(nemo_config, encoder_config, model_files, output_dir, push_
     """Write the RNN-T model using the encoder config, RNN-T config, and converted state dict."""
     converted_state_dict = load_and_convert_rnnt_state_dict(model_files)
 
-    # The prompt-fusion MLP hidden size is the output dim of its first linear (`prompt_projector.linear_1`).
     if "prompt_projector.linear_1.weight" not in converted_state_dict:
         raise ValueError(
             "Checkpoint has no `prompt_projector.linear_1.weight`; this does not look like a prompt-conditioned "
@@ -504,8 +444,6 @@ def main(
     model_files = extract_nemo_archive(filepath, extract_dir)
     nemo_config = yaml.load(open(model_files["model_config"], "r"), Loader=yaml.FullLoader)
 
-    # When revision is given (e.g. "refs/pr/3"), both pushes target that existing PR branch.
-    # Otherwise, write_processor creates a new PR and returns its revision for the model push.
     pr_revision = write_processor(
         nemo_config,
         model_files,

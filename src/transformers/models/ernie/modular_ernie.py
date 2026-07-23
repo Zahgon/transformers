@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ERNIE model."""
 
 import torch
 import torch.nn as nn
@@ -60,7 +46,6 @@ logger = logging.get_logger(__name__)
 
 
 class ErnieEmbeddings(BertEmbeddings):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__(config)
@@ -88,12 +73,8 @@ class ErnieEmbeddings(BertEmbeddings):
         if position_ids is None:
             position_ids = self.position_ids[:, past_key_values_length : seq_length + past_key_values_length]
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
-                # NOTE: We assume either pos ids to have bsz == 1 (broadcastable) or bsz == effective bsz (input_shape[0])
                 buffered_token_type_ids = self.token_type_ids.expand(position_ids.shape[0], -1)
                 buffered_token_type_ids = torch.gather(buffered_token_type_ids, dim=1, index=position_ids)
                 token_type_ids = buffered_token_type_ids.expand(batch_size, seq_length)
@@ -104,14 +85,12 @@ class ErnieEmbeddings(BertEmbeddings):
             inputs_embeds = self.word_embeddings(input_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
 
-        # .to is better than using _no_split_modules on ErnieEmbeddings as it's the first module and >1/2 the model size
         inputs_embeds = inputs_embeds.to(token_type_embeddings.device)
         embeddings = inputs_embeds + token_type_embeddings
 
         position_embeddings = self.position_embeddings(position_ids)
         embeddings = embeddings + position_embeddings
 
-        # add `task_type_id` for ERNIE model
         if self.use_task_id:
             if task_type_ids is None:
                 task_type_ids = torch.zeros(input_shape, dtype=torch.long, device=self.position_ids.device)
@@ -186,7 +165,6 @@ class ErnieModel(BertModel):
 
         self.pooler = ErniePooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -233,7 +211,6 @@ class ErnieModel(BertModel):
             input_ids=input_ids,
             position_ids=position_ids,
             token_type_ids=token_type_ids,
-            # specific to ernie
             task_type_ids=task_type_ids,
             inputs_embeds=inputs_embeds,
             past_key_values_length=past_key_values_length,
@@ -403,7 +380,6 @@ class ErnieForCausalLM(BertLMHeadModel):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.cls(hidden_states[:, slice_indices, :])
 
@@ -813,12 +789,10 @@ class ErnieForQuestionAnswering(BertForQuestionAnswering):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

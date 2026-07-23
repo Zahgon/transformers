@@ -1,18 +1,4 @@
-# Copyright 2024 Microsoft and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Phi-3 model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -24,25 +10,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="microsoft/Phi-3-mini-4k-instruct")
 @strict
 class Phi3Config(PreTrainedConfig):
-    r"""
-    original_max_position_embeddings (`int`, *optional*, defaults to 4096):
-        The maximum sequence length that this model was trained with. This is used to determine the size of the
-        original RoPE embeddings when using long scaling.
-
-    Example:
-
-    ```python
-    >>> from transformers import Phi3Model, Phi3Config
-
-    >>> # Initializing a Phi-3 style configuration
-    >>> configuration = Phi3Config.from_pretrained("microsoft/Phi-3-mini-4k-instruct")
-
-    >>> # Initializing a model from the configuration
-    >>> model = Phi3Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "phi3"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -93,12 +60,10 @@ class Phi3Config(PreTrainedConfig):
         self.rope_parameters = rope_scaling or self.rope_parameters
         self.rope_parameters = self.rope_parameters if self.rope_parameters is not None else {}
 
-        # Standardize and validate the correctness of rotary position embeddings parameters
         self.rope_parameters.setdefault("rope_theta", kwargs.pop("rope_theta", default_theta))
         self.rope_parameters.setdefault("partial_rotary_factor", kwargs.get("partial_rotary_factor", 1.0))
         self.standardize_rope_params()
 
-        # For backward compatibility if previous version used "su" or "yarn"
         rope_parameters_type = self.rope_parameters.get("rope_type", None)
         if rope_parameters_type is not None and rope_parameters_type in ["su", "yarn"]:
             self.rope_parameters["rope_type"] = "longrope"
@@ -110,7 +75,6 @@ class Phi3Config(PreTrainedConfig):
         """
         super().validate_rope()
 
-        # Run Phi3 specific validation
         if not isinstance(self.rope_parameters, dict):
             raise ValueError(f"`rope_parameters` must be a dictionary but got {self.rope_parameters}")
         rope_parameters_type = self.rope_parameters.get("rope_type", None)

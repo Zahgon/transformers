@@ -1,17 +1,3 @@
-# Copyright 2024 BigCode and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Starcoder2 model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,27 +9,9 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="bigcode/starcoder2-7b")
 @strict
 class Starcoder2Config(PreTrainedConfig):
-    r"""
-    use_bias (`bool`, *optional*, defaults to `True`):
-        Whether to use bias term on linear layers of the model.
-
-    ```python
-    >>> from transformers import Starcoder2Model, Starcoder2Config
-
-    >>> # Initializing a Starcoder2 7B style configuration
-    >>> configuration = Starcoder2Config()
-
-    >>> # Initializing a model from the Starcoder2 7B style configuration
-    >>> model = Starcoder2Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "starcoder2"
     keys_to_ignore_at_inference = ["past_key_values"]
-    # Default tensor parallel plan for base model `Starcoder2`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",

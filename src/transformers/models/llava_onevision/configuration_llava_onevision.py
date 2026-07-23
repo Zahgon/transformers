@@ -1,16 +1,3 @@
-# Copyright 2024 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from typing import Literal
 
@@ -24,33 +11,6 @@ from ..auto import CONFIG_MAPPING, AutoConfig
 @auto_docstring(checkpoint="llava-hf/llava-onevision-qwen2-7b-ov-hf")
 @strict
 class LlavaOnevisionConfig(PreTrainedConfig):
-    r"""
-    image_grid_pinpoints (`List`, *optional*):
-        A list of possible resolutions to use for processing high resolution images. Each item in the list should be a tuple or list
-        of the form `(height, width)`.
-    vision_aspect_ratio (`str`, *optional*, defaults to `"anyres_max_9"`):
-        Aspect ratio used when processong image features. The default value is "anyres_max_9".
-
-    Example:
-
-    ```python
-    >>> from transformers import LlavaOnevisionForConditionalGeneration, LlavaOnevisionConfig, SiglipVisionConfig, Qwen2Config
-
-    >>> # Initializing a CLIP-vision config
-    >>> vision_config = SiglipVisionConfig()
-
-    >>> # Initializing a Llama config
-    >>> text_config = Qwen2Config()
-
-    >>> # Initializing a Llava-Next llava-hf/llava-onevision-qwen2-7b-ov-hf style configuration
-    >>> configuration = LlavaOnevisionConfig(vision_config, text_config)
-
-    >>> # Initializing a model from the llava-hf/llava-onevision-qwen2-7b-ov-hf style configuration
-    >>> model = LlavaOnevisionForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "llava_onevision"
     attribute_map = {
@@ -135,9 +95,6 @@ class LlavaOnevisionConfig(PreTrainedConfig):
             ]
         )
 
-        # The default value is `False` but this config is used with many model types
-        # Attr `tie_word_embeddings` was saved in text config for those models, so we
-        # need an ugly workaround and forward-pass the attr from text config
         if not self.tie_word_embeddings and self.text_config.tie_word_embeddings:
             self.tie_word_embeddings = self.text_config.tie_word_embeddings
 

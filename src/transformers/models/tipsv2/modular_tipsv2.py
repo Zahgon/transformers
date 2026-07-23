@@ -1,16 +1,3 @@
-# Copyright 2026 Google LLC and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from collections.abc import Callable
@@ -62,7 +49,6 @@ VOCAB_FILES_NAMES = {"vocab_file": "tokenizer.model"}
 
 
 class Tipsv2Tokenizer(TokenizersBackend):
-    """Tipsv2 tokenizer backed by HuggingFace's *tokenizers* library, based on a BPE (SentencePiece) model."""
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -165,30 +151,6 @@ class Tipsv2Processor(ProcessorMixin):
 @auto_docstring(checkpoint="google/tipsv2-b14")
 @strict
 class Tipsv2VisionConfig(Dinov2WithRegistersConfig):
-    r"""
-    layerscale_value (`float`, *optional*, defaults to `1.0`):
-        Initial value to use for layer scale.
-    use_swiglu_ffn (`bool`, *optional*, defaults to `False`):
-        Whether to use the SwiGLU feedforward neural network. Otherwise a standard MLP
-        with `hidden_act` as activation function is used.
-    num_register_tokens (`int`, *optional*, defaults to `1`):
-        Number of register tokens to use.
-    apply_layernorm (`bool`, *optional*, defaults to `True`):
-        Whether to apply layer normalization to the feature maps in case the model is used as backbone.
-    reshape_hidden_states (`bool`, *optional*, defaults to `True`):
-        Whether to reshape the feature maps to 4D tensors of shape `(batch_size, hidden_size, height, width)` in
-        case the model is used as backbone. If `False`, the feature maps will be 3D tensors of shape `(batch_size,
-        seq_len, hidden_size)`.
-
-    Example:
-
-    ```python
-    >>> from transformers import Tipsv2VisionConfig, Tipsv2VisionModel
-
-    >>> configuration = Tipsv2VisionConfig()
-    >>> model = Tipsv2VisionModel(configuration)
-    >>> configuration = model.config
-    ```"""
 
     model_type = "tipsv2_vision_model"
     base_config_key = "vision_config"
@@ -202,21 +164,6 @@ class Tipsv2VisionConfig(Dinov2WithRegistersConfig):
 @auto_docstring(checkpoint="google/tipsv2-b14")
 @strict
 class Tipsv2TextConfig(Siglip2TextConfig):
-    r"""
-    scale_sqrt_depth (`bool`, *optional*, defaults to `True`):
-        Whether to scale token embeddings by `sqrt(hidden_size)` before adding sinusoidal position embeddings.
-    pooling_epsilon (`float`, *optional*, defaults to `1e-8`):
-        Epsilon added to the valid token count when computing masked mean pooling.
-
-    Example:
-
-    ```python
-    >>> from transformers import Tipsv2TextConfig, Tipsv2TextModel
-
-    >>> configuration = Tipsv2TextConfig()
-    >>> model = Tipsv2TextModel(configuration)
-    >>> configuration = model.config
-    ```"""
 
     model_type = "tipsv2_text_model"
     base_config_key = "text_config"
@@ -236,41 +183,12 @@ class Tipsv2TextConfig(Siglip2TextConfig):
         raise AttributeError("Not used")
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        PreTrainedConfig.validate_architecture(self)
-        if self.hidden_size % self.num_attention_heads != 0:
-            raise ValueError(
-                f"The hidden size ({self.hidden_size}) is not a multiple of the number of attention "
-                f"heads ({self.num_attention_heads})."
-            )
+        pass
 
 
 @auto_docstring(checkpoint="google/tipsv2-b14")
 @strict
 class Tipsv2Config(PreTrainedConfig):
-    r"""
-    text_config (`dict`, *optional*):
-        Dictionary of configuration options used to initialize [`Tipsv2TextConfig`].
-    vision_config (`dict`, *optional*):
-        Dictionary of configuration options used to initialize [`Tipsv2VisionConfig`].
-    temperature_init_value (`float`, *optional*, defaults to `0.005065968260169029`):
-        Initial value for the learnable temperature parameter used to scale cosine-similarity logits in [`Tipsv2Model`].
-
-    Example:
-
-    ```python
-    >>> from transformers import Tipsv2Config, Tipsv2Model
-
-    >>> configuration = Tipsv2Config()
-    >>> model = Tipsv2Model(configuration)
-    >>> configuration = model.config
-
-    >>> from transformers import Tipsv2TextConfig, Tipsv2VisionConfig
-
-    >>> text_config = Tipsv2TextConfig()
-    >>> vision_config = Tipsv2VisionConfig()
-    >>> config = Tipsv2Config(text_config=text_config, vision_config=vision_config)
-    ```"""
 
     model_type = "tipsv2"
     sub_configs = {"text_config": Tipsv2TextConfig, "vision_config": Tipsv2VisionConfig}
@@ -293,18 +211,7 @@ class Tipsv2Config(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        super().validate_architecture()
-        if (
-            isinstance(self.text_config, Tipsv2TextConfig)
-            and isinstance(self.vision_config, Tipsv2VisionConfig)
-            and self.text_config.hidden_size != self.vision_config.hidden_size
-        ):
-            raise ValueError(
-                f"`text_config.hidden_size` ({self.text_config.hidden_size}) and "
-                f"`vision_config.hidden_size` ({self.vision_config.hidden_size}) must be equal."
-            )
-        if self.temperature_init_value <= 0:
-            raise ValueError(f"`temperature_init_value` ({self.temperature_init_value}) must be strictly positive.")
+        pass
 
 
 class Tipsv2Output(CLIPOutput):
@@ -325,28 +232,22 @@ class Tipsv2VisionEmbeddings(Dinov2WithRegistersEmbeddings):
         num_patches = embeddings.shape[1] - 1
         num_positions = self.position_embeddings.shape[1] - 1
 
-        # Skip interpolation for matching dimensions (unless tracing)
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
-        # Handle class token and patch embeddings separately
         class_pos_embed = self.position_embeddings[:, 0]
         patch_pos_embed = self.position_embeddings[:, 1:]
         dim = embeddings.shape[-1]
 
-        # Calculate new dimensions
         height = height // self.config.patch_size
         width = width // self.config.patch_size
 
-        # Reshape for interpolation
         sqrt_num_positions = torch_int(num_positions**0.5)
         patch_pos_embed = patch_pos_embed.reshape(1, sqrt_num_positions, sqrt_num_positions, dim)
         patch_pos_embed = patch_pos_embed.permute(0, 3, 1, 2)
 
-        # Store original dtype for restoration after interpolation
         target_dtype = patch_pos_embed.dtype
 
-        # Interpolate at float32 precision
         patch_pos_embed = nn.functional.interpolate(
             patch_pos_embed.to(dtype=torch.float32),
             size=(torch_int(height), torch_int(width)),
@@ -355,15 +256,12 @@ class Tipsv2VisionEmbeddings(Dinov2WithRegistersEmbeddings):
             antialias=True,
         ).to(dtype=target_dtype)
 
-        # Validate output dimensions if not tracing
         if not torch.jit.is_tracing():
             if int(height) != patch_pos_embed.shape[-2] or int(width) != patch_pos_embed.shape[-1]:
                 raise ValueError("Width or height does not match with the interpolated position embeddings")
 
-        # Reshape back to original format
         patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
 
-        # Combine class and patch embeddings
         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1)
 
 
@@ -413,7 +311,6 @@ class Tipsv2VisionModel(Dinov2WithRegistersModel):
 
 class Tipsv2VisionBackbone(Dinov2WithRegistersBackbone):
     def __init__(self, config: "Tipsv2Config | Tipsv2VisionConfig"):
-        # reassign config to vision_config for compatibility with AutoBackbone
         if isinstance(config, Tipsv2Config):
             config = config.vision_config
             super().__init__(config)
@@ -427,7 +324,6 @@ class Tipsv2VisionBackbone(Dinov2WithRegistersBackbone):
 
         self.num_register_tokens = config.num_register_tokens
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -495,15 +391,11 @@ class Tipsv2TextEmbeddings(CLIPTextEmbeddings):
         if inputs_embeds is None:
             inputs_embeds = self.token_embedding(input_ids)
 
-        # Additional scale compared to CLIP embeddings
         inputs_embeds = inputs_embeds * self.embed_scale
         position_embeddings = self.position_embedding(position_ids).to(dtype=inputs_embeds.dtype)
         return inputs_embeds + position_embeddings
 
 
-# Identical to CLIP's implementation but couldn't import it because the vision model
-# already requires eager_attention_forward from DINOv2 which results in modular
-# conflicts.
 def text_eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -514,15 +406,7 @@ def text_eager_attention_forward(
     dropout: float = 0.0,
     **kwargs: Unpack[TransformersKwargs],
 ):
-    attn_weights = torch.matmul(query, key.transpose(-1, -2)) * scaling
-    if attention_mask is not None:
-        attn_weights = attn_weights + attention_mask
-    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
-    attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
-
-    attn_output = torch.matmul(attn_weights, value)
-    attn_output = attn_output.transpose(1, 2).contiguous()
-    return attn_output, attn_weights
+    pass
 
 
 class Tipsv2TextAttention(CLIPAttention):

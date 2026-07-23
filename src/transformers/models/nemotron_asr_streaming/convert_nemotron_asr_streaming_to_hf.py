@@ -1,26 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert a NeMo cache-aware streaming RNN-T checkpoint (e.g. `nvidia/nemotron-speech-streaming-en-0.6b`)
-to the HuggingFace `NemotronAsrStreaming` format.
-
-Adapted from `src/transformers/models/parakeet/convert_nemo_to_hf.py`. The encoder/decoder/joint module
-layout is shared with Parakeet, so the weight key mappings are identical; the differences are:
-  * the target classes are `NemotronAsrStreaming*` instead of `Parakeet*`,
-  * the feature extractor is `NemotronAsrStreamingFeatureExtractor`, which removes per-feature normalization
-    entirely (NeMo's `preprocessor.normalize` is therefore dropped, not translated to `do_normalize`),
-  * only RNN-T is supported (the streaming Nemotron checkpoints are transducers).
-"""
 
 import argparse
 import gc
@@ -44,10 +21,7 @@ from transformers.convert_slow_tokenizer import ParakeetConverter
 from transformers.utils.hub import cached_file
 
 
-# Encoder / decoder / joint submodule layout matches Parakeet, so these mappings are reused verbatim.
 NEMO_TO_HF_WEIGHT_MAPPING = {
-    # NeMo's `pre_encode.conv` is a flat Sequential (conv, relu, dwconv, pwconv, relu, dwconv, pwconv, relu).
-    # HF splits it into a stem (`conv_in`) plus depthwise-separable `layers`.
     r"encoder\.pre_encode\.conv\.0\.": r"encoder.subsampling.conv_in.",
     r"encoder\.pre_encode\.conv\.2\.": r"encoder.subsampling.layers.0.depthwise_conv.",
     r"encoder\.pre_encode\.conv\.3\.": r"encoder.subsampling.layers.0.pointwise_conv.",
@@ -55,8 +29,6 @@ NEMO_TO_HF_WEIGHT_MAPPING = {
     r"encoder\.pre_encode\.conv\.6\.": r"encoder.subsampling.layers.1.pointwise_conv.",
     r"encoder\.pre_encode\.out\.": r"encoder.subsampling.linear.",
     r"encoder\.pos_enc\.": r"encoder.encode_positions.",
-    # NeMo stores the conformer conv norm under `conv.batch_norm` regardless of whether it is a
-    # BatchNorm or (for cache-aware checkpoints) a LayerNorm; HF names it `conv.norm`.
     r"encoder\.layers\.(\d+)\.conv\.batch_norm\.": r"encoder.layers.\1.conv.norm.",
     r"linear_([kv])": r"\1_proj",
     r"linear_out": r"o_proj",
@@ -65,7 +37,6 @@ NEMO_TO_HF_WEIGHT_MAPPING = {
     r"linear_pos": r"relative_k_proj",
 }
 
-# RNN-T decoder (prediction network) and joint network.
 NEMO_RNNT_WEIGHT_MAPPING = {
     r"decoder\.prediction\.embed\.": r"decoder.embedding.",
     r"decoder\.prediction\.dec_rnn\.lstm\.": r"decoder.lstm.",
@@ -170,7 +141,6 @@ def write_processor(nemo_config: dict, model_files, output_dir, push_to_repo_id=
     if tokenizer_converted_fast.convert_tokens_to_ids("<pad>") is None:
         tokenizer_converted_fast.add_tokens([AddedToken("<pad>", normalized=False, special=True)])
         print(f"Added <pad> token at ID: {tokenizer_converted_fast.convert_tokens_to_ids('<pad>')}")
-    # Transducer models need a separate blank token at the end of the vocab.
     tokenizer_converted_fast.add_tokens([AddedToken("<blank>", normalized=False, special=True)])
     print(f"Added <blank> token at ID: {tokenizer_converted_fast.convert_tokens_to_ids('<blank>')}")
     tokenizer_converted_fast.add_special_tokens(
@@ -180,8 +150,6 @@ def write_processor(nemo_config: dict, model_files, output_dir, push_to_repo_id=
         }
     )
 
-    # NemotronAsrStreamingFeatureExtractor only supports these constructor arguments. Unlike Parakeet, it has no
-    # normalization step at all, so NeMo's `preprocessor.normalize` is dropped rather than translated.
     feature_extractor_config_keys_mapping = {
         "sample_rate": "sampling_rate",
         "window_size": "win_length",
@@ -191,7 +159,6 @@ def write_processor(nemo_config: dict, model_files, output_dir, push_to_repo_id=
         "pad_value": "padding_value",
         "preemphasis": "preemphasis",
     }
-    # Everything else in NeMo's preprocessor block has no counterpart in NemotronAsrStreamingFeatureExtractor.
     feature_extractor_keys_to_ignore = [
         "_target_",
         "normalize",
@@ -208,7 +175,6 @@ def write_processor(nemo_config: dict, model_files, output_dir, push_to_repo_id=
         if key in feature_extractor_keys_to_ignore:
             continue
         if key in feature_extractor_config_keys_mapping:
-            # NeMo stores window size/stride in seconds; the feature extractor wants samples.
             if key in ["window_size", "window_stride"]:
                 value = int(value * nemo_config["preprocessor"]["sample_rate"])
             converted_feature_extractor_config[feature_extractor_config_keys_mapping[key]] = value
@@ -216,10 +182,6 @@ def write_processor(nemo_config: dict, model_files, output_dir, push_to_repo_id=
             raise ValueError(f"Key {key} not found in feature_extractor_config_keys_mapping")
 
     feature_extractor = NemotronAsrStreamingFeatureExtractor(**converted_feature_extractor_config)
-    # Carry the model's supported right attention contexts onto the processor — the single source of truth for
-    # the supported set, which `set_num_lookahead_tokens` validates against and which `__call__` emits as
-    # `num_lookahead_tokens`. NeMo stores a single [left, right] pair, a list of pairs (multi-lookahead), or
-    # [-1, -1] for full (offline) context.
     att_context_size = nemo_config["encoder"].get("att_context_size")
     supported_num_lookahead_tokens = default_num_lookahead_tokens = None
     if att_context_size is not None and att_context_size not in ([-1, -1], [[-1, -1]]):
@@ -258,16 +220,12 @@ def convert_encoder_config(nemo_config):
         "reduction",
         "reduction_factor",
         "reduction_position",
-        # Multi-lookahead training-only sampling probs; inference uses the first context only.
         "att_context_probs",
-        # These are inherent to the NemotronAsrStreaming cache-aware architecture and are not represented in the HF
-        # config: the conv module is always layer-norm + fully causal, and the subsampling is always causal.
         "att_context_style",
         "conv_norm_type",
         "conv_context_size",
         "causal_downsampling",
     ]
-    # ff_expansion_factor combines with d_model to give intermediate_size in HF.
     ff_expansion = nemo_config["encoder"].get("ff_expansion_factor")
     d_model = nemo_config["encoder"].get("d_model")
     if ff_expansion is not None and d_model is not None:
@@ -288,9 +246,7 @@ def convert_encoder_config(nemo_config):
         "dropout_att": "attention_dropout",
         "xscaling": "scale_input",
         "use_bias": "attention_bias",
-        # Derived from ff_expansion_factor * d_model in NeMo; consumed as hidden_size * factor here.
         "__intermediate_size__": "intermediate_size",
-        # Cache-aware (streaming-trained) field.
         "att_context_size": "att_context_size",
     }
     converted_encoder_config = {}
@@ -300,9 +256,6 @@ def convert_encoder_config(nemo_config):
             continue
         if key in encoder_config_keys_mapping:
             if key == "att_context_size":
-                # NeMo stores a single [left, right] pair, a list of pairs (multi-lookahead), or [-1, -1]
-                # for full (offline) context. The shared left context becomes `sliding_window` (= left + 1)
-                # and the per-lookahead rights become `supported_num_lookahead_tokens`.
                 if value in ([-1, -1], [[-1, -1]]):
                     continue
                 pairs = value if isinstance(value[0], (list, tuple)) else [value]
@@ -353,8 +306,6 @@ def convert_rnnt_config(nemo_config, encoder_config):
     activation = jointnet.get("activation", "relu")
     max_symbols_per_step = nemo_config.get("decoding", {}).get("greedy", {}).get("max_symbols", 10)
 
-    # The HF joint projects encoder/decoder outputs to `decoder_hidden_size`, so it can only represent
-    # checkpoints where NeMo's `joint_hidden` equals `pred_hidden`. All known checkpoints satisfy this.
     if joint_hidden_size != decoder_hidden_size:
         raise ValueError(
             f"NemotronAsrStreaming requires joint_hidden == pred_hidden (got joint_hidden={joint_hidden_size} "
@@ -389,7 +340,6 @@ def load_and_convert_rnnt_state_dict(model_files):
         if key.endswith("featurizer.window") or key.endswith("featurizer.fb"):
             print(f"Skipping preprocessing weight: {key}")
             continue
-        # Skip the auxiliary CTC head weights present in some hybrid checkpoints.
         if key.startswith("ctc_decoder.") or "ctc_loss" in key:
             print(f"Skipping auxiliary CTC weight: {key}")
             continue
@@ -457,8 +407,6 @@ def main(
     model_files = extract_nemo_archive(filepath, extract_dir)
     nemo_config = yaml.load(open(model_files["model_config"], "r"), Loader=yaml.FullLoader)
 
-    # When revision is given (e.g. "refs/pr/3"), both pushes target that existing PR branch.
-    # Otherwise, write_processor creates a new PR and returns its revision for the model push.
     pr_revision = write_processor(
         nemo_config,
         model_files,

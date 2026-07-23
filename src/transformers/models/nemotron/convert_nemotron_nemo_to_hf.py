@@ -1,16 +1,3 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import json
 import os
@@ -91,44 +78,7 @@ def get_args():
 
 
 def convert_hf_config(nemo_config, tokenizer, vocab_size, dtype, hf_output_path, hf_url="nvidia/Minitron-8B-Base"):
-    """
-    Convert NeMo config to HF config
-    """
-    NEMO_ACT2HF = {
-        "squared-relu": "relu2",
-        "fast-swiglu": "silu",
-    }
-    DTYPE2HF = {
-        torch.bfloat16: "bfloat16",
-        torch.float16: "float16",
-        torch.float32: "float32",
-    }
-    hf_config = {
-        "_name_or_path": hf_url,
-        "architectures": ["NemotronForCausalLM"],
-        "bos_token_id": tokenizer.bos_id,
-        "eos_token_id": tokenizer.eos_id,
-        "hidden_act": NEMO_ACT2HF[nemo_config.activation],
-        "hidden_size": nemo_config.hidden_size,
-        "initializer_range": nemo_config.init_method_std,
-        "intermediate_size": nemo_config.ffn_hidden_size,
-        "max_position_embeddings": nemo_config.max_position_embeddings,
-        "model_type": "nemotron",
-        "num_attention_heads": nemo_config.num_attention_heads,
-        "num_hidden_layers": nemo_config.num_layers,
-        "num_key_value_heads": nemo_config.get("num_query_groups", nemo_config.num_attention_heads),
-        "norm_eps": nemo_config.layernorm_epsilon,
-        "rope_theta": nemo_config.get("rotary_base", 10000),
-        "partial_rotary_factor": nemo_config.get("rotary_percentage", 1.0),
-        "tie_word_embeddings": False,
-        "dtype": DTYPE2HF[dtype],
-        "transformers_version": "4.32.0.dev0",  # TODO
-        "use_cache": True,
-        "vocab_size": vocab_size,
-    }
-    if nemo_config.kv_channels is not None:
-        hf_config["kv_channels"] = nemo_config.kv_channels
-    json.dump(hf_config, open(f"{hf_output_path}/config.json", "w"), indent=2)
+    pass
 
 
 def convert(input_nemo_file, output_hf_file, precision=None, cpu_only=False) -> None:
@@ -185,7 +135,6 @@ def convert(input_nemo_file, output_hf_file, precision=None, cpu_only=False) -> 
     heads_per_group = head_num // num_query_groups
     qkv_total_dim = head_num + 2 * num_query_groups
 
-    # Embedding
     embed_weight = model.state_dict()["model.embedding.word_embeddings.weight"]
     embed_weights_base_name = "model.embed_tokens.weight"
     checkpoint[embed_weights_base_name] = param_to_weights(embed_weight)
@@ -204,15 +153,6 @@ def convert(input_nemo_file, output_hf_file, precision=None, cpu_only=False) -> 
         )
         k_slice = torch.arange(heads_per_group, qkv_total_dim, (heads_per_group + 2))
         v_slice = torch.arange(heads_per_group + 1, qkv_total_dim, (heads_per_group + 2))
-        ## Example of slices
-        ## (without GQA): num_query_groups = head_num = 32,
-        ## q_slice = [0, 3, 6, 9 , ... 90, 93]
-        ## k_slice = [1, 4, 7, 10, ... 91, 94]
-        ## v_slice = [2, 5, 8, 11, ... 92, 95]
-        ## (with GQA): num_query_groups = 8, head_num = 64
-        ## q_slice = [0, 1, .. 6, 7, 10, 11, .. 16, 17, 20, 21, .. 67, 70, ... 76, 77]
-        ## k_slice = [8, 18, 28, ... 68, 78]
-        ## v_slice = [9, 19, 29, ... 69, 79]
 
         q_weights_base_name = f"model.layers.{l}.self_attn.q_proj.weight"
         k_weights_base_name = f"model.layers.{l}.self_attn.k_proj.weight"
@@ -222,17 +162,14 @@ def convert(input_nemo_file, output_hf_file, precision=None, cpu_only=False) -> 
         checkpoint[k_weights_base_name] = param_to_weights(qkv_weights[k_slice].reshape(-1, hidden_size))
         checkpoint[v_weights_base_name] = param_to_weights(qkv_weights[v_slice].reshape(-1, hidden_size))
 
-        # attention dense
         o_weight = model.state_dict()[f"model.decoder.layers.{l}.self_attention.linear_proj.weight"]
         o_weight_base_name = f"model.layers.{l}.self_attn.o_proj.weight"
         checkpoint[o_weight_base_name] = param_to_weights(o_weight)
 
-        # mlp
         mlp_weights = model.state_dict()[f"model.decoder.layers.{l}.mlp.linear_fc1.weight"]
         mlp_up_proj_weight = model.state_dict()[f"model.decoder.layers.{l}.mlp.linear_fc2.weight"]
 
         if mlp_weights.shape[0] != mlp_up_proj_weight.shape[1]:
-            # Has projection (used for swi-glu)
             logging.warning(
                 "Gated projection layers detected in NeMo checkpoint. Currently Nemotron HF does not support gated MLP."
             )
@@ -254,7 +191,6 @@ def convert(input_nemo_file, output_hf_file, precision=None, cpu_only=False) -> 
         mlp_up_proj_base_name = f"model.layers.{l}.mlp.down_proj.weight"
         checkpoint[mlp_up_proj_base_name] = param_to_weights(mlp_up_proj_weight)
 
-        # layernorm
         input_ln_weight = model.state_dict()[f"model.decoder.layers.{l}.self_attention.linear_qkv.layer_norm_weight"]
         input_ln_base_name = f"model.layers.{l}.input_layernorm.weight"
         checkpoint[input_ln_base_name] = param_to_weights(input_ln_weight)
@@ -296,35 +232,7 @@ def convert(input_nemo_file, output_hf_file, precision=None, cpu_only=False) -> 
 
 
 def extract_nemotron_tokenizer(nemo_file, model_config, output_hf_path, nemo_tokenizer):
-    tokenizer_cfg = model_config.tokenizer
-    if tokenizer_cfg.library == "sentencepiece":
-        # For sentencepiece tokenizer, we are wrapping with HF's LlamaTokenizer
-        # and convert it to a PreTrainedTokenizerFast
-        tokenizer_fn = tokenizer_cfg.model[5:]
-        output_tokenizer = f"{output_hf_path}/tokenizer.model"
-        if nemo_file.endswith(".nemo"):
-            import tarfile
-
-            archive = tarfile.open(nemo_file, "r")
-            tokenizer_filename = "./" + tokenizer_fn  # exclude 'nemo:' prefix
-            archive.extract(tokenizer_filename, output_hf_path)
-            archive.close()
-            os.rename(f"{output_hf_path}/{tokenizer_fn}", output_tokenizer)
-        elif os.path.isdir(nemo_file):
-            shutil.copy(f"{nemo_file}/{tokenizer_fn}", output_tokenizer)
-        # We use LlamaTokenizer for sentencepiece based tokenizer
-        tokenizer = LlamaTokenizer.from_pretrained(output_hf_path, legacy=False)
-        # Convert the LlamaTokenizer to a PreTrainedTokenizerFast instance
-        tokenizer = PreTrainedTokenizerFast(
-            tokenizer_object=LlamaConverter(tokenizer).converted(), model_input_names=["input_ids", "token_type_ids"]
-        )
-        tokenizer.save_pretrained(output_hf_path)
-        logging.info(f"Setencepiece tokenizer has been saved to {output_tokenizer}")
-    elif isinstance(nemo_tokenizer, AutoTokenizer):
-        nemo_tokenizer.tokenizer.save_pretrained(output_hf_path)
-        logging.info(f"HF AutoTokenizer has been saved to {output_hf_path}")
-    else:
-        raise ValueError(f"Unsupported tokenizer type: library: {tokenizer_cfg.library}, type: {tokenizer_cfg.type}")
+    pass
 
 
 if __name__ == "__main__":

@@ -1,17 +1,3 @@
-# Copyright 2020, The T5 Authors and HuggingFace Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""T5 model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,15 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="google-t5/t5-small")
 @strict
 class T5Config(PreTrainedConfig):
-    r"""
-    relative_attention_num_buckets (`int`, *optional*, defaults to 32):
-        The number of buckets to use for each attention layer.
-    relative_attention_max_distance (`int`, *optional*, defaults to 128):
-        The maximum distance of the longer sequences for the bucket separation.
-    feed_forward_proj (`string`, *optional*, defaults to `"relu"`):
-        Type of feed forward layer to be used. Should be one of `"relu"` or `"gated-gelu"`. T5v1.1 uses the
-        `"gated-gelu"` feed forward projection. Original T5 uses `"relu"`.
-    """
 
     model_type = "t5"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -70,29 +47,16 @@ class T5Config(PreTrainedConfig):
         self.dense_act_fn = act_info[-1]
         self.is_gated_act = act_info[0] == "gated"
 
-        # for backwards compatibility
         if self.feed_forward_proj == "gated-gelu":
             self.dense_act_fn = "gelu_new"
 
-        # Super weird feature of T5 because we support T5 and T51.1 from the same
-        # model code. Original T5 always scaled outputs, but the 1.1v does not.
-        # The model code was relying on saved configs where `tie_word_embeddings` is
-        # set to `False` in 1.1v and using it as indicator of whether to scale or not
-        # But in fact we tie weights always and force it to be `True`
         self.scale_decoder_outputs = kwargs.pop("tie_word_embeddings", None) is not False
         self.tie_word_embeddings = True
 
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        act_info = self.feed_forward_proj.split("-")
-        if len(act_info) > 1 and act_info[0] != "gated" or len(act_info) > 2:
-            raise ValueError(
-                f"`feed_forward_proj`: {self.feed_forward_proj} is not a valid activation function of the dense layer. "
-                "Please make sure `feed_forward_proj` is of the format `gated-{ACT_FN}` or `{ACT_FN}`, e.g. "
-                "'gated-gelu' or 'relu'"
-            )
+        pass
 
 
 __all__ = ["T5Config"]

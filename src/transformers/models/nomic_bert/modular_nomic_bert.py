@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -52,21 +39,6 @@ from ..llama.modeling_llama import LlamaRotaryEmbedding
 @auto_docstring(checkpoint="nomic-ai/nomic-embed-text-v1.5")
 @strict
 class NomicBertConfig(BertConfig):
-    r"""
-    Examples:
-
-    ```python
-    >>> from transformers import NomicBertConfig, NomicBertModel
-
-    >>> # Initializing a Nomic BERT nomic-ai/nomic-embed-text-v1.5 style configuration
-    >>> configuration = NomicBertConfig()
-
-    >>> # Initializing a model (with random weights) from the nomic-ai/nomic-embed-text-v1.5 style configuration
-    >>> model = NomicBertModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "nomic_bert"
     default_theta = 1000.0
@@ -129,8 +101,6 @@ class NomicBertPreTrainedModel(BertPreTrainedModel):
     config_class = NomicBertConfig
     base_model_prefix = "nomic_bert"
 
-    # Are kept as non-persistent buffers to avoid being saved in the state dict
-    # and causing mismatch when loading from a checkpoint that doesn't have them
     _keys_to_ignore_on_load_unexpected = ["inv_freq", "original_inv_freq"]
     _can_record_outputs = {
         "hidden_states": NomicBertLayer,
@@ -209,7 +179,6 @@ class NomicBertModel(JinaEmbeddingsV3Model):
 class NomicBertPredictionHeadTransform(BertPredictionHeadTransform):
     def __init__(self, config):
         super().__init__(config)
-        # Use layer_norm rather than LayerNorm to avoid bert legacy mappings weights and bias to gamma and beta
         self.layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         del self.LayerNorm
 
@@ -232,7 +201,6 @@ class NomicBertForMaskedLM(BertForMaskedLM):
         self.nomic_bert = NomicBertModel(config)
         self.cls = NomicBertOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

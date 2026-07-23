@@ -39,7 +39,6 @@ logger = logging.get_logger(__name__)
 _HIDDEN_STATES_START_POSITION = 2
 
 
-# Copied from transformers.models.seamless_m4t_v2.modeling_seamless_m4t_v2._compute_new_attention_mask
 def _compute_new_attention_mask(hidden_states: torch.Tensor, seq_lens: torch.Tensor):
     """
     Computes an attention mask of the form `(batch, seq_len)` with an attention for each element in the batch that
@@ -72,7 +71,6 @@ class Wav2Vec2BertRotaryPositionalEmbedding(Wav2Vec2ConformerRotaryPositionalEmb
         base = config.rotary_embedding_base
 
         inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.int64).float() / dim))
-        # Ignore copy
         self.register_buffer("inv_freq", inv_freq, persistent=False)
         self.cached_sequence_length = None
         self.cached_rotary_positional_embedding = None
@@ -90,7 +88,6 @@ class Wav2Vec2BertFeatureProjection(nn.Module):
         self.dropout = nn.Dropout(config.feat_proj_dropout)
 
     def forward(self, hidden_states):
-        # non-projected hidden states are needed for quantization
         norm_hidden_states = self.layer_norm(hidden_states)
         hidden_states = self.projection(norm_hidden_states)
         hidden_states = self.dropout(hidden_states)
@@ -112,7 +109,6 @@ class Wav2Vec2BertFeedForward(Wav2Vec2FeedForward):
 
 
 class Wav2Vec2BertConvolutionModule(nn.Module):
-    """Convolution block used in the conformer block"""
 
     def __init__(self, config):
         super().__init__()
@@ -153,24 +149,16 @@ class Wav2Vec2BertConvolutionModule(nn.Module):
     def forward(self, hidden_states, attention_mask=None):
         hidden_states = self.layer_norm(hidden_states)
 
-        # Ensure that we do not leak padded positions in depthwise convolution if attention mask is passed.
-        # Put 0 where necessary
         if attention_mask is not None:
             hidden_states = hidden_states.masked_fill(~attention_mask.bool().unsqueeze(-1), 0.0)
 
-        # exchange the temporal dimension and the feature dimension
         hidden_states = hidden_states.transpose(1, 2)
 
-        # GLU mechanism
-        # => (batch, 2*channel, dim)
         hidden_states = self.pointwise_conv1(hidden_states)
-        # => (batch, channel, dim)
         hidden_states = self.glu(hidden_states)
 
-        # Pad the sequence entirely on the left because of causal convolution.
         hidden_states = torch.nn.functional.pad(hidden_states, (self.depthwise_conv.kernel_size[0] - 1, 0))
 
-        # 1D Depthwise Conv
         hidden_states = self.depthwise_conv(hidden_states)
 
         hidden_states = self.depthwise_layer_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
@@ -184,9 +172,6 @@ class Wav2Vec2BertConvolutionModule(nn.Module):
 
 
 class Wav2Vec2BertSelfAttention(Wav2Vec2ConformerSelfAttention, nn.Module):
-    """Construct an Wav2Vec2BertSelfAttention object.
-    Can be enhanced with rotary or relative position embeddings.
-    """
 
     def __init__(self, config, is_adapter_attention=False):
         nn.Module.__init__(self)
@@ -204,10 +189,7 @@ class Wav2Vec2BertSelfAttention(Wav2Vec2ConformerSelfAttention, nn.Module):
         self.dropout = nn.Dropout(p=config.attention_dropout)
 
         if self.position_embeddings_type == "relative":
-            # linear transformation for positional encoding
             self.linear_pos = nn.Linear(hidden_size, hidden_size, bias=False)
-            # these two learnable bias are used in matrix c and matrix d
-            # as described in https://huggingface.co/papers/1901.02860 Section 3.3
             self.pos_bias_u = nn.Parameter(torch.zeros(self.num_heads, self.head_size))
             self.pos_bias_v = nn.Parameter(torch.zeros(self.num_heads, self.head_size))
 
@@ -224,10 +206,8 @@ class Wav2Vec2BertSelfAttention(Wav2Vec2ConformerSelfAttention, nn.Module):
         relative_position_embeddings: torch.Tensor | None = None,
         output_attentions: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
-        # self-attention mechanism
         batch_size, sequence_length, hidden_size = hidden_states.size()
 
-        # make sure query/key states can be != value states
         query_key_states = hidden_states
         value_states = hidden_states
 
@@ -238,12 +218,10 @@ class Wav2Vec2BertSelfAttention(Wav2Vec2ConformerSelfAttention, nn.Module):
                 )
             query_key_states = self._apply_rotary_embedding(query_key_states, relative_position_embeddings)
 
-        # project query_key_states and value_states
         query = self.linear_q(query_key_states).view(batch_size, -1, self.num_heads, self.head_size)
         key = self.linear_k(query_key_states).view(batch_size, -1, self.num_heads, self.head_size)
         value = self.linear_v(value_states).view(batch_size, -1, self.num_heads, self.head_size)
 
-        # => (batch, head, time1, d_k)
         query = query.transpose(1, 2)
         key = key.transpose(1, 2)
         value = value.transpose(1, 2)
@@ -254,8 +232,6 @@ class Wav2Vec2BertSelfAttention(Wav2Vec2ConformerSelfAttention, nn.Module):
                     "`relative_position_embeddings` has to be defined when `self.position_embeddings_type =="
                     " 'relative'"
                 )
-            # apply relative_position_embeddings to qk scores
-            # as proposed in Transformer_XL: https://huggingface.co/papers/1901.02860
             scores = self._apply_relative_embeddings(
                 query=query, key=key, relative_position_embeddings=relative_position_embeddings
             )
@@ -276,18 +252,14 @@ class Wav2Vec2BertSelfAttention(Wav2Vec2ConformerSelfAttention, nn.Module):
             relative_position_attn_weights = torch.einsum("bhld,lrd->bhlr", query, positional_embedding)
             scores = scores + (relative_position_attn_weights / math.sqrt(self.head_size))
 
-        # apply attention_mask if necessary
         if attention_mask is not None:
             scores = scores + attention_mask
 
-        # => (batch, head, time1, time2)
         probs = torch.softmax(scores, dim=-1)
         probs = self.dropout(probs)
 
-        # => (batch, head, time1, d_k)
         hidden_states = torch.matmul(probs, value)
 
-        # => (batch, time1, hidden_size)
         hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, self.num_heads * self.head_size)
         hidden_states = self.linear_out(hidden_states)
 
@@ -295,26 +267,21 @@ class Wav2Vec2BertSelfAttention(Wav2Vec2ConformerSelfAttention, nn.Module):
 
 
 class Wav2Vec2BertEncoderLayer(GradientCheckpointingLayer):
-    """Conformer block based on https://huggingface.co/papers/2005.08100."""
 
     def __init__(self, config):
         super().__init__()
         embed_dim = config.hidden_size
         dropout = config.attention_dropout
 
-        # Feed-forward 1
         self.ffn1_layer_norm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
         self.ffn1 = Wav2Vec2BertFeedForward(config)
 
-        # Self-Attention
         self.self_attn_layer_norm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
         self.self_attn_dropout = nn.Dropout(dropout)
         self.self_attn = Wav2Vec2BertSelfAttention(config)
 
-        # Conformer Convolution
         self.conv_module = Wav2Vec2BertConvolutionModule(config)
 
-        # Feed-forward 2
         self.ffn2_layer_norm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
         self.ffn2 = Wav2Vec2BertFeedForward(config)
         self.final_layer_norm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
@@ -327,14 +294,12 @@ class Wav2Vec2BertEncoderLayer(GradientCheckpointingLayer):
         output_attentions: bool = False,
         conv_attention_mask: torch.Tensor | None = None,
     ):
-        # 1. Feed-Forward 1 layer
         residual = hidden_states
         hidden_states = self.ffn1_layer_norm(hidden_states)
         hidden_states = self.ffn1(hidden_states)
         hidden_states = hidden_states * 0.5 + residual
         residual = hidden_states
 
-        # 2. Self-Attention layer
         hidden_states = self.self_attn_layer_norm(hidden_states)
         hidden_states, attn_weigts = self.self_attn(
             hidden_states=hidden_states,
@@ -345,12 +310,10 @@ class Wav2Vec2BertEncoderLayer(GradientCheckpointingLayer):
         hidden_states = self.self_attn_dropout(hidden_states)
         hidden_states = hidden_states + residual
 
-        # 3. Convolutional Layer
         residual = hidden_states
         hidden_states = self.conv_module(hidden_states, attention_mask=conv_attention_mask)
         hidden_states = residual + hidden_states
 
-        # 4. Feed-Forward 2 Layer
         residual = hidden_states
         hidden_states = self.ffn2_layer_norm(hidden_states)
         hidden_states = self.ffn2(hidden_states)
@@ -389,10 +352,8 @@ class Wav2Vec2BertEncoder(nn.Module):
 
         conv_attention_mask = attention_mask
         if attention_mask is not None:
-            # make sure padded tokens output 0
             hidden_states = hidden_states.masked_fill(~attention_mask.bool().unsqueeze(-1), 0.0)
 
-            # extend attention_mask
             attention_mask = 1.0 - attention_mask[:, None, None, :].to(dtype=hidden_states.dtype)
             attention_mask = attention_mask * torch.finfo(hidden_states.dtype).min
             attention_mask = attention_mask.expand(
@@ -414,12 +375,10 @@ class Wav2Vec2BertEncoder(nn.Module):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             dropout_probability = torch.rand([])
 
             skip_the_layer = self.training and dropout_probability < self.config.layerdrop
             if not skip_the_layer or synced_gpus:
-                # under fsdp or deepspeed zero3 all gpus must run in sync
                 layer_outputs = layer(
                     hidden_states,
                     attention_mask=attention_mask,
@@ -450,7 +409,6 @@ class Wav2Vec2BertEncoder(nn.Module):
 class Wav2Vec2BertAdapter(nn.Module):
     def __init__(self, config):
         super().__init__()
-        # feature dim might need to be down-projected
         if config.output_hidden_size != config.hidden_size:
             self.proj = nn.Linear(config.hidden_size, config.output_hidden_size)
             self.proj_layer_norm = nn.LayerNorm(config.output_hidden_size, eps=config.layer_norm_eps)
@@ -470,7 +428,6 @@ class Wav2Vec2BertAdapter(nn.Module):
         return seq_lens.floor()
 
     def forward(self, hidden_states, attention_mask=None):
-        # down project hidden_states if necessary
         if self.proj is not None and self.proj_layer_norm is not None:
             hidden_states = self.proj(hidden_states)
             hidden_states = self.proj_layer_norm(hidden_states)
@@ -501,7 +458,6 @@ class Wav2Vec2BertAdapterLayer(nn.Module):
         self.kernel_size = config.adapter_kernel_size
         self.stride = config.adapter_stride
 
-        # 1. residual convolution
         self.residual_layer_norm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
         self.residual_conv = nn.Conv1d(
             embed_dim,
@@ -512,7 +468,6 @@ class Wav2Vec2BertAdapterLayer(nn.Module):
         )
         self.activation = nn.GLU(dim=1)
 
-        # Self-Attention
         self.self_attn_layer_norm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
         self.self_attn_conv = nn.Conv1d(
             embed_dim,
@@ -524,7 +479,6 @@ class Wav2Vec2BertAdapterLayer(nn.Module):
         self.self_attn = Wav2Vec2BertSelfAttention(config, is_adapter_attention=True)
         self.self_attn_dropout = nn.Dropout(dropout)
 
-        # Feed-forward
         self.ffn_layer_norm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
         self.ffn = Wav2Vec2BertFeedForward(config, act_fn=config.adapter_act, hidden_size=embed_dim)
 
@@ -537,22 +491,15 @@ class Wav2Vec2BertAdapterLayer(nn.Module):
     ):
         residual = self.residual_layer_norm(hidden_states)
 
-        # Apply pooling to the residual to match the sequence length of the
-        # multi-head attention output.
-        # (batch, seq_len, feature_dim) -> (batch, feature_dim, seq_len)
         residual = residual.transpose(1, 2)
         residual = self.residual_conv(residual)
         residual = self.activation(residual)
-        # (batch, feature_dim, seq_len) -> (batch, seq_len, feature_dim)
         residual = residual.transpose(1, 2)
 
         hidden_states = self.self_attn_layer_norm(hidden_states)
-        # Apply pooling before feeding to the multihead-attention layer.
-        # (batch, seq_len, feature_dim) -> (batch, feature_dim, seq_len)
         hidden_states = hidden_states.transpose(1, 2)
         hidden_states = self.self_attn_conv(hidden_states)
         hidden_states = self.activation(hidden_states)
-        # (batch, feature_dim, seq_len) -> (batch, seq_len, feature_dim)
         hidden_states = hidden_states.transpose(1, 2)
 
         if attention_mask is not None:
@@ -563,8 +510,6 @@ class Wav2Vec2BertAdapterLayer(nn.Module):
                 attention_mask=attention_mask,
             )
 
-        # The rest of the computation is identical to a vanilla Transformer
-        # encoder layer.
         hidden_states, attn_weights = self.self_attn(
             hidden_states,
             attention_mask=attention_mask,
@@ -627,7 +572,6 @@ class Wav2Vec2BertPreTrainedModel(PreTrainedModel):
         elif isinstance(module, Wav2Vec2BertRelPositionalEmbedding):
             init.copy_(module.pe, module.extend_pe(torch.tensor(0.0).expand(1, module.max_len)))
 
-    # Ignore copy
     def _get_feat_extract_output_lengths(self, input_lengths: torch.LongTensor | int, add_adapter: bool | None = None):
         """
         Computes the output length of the convolutional layers
@@ -636,8 +580,6 @@ class Wav2Vec2BertPreTrainedModel(PreTrainedModel):
         add_adapter = self.config.add_adapter if add_adapter is None else add_adapter
 
         def _conv_out_length(input_length, kernel_size, stride, padding):
-            # 1D convolutional layer output length formula taken
-            # from https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html
             return torch.div(input_length + 2 * padding - kernel_size, stride, rounding_mode="floor") + 1
 
         if add_adapter:
@@ -652,8 +594,6 @@ class Wav2Vec2BertPreTrainedModel(PreTrainedModel):
     def _get_feature_vector_attention_mask(
         self, feature_vector_length: int, attention_mask: torch.LongTensor, add_adapter=None
     ):
-        # Effectively attention_mask.sum(-1), but not inplace to be able to run
-        # on inference mode.
         non_padded_lengths = attention_mask.cumsum(dim=-1)[:, -1]
 
         output_lengths = self._get_feat_extract_output_lengths(non_padded_lengths, add_adapter=add_adapter)
@@ -664,7 +604,6 @@ class Wav2Vec2BertPreTrainedModel(PreTrainedModel):
         attention_mask = torch.zeros(
             (batch_size, feature_vector_length), dtype=attention_mask.dtype, device=attention_mask.device
         )
-        # these two operations makes sure that all values before the output lengths idxs are attended to
         attention_mask[(torch.arange(attention_mask.shape[0], device=attention_mask.device), output_lengths - 1)] = 1
         attention_mask = attention_mask.flip([-1]).cumsum(-1).flip([-1]).bool()
         return attention_mask
@@ -679,7 +618,6 @@ class Wav2Vec2BertModel(Wav2Vec2Model, Wav2Vec2BertPreTrainedModel):
         self.config = config
         self.feature_projection = Wav2Vec2BertFeatureProjection(config)
 
-        # model only needs masking vector if mask prob is > 0.0
         if config.mask_time_prob > 0.0 or config.mask_feature_prob > 0.0:
             self.masked_spec_embed = nn.Parameter(torch.Tensor(config.hidden_size).uniform_())
 
@@ -691,7 +629,6 @@ class Wav2Vec2BertModel(Wav2Vec2Model, Wav2Vec2BertPreTrainedModel):
         if config.use_intermediate_ffn_before_adapter:
             self.intermediate_ffn = Wav2Vec2BertFeedForward(config, act_fn="relu")
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def freeze_feature_encoder(self):
@@ -801,7 +738,6 @@ class Wav2Vec2BertForCTC(Wav2Vec2ConformerForCTC):
 
         loss = None
         if labels is not None:
-            # retrieve loss input_lengths from attention_mask
             attention_mask = (
                 attention_mask
                 if attention_mask is not None
@@ -809,13 +745,10 @@ class Wav2Vec2BertForCTC(Wav2Vec2ConformerForCTC):
             )
             input_lengths = self._get_feat_extract_output_lengths(attention_mask.sum([-1])).to(torch.long)
 
-            # assuming that padded tokens are filled with -100
-            # when not being attended to
             labels_mask = labels >= 0
             target_lengths = labels_mask.sum(-1)
             flattened_targets = labels.masked_select(labels_mask)
 
-            # ctc_loss doesn't support fp16
             log_probs = nn.functional.log_softmax(logits, dim=-1, dtype=torch.float32).transpose(0, 1)
 
             with torch.backends.cudnn.flags(enabled=False):
@@ -846,12 +779,7 @@ class Wav2Vec2BertForSequenceClassification(Wav2Vec2ForSequenceClassification):
         raise AttributeError("Not needed for Wav2Vec2Bert")
 
     def freeze_base_model(self):
-        """
-        Calling this function will disable the gradient computation for the base model so that its parameters will not
-        be updated during training. Only the classification head will be updated.
-        """
-        for param in self.wav2vec2_bert.parameters():
-            param.requires_grad = False
+        pass
 
     def forward(
         self,
@@ -1027,7 +955,6 @@ class Wav2Vec2BertForXVector(Wav2Vec2ConformerForXVector):
         for tdnn_layer in self.tdnn:
             hidden_states = tdnn_layer(hidden_states)
 
-        # Statistic Pooling
         if attention_mask is None:
             mean_features = hidden_states.mean(dim=1)
             std_features = hidden_states.std(dim=1)

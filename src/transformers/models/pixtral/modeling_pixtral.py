@@ -1,17 +1,3 @@
-# Copyright 2024 Mistral and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Pixtral model."""
 
 from collections.abc import Callable
 from typing import Optional
@@ -46,16 +32,6 @@ def position_ids_in_meshgrid(patch_embeds_list, max_width):
 
 
 class PixtralRotaryEmbedding(nn.Module):
-    """
-    The key with pixtral embedding is just that you have a frequency for each pixel positions.
-    If you have height x width pixels (or embedding pixels), then the frequency used for ROPE
-    is given by indexing the pre_computed frequency on the width and height.
-
-    What you output is of dimension (batch, height * width, dim) with dim the embed dim.
-
-    This simply means that for each image hidden state, you are going to add
-    a corresponding positional embedding, based on its index in the grid.
-    """
 
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
@@ -99,7 +75,6 @@ class PixtralRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Here is the diff from Llama RoPE
         max_patches_per_side = config.image_size // config.patch_size
         h = torch.arange(max_patches_per_side)
         w = torch.arange(max_patches_per_side)
@@ -114,9 +89,7 @@ class PixtralRotaryEmbedding(nn.Module):
             ],
             dim=-1,
         ).reshape(-1, dim // 2)  # we reshape to only index on the position indexes, not tuple of indexes
-        # Different from paper, but it uses a different permutation in order to obtain the same calculation
 
-        # TODO maybe make it torch compatible later on. We can also just slice
         inv_freq = torch.cat((inv_freq, inv_freq), dim=-1)
         return inv_freq, attention_factor
 
@@ -133,7 +106,6 @@ class PixtralRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-# Copied from transformers.models.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
@@ -166,7 +138,6 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     return q_embed, k_embed
 
 
-# Copied from transformers.models.siglip.modeling_siglip.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -191,9 +162,6 @@ def eager_attention_forward(
 
 
 class PixtralAttention(nn.Module):
-    """
-    Multi-headed attention compatible with ALL_ATTENTION_FUNCTIONS.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -256,7 +224,6 @@ class PixtralAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.mistral.modeling_mistral.MistralMLP with Mistral->Pixtral
 class PixtralMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -273,7 +240,6 @@ class PixtralMLP(nn.Module):
         return down_proj
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRMSNorm with Llama->Pixtral
 class PixtralRMSNorm(nn.Module):
     def __init__(self, hidden_size, eps: float = 1e-6) -> None:
         """
@@ -291,7 +257,7 @@ class PixtralRMSNorm(nn.Module):
         return self.weight * hidden_states.to(input_dtype)
 
     def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
+        pass
 
 
 class PixtralAttentionLayer(GradientCheckpointingLayer):
@@ -446,7 +412,6 @@ class PixtralVisionModel(PixtralPreTrainedModel):
             batch_size, _, height, width = pixel_values.shape
             image_sizes = [(height, width)] * batch_size
 
-        # pass images through initial convolution independently
         target_dtype = self.patch_conv.weight.dtype
         patch_embeds = self.patch_conv(pixel_values.to(dtype=target_dtype))
         patch_embeds_list = [
@@ -454,11 +419,9 @@ class PixtralVisionModel(PixtralPreTrainedModel):
             for embed, size in zip(patch_embeds, image_sizes)
         ]
 
-        # flatten to a single sequence
         patch_embeds = torch.cat([p.flatten(1).T for p in patch_embeds_list], dim=0).unsqueeze(0)
         patch_embeds = self.ln_pre(patch_embeds)
 
-        # positional embeddings
         position_ids = position_ids_in_meshgrid(
             patch_embeds_list, max_width=self.config.image_size // self.config.patch_size
         )
@@ -467,7 +430,6 @@ class PixtralVisionModel(PixtralPreTrainedModel):
         position_embeddings = self.patch_positional_embedding(patch_embeds, position_ids)
 
         if is_flash_attention_requested(self.config):
-            # We only rely on position_ids when using flash attention
             attention_mask = None
         else:
             attention_mask = generate_block_attention_mask(

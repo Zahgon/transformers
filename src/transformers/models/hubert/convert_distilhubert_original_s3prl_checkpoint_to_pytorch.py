@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert Hubert checkpoint."""
 
 import argparse
 
@@ -185,30 +171,7 @@ def convert_config(model):
 
 @torch.no_grad()
 def convert_hubert_checkpoint(pytorch_dump_folder_path, config_path=None):
-    """
-    Copy/paste/tweak model's weights to transformers design.
-    """
-    model = distilhubert().model.model
-
-    if config_path is not None:
-        config = HubertConfig.from_pretrained(config_path)
-    else:
-        config = convert_config(model)
-    model = model.eval()
-
-    feature_extractor = Wav2Vec2FeatureExtractor(
-        feature_size=1,
-        sampling_rate=16000,
-        padding_value=0,
-        do_normalize=False,
-        return_attention_mask=False,
-    )
-    hf_model = HubertModel(config)
-
-    recursively_load_weights(model, hf_model)
-
-    feature_extractor.save_pretrained(pytorch_dump_folder_path)
-    hf_model.save_pretrained(pytorch_dump_folder_path)
+    pass
 
 
 if __name__ == "__main__":

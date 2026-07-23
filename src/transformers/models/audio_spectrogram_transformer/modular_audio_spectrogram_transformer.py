@@ -1,17 +1,3 @@
-# Copyright 2022 MIT and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Audio Spectrogram Transformer (AST) model."""
 
 import torch
 from torch import nn
@@ -34,11 +20,6 @@ from .configuration_audio_spectrogram_transformer import ASTConfig
 
 
 class ASTPatchEmbeddings(nn.Module):
-    """
-    This class turns `input_values` (mel spectrograms) of shape `(batch_size, max_length, num_mel_bins)` into the
-    initial `hidden_states` (patch embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
-    Transformer.
-    """
 
     def __init__(self, config: ASTConfig):
         super().__init__()
@@ -59,9 +40,6 @@ class ASTPatchEmbeddings(nn.Module):
 
 
 class ASTEmbeddings(nn.Module):
-    """
-    Construct the CLS token, distillation token, position and patch embeddings for audio spectrograms.
-    """
 
     def __init__(self, config: ASTConfig) -> None:
         super().__init__()
@@ -77,8 +55,6 @@ class ASTEmbeddings(nn.Module):
         self.config = config
 
     def get_shape(self, config):
-        # see Karpathy's cs231n blog on how to calculate the output dimensions
-        # https://cs231n.github.io/convolutional-networks/#conv
         frequency_out_dimension = (config.num_mel_bins - config.patch_size) // config.frequency_stride + 1
         time_out_dimension = (config.max_length - config.patch_size) // config.time_stride + 1
         return frequency_out_dimension, time_out_dimension
@@ -140,7 +116,6 @@ class ASTModel(ASTPreTrainedModel):
 
         self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> ASTPatchEmbeddings:
@@ -207,10 +182,8 @@ class ASTForAudioClassification(ASTPreTrainedModel):
         self.num_labels = config.num_labels
         self.audio_spectrogram_transformer = ASTModel(config)
 
-        # Classifier head
         self.classifier = ASTMLPHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

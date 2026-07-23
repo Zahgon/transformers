@@ -1,17 +1,3 @@
-# Copyright 2025 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections.abc import Callable
 from typing import Any, Optional
 
@@ -68,27 +54,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="google/gemma-3-4b-it")
 @strict
 class Gemma3TextConfig(Gemma2Config, PreTrainedConfig):
-    r"""
-    query_pre_attn_scalar (`float`, *optional*, defaults to 256):
-        scaling factor used on the attention scores
-    final_logit_softcapping (`float`, *optional*):
-        Scaling factor when applying tanh softcapping on the logits.
-    attn_logit_softcapping (`float`, *optional*):
-        Scaling factor when applying tanh softcapping on the attention scores.
-    use_bidirectional_attention (`bool`, *optional*, defaults to `False`):
-        If True, the model will attend to all text tokens instead of using a causal mask. This does not change
-        behavior for vision tokens.
-
-    ```python
-    >>> from transformers import Gemma3TextModel, Gemma3TextConfig
-    >>> # Initializing a Gemma3Text gemma3_text-7b style configuration
-    >>> configuration = Gemma3TextConfig()
-    >>> # Initializing a model from the gemma3_text-7b style configuration
-    >>> model = Gemma3TextModel(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "gemma3_text"
     base_model_tp_plan = {
@@ -116,7 +81,6 @@ class Gemma3TextConfig(Gemma2Config, PreTrainedConfig):
         if self.use_bidirectional_attention:
             self.sliding_window = (self.sliding_window // 2) + 1  # due to fa we set exclusive bounds
 
-        # BC -> the pattern used to be a simple int, and it's still present in configs on the Hub
         self._sliding_window_pattern = kwargs.get("sliding_window_pattern", 6)
 
         if self.layer_types is None:
@@ -130,8 +94,6 @@ class Gemma3TextConfig(Gemma2Config, PreTrainedConfig):
     def convert_rope_params_to_dict(self, **kwargs):
         rope_scaling = kwargs.pop("rope_scaling", None)
 
-        # Try to set `rope_scaling` if available, otherwise use `rope_parameters`. If we find `rope_parameters`
-        # as arg in the inputs, we can safely assume that it is in the new format. New naming used -> new format
         default_rope_params = {
             "sliding_attention": {"rope_type": "default"},
             "full_attention": {"rope_type": "default"},
@@ -140,7 +102,6 @@ class Gemma3TextConfig(Gemma2Config, PreTrainedConfig):
         if rope_scaling is not None:
             self.rope_parameters["full_attention"].update(rope_scaling)
 
-        # Set default values if not present
         if self.rope_parameters.get("full_attention") is None:
             self.rope_parameters["full_attention"] = {"rope_type": "default"}
         self.rope_parameters["full_attention"].setdefault(
@@ -152,7 +113,6 @@ class Gemma3TextConfig(Gemma2Config, PreTrainedConfig):
             "rope_theta", kwargs.pop("rope_local_base_freq", self.default_theta["local"])
         )
 
-        # Standardize and validate the correctness of rotary position embeddings parameters
         self.standardize_rope_params()
         return kwargs
 
@@ -160,34 +120,6 @@ class Gemma3TextConfig(Gemma2Config, PreTrainedConfig):
 @auto_docstring(checkpoint="google/gemma-3-4b-it")
 @strict
 class Gemma3Config(PreTrainedConfig):
-    r"""
-    mm_tokens_per_image (`int`, *optional*, defaults to 256):
-        The number of tokens per image embedding.
-    boi_token_index (`int`, *optional*, defaults to 255999):
-        The begin-of-image token index to wrap the image prompt.
-    eoi_token_index (`int`, *optional*, defaults to 256000):
-        The end-of-image token index to wrap the image prompt.
-
-    Example:
-
-    ```python
-    >>> from transformers import Gemma3ForConditionalGeneration, Gemma3Config, SiglipVisionConfig, Gemma3TextConfig
-
-    >>> # Initializing a Siglip-like vision config
-    >>> vision_config = SiglipVisionConfig()
-
-    >>> # Initializing a Gemma3 Text config
-    >>> text_config = Gemma3TextConfig()
-
-    >>> # Initializing a Gemma3 gemma-3-4b style configuration
-    >>> configuration = Gemma3Config(vision_config, text_config)
-
-    >>> # Initializing a model from the gemma-3-4b style configuration
-    >>> model = Gemma3TextConfig(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "gemma3"
     attribute_map = {
@@ -234,9 +166,6 @@ class Gemma3CausalLMOutputWithPast(PaliGemmaCausalLMOutputWithPast):
 
 
 class Gemma3TextScaledWordEmbedding(nn.Embedding):
-    """
-    This module overrides nn.Embeddings' forward by multiplying with embeddings scale.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int, embed_scale: float = 1.0):
         super().__init__(num_embeddings, embedding_dim, padding_idx)
@@ -303,13 +232,11 @@ class Gemma3RotaryEmbedding(Gemma2RotaryEmbedding, nn.Module):
             Tuple of (`torch.Tensor`, `float`), containing the inverse frequencies for the RoPE embeddings and the
             post-processing scaling factor applied to the computed cos/sin (unused in this type of RoPE).
         """
-        # For backward compatibility standardize the `rope_parameters_dict` if it uses old format
         base = config.rope_parameters[layer_type]["rope_theta"]
         dim = getattr(config, "head_dim", None) or config.hidden_size // config.num_attention_heads
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
@@ -334,7 +261,6 @@ class Gemma3RotaryEmbedding(Gemma2RotaryEmbedding, nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-# Weird way to inherit but otherwise the sliding window gets defined first and can't access `is_sliding`
 class Gemma3Attention(Gemma2Attention):
     def __init__(self, config: Gemma3TextConfig, layer_idx: int):
         super().__init__(config, layer_idx)
@@ -454,7 +380,6 @@ class Gemma3PreTrainedModel(Gemma2PreTrainedModel):
         PreTrainedModel._init_weights(self, module)
         if isinstance(module, Gemma3MultiModalProjector):
             init.zeros_(module.mm_input_projection_weight)
-        # We initialize with 0s to be 1 centered as the RMSNorm here does (1 + weight)
         elif "RMSNorm" in module.__class__.__name__:
             init.zeros_(module.weight)
         elif isinstance(module, Gemma3TextScaledWordEmbedding):
@@ -475,9 +400,7 @@ def _bidirectional_window_overlay(sliding_window: int) -> Callable[[int, int, in
     """
 
     def inner_mask(batch_idx: int, head_idx: int, q_idx: int, kv_idx: int) -> bool:
-        """A token can attend to any other token if their absolute distance is within
-        the (exclusive) sliding window size (distance < sliding_window)."""
-        return abs(q_idx - kv_idx) < sliding_window
+        pass
 
     return inner_mask
 
@@ -489,7 +412,6 @@ class Gemma3TextModel(Gemma2Model):
     def __init__(self, config: Gemma3TextConfig):
         super().__init__(config)
 
-        # Gemma3 downcasts the below to bfloat16, causing sqrt(3072)=55.4256 to become 55.5. See https://github.com/huggingface/transformers/pull/29402
         self.embed_tokens = Gemma3TextScaledWordEmbedding(
             config.vocab_size, config.hidden_size, self.padding_idx, embed_scale=self.config.hidden_size**0.5
         )
@@ -518,9 +440,7 @@ class Gemma3TextModel(Gemma2Model):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -534,13 +454,11 @@ class Gemma3TextModel(Gemma2Model):
                 mask_kwargs["or_mask_function"] = lambda *args: torch.tensor(True, dtype=torch.bool)
                 sliding_mask_kwargs["or_mask_function"] = _bidirectional_window_overlay(self.config.sliding_window)
 
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
                 "sliding_attention": create_sliding_window_causal_mask(**sliding_mask_kwargs),
             }
 
-        # embed positions
         hidden_states = inputs_embeds
         position_embeddings = {}
         for layer_type in set(self.config.layer_types):
@@ -609,8 +527,6 @@ class Gemma3MultiModalProjector(nn.Module):
 
 
 def get_block_sequence_ids_for_mask(token_type_ids: torch.Tensor, device: torch.device | None = None) -> torch.Tensor:
-    # First find where a new image block starts: 1 if image and previous not image
-    # The images cannot attend to future images, but can attend to all prev images and to itself bidirectionally
     is_image = (token_type_ids == 1).to(device=device)
     is_previous_image = nn.functional.pad(is_image, (1, 0), value=0)[:, :-1]
     new_image_start = is_image & ~is_previous_image
@@ -640,11 +556,8 @@ def create_masks_for_vision_model(
         "position_ids": position_ids,
     }
 
-    # Full attention: OR(causal, blockwise) — use block_sequence_ids directly
     full_mask = create_causal_mask(**mask_kwargs, block_sequence_ids=block_sequence_ids)
 
-    # We need to manually pad the sequence IDs for the sliding mask
-    # as it's passed as an `or_mask_function` which bypasses internal padding.
     early_exit, _, _, _, kv_length, _, kv_offset = _preprocess_mask_arguments(
         **mask_kwargs,
         layer_idx=0,
@@ -656,9 +569,6 @@ def create_masks_for_vision_model(
             block_sequence_ids, attention_mask, kv_length, kv_offset
         )
 
-    # Sliding attention: AND(sliding_window, OR(causal, blockwise))
-    # Pass blockwise as or_mask_function (applied as step 2 in create_causal_mask)
-    # Pass sliding_window as and_mask_function (applied as step 3, after OR)
     sliding_mask = create_causal_mask(
         **mask_kwargs,
         or_mask_function=blockwise_overlay(padded_block_sequence_ids),
@@ -672,7 +582,6 @@ def create_masks_for_vision_model(
 
 
 class Gemma3Model(PaliGemmaModel):
-    # we are filtering the logits/labels so we shouldn't divide the loss based on num_items_in_batch
     accepts_loss_kwargs = False
 
     def __init__(self, config: Gemma3Config):
@@ -708,7 +617,6 @@ class Gemma3Model(PaliGemmaModel):
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        # Replace image id with PAD if the image token if OOV, to avoid index-errors
         if input_ids is not None and self.config.image_token_id >= self.vocab_size:
             special_image_mask = input_ids == self.config.image_token_id
             llm_input_ids = input_ids.clone()
@@ -719,7 +627,6 @@ class Gemma3Model(PaliGemmaModel):
         if inputs_embeds is None:
             inputs_embeds = self.get_input_embeddings()(llm_input_ids)
 
-        # Merge text and images
         if pixel_values is not None:
             image_features = self.get_image_features(pixel_values, return_dict=True).pooler_output
             image_features = image_features.to(inputs_embeds.device, inputs_embeds.dtype)
@@ -728,7 +635,6 @@ class Gemma3Model(PaliGemmaModel):
             )
             inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
             mask_kwargs = {
                 "config": self.config.get_text_config(),
@@ -767,8 +673,6 @@ class Gemma3Model(PaliGemmaModel):
 
 
 class Gemma3ForConditionalGeneration(PaliGemmaForConditionalGeneration):
-    # we are filtering the logits/labels so we shouldn't divide the loss based on num_items_in_batch
-    # Fix: https://github.com/huggingface/transformers/issues/40564
     accepts_loss_kwargs = False
 
     @can_return_tuple
@@ -847,26 +751,21 @@ class Gemma3ForConditionalGeneration(PaliGemmaForConditionalGeneration):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
         loss = None
         if labels is not None:
-            # Upcast to float if we need to compute the loss to avoid potential precision issues
             logits = logits.float()
             shift_logits = logits[..., :-1, :]
             shift_labels = labels[..., 1:]
             if attention_mask is not None:
-                # we use the input attention mask to shift the logits and labels, because it is 2D.
-                # we also crop attn mask in case it is longer, which happens in PrefixTuning with peft
                 shift_attention_mask = attention_mask[:, -shift_logits.shape[1] :].to(logits.device)
                 shift_logits = shift_logits[shift_attention_mask.to(logits.device) != 0].contiguous()
                 shift_labels = shift_labels[shift_attention_mask.to(shift_labels.device) != 0].contiguous()
             else:
                 shift_logits = shift_logits.contiguous()
                 shift_labels = shift_labels.contiguous()
-            # Flatten the tokens
             loss_fct = nn.CrossEntropyLoss()
 
             flat_logits = shift_logits.view(-1, self.config.text_config.vocab_size)
@@ -897,7 +796,6 @@ class Gemma3ForConditionalGeneration(PaliGemmaForConditionalGeneration):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- custom `pixel_values` handling
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
             past_key_values=past_key_values,
@@ -911,14 +809,9 @@ class Gemma3ForConditionalGeneration(PaliGemmaForConditionalGeneration):
             **kwargs,
         )
 
-        # Pixel values are used only in the first iteration if available
-        # In subsequent iterations, they are already merged with text and cached
-        # NOTE: first iteration doesn't have to be prefill, it can be the first
-        # iteration with a question and cached system prompt (continue generate from cache). NOTE: use_cache=False needs pixel_values always
         if is_first_iteration or not use_cache:
             model_inputs["pixel_values"] = pixel_values
         else:
-            # Don't pass to not apply bidirectional mask on top
             model_inputs["token_type_ids"] = None
 
         return model_inputs

@@ -1,17 +1,3 @@
-# Copyright Google Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""BigBirdPegasus model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,32 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="google/bigbird-pegasus-large-arxiv")
 @strict
 class BigBirdPegasusConfig(PreTrainedConfig):
-    r"""
-    attention_type (`str`, *optional*, defaults to `"block_sparse"`):
-        Whether to use block sparse attention (with n complexity) as introduced in paper or original attention
-        layer (with n^2 complexity). Possible values are `"original_full"` and `"block_sparse"`.
-    block_size (`int`, *optional*, defaults to 64):
-        Size of each block. Useful only when `attention_type == "block_sparse"`.
-    num_random_blocks (`int`, *optional*, defaults to 3):
-        Each query is going to attend these many number of random blocks. Useful only when `attention_type ==
-        "block_sparse"`.
-    use_bias (`bool`, *optional*, defaults to `True`):
-        Whether to use bias in query, key, value.
-
-    Example:
-
-    ```python
-    >>> from transformers import BigBirdPegasusConfig, BigBirdPegasusModel
-
-    >>> # Initializing a BigBirdPegasus bigbird-pegasus-base style configuration
-    >>> configuration = BigBirdPegasusConfig()
-
-    >>> # Initializing a model (with random weights) from the bigbird-pegasus-base style configuration
-    >>> model = BigBirdPegasusModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "bigbird_pegasus"
     keys_to_ignore_at_inference = ["past_key_values"]

@@ -1,16 +1,3 @@
-# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -42,21 +29,6 @@ __all__ = ["RadioModel", "RadioPreTrainedModel"]
 
 @dataclass
 class RadioModelOutput(ModelOutput):
-    """Output of [`RadioModel`].
-
-    Args:
-        summary (`torch.FloatTensor` of shape `(batch_size, num_summary_idxs * hidden_size)`):
-            Flattened summary embedding, gathered from the cls tokens selected by `config.summary_idxs`.
-        features (`torch.FloatTensor` of shape `(batch_size, num_patches, hidden_size)`):
-            Dense spatial patch features.
-        last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-            Full token sequence (prefix tokens + patches) from the final encoder layer.
-        hidden_states (`tuple[torch.FloatTensor]`, *optional*, returned when `output_hidden_states=True`):
-            Tuple of `(batch_size, sequence_length, hidden_size)` tensors, one for the embedding output plus one for
-            each encoder layer.
-        attentions (`tuple[torch.FloatTensor]`, *optional*, returned when `output_attentions=True`):
-            Tuple of `(batch_size, num_heads, sequence_length, sequence_length)` attention weights, one per layer.
-    """
 
     summary: torch.FloatTensor | None = None
     features: torch.FloatTensor | None = None
@@ -66,7 +38,6 @@ class RadioModelOutput(ModelOutput):
 
 
 class RadioInputConditioner(nn.Module):
-    """Normalizes pixel values; arithmetic is done in float32 then cast back."""
 
     def __init__(self, config: RadioConfig):
         super().__init__()
@@ -79,11 +50,6 @@ class RadioInputConditioner(nn.Module):
 
 
 class RadioPatchEmbeddings(nn.Module):
-    """Cropped Position Embedding (CPE) patch generator.
-
-    Splits the image into patches, projects them, adds a resolution-interpolated
-    absolute position embedding, and prepends learned cls + register tokens.
-    """
 
     def __init__(self, config: RadioConfig):
         super().__init__()
@@ -167,8 +133,6 @@ class RadioPreTrainedModel(PreTrainedModel):
 
     @torch.no_grad()
     def _init_weights(self, module):
-        # Use `transformers.initialization` (not in-place `.data` ops) so the
-        # framework's `_is_hf_initialized` guard skips already-loaded params.
         std = self.config.initializer_range
         if isinstance(module, nn.Linear):
             init.trunc_normal_(module.weight, mean=0.0, std=std)
@@ -216,13 +180,10 @@ class RadioModel(RadioPreTrainedModel):
 
     @property
     def patch_size(self) -> int:
-        return self.config.patch_size
+        pass
 
     def make_preprocessor_external(self):
-        """Detach the input conditioner (caller applies normalization itself)."""
-        conditioner = self.input_conditioner
-        self.input_conditioner = nn.Identity()
-        return conditioner
+        pass
 
     @can_return_tuple
     @auto_docstring

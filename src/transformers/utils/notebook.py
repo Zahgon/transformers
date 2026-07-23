@@ -1,16 +1,3 @@
-# Copyright 2020 Hugging Face
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import os
 import re
@@ -40,7 +27,6 @@ def format_time(t):
 
 
 def html_progress_bar(value, total, prefix, label, width=300):
-    # docstyle-ignore
     return f"""
     <div>
       {prefix}
@@ -68,41 +54,6 @@ def text_to_html_table(items):
 
 
 class NotebookProgressBar:
-    """
-    A progress par for display in a notebook.
-
-    Class attributes (overridden by derived classes)
-
-        - **warmup** (`int`) -- The number of iterations to do at the beginning while ignoring `update_every`.
-        - **update_every** (`float`) -- Since calling the time takes some time, we only do it every presumed
-          `update_every` seconds. The progress bar uses the average time passed up until now to guess the next value
-          for which it will call the update.
-
-    Args:
-        total (`int`):
-            The total number of iterations to reach.
-        prefix (`str`, *optional*):
-            A prefix to add before the progress bar.
-        leave (`bool`, *optional*, defaults to `True`):
-            Whether or not to leave the progress bar once it's completed. You can always call the
-            [`~utils.notebook.NotebookProgressBar.close`] method to make the bar disappear.
-        parent ([`~notebook.NotebookTrainingTracker`], *optional*):
-            A parent object (like [`~utils.notebook.NotebookTrainingTracker`]) that spawns progress bars and handle
-            their display. If set, the object passed must have a `display()` method.
-        width (`int`, *optional*, defaults to 300):
-            The width (in pixels) that the bar will take.
-
-    Example:
-
-    ```python
-    import time
-
-    pbar = NotebookProgressBar(100)
-    for val in range(100):
-        pbar.update(val)
-        time.sleep(0.07)
-    pbar.update(100)
-    ```"""
 
     warmup = 5
     update_every = 0.2
@@ -127,7 +78,6 @@ class NotebookProgressBar:
         self.label = None
         if "VSCODE_PID" in os.environ:
             self.update_every = 0.5  # Adjusted for smooth updated as html rending is slow on VS Code
-            # This is the only adjustment required to optimize training html rending
 
     def update(self, value: int, force_update: bool = False, comment: str | None = None):
         """
@@ -160,7 +110,6 @@ class NotebookProgressBar:
                 self.first_calls -= 1
             current_time = time.time()
             self.elapsed_time = current_time - self.start_time
-            # We could have value = self.start_value if the update is called twixe with the same start value.
             if value > self.start_value:
                 self.average_time_per_item = self.elapsed_time / (value - self.start_value)
             else:
@@ -202,7 +151,6 @@ class NotebookProgressBar:
     def display(self):
         self.html_code = html_progress_bar(self.value, self.total, self.prefix, self.label, self.width)
         if self.parent is not None:
-            # If this is a child bar, the parent will take care of the display.
             self.parent.display()
             return
         if self.output is None:
@@ -217,14 +165,6 @@ class NotebookProgressBar:
 
 
 class NotebookTrainingTracker(NotebookProgressBar):
-    """
-    An object tracking the updates of an ongoing training with progress bars and a nice table reporting metrics.
-
-    Args:
-        num_steps (`int`): The number of steps during training. column_names (`list[str]`, *optional*):
-            The list of column names for the metrics table (will be inferred from the first call to
-            [`~utils.notebook.NotebookTrainingTracker.write_line`] if not set).
-    """
 
     def __init__(self, num_steps, column_names=None):
         super().__init__(num_steps)
@@ -261,10 +201,8 @@ class NotebookTrainingTracker(NotebookProgressBar):
                 last_values = self.inner_table[-1]
                 first_column = self.inner_table[0][0]
                 if last_values[0] != values[first_column]:
-                    # write new line
                     self.inner_table.append([values.get(c, "No Log") for c in columns])
                 else:
-                    # update last line
                     new_values = values
                     for c in columns:
                         if c not in new_values:
@@ -295,10 +233,6 @@ class NotebookTrainingTracker(NotebookProgressBar):
 
 
 class NotebookProgressCallback(TrainerCallback):
-    """
-    A [`TrainerCallback`] that displays the progress of training or evaluation, optimized for Jupyter Notebooks or
-    Google colab.
-    """
 
     def __init__(self):
         self.training_tracker = None
@@ -306,23 +240,10 @@ class NotebookProgressCallback(TrainerCallback):
         self._force_next_update = False
 
     def on_train_begin(self, args, state, control, **kwargs):
-        self.first_column = "Epoch" if args.eval_strategy == IntervalStrategy.EPOCH else "Step"
-        self.training_loss = 0
-        self.last_log = 0
-        column_names = [self.first_column] + ["Training Loss"]
-        if args.eval_strategy != IntervalStrategy.NO:
-            column_names.append("Validation Loss")
-        self.training_tracker = NotebookTrainingTracker(state.max_steps, column_names)
+        pass
 
     def on_step_end(self, args, state, control, **kwargs):
-        epoch = int(state.epoch) if int(state.epoch) == state.epoch else f"{state.epoch:.2f}"
-        tt = _require(self.training_tracker, "on_train_begin must be called before on_step_end")
-        tt.update(
-            state.global_step + 1,
-            comment=f"Epoch {epoch}/{state.num_train_epochs}",
-            force_update=self._force_next_update,
-        )
-        self._force_next_update = False
+        pass
 
     def on_prediction_step(self, args, state, control, eval_dataloader=None, **kwargs):
         if not has_length(eval_dataloader):
@@ -342,17 +263,13 @@ class NotebookProgressCallback(TrainerCallback):
         self.prediction_bar = None
 
     def on_log(self, args, state, control, logs=None, **kwargs):
-        # Only for when there is no evaluation
         if args.eval_strategy == IntervalStrategy.NO and "loss" in logs:
             tt = _require(self.training_tracker, "on_train_begin must be called before on_log")
             values = {"Training Loss": logs["loss"]}
-            # First column is necessarily Step sine we're not in epoch eval strategy
             values["Step"] = state.global_step
             tt.write_line(values)
 
     def on_evaluate(self, args, state, control, metrics=None, **kwargs):
-        # Recompute first_column here since on_evaluate can be called before on_train_begin,
-        # where it is normally initialized.
         self.first_column = "Epoch" if args.eval_strategy == IntervalStrategy.EPOCH else "Step"
 
         values = {"Training Loss": "No log", "Validation Loss": "No log"}
@@ -382,7 +299,6 @@ class NotebookProgressCallback(TrainerCallback):
             splits = k.split("_")
             name = " ".join([part.capitalize() for part in splits[1:]])
             if name == "Loss":
-                # Single dataset
                 name = "Validation Loss"
             values[name] = v
 
@@ -390,19 +306,11 @@ class NotebookProgressCallback(TrainerCallback):
             tt = self.training_tracker
             tt.write_line(values)
             tt.remove_child()
-            # Evaluation takes a long time so we should force the next update.
             self._force_next_update = True
         else:
-            # No training tracker, but still show the metrics
             disp.display(disp.HTML(text_to_html_table([list(values.keys()), list(values.values())])))
 
         self.prediction_bar = None
 
     def on_train_end(self, args, state, control, **kwargs):
-        tt = _require(self.training_tracker, "on_train_begin must be called before on_train_end")
-        tt.update(
-            state.global_step,
-            comment=f"Epoch {int(state.epoch)}/{state.num_train_epochs}",
-            force_update=True,
-        )
-        self.training_tracker = None
+        pass

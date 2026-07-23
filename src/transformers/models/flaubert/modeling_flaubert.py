@@ -1,17 +1,3 @@
-# Copyright 2019-present CNRS, Facebook Inc. and the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Flaubert model, based on XLM."""
 
 import math
 from collections.abc import Callable
@@ -43,7 +29,6 @@ from .configuration_flaubert import FlaubertConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.xlm.modeling_xlm.create_sinusoidal_embeddings
 def create_sinusoidal_embeddings(n_pos, dim, out):
     position_enc = np.array([[pos / np.power(10000, 2 * (j // 2) / dim) for j in range(dim)] for pos in range(n_pos)])
     out.requires_grad = False
@@ -53,7 +38,6 @@ def create_sinusoidal_embeddings(n_pos, dim, out):
     return out
 
 
-# Copied from transformers.models.xlm.modeling_xlm.get_masks
 def get_masks(slen, lengths, causal, padding_mask=None):
     """
     Generate hidden states mask, and optionally an attention mask.
@@ -65,21 +49,18 @@ def get_masks(slen, lengths, causal, padding_mask=None):
         assert lengths.max().item() <= slen
         mask = alen < lengths[:, None]
 
-    # attention mask is the same as mask, or triangular inferior attention (causal)
     bs = lengths.size(0)
     if causal:
         attn_mask = alen[None, None, :].repeat(bs, slen, 1) <= alen[None, :, None]
     else:
         attn_mask = mask
 
-    # sanity check
     assert mask.size() == (bs, slen)
     assert causal is False or attn_mask.size() == (bs, slen, slen)
 
     return mask, attn_mask
 
 
-# Copied from transformers.models.xlm.modeling_xlm.MultiHeadAttention
 class MultiHeadAttention(nn.Module):
     def __init__(self, n_heads, dim, config, layer_idx: int = 0):
         super().__init__()
@@ -107,8 +88,6 @@ class MultiHeadAttention(nn.Module):
         """
         Self-attention (if kv is None) or attention over source sentence (provided by kv).
         """
-        # Input is (bs, qlen, dim)
-        # Mask is (bs, klen) (non-causal) or (bs, klen, klen)
         bs, qlen, dim = input.size()
         is_cross_attention = kv is not None
         mask_reshape = (bs, 1, qlen, -1) if mask.dim() == 3 else (bs, 1, 1, -1)
@@ -118,7 +97,6 @@ class MultiHeadAttention(nn.Module):
             if isinstance(cache, EncoderDecoderCache):
                 is_updated = cache.is_updated.get(self.layer_id)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = cache.cross_attention_cache
                 else:
                     curr_past_key_values = cache.self_attention_cache
@@ -127,7 +105,6 @@ class MultiHeadAttention(nn.Module):
 
         current_states = kv if is_cross_attention else input
         if is_cross_attention and cache is not None and is_updated:
-            # reuse k,v, cross_attentions
             k = curr_past_key_values.key_cache[self.layer_id]
             v = curr_past_key_values.value_cache[self.layer_id]
         else:
@@ -137,9 +114,7 @@ class MultiHeadAttention(nn.Module):
             v = v.view(bs, -1, self.n_heads, self.head_dim).transpose(1, 2)
 
             if cache is not None:
-                # save all key/value_states to cache to be re-used for fast auto-regressive generation
                 k, v = curr_past_key_values.update(k, v, self.layer_id)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention:
                     cache.is_updated[self.layer_id] = True
 
@@ -160,7 +135,6 @@ class MultiHeadAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.xlm.modeling_xlm.TransformerFFN
 class TransformerFFN(nn.Module):
     def __init__(self, in_dim, dim_hidden, out_dim, config):
         super().__init__()
@@ -175,11 +149,7 @@ class TransformerFFN(nn.Module):
         return apply_chunking_to_forward(self.ff_chunk, self.chunk_size_feed_forward, self.seq_len_dim, input)
 
     def ff_chunk(self, input):
-        x = self.lin1(input)
-        x = self.act(x)
-        x = self.lin2(x)
-        x = nn.functional.dropout(x, p=self.dropout, training=self.training)
-        return x
+        pass
 
 
 @auto_docstring(
@@ -187,11 +157,7 @@ class TransformerFFN(nn.Module):
     The bare Flaubert Model transformer outputting raw hidden-states without any specific head on top.
     """
 )
-# Copied from transformers.models.xlm.modeling_xlm.XLMPredLayer with XLM->Flaubert
 class FlaubertPredLayer(nn.Module):
-    """
-    Prediction layer (cross_entropy or adaptive_softmax).
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -236,24 +202,7 @@ class FlaubertPredLayer(nn.Module):
     """
 )
 @dataclass
-# Copied from transformers.models.xlm.modeling_xlm.XLMSquadHeadOutput with XLM->Flaubert
 class FlaubertSquadHeadOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned if both `start_positions` and `end_positions` are provided):
-        Classification loss as the sum of start token, end token (and is_impossible if provided) classification
-        losses.
-    start_top_log_probs (`torch.FloatTensor` of shape `(batch_size, config.start_n_top)`, *optional*, returned if `start_positions` or `end_positions` is not provided):
-        Log probabilities for the top config.start_n_top start token possibilities (beam-search).
-    start_top_index (`torch.LongTensor` of shape `(batch_size, config.start_n_top)`, *optional*, returned if `start_positions` or `end_positions` is not provided):
-        Indices for the top config.start_n_top start token possibilities (beam-search).
-    end_top_log_probs (`torch.FloatTensor` of shape `(batch_size, config.start_n_top * config.end_n_top)`, *optional*, returned if `start_positions` or `end_positions` is not provided):
-        Log probabilities for the top `config.start_n_top * config.end_n_top` end token possibilities
-        (beam-search).
-    end_top_index (`torch.LongTensor` of shape `(batch_size, config.start_n_top * config.end_n_top)`, *optional*, returned if `start_positions` or `end_positions` is not provided):
-        Indices for the top `config.start_n_top * config.end_n_top` end token possibilities (beam-search).
-    cls_logits (`torch.FloatTensor` of shape `(batch_size,)`, *optional*, returned if `start_positions` or `end_positions` is not provided):
-        Log probabilities for the `is_impossible` label of the answers.
-    """
 
     loss: torch.FloatTensor | None = None
     start_top_log_probs: torch.FloatTensor | None = None
@@ -263,15 +212,7 @@ class FlaubertSquadHeadOutput(ModelOutput):
     cls_logits: torch.FloatTensor | None = None
 
 
-# Copied from transformers.models.xlm.modeling_xlm.XLMPoolerStartLogits with XLM->Flaubert
 class FlaubertPoolerStartLogits(nn.Module):
-    """
-    Compute SQuAD start logits from sequence hidden states.
-
-    Args:
-        config ([`FlaubertConfig`]):
-            The config used by the model, will be used to grab the `hidden_size` of the model.
-    """
 
     def __init__(self, config: FlaubertConfig):
         super().__init__()
@@ -300,16 +241,7 @@ class FlaubertPoolerStartLogits(nn.Module):
         return x
 
 
-# Copied from transformers.models.xlm.modeling_xlm.XLMPoolerEndLogits with XLM->Flaubert
 class FlaubertPoolerEndLogits(nn.Module):
-    """
-    Compute SQuAD end logits from sequence hidden states.
-
-    Args:
-        config ([`FlaubertConfig`]):
-            The config used by the model, will be used to grab the `hidden_size` of the model and the `layer_norm_eps`
-            to use.
-    """
 
     def __init__(self, config: FlaubertConfig):
         super().__init__()
@@ -370,15 +302,7 @@ class FlaubertPoolerEndLogits(nn.Module):
         return x
 
 
-# Copied from transformers.models.xlm.modeling_xlm.XLMPoolerAnswerClass with XLM->Flaubert
 class FlaubertPoolerAnswerClass(nn.Module):
-    """
-    Compute SQuAD 2.0 answer class from classification and start tokens hidden states.
-
-    Args:
-        config ([`FlaubertConfig`]):
-            The config used by the model, will be used to grab the `hidden_size` of the model.
-    """
 
     def __init__(self, config: FlaubertConfig):
         super().__init__()
@@ -414,7 +338,6 @@ class FlaubertPoolerAnswerClass(nn.Module):
         Returns:
             `torch.FloatTensor`: The SQuAD 2.0 answer class.
         """
-        # No dependency on end_feature so that we can obtain one single `cls_logits` for each sample.
         hsz = hidden_states.shape[-1]
         assert start_states is not None or start_positions is not None, (
             "One of start_states, start_positions should be not None"
@@ -436,16 +359,7 @@ class FlaubertPoolerAnswerClass(nn.Module):
         return x
 
 
-# Copied from transformers.models.xlm.modeling_xlm.XLMSQuADHead with XLM->Flaubert
 class FlaubertSQuADHead(nn.Module):
-    r"""
-    A SQuAD head inspired by XLNet.
-
-    Args:
-        config ([`FlaubertConfig`]):
-            The config used by the model, will be used to grab the `hidden_size` of the model and the `layer_norm_eps`
-            to use.
-    """
 
     def __init__(self, config: FlaubertConfig):
         super().__init__()
@@ -485,12 +399,10 @@ class FlaubertSQuADHead(nn.Module):
         start_logits = self.start_logits(hidden_states, p_mask=p_mask)
 
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, let's remove the dimension added by batch splitting
             for x in (start_positions, end_positions, cls_index, is_impossible):
                 if x is not None and x.dim() > 1:
                     x.squeeze_(-1)
 
-            # during training, compute the end logits based on the ground truth of the start position
             end_logits = self.end_logits(hidden_states, start_positions=start_positions, p_mask=p_mask)
 
             loss_fct = CrossEntropyLoss()
@@ -499,18 +411,15 @@ class FlaubertSQuADHead(nn.Module):
             total_loss = (start_loss + end_loss) / 2
 
             if cls_index is not None and is_impossible is not None:
-                # Predict answerability from the representation of CLS and START
                 cls_logits = self.answer_class(hidden_states, start_positions=start_positions, cls_index=cls_index)
                 loss_fct_cls = nn.BCEWithLogitsLoss()
                 cls_loss = loss_fct_cls(cls_logits, is_impossible)
 
-                # note(zhiliny): by default multiply the loss by 0.5 so that the scale is comparable to start_loss and end_loss
                 total_loss += cls_loss * 0.5
 
             return FlaubertSquadHeadOutput(loss=total_loss) if return_dict else (total_loss,)
 
         else:
-            # during inference, compute the end logits based on beam search
             bsz, slen, hsz = hidden_states.size()
             start_log_probs = nn.functional.softmax(start_logits, dim=-1)  # shape (bsz, slen)
 
@@ -549,41 +458,13 @@ class FlaubertSQuADHead(nn.Module):
                 )
 
 
-# Copied from transformers.models.xlm.modeling_xlm.XLMSequenceSummary with XLM->Flaubert
 class FlaubertSequenceSummary(nn.Module):
-    r"""
-    Compute a single vector summary of a sequence hidden states.
-
-    Args:
-        config ([`FlaubertConfig`]):
-            The config used by the model. Relevant arguments in the config class of the model are (refer to the actual
-            config class of your model for the default values it uses):
-
-            - **summary_type** (`str`) -- The method to use to make this summary. Accepted values are:
-
-                - `"last"` -- Take the last token hidden state (like XLNet)
-                - `"first"` -- Take the first token hidden state (like Bert)
-                - `"mean"` -- Take the mean of all tokens hidden states
-                - `"cls_index"` -- Supply a Tensor of classification token position (GPT/GPT-2)
-                - `"attn"` -- Not implemented now, use multi-head attention
-
-            - **summary_use_proj** (`bool`) -- Add a projection after the vector extraction.
-            - **summary_proj_to_labels** (`bool`) -- If `True`, the projection outputs to `config.num_labels` classes
-              (otherwise to `config.hidden_size`).
-            - **summary_activation** (`Optional[str]`) -- Set to `"tanh"` to add a tanh activation to the output,
-              another string or `None` will add no activation.
-            - **summary_first_dropout** (`float`) -- Optional dropout probability before the projection and activation.
-            - **summary_last_dropout** (`float`)-- Optional dropout probability after the projection and activation.
-    """
 
     def __init__(self, config: FlaubertConfig):
         super().__init__()
 
         self.summary_type = getattr(config, "summary_type", "last")
         if self.summary_type == "attn":
-            # We should use a standard multi-head attention module with absolute positional embedding for that.
-            # Cf. https://github.com/zihangdai/xlnet/blob/master/modeling.py#L253-L276
-            # We can probably just use the multi-head attention module of PyTorch >=1.1.0
             raise NotImplementedError
 
         self.summary = nn.Identity()
@@ -636,7 +517,6 @@ class FlaubertSequenceSummary(nn.Module):
             else:
                 cls_index = cls_index.unsqueeze(-1).unsqueeze(-1)
                 cls_index = cls_index.expand((-1,) * (cls_index.dim() - 1) + (hidden_states.size(-1),))
-            # shape of cls_index: (bsz, XX, 1, hidden_size) where XX are optional leading dim of hidden_states
             output = hidden_states.gather(-2, cls_index).squeeze(-2)  # shape (bsz, XX, hidden_size)
         elif self.summary_type == "attn":
             raise NotImplementedError
@@ -650,20 +530,13 @@ class FlaubertSequenceSummary(nn.Module):
 
 
 @auto_docstring
-# Copied from transformers.models.xlm.modeling_xlm.XLMPreTrainedModel with XLM->Flaubert
 class FlaubertPreTrainedModel(PreTrainedModel):
     config: FlaubertConfig
     base_model_prefix = "transformer"
 
     @property
     def dummy_inputs(self):
-        inputs_list = torch.tensor([[7, 6, 0, 0, 1], [1, 2, 3, 0, 0], [0, 0, 0, 4, 5]])
-        attns_list = torch.tensor([[1, 1, 0, 0, 1], [1, 1, 1, 0, 0], [1, 0, 0, 1, 1]])
-        if self.config.use_lang_emb and self.config.n_langs > 1:
-            langs_list = torch.tensor([[1, 1, 0, 0, 1], [1, 1, 1, 0, 0], [1, 0, 0, 1, 1]])
-        else:
-            langs_list = None
-        return {"input_ids": inputs_list, "attention_mask": attns_list, "langs": langs_list}
+        pass
 
     @torch.no_grad()
     def _init_weights(self, module):
@@ -672,7 +545,6 @@ class FlaubertPreTrainedModel(PreTrainedModel):
         if isinstance(module, nn.Embedding):
             if self.config is not None and self.config.embed_init_std is not None:
                 init.normal_(module.weight, mean=0, std=self.config.embed_init_std)
-            # Here we need the check explicitly, as we slice the weight in the `zeros_` call, so it looses the flag
             if module.padding_idx is not None and not getattr(module.weight, "_is_hf_initialized", False):
                 init.zeros_(module.weight[module.padding_idx])
         if isinstance(module, FlaubertModel):
@@ -693,27 +565,18 @@ class FlaubertModel(FlaubertPreTrainedModel):
     def __init__(self, config):  # , dico, is_encoder, with_output):
         super().__init__(config)
 
-        # encoder / decoder, output layer
         self.is_encoder = config.is_encoder
         self.is_decoder = not config.is_encoder
         if self.is_decoder:
             raise NotImplementedError("Currently Flaubert can only be used as an encoder")
-        # self.with_output = with_output
         self.causal = config.causal
 
-        # dictionary / languages
         self.n_langs = config.n_langs
         self.use_lang_emb = config.use_lang_emb
         self.n_words = config.n_words
         self.eos_index = config.eos_index
         self.pad_index = config.pad_index
-        # self.dico = dico
-        # self.id2lang = config.id2lang
-        # self.lang2id = config.lang2id
-        # assert len(self.dico) == self.n_words
-        # assert len(self.id2lang) == len(self.lang2id) == self.n_langs
 
-        # model parameters
         self.dim = config.emb_dim  # 512 by default
         self.hidden_dim = self.dim * 4  # 2048 by default
         self.n_heads = config.n_heads  # 8 by default
@@ -722,28 +585,20 @@ class FlaubertModel(FlaubertPreTrainedModel):
         self.attention_dropout = config.attention_dropout
         assert self.dim % self.n_heads == 0, "transformer dim must be a multiple of n_heads"
 
-        # embeddings
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, self.dim)
         if config.n_langs > 1 and config.use_lang_emb:
             self.lang_embeddings = nn.Embedding(self.n_langs, self.dim)
         self.embeddings = nn.Embedding(self.n_words, self.dim, padding_idx=self.pad_index)
         self.layer_norm_emb = nn.LayerNorm(self.dim, eps=config.layer_norm_eps)
 
-        # transformer layers
         self.attentions = nn.ModuleList()
         self.layer_norm1 = nn.ModuleList()
         self.ffns = nn.ModuleList()
         self.layer_norm2 = nn.ModuleList()
-        # if self.is_decoder:
-        #     self.layer_norm15 = nn.ModuleList()
-        #     self.encoder_attn = nn.ModuleList()
 
         for i in range(self.n_layers):
             self.attentions.append(MultiHeadAttention(self.n_heads, self.dim, config=config, layer_idx=i))
             self.layer_norm1.append(nn.LayerNorm(self.dim, eps=config.layer_norm_eps))
-            # if self.is_decoder:
-            #     self.layer_norm15.append(nn.LayerNorm(self.dim, eps=config.layer_norm_eps))
-            #     self.encoder_attn.append(MultiHeadAttention(self.n_heads, self.dim, dropout=self.attention_dropout))
             self.ffns.append(TransformerFFN(self.dim, self.hidden_dim, self.dim, config=config))
             self.layer_norm2.append(nn.LayerNorm(self.dim, eps=config.layer_norm_eps))
 
@@ -753,14 +608,11 @@ class FlaubertModel(FlaubertPreTrainedModel):
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.xlm.modeling_xlm.XLMModel.get_input_embeddings
     def get_input_embeddings(self):
         return self.embeddings
 
-    # Copied from transformers.models.xlm.modeling_xlm.XLMModel.set_input_embeddings
     def set_input_embeddings(self, new_embeddings):
         self.embeddings = new_embeddings
 
@@ -805,7 +657,6 @@ class FlaubertModel(FlaubertPreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # removed: src_enc=None, src_len=None
         if input_ids is not None:
             bs, slen = input_ids.size()
         else:
@@ -821,25 +672,12 @@ class FlaubertModel(FlaubertPreTrainedModel):
                 lengths = (input_ids != self.pad_index).sum(dim=1).long()
             else:
                 lengths = torch.full((bs,), slen, device=device, dtype=torch.long)
-        # mask = input_ids != self.pad_index
 
-        # check inputs
         assert lengths.size(0) == bs
         assert lengths.max().item() <= slen
-        # input_ids = input_ids.transpose(0, 1)  # batch size as dimension 0
-        # assert (src_enc is None) == (src_len is None)
-        # if src_enc is not None:
-        #     assert self.is_decoder
-        #     assert src_enc.size(0) == bs
 
-        # generate masks
         mask, attn_mask = get_masks(slen, lengths, self.causal, padding_mask=attention_mask)
-        # if self.is_decoder and src_enc is not None:
-        #     src_mask = torch.arange(src_len.max(), dtype=torch.long, device=lengths.device) < src_len[:, None]
 
-        # Setting the position-ids to the registered buffer in constructor, it helps
-        # when tracing the model without passing position-ids, solves
-        # issues similar to issue #5664
         if position_ids is None:
             if hasattr(self, "position_ids"):
                 position_ids = self.position_ids[:, :slen]
@@ -849,14 +687,10 @@ class FlaubertModel(FlaubertPreTrainedModel):
                 position_ids = position_ids.unsqueeze(0).expand((bs, slen))
         else:
             assert position_ids.size() == (bs, slen)  # (slen, bs)
-            # position_ids = position_ids.transpose(0, 1)
 
-        # langs
         if langs is not None:
             assert langs.size() == (bs, slen)  # (slen, bs)
-            # langs = langs.transpose(0, 1)
 
-        # do not recompute cached elements
         if cache is not None and input_ids is not None:
             _slen = slen - cache.get_seq_length()
             input_ids = input_ids[:, -_slen:]
@@ -866,7 +700,6 @@ class FlaubertModel(FlaubertPreTrainedModel):
             mask = mask[:, -_slen:]
             attn_mask = attn_mask[:, -_slen:]
 
-        # embeddings
         if inputs_embeds is None:
             inputs_embeds = self.embeddings(input_ids)
 
@@ -879,11 +712,9 @@ class FlaubertModel(FlaubertPreTrainedModel):
         tensor = nn.functional.dropout(tensor, p=self.dropout, training=self.training)
         tensor *= mask.unsqueeze(-1).to(tensor.dtype)
 
-        # transformer layers
         hidden_states = () if output_hidden_states else None
         attentions = () if output_attentions else None
         for i in range(self.n_layers):
-            # LayerDrop
             if self.training:
                 dropout_probability = torch.rand([])
                 if dropout_probability < self.layerdrop:
@@ -892,7 +723,6 @@ class FlaubertModel(FlaubertPreTrainedModel):
             if output_hidden_states:
                 hidden_states = hidden_states + (tensor,)
 
-            # self attention
             if not self.pre_norm:
                 attn_outputs = self.attentions[i](
                     tensor,
@@ -915,7 +745,6 @@ class FlaubertModel(FlaubertPreTrainedModel):
                 attn = nn.functional.dropout(attn, p=self.dropout, training=self.training)
                 tensor = tensor + attn
 
-            # FFN
             if not self.pre_norm:
                 tensor = tensor + self.ffns[i](tensor)
                 tensor = self.layer_norm2[i](tensor)
@@ -925,7 +754,6 @@ class FlaubertModel(FlaubertPreTrainedModel):
 
             tensor *= mask.unsqueeze(-1).to(tensor.dtype)
 
-        # Add last hidden state
         if output_hidden_states:
             hidden_states = hidden_states + (tensor,)
 
@@ -949,7 +777,6 @@ class FlaubertWithLMHeadModel(FlaubertPreTrainedModel, GenerationMixin):
         self.transformer = FlaubertModel(config)
         self.pred_layer = FlaubertPredLayer(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -959,7 +786,6 @@ class FlaubertWithLMHeadModel(FlaubertPreTrainedModel, GenerationMixin):
         self.pred_layer.proj = new_embeddings
 
     def prepare_inputs_for_generation(self, input_ids, **kwargs):
-        # Overwritten -- uses a language id
 
         mask_token_id = self.config.mask_token_id
         lang_id = self.config.lang_id
@@ -1049,7 +875,6 @@ class FlaubertWithLMHeadModel(FlaubertPreTrainedModel, GenerationMixin):
     e.g. for GLUE tasks.
     """
 )
-# Copied from transformers.models.xlm.modeling_xlm.XLMForSequenceClassification with XLM_INPUTS->FLAUBERT_INPUTS,XLM->Flaubert
 class FlaubertForSequenceClassification(FlaubertPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -1059,7 +884,6 @@ class FlaubertForSequenceClassification(FlaubertPreTrainedModel):
         self.transformer = FlaubertModel(config)
         self.sequence_summary = FlaubertSequenceSummary(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1155,7 +979,6 @@ class FlaubertForSequenceClassification(FlaubertPreTrainedModel):
 
 
 @auto_docstring
-# Copied from transformers.models.xlm.modeling_xlm.XLMForTokenClassification with XLM_INPUTS->FLAUBERT_INPUTS,XLM->Flaubert
 class FlaubertForTokenClassification(FlaubertPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -1165,7 +988,6 @@ class FlaubertForTokenClassification(FlaubertPreTrainedModel):
         self.dropout = nn.Dropout(config.dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1248,7 +1070,6 @@ class FlaubertForTokenClassification(FlaubertPreTrainedModel):
     layers on top of the hidden-states output to compute `span start logits` and `span end logits`).
     """
 )
-# Copied from transformers.models.xlm.modeling_xlm.XLMForQuestionAnsweringSimple with XLM_INPUTS->FLAUBERT_INPUTS,XLM->Flaubert
 class FlaubertForQuestionAnsweringSimple(FlaubertPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -1256,7 +1077,6 @@ class FlaubertForQuestionAnsweringSimple(FlaubertPreTrainedModel):
         self.transformer = FlaubertModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1319,12 +1139,10 @@ class FlaubertForQuestionAnsweringSimple(FlaubertPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)
@@ -1353,24 +1171,7 @@ class FlaubertForQuestionAnsweringSimple(FlaubertPreTrainedModel):
     """
 )
 @dataclass
-# Copied from transformer.models.xlm.modeling_xlm.XLMForQuestionAnsweringOutput with XLM->Flaubert
 class FlaubertForQuestionAnsweringOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned if both `start_positions` and `end_positions` are provided):
-        Classification loss as the sum of start token, end token (and is_impossible if provided) classification
-        losses.
-    start_top_log_probs (`torch.FloatTensor` of shape `(batch_size, config.start_n_top)`, *optional*, returned if `start_positions` or `end_positions` is not provided):
-        Log probabilities for the top config.start_n_top start token possibilities (beam-search).
-    start_top_index (`torch.LongTensor` of shape `(batch_size, config.start_n_top)`, *optional*, returned if `start_positions` or `end_positions` is not provided):
-        Indices for the top config.start_n_top start token possibilities (beam-search).
-    end_top_log_probs (`torch.FloatTensor` of shape `(batch_size, config.start_n_top * config.end_n_top)`, *optional*, returned if `start_positions` or `end_positions` is not provided):
-        Log probabilities for the top `config.start_n_top * config.end_n_top` end token possibilities
-        (beam-search).
-    end_top_index (`torch.LongTensor` of shape `(batch_size, config.start_n_top * config.end_n_top)`, *optional*, returned if `start_positions` or `end_positions` is not provided):
-        Indices for the top `config.start_n_top * config.end_n_top` end token possibilities (beam-search).
-    cls_logits (`torch.FloatTensor` of shape `(batch_size,)`, *optional*, returned if `start_positions` or `end_positions` is not provided):
-        Log probabilities for the `is_impossible` label of the answers.
-    """
 
     loss: torch.FloatTensor | None = None
     start_top_log_probs: torch.FloatTensor | None = None
@@ -1383,7 +1184,6 @@ class FlaubertForQuestionAnsweringOutput(ModelOutput):
 
 
 @auto_docstring
-# Copied from transformers.models.xlm.modeling_xlm.XLMForQuestionAnswering with XLM_INPUTS->FLAUBERT_INPUTS,XLM->Flaubert
 class FlaubertForQuestionAnswering(FlaubertPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -1391,7 +1191,6 @@ class FlaubertForQuestionAnswering(FlaubertPreTrainedModel):
         self.transformer = FlaubertModel(config)
         self.qa_outputs = FlaubertSQuADHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1502,7 +1301,6 @@ class FlaubertForQuestionAnswering(FlaubertPreTrainedModel):
 
 
 @auto_docstring
-# Copied from transformers.models.xlm.modeling_xlm.XLMForMultipleChoice with XLM_INPUTS->FLAUBERT_INPUTS,XLM->Flaubert
 class FlaubertForMultipleChoice(FlaubertPreTrainedModel):
     def __init__(self, config, *inputs, **kwargs):
         super().__init__(config, *inputs, **kwargs)
@@ -1511,7 +1309,6 @@ class FlaubertForMultipleChoice(FlaubertPreTrainedModel):
         self.sequence_summary = FlaubertSequenceSummary(config)
         self.logits_proj = nn.Linear(config.num_labels, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

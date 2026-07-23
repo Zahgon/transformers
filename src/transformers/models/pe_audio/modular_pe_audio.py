@@ -1,16 +1,3 @@
-# Copyright 2025 the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from dataclasses import dataclass
 from typing import Any
 
@@ -99,20 +86,11 @@ class PeAudioPreTrainedModel(PeAudioVideoPreTrainedModel):
 )
 @dataclass
 class PeAudioEncoderOutput(BaseModelOutputWithPooling):
-    r"""
-    codec_features (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
-        Features extracted from the codec encoder, used as intermediate representations before the main encoder
-        processing.
-    output_mask (`tuple(torch.FloatTensor)`, *optional*):
-        Tuple of `torch.FloatTensor` masks corresponding to the encoder outputs, used to avoid performing attention
-        on padded regions.
-    """
 
     codec_features: torch.FloatTensor | None = None
     output_mask: tuple[torch.FloatTensor] | None = None
 
 
-# TODO: add the capture of codec features?
 @auto_docstring(
     custom_intro="""
     The PeAudio Encoder model.
@@ -162,9 +140,7 @@ class PeAudioEncoder(PeAudioVideoEncoder):
         )
 
 
-# TODO: not sure about the typing for text_model_output
 @dataclass
-# @auto_docstring
 class PeAudioOutput(ModelOutput):
     loss: torch.FloatTensor | None = None
     logits_audio_text: torch.FloatTensor | None = None
@@ -194,23 +170,10 @@ class PeAudioModel(PeAudioPreTrainedModel):
         self.post_init()
 
     def get_text_audio_embeds(self, input_ids, attention_mask=None):
-        # TODO: naming can be improved here...
-        text_outputs: MaskedLMOutput = self.text_model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            return_dict=True,
-        )
-        text_audio_embeds = text_outputs.hidden_states[-1][:, 0]
-        return self.text_audio_head(text_audio_embeds)
+        pass
 
     def get_audio_embeds(self, input_values, padding_mask=None):
-        audio_outputs: BaseModelOutputWithPooling = self.audio_encoder(
-            input_values=input_values,
-            padding_mask=padding_mask,
-            return_dict=True,
-        )
-        audio_embeds = audio_outputs.pooler_output
-        return self.audio_head(audio_embeds)
+        pass
 
     @can_return_tuple
     def forward(
@@ -255,19 +218,9 @@ class PeAudioModel(PeAudioPreTrainedModel):
         )
 
 
-# TODO: underline in documentation that logits output shape is
-# 1. Model: (n_audio, n_text)
-# 2. Frame-level: (n_audio, n_text, n_frames)
 class PeAudioFrameLevelModel(PeAudioModel):
     def get_audio_embeds(self, input_values, padding_mask=None):
-        audio_outputs: BaseModelOutputWithPooling = self.audio_encoder(
-            input_values=input_values,
-            padding_mask=padding_mask,
-            return_dict=True,
-        )
-        audio_embeds = audio_outputs.last_hidden_state
-        audio_embeds = self.audio_head(audio_embeds)
-        return audio_embeds
+        pass
 
     @can_return_tuple
     def forward(

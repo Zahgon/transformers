@@ -1,17 +1,3 @@
-# Copyright 2021 Microsoft Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch BEiT model."""
 
 from dataclasses import dataclass
 
@@ -47,12 +33,7 @@ from .configuration_beit import BeitConfig
 )
 @dataclass
 class BeitModelOutputWithPooling(BaseModelOutputWithPooling):
-    r"""
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, hidden_size)`):
-        Average of the last layer hidden states of the patch tokens (excluding the *[CLS]* token) if
-        *config.use_mean_pooling* is set to True. If set to False, then the final hidden state of the *[CLS]* token
-        will be returned.
-    """
+    pass
 
 
 class BeitPatchEmbeddings(ViTPatchEmbeddings):
@@ -86,7 +67,6 @@ class BeitEmbeddings(ViTEmbeddings):
 
         if bool_masked_pos is not None:
             mask_tokens = self.mask_token.expand(batch_size, seq_len, -1)
-            # replace the masked visual tokens by mask_tokens
             mask = bool_masked_pos.unsqueeze(-1).type_as(mask_tokens)
             embeddings = embeddings * (1 - mask) + mask_tokens * mask
 
@@ -112,7 +92,6 @@ class BeitRelativePositionBias(nn.Module):
         self.relative_position_bias_table = nn.Parameter(
             torch.zeros(self.num_relative_distance, config.num_attention_heads)
         )  # 2*Wh-1 * 2*Ww-1, nH
-        # cls to token & token 2 cls & cls to cls
 
     @staticmethod
     @compile_compatible_method_lru_cache(maxsize=10)
@@ -124,13 +103,11 @@ class BeitRelativePositionBias(nn.Module):
         num_relative_distance = (2 * window_size[0] - 1) * (2 * window_size[1] - 1) + 3
         window_area = window_size[0] * window_size[1]
 
-        # Pair-wise relative position index for each token inside the window
         coords_flatten = torch.flatten(
             torch.stack(torch.meshgrid(torch.arange(window_size[0]), torch.arange(window_size[1]), indexing="ij")),
             start_dim=1,
         )  # 2, Wh*Ww
         relative_coords = (coords_flatten[:, :, None] - coords_flatten[:, None, :]).permute(1, 2, 0).contiguous()
-        # Wh*Ww, Wh*Ww, 2 — shift to start from 0
         relative_coords[:, :, 0] += window_size[0] - 1
         relative_coords[:, :, 1] += window_size[1] - 1
         relative_coords[:, :, 0] *= 2 * window_size[1] - 1
@@ -172,11 +149,9 @@ class BeitRelativePositionBias(nn.Module):
         relative_position_index = self.generate_relative_position_index(window_size)
         relative_position_bias = new_relative_position_bias_table[relative_position_index.view(-1)]
 
-        # patch_size*num_patches_height, patch_size*num_patches_width, num_attention_heads
         relative_position_bias = relative_position_bias.view(
             window_size[0] * window_size[1] + 1, window_size[0] * window_size[1] + 1, -1
         )
-        # num_attention_heads, patch_size*num_patches_width, patch_size*num_patches_height
         relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()
 
         if interpolate_pos_encoding:
@@ -208,7 +183,6 @@ class BeitDropPath(SwinDropPath):
 
 
 class BeitLayer(ViTLayer):
-    """This corresponds to the Block class in the timm implementation."""
 
     def __init__(self, config: BeitConfig, drop_path_rate: float = 0.0):
         super().__init__()
@@ -242,7 +216,6 @@ class BeitLayer(ViTLayer):
                 relative_position_bias + attention_mask if attention_mask is not None else relative_position_bias
             )
 
-        # Self Attention
         residual = hidden_states
         hidden_states = self.layernorm_before(hidden_states)
         hidden_states, _ = self.attention(
@@ -254,7 +227,6 @@ class BeitLayer(ViTLayer):
         hidden_states = self.lambda_1 * hidden_states
         hidden_states = self.drop_path(hidden_states) + residual
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.layernorm_after(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -313,7 +285,6 @@ class BeitModel(BeitPreTrainedModel):
         )
         self.pooler = BeitPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -375,7 +346,6 @@ class BeitPooler(nn.Module):
         )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # Mean pool patch tokens with layernorm, or take the [CLS] token
         return self.layernorm(hidden_states[:, 1:, :].mean(1)) if self.layernorm is not None else hidden_states[:, 0]
 
 
@@ -394,11 +364,9 @@ class BeitForMaskedImageModeling(BeitPreTrainedModel):
         self.num_labels = config.num_labels
         self.beit = BeitModel(config, add_pooling_layer=False)
 
-        # Classifier head
         self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -486,10 +454,8 @@ class BeitForImageClassification(BeitPreTrainedModel):
         self.num_labels = config.num_labels
         self.beit = BeitModel(config, add_pooling_layer=True)
 
-        # Classifier head
         self.classifier = nn.Linear(config.hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -569,17 +535,6 @@ class BeitPyramidPoolingBlock(nn.Module):
 
 
 class BeitPyramidPoolingModule(nn.Module):
-    """
-    Pyramid Pooling Module (PPM) used in PSPNet.
-
-    Args:
-        pool_scales (tuple[int]): Pooling scales used in Pooling Pyramid
-            Module.
-        in_channels (int): Input channels.
-        channels (int): Channels after modules, before conv_seg.
-
-    Based on OpenMMLab's implementation, found in https://github.com/open-mmlab/mmsegmentation.
-    """
 
     def __init__(self, pool_scales: tuple[int, ...], in_channels: int, channels: int) -> None:
         super().__init__()
@@ -599,12 +554,6 @@ class BeitPyramidPoolingModule(nn.Module):
 
 
 class BeitUperHead(nn.Module):
-    """
-    Unified Perceptual Parsing for Scene Understanding. This head is the implementation of
-    [UPerNet](https://huggingface.co/papers/1807.10221).
-
-    Based on OpenMMLab's implementation, found in https://github.com/open-mmlab/mmsegmentation.
-    """
 
     def __init__(self, config: BeitConfig) -> None:
         super().__init__()
@@ -614,7 +563,6 @@ class BeitUperHead(nn.Module):
         self.channels = config.hidden_size
         self.classifier = nn.Conv2d(self.channels, config.num_labels, kernel_size=1)
 
-        # PSP Module
         self.psp_modules = BeitPyramidPoolingModule(
             self.pool_scales,
             self.in_channels[-1],
@@ -626,7 +574,6 @@ class BeitUperHead(nn.Module):
             kernel_size=3,
             padding=1,
         )
-        # FPN Module
         self.lateral_convs = nn.ModuleList()
         self.fpn_convs = nn.ModuleList()
         for in_channels in self.in_channels[:-1]:  # skip the top layer
@@ -646,14 +593,12 @@ class BeitUperHead(nn.Module):
         return self.psp_bottleneck(hidden_state)
 
     def forward(self, encoder_hidden_states: list[torch.Tensor]) -> torch.Tensor:
-        # build laterals
         laterals = []
         for lateral_conv, hidden_state in zip(self.lateral_convs, encoder_hidden_states):
             laterals.append(lateral_conv(hidden_state))
 
         laterals.append(self.psp_forward(encoder_hidden_states))
 
-        # build top-down path
         used_backbone_levels = len(laterals)
         for i in range(used_backbone_levels - 1, 0, -1):
             prev_shape = laterals[i - 1].shape[2:]
@@ -661,11 +606,9 @@ class BeitUperHead(nn.Module):
                 laterals[i], size=prev_shape, mode="bilinear", align_corners=False
             )
 
-        # build outputs
         fpn_outs = []
         for i in range(used_backbone_levels - 1):
             fpn_outs.append(self.fpn_convs[i](laterals[i]))
-        # append psp feature
         fpn_outs.append(laterals[-1])
 
         for i in range(used_backbone_levels - 1, 0, -1):
@@ -680,19 +623,6 @@ class BeitUperHead(nn.Module):
 
 
 class BeitFCNHead(nn.Module):
-    """
-    Fully Convolution Networks for Semantic Segmentation. This head is implemented of
-    [FCNNet](https://huggingface.co/papers/1411.4038>).
-
-    Args:
-        config (BeitConfig): Configuration.
-        in_channels
-        kernel_size (int): The kernel size for convs in the head. Default: 3.
-        dilation (int): The dilation rate for convs in the head. Default: 1.
-
-
-    Based on OpenMMLab's implementation, found in https://github.com/open-mmlab/mmsegmentation.
-    """
 
     def __init__(
         self, config: BeitConfig, in_index: int = 2, kernel_size: int = 3, dilation: int | tuple[int, int] = 1
@@ -741,7 +671,6 @@ class BeitFCNHead(nn.Module):
 
 
 class BeitFPNUpBlock(nn.Module):
-    """4x upsampling block: ConvTranspose → BN → GELU → ConvTranspose."""
 
     def __init__(self, hidden_size: int, kernel_size: int = 2, stride: int = 2) -> None:
         super().__init__()
@@ -759,10 +688,6 @@ class BeitFPNUpBlock(nn.Module):
 
 
 class BeitFPNNeck(nn.Module):
-    """
-    4-level feature pyramid neck for BeiT. Produces x4 upsample, x2 upsample,
-    identity, and x2 downsample outputs from the four selected ViT feature maps.
-    """
 
     def __init__(self, config: BeitConfig):
         super().__init__()
@@ -795,11 +720,9 @@ class BeitForSemanticSegmentation(BeitPreTrainedModel):
             )
         self.fpn = BeitFPNNeck(config)
 
-        # Semantic segmentation head(s)
         self.decode_head = BeitUperHead(config)
         self.auxiliary_head = BeitFCNHead(config) if config.use_auxiliary_head else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -848,8 +771,6 @@ class BeitForSemanticSegmentation(BeitPreTrainedModel):
         patch_height = height // self.config.patch_size
         patch_width = width // self.config.patch_size
 
-        # out_indices are 1-based into encoder_hidden_states (index 0 is the initial patch embedding).
-        # Remove the CLS token ([:, 1:]) and reshape from sequence to 2D spatial feature maps.
         feature_maps = tuple(
             encoder_hidden_states[i - 1][:, 1:].transpose(1, 2).reshape(batch_size, -1, patch_height, patch_width)
             for i in self.config.out_indices
@@ -892,7 +813,6 @@ class BeitBackbone(BackboneMixin, BeitPreTrainedModel):
         self.beit = BeitModel(config, add_pooling_layer=False)
         self.fpn = BeitFPNNeck(config) if config.add_fpn else nn.Identity()
 
-        # initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

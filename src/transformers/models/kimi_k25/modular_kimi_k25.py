@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import time
 from collections.abc import Callable
 
@@ -57,16 +44,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="moonshotai/Kimi-K2.6")
 @strict
 class Kimi_K25VisionConfig(PreTrainedConfig):
-    r"""
-    pos_emb_height (`int`, *optional*):
-        Initial position embedding height.
-    pos_emb_width (`int`, *optional*):
-        Initial position embedding width.
-    pos_emb_time (`int`, *optional*):
-        Initial position embedding time dimension.
-    merge_kernel_size (`tuple[int] | list[int]`, *optional*):
-        Kernel size for patch merging.
-    """
 
     model_type = "kimi_k25_vision"
 
@@ -87,12 +64,6 @@ class Kimi_K25VisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="moonshotai/Kimi-K2.6")
 @strict
 class Kimi_K25Config(PreTrainedConfig):
-    r"""
-    projection_hidden_size (`int`, *optional*, defaults to `1152`):
-        The output hidden size for multimodal projector.
-    projection_layer_norm_eps (`float`, *optional*, defaults to `1e-5`):
-        Layer norm epsilon for projector.
-    """
 
     model_type = "kimi_k25"
     sub_configs = {"text_config": AutoConfig, "vision_config": Kimi_K25VisionConfig}
@@ -108,7 +79,6 @@ class Kimi_K25Config(PreTrainedConfig):
     tie_word_embeddings: bool = True
 
     def __post_init__(self, **kwargs):
-        # BC: load from remote config on the hub where the model-type points to remote config
         if isinstance(self.text_config, dict):
             model_type = self.text_config.get("model_type", "deepseek_v3")
             if model_type == "kimi_k2":
@@ -146,7 +116,6 @@ class Kimi_K25VisionPositionEmbeddings(nn.Module):
             torch.zeros(config.pos_emb_height, config.pos_emb_width, config.hidden_size)
         )
 
-        # Time-axis pos_emb are an additive sinusoidal table, i.e. add pos to hiddens rather than rotating
         time_position_embeddings = self.compute_pos_embed()
         self.register_buffer("time_position_embeddings", time_position_embeddings, persistent=False)
 
@@ -165,7 +134,6 @@ class Kimi_K25VisionPositionEmbeddings(nn.Module):
                     f"Got an input with {t} frames. Number of frames should be less than config.pos_emb_time=({self.num_frames})"
                 )
 
-            # Apply learned positions on h/w grids with optional interpolation for bigger images
             if (h, w) == self.position_embeddings.shape[:-1]:
                 position_embeddings = self.position_embeddings.flatten(0, 1)
             else:
@@ -178,7 +146,6 @@ class Kimi_K25VisionPositionEmbeddings(nn.Module):
                 position_embeddings = position_embeddings.squeeze(0).permute(1, 2, 0).flatten(0, 1)
 
             position_embeddings = position_embeddings.unsqueeze(0)  # Add T axis
-            # Add sinusoidal positions for time grid if processing videos
             if t > 1:
                 position_embeddings = position_embeddings.repeat(t, 1, 1)
                 position_embeddings = position_embeddings + self.time_position_embeddings[0:t]
@@ -203,8 +170,6 @@ class Kimi_K25VisionPatchEmbed(nn.Module):
         return hidden_states
 
 
-# Similarly to gemma4, applies the same freq to H and W grids
-# The difference is that gemma4 stacks H/W embeds on `dim`, while Kimi interleaves them
 class Kimi_K25VisionRotaryEmbedding(Gemma4VisionRotaryEmbedding):
     def forward(self, x, position_ids):
         position_ids_expanded = position_ids.permute(1, 2, 0)[..., None].float()  # shape (bs, positions, 2, 1)
@@ -229,7 +194,6 @@ class Kimi_K25VisionMLP(VisionMlp):
     pass
 
 
-# Difference from Qwen: unfused qkv as we chunk and permute qk proj when converting!
 class Kimi_K25VisionAttention(VisionAttention):
     def __init__(self, config: Kimi_K25VisionConfig) -> None:
         super().__init__()
@@ -266,7 +230,6 @@ class Kimi_K25VisionAttention(VisionAttention):
         )
 
         if is_flash_attention_requested(self.config):
-            # Flash Attention: Use cu_seqlens for variable length attention
             max_seqlen = get_max_seqlen(cu_seqlens, self.config, kwargs={"max_seqlen": max_seqlen})
             attn_output, _ = attention_interface(
                 self,
@@ -284,7 +247,6 @@ class Kimi_K25VisionAttention(VisionAttention):
                 **kwargs,
             )
         else:
-            # Other implementations: Process each chunk separately
             lengths = cu_seqlens[1:] - cu_seqlens[:-1]
             splits = [
                 torch.split(tensor, lengths.tolist(), dim=2) for tensor in (query_states, key_states, value_states)
@@ -311,7 +273,6 @@ class Kimi_K25VisionAttention(VisionAttention):
         return attn_output
 
 
-# Don't copy `init` from Qwen-VL due to non-standard config naming in Qwen
 class Kimi_K25VisionEncoderLayer(Qwen2VLVisionBlock):
     def __init__(self, config):
         nn.Module.__init__()
@@ -383,9 +344,7 @@ class Kimi_K25VisionModel(Kimi_K25PreTrainedModel):
         outputs = []
         running_length = 0
         for t, h, w in grid_thw.tolist():
-            # Get the current sequence
             seq = hidden_states[running_length : running_length + t * h * w]
-            # Reshape along self.merge_kernel_size and concat to the last dimension
             new_height, new_width = h // kernel_height, w // kernel_width
             reshaped_seq = seq.view(t, new_height, kernel_height, new_width, kernel_width, hidden_dim)
             reshaped_seq = reshaped_seq.transpose(2, 3).mean(dim=0)  # temporal pooling
@@ -692,7 +651,6 @@ class Kimi_K25ForConditionalGeneration(Glm4vForConditionalGeneration):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -757,48 +715,15 @@ class Kimi_K25Processor(Qwen2VLProcessor):
         )
 
     def replace_video_token(self, video_inputs: dict, video_idx: int) -> str:
-        merge_length = self.video_processor.merge_size**2
-        temporal_patch_size = self.video_processor.temporal_patch_size
-
-        num_chunks = video_inputs["num_chunks_per_video"][video_idx]
-        start = 0 if video_idx == 0 else np.cumsum(video_inputs["num_chunks_per_video"])[video_idx - 1]
-        video_grid_thw = video_inputs["video_grid_thw"][start : start + num_chunks]
-        video_structure = ""
-
-        metadata = video_inputs["video_metadata"][video_idx]
-        if metadata.fps is None:
-            logger.warning_once(
-                "SmolVLM requires frame timestamps to construct prompts, but the `fps` of the input video could not be inferred. "
-                "Probably `video_metadata` was missing from inputs and you passed pre-sampled frames. "
-                "Defaulting to `fps=24`. Please provide `video_metadata` for more accurate results."
-            )
-            metadata.fps = 24
-
-        for chunk_id in range(num_chunks):
-            current_chunk = metadata.timestamps[
-                (chunk_id * temporal_patch_size) : (chunk_id + 1) * temporal_patch_size
-            ]
-            timestamp = float(current_chunk[0])
-            current_chunk = metadata.timestamps[chunk_id : chunk_id + temporal_patch_size]
-            timestamp_str = time.strftime("%H:%M:%S", time.gmtime(timestamp)) + f".{int(timestamp % 1 * 1000):03d}"
-            num_frame_tokens = video_grid_thw[chunk_id][1:].prod() // merge_length
-            video_tokens = num_frame_tokens * self.video_token
-            video_structure += f"{timestamp_str}<|media_begin|>video<|media_content|>{video_tokens}<|media_end|>"
-        return video_structure
+        pass
 
     @property
     def model_input_names(self) -> list[str]:
-        model_input_names = []
-        for attribute_name in self.get_attributes():
-            attribute = getattr(self, attribute_name, None)
-            if attribute is not None:
-                attr_input_names = getattr(attribute, "model_input_names")
-                model_input_names.extend(attr_input_names)
-        return [name for name in model_input_names if name not in self.unused_input_names]
+        pass
 
     @property
     def unused_input_names(self):
-        return ["num_chunks_per_video"]
+        pass
 
 
 __all__ = [

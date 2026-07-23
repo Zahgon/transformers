@@ -1,17 +1,3 @@
-# Copyright 2025 The Nari Labs and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Dia model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -45,16 +31,6 @@ class DiaEncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="nari-labs/Dia-1.6B")
 @strict
 class DiaDecoderConfig(PreTrainedConfig):
-    r"""
-    cross_num_attention_heads (`int`, *optional*, defaults to 16):
-        Number of attention heads for each cross-attention layer in the Transformer decoder.
-    cross_head_dim (`int`, *optional*, defaults to 128):
-        Dimensionality of the cross-attention head.
-    cross_num_key_value_heads (`int`, *optional*, defaults to 16):
-        Number of key and value heads for each cross-attention layer in the Transformer decoder.
-    cross_hidden_size (`int`, *optional*, defaults to 1024):
-        Dimensionality of the cross-attention layers.
-    """
 
     model_type = "dia_decoder"
 
@@ -85,25 +61,6 @@ class DiaDecoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="nari-labs/Dia-1.6B")
 @strict
 class DiaConfig(PreTrainedConfig):
-    r"""
-    delay_pattern (`list[int]`, *optional*, defaults to `[0, 8, 9, 10, 11, 12, 13, 14, 15]`):
-        The delay pattern for the decoder. The length of this list must match `decoder_config.num_channels`.
-
-    Example:
-
-    ```python
-    >>> from transformers import DiaConfig, DiaModel
-
-    >>> # Initializing a DiaConfig with default values
-    >>> configuration = DiaConfig()
-
-    >>> # Initializing a DiaModel (with random weights) from the configuration
-    >>> model = DiaModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "dia"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -132,7 +89,6 @@ class DiaConfig(PreTrainedConfig):
             self.delay_pattern if self.delay_pattern is not None else [0, 8, 9, 10, 11, 12, 13, 14, 15]
         )
 
-        # TODO: Remove token ID forwarding once the `nari-labs/Dia-1.6B` checkpoint is updated
         if self.pad_token_id is not None:
             logger.warning_once(
                 "Passing `pad_token_id` to `DiaConfig` is deprecated. "
@@ -157,9 +113,7 @@ class DiaConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.decoder_config.num_channels != len(self.delay_pattern):
-            raise ValueError("Number of channels must match delay pattern length.")
+        pass
 
     def get_text_config(self, *args, **kwargs):
         """Defaulting to audio config as it's the decoder in this case which is usually the text backbone"""

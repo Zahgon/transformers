@@ -1,17 +1,3 @@
-# Copyright 2021 The Open AI Team Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for CLIP."""
 
 from tokenizers import Regex, Tokenizer, decoders, normalizers, pre_tokenizers, processors
 from tokenizers.models import BPE
@@ -26,28 +12,6 @@ VOCAB_FILES_NAMES = {"vocab_file": "vocab.json", "merges_file": "merges.txt", "t
 
 
 class CLIPTokenizer(TokenizersBackend):
-    """
-    Construct a CLIP tokenizer (backed by HuggingFace's *tokenizers* library). Based on byte-level
-    Byte-Pair-Encoding.
-
-    This tokenizer inherits from [`TokenizersBackend`] which contains most of the main methods. Users should
-    refer to this superclass for more information regarding those methods.
-
-    Args:
-        vocab (`str`, `dict` or `list`, *optional*):
-            Vocabulary dict to use for the tokenizer.
-        merges (`str` or `list`, *optional*):
-            Merges list to use for the BPE tokenizer.
-        unk_token (`str`, *optional*, defaults to `"<|endoftext|>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        bos_token (`str`, *optional*, defaults to `"<|startoftext|>"`):
-            The beginning of sequence token.
-        eos_token (`str`, *optional*, defaults to `"<|endoftext|>"`):
-            The end of sequence token.
-        pad_token (`str`, *optional*, defaults to `"<|endoftext|>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -121,20 +85,15 @@ class CLIPTokenizer(TokenizersBackend):
             trim_offsets=False,
         )
 
-        # Very ugly hack to enable padding to have a correct decoding see https://github.com/huggingface/tokenizers/issues/872
         self._wrap_decode_method_backend_tokenizer()
 
     def _wrap_decode_method_backend_tokenizer(self):
         orig_decode_method = self.backend_tokenizer.decode
 
-        ## define this as a local variable to avoid circular reference
-        ## See: https://github.com/huggingface/transformers/issues/30930
         end_of_word_suffix = self.backend_tokenizer.model.end_of_word_suffix
 
         def new_decode_method(*args, **kwargs):
-            text = orig_decode_method(*args, **kwargs)
-            text = text.replace(end_of_word_suffix, " ").strip()
-            return text
+            pass
 
         self.backend_tokenizer.decode = new_decode_method
 

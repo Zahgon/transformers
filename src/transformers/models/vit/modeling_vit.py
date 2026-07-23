@@ -1,17 +1,3 @@
-# Copyright 2021 Google AI, Ross Wightman, The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ViT model."""
 
 import math
 from collections.abc import Callable, Iterable
@@ -40,11 +26,6 @@ logger = logging.get_logger(__name__)
 
 
 class ViTPatchEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
-    `hidden_states` (patch embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
-    Transformer.
-    """
 
     def __init__(self, config: ViTConfig):
         super().__init__()
@@ -70,9 +51,6 @@ class ViTPatchEmbeddings(nn.Module):
 
 
 class ViTEmbeddings(nn.Module):
-    """
-    Construct the CLS token, position and patch embeddings. Optionally, also the mask token.
-    """
 
     def __init__(self, config: ViTConfig, use_mask_token: bool = False):
         super().__init__()
@@ -99,7 +77,6 @@ class ViTEmbeddings(nn.Module):
         num_patches = embeddings.shape[1] - 1
         num_positions = self.position_embeddings.shape[1] - 1
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
@@ -138,11 +115,9 @@ class ViTEmbeddings(nn.Module):
         if bool_masked_pos is not None:
             seq_length = embeddings.shape[1]
             mask_tokens = self.mask_token.expand(batch_size, seq_length, -1)
-            # replace the masked visual tokens by mask_tokens
             mask = bool_masked_pos.unsqueeze(-1).type_as(mask_tokens)
             embeddings = embeddings * (1.0 - mask) + mask_tokens * mask
 
-        # add the [CLS] token to the embedded patch tokens
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         embeddings = torch.cat((cls_tokens, embeddings), dim=1)
 
@@ -174,7 +149,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -269,14 +243,12 @@ class ViTLayer(GradientCheckpointingLayer):
         attention_mask: torch.Tensor | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> torch.Tensor:
-        # Self Attention
         residual = hidden_states
         hidden_states = self.layernorm_before(hidden_states)
         hidden_states, _ = self.attention(hidden_states, attention_mask, **kwargs)
         hidden_states = self.dropout(hidden_states)
         hidden_states = hidden_states + residual
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.layernorm_after(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -293,8 +265,6 @@ class ViTPooler(nn.Module):
         self.activation = ACT2FN[config.pooler_act]
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -347,7 +317,6 @@ class ViTModel(ViTPreTrainedModel):
         self.layers = nn.ModuleList([ViTLayer(config) for _ in range(config.num_hidden_layers)])
         self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.pooler = ViTPooler(config) if add_pooling_layer else None
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -365,7 +334,6 @@ class ViTModel(ViTPreTrainedModel):
         bool_masked_pos (`torch.BoolTensor` of shape `(batch_size, num_patches)`, *optional*):
             Boolean masked positions. Indicates which patches are masked (1) and which aren't (0).
         """
-        # Kept for BC, but this should be handled by users on the processed inputs directly.
         expected_dtype = self.embeddings.patch_embeddings.projection.weight.dtype
         if pixel_values.dtype != expected_dtype:
             pixel_values = pixel_values.to(expected_dtype)
@@ -415,7 +383,6 @@ class ViTForMaskedImageModeling(ViTPreTrainedModel):
             nn.PixelShuffle(config.encoder_stride),
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -475,13 +442,11 @@ class ViTForMaskedImageModeling(ViTPreTrainedModel):
 
         sequence_output = outputs.last_hidden_state
 
-        # Reshape to (batch_size, num_channels, height, width)
         sequence_output = sequence_output[:, 1:]
         batch_size, sequence_length, num_channels = sequence_output.shape
         height = width = math.floor(sequence_length**0.5)
         sequence_output = sequence_output.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
 
-        # Reconstruct pixel values
         reconstructed_pixel_values = self.decoder(sequence_output)
 
         masked_im_loss = None
@@ -526,10 +491,8 @@ class ViTForImageClassification(ViTPreTrainedModel):
         self.num_labels = config.num_labels
         self.vit = ViTModel(config, add_pooling_layer=False)
 
-        # Classifier head
         self.classifier = nn.Linear(config.hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

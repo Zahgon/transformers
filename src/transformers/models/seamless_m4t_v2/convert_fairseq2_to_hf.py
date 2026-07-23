@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Converting Meta SeamlessM4Tv2 checkpoints from seamless_communication to HF."""
 
 import argparse
 import os
@@ -31,23 +17,15 @@ from transformers import (
 from transformers.utils import logging
 
 
-# fmt: off
 UNIT_SUPPORTED_LANGUAGES = ["__arb__", "__ben__", "__cat__", "__ces__", "__cmn__", "__cym__", "__dan__", "__deu__", "__eng__", "__est__", "__fin__", "__fra__", "__hin__", "__ind__", "__ita__", "__jpn__", "__kan__", "__kor__", "__mlt__", "__nld__", "__pes__", "__pol__", "__por__", "__ron__", "__rus__", "__slk__", "__spa__", "__swe__", "__swh__", "__tam__", "__tel__", "__tgl__", "__tha__", "__tur__", "__ukr__", "__urd__", "__uzn__", "__vie__", ]
-# fmt: on
 
-# fmt: off
 VOCODER_SUPPORTED_LANGUAGES = ["__arb__", "__ben__", "__cat__", "__ces__", "__cmn__", "__cym__", "__dan__", "__deu__", "__eng__", "__est__", "__fin__", "__fra__", "__hin__", "__ind__", "__ita__", "__jpn__", "__kor__", "__mlt__", "__nld__", "__pes__", "__pol__", "__por__", "__ron__", "__rus__", "__slk__", "__spa__", "__swe__", "__swh__", "__tel__", "__tgl__", "__tha__", "__tur__", "__ukr__", "__urd__", "__uzn__", "__vie__",]
-# fmt: on
 
-# fmt: off
 LARGE_SUPPORTED_LANGUAGES = ["afr","amh","arb","ary","arz","asm","azj","bel","ben","bos","bul","cat","ceb","ces","ckb","cmn","cmn_Hant","cym","dan","deu","ell","eng","est","eus","fin","fra","fuv","gaz","gle","glg","guj","heb","hin","hrv","hun","hye","ibo","ind","isl","ita","jav","jpn","kan","kat","kaz","khk","khm","kir","kor","lao","lit","lug","luo","lvs","mai","mal","mar","mkd","mlt","mni","mya","nld","nno","nob","npi","nya","ory","pan","pbt","pes","pol","por","ron","rus","sat","slk","slv","sna","snd","som","spa","srp","swe","swh","tam","tel","tgk","tgl","tha","tur","ukr","urd","uzn","vie","yor","yue","zlm","zul",]
-# fmt: on
 
 
 def assert_param_count(model_1, model_2):
-    count_1 = sum(p[1].numel() for p in model_1.named_parameters() if "final_proj" not in p[0])
-    count_2 = sum(p[1].numel() for p in model_2.named_parameters() if "final_proj" not in p[0])
-    assert count_1 == count_2, f"{model_1.__class__}: {count_1} != {model_2.__class__}: {count_2}"
+    pass
 
 
 def param_count(model):
@@ -77,7 +55,6 @@ vocoder_convert_list = [
     ("dur_predictor.conv2.0", "dur_predictor.conv2"),
 ]
 
-# order is important
 wav2vec_convert_list = [
     ("speech_encoder_frontend.model_dim_proj", "feature_projection.projection"),
     ("speech_encoder_frontend.post_extract_layer_norm", "feature_projection.layer_norm"),
@@ -164,22 +141,15 @@ def _convert_model(
 ):
     state_dict = original_model.state_dict()
 
-    # filter func
     if isinstance(filter_state_dict, str):
 
         def filter_func(x):
-            return filter_state_dict in x[0]
+            pass
 
     else:
 
         def filter_func(item):
-            if exclude_state_dict is not None and exclude_state_dict in item[0]:
-                return False
-            for filter_el in filter_state_dict:
-                if filter_el in item[0]:
-                    return True
-
-            return False
+            pass
 
     state_dict = dict(filter(filter_func, state_dict.items()))
 
@@ -189,7 +159,6 @@ def _convert_model(
             if old_layer_name in new_k:
                 new_k = new_k.replace(old_layer_name, new_layer_name)
 
-        # must do it by hand
         if ".layer_norm" in new_k and new_k.split(".layer_norm")[0][-1].isnumeric():
             new_k = new_k.replace("layer_norm", "final_layer_norm")
 
@@ -230,7 +199,6 @@ def load_model(save_dir, model_type, repo_id):
 
     original_model = Translator(name, "vocoder_v2", device, dtype=torch.float32)
 
-    ######### TOKENIZER
 
     langs = LARGE_SUPPORTED_LANGUAGES
     langs = [f"__{lang}__" for lang in langs]
@@ -251,16 +219,13 @@ def load_model(save_dir, model_type, repo_id):
             f"Error in tokenizer saving/loading - __fra__ lang id is not coherent: {sanity_check_lang_id} vs {tokenizer.convert_tokens_to_ids('__fra__')}"
         )
 
-    ####### get language to ids dict
     text_decoder_lang_code_to_id = {lang.replace("__", ""): tokenizer.convert_tokens_to_ids(lang) for lang in langs}
-    # offset: vocoder unit vocab size + 5 (for EOS/PAD/BOS/UNK/MSK) + len(supported_languages)
     t2u_lang_code_to_id = {
         code.replace("__", ""): i + 10005 + len(UNIT_SUPPORTED_LANGUAGES)
         for i, code in enumerate(UNIT_SUPPORTED_LANGUAGES)
     }
     vocoder_lang_code_to_id = {code.replace("__", ""): i for i, code in enumerate(VOCODER_SUPPORTED_LANGUAGES)}
 
-    ######### FE
 
     fe = SeamlessM4TFeatureExtractor(language_code=langs)
 
@@ -273,18 +238,14 @@ def load_model(save_dir, model_type, repo_id):
 
     processor = SeamlessM4TProcessor.from_pretrained(save_dir)
 
-    ######## Model
 
-    # init config
     hf_config = _load_hf_config()
 
-    ######## get id_to_text and char_to_id from original model tokenizers
     id_to_text = {i: original_model.text_tokenizer.model.index_to_token(i) for i in range(hf_config.vocab_size)}
     char_to_id = {
         original_model.model.t2u_model.decoder_frontend.char_tokenizer.model.index_to_token(i): i for i in range(10904)
     }
 
-    # init model
     hf_model = SeamlessM4Tv2Model(hf_config)
 
     hf_model.generation_config.__setattr__("text_decoder_lang_to_code_id", text_decoder_lang_code_to_id)
@@ -293,8 +254,6 @@ def load_model(save_dir, model_type, repo_id):
     hf_model.generation_config.__setattr__("id_to_text", id_to_text)
     hf_model.generation_config.__setattr__("char_to_id", char_to_id)
 
-    # -1. take care of vocoder
-    # similarly to speech T5 must apply and remove weight norm
     hf_model.vocoder.apply_weight_norm()
     hf_model.vocoder = _convert_model(
         original_model,
@@ -306,13 +265,11 @@ def load_model(save_dir, model_type, repo_id):
     )
     hf_model.vocoder.remove_weight_norm()
 
-    # 1. take care of speech encoder
     wav2vec = hf_model.speech_encoder
     hf_model.speech_encoder = _convert_model(
         original_model, wav2vec, wav2vec_convert_list, device, unwanted_prefix="model.", filter_state_dict="speech"
     )
 
-    # 2. take care of t2u
 
     hf_model.t2u_model = _convert_model(
         original_model,
@@ -323,7 +280,6 @@ def load_model(save_dir, model_type, repo_id):
         filter_state_dict="t2u_model",
     )
 
-    # 3. take care of text encoder
     hf_model.text_encoder = _convert_model(
         original_model,
         hf_model.text_encoder,
@@ -334,7 +290,6 @@ def load_model(save_dir, model_type, repo_id):
         exclude_state_dict="t2u_model",
     )
 
-    # 4. take care of text decoder
     hf_model.text_decoder = _convert_model(
         original_model,
         hf_model.text_decoder,
@@ -345,7 +300,6 @@ def load_model(save_dir, model_type, repo_id):
         exclude_state_dict="t2u_model",
     )
 
-    # 5. take care of final proj
     hf_model.lm_head = _convert_model(
         original_model,
         hf_model.lm_head,
@@ -356,7 +310,6 @@ def load_model(save_dir, model_type, repo_id):
         exclude_state_dict="t2u_model",
     )
 
-    # sanity check
     print(find_tied_parameters(hf_model))
 
     count_1 = param_count(hf_model)
@@ -375,7 +328,6 @@ def load_model(save_dir, model_type, repo_id):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Required parameters
 
     parser.add_argument(
         "--model_type",

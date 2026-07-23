@@ -1,17 +1,3 @@
-# Copyright 2021 Facebook AI Research The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch DETR model."""
 
 import math
 from collections.abc import Callable
@@ -56,11 +42,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class DetrDecoderOutput(BaseModelOutputWithCrossAttentions):
-    r"""
-    intermediate_hidden_states (`torch.FloatTensor` of shape `(config.decoder_layers, batch_size, num_queries, hidden_size)`, *optional*, returned when `config.auxiliary_loss=True`):
-        Intermediate decoder activations, i.e. the output of each decoder layer, each of them gone through a
-        layernorm.
-    """
 
     intermediate_hidden_states: torch.FloatTensor | None = None
 
@@ -74,11 +55,6 @@ class DetrDecoderOutput(BaseModelOutputWithCrossAttentions):
 )
 @dataclass
 class DetrModelOutput(Seq2SeqModelOutput):
-    r"""
-    intermediate_hidden_states (`torch.FloatTensor` of shape `(config.decoder_layers, batch_size, sequence_length, hidden_size)`, *optional*, returned when `config.auxiliary_loss=True`):
-        Intermediate decoder activations, i.e. the output of each decoder layer, each of them gone through a
-        layernorm.
-    """
 
     intermediate_hidden_states: torch.FloatTensor | None = None
 
@@ -90,27 +66,6 @@ class DetrModelOutput(Seq2SeqModelOutput):
 )
 @dataclass
 class DetrObjectDetectionOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` are provided)):
-        Total loss as a linear combination of a negative log-likelihood (cross-entropy) for class prediction and a
-        bounding box loss. The latter is defined as a linear combination of the L1 loss and the generalized
-        scale-invariant IoU loss.
-    loss_dict (`Dict`, *optional*):
-        A dictionary containing the individual losses. Useful for logging.
-    logits (`torch.FloatTensor` of shape `(batch_size, num_queries, num_classes + 1)`):
-        Classification logits (including no-object) for all queries.
-    pred_boxes (`torch.FloatTensor` of shape `(batch_size, num_queries, 4)`):
-        Normalized boxes coordinates for all queries, represented as (center_x, center_y, width, height). These
-        values are normalized in [0, 1], relative to the size of each individual image in the batch (disregarding
-        possible padding). You can use [`~DetrImageProcessor.post_process_object_detection`] to retrieve the
-        unnormalized bounding boxes.
-    auxiliary_outputs (`list[Dict]`, *optional*):
-        Optional, only returned when auxiliary losses are activated (i.e. `config.auxiliary_loss` is set to `True`)
-        and labels are provided. It is a list of dictionaries containing the two above keys (`logits` and
-        `pred_boxes`) for each decoder layer.
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
-        Sequence of hidden-states at the output of the last layer of the decoder of the model.
-    """
 
     loss: torch.FloatTensor | None = None
     loss_dict: dict | None = None
@@ -133,33 +88,6 @@ class DetrObjectDetectionOutput(ModelOutput):
 )
 @dataclass
 class DetrSegmentationOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` are provided)):
-        Total loss as a linear combination of a negative log-likelihood (cross-entropy) for class prediction and a
-        bounding box loss. The latter is defined as a linear combination of the L1 loss and the generalized
-        scale-invariant IoU loss.
-    loss_dict (`Dict`, *optional*):
-        A dictionary containing the individual losses. Useful for logging.
-    logits (`torch.FloatTensor` of shape `(batch_size, num_queries, num_classes + 1)`):
-        Classification logits (including no-object) for all queries.
-    pred_boxes (`torch.FloatTensor` of shape `(batch_size, num_queries, 4)`):
-        Normalized boxes coordinates for all queries, represented as (center_x, center_y, width, height). These
-        values are normalized in [0, 1], relative to the size of each individual image in the batch (disregarding
-        possible padding). You can use [`~DetrImageProcessor.post_process_object_detection`] to retrieve the
-        unnormalized bounding boxes.
-    pred_masks (`torch.FloatTensor` of shape `(batch_size, num_queries, height/4, width/4)`):
-        Segmentation masks logits for all queries. See also
-        [`~DetrImageProcessor.post_process_semantic_segmentation`] or
-        [`~DetrImageProcessor.post_process_instance_segmentation`]
-        [`~DetrImageProcessor.post_process_panoptic_segmentation`] to evaluate semantic, instance and panoptic
-        segmentation masks respectively.
-    auxiliary_outputs (`list[Dict]`, *optional*):
-        Optional, only returned when auxiliary losses are activated (i.e. `config.auxiliary_loss` is set to `True`)
-        and labels are provided. It is a list of dictionaries containing the two above keys (`logits` and
-        `pred_boxes`) for each decoder layer.
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
-        Sequence of hidden-states at the output of the last layer of the decoder of the model.
-    """
 
     loss: torch.FloatTensor | None = None
     loss_dict: dict | None = None
@@ -177,12 +105,6 @@ class DetrSegmentationOutput(ModelOutput):
 
 
 class DetrFrozenBatchNorm2d(nn.Module):
-    """
-    BatchNorm2d where the batch statistics and the affine parameters are fixed.
-
-    Copy-paste from torchvision.misc.ops with added eps before rqsrt, without which any other models than
-    torchvision.models.resnet[18,34,50,101] produce nans.
-    """
 
     def __init__(self, n):
         super().__init__()
@@ -203,8 +125,6 @@ class DetrFrozenBatchNorm2d(nn.Module):
         )
 
     def forward(self, x):
-        # move reshapes to the beginning
-        # to make it user-friendly
         weight = self.weight.reshape(1, -1, 1, 1)
         bias = self.bias.reshape(1, -1, 1, 1)
         running_var = self.running_var.reshape(1, -1, 1, 1)
@@ -240,12 +160,6 @@ def replace_batch_norm(model):
 
 
 class DetrConvEncoder(nn.Module):
-    """
-    Convolutional backbone, using either the AutoBackbone API or one from the timm library.
-
-    nn.BatchNorm2d layers are replaced by DetrFrozenBatchNorm2d as defined above.
-
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -255,12 +169,9 @@ class DetrConvEncoder(nn.Module):
         backbone = load_backbone(config)
         self.intermediate_channel_sizes = backbone.channels
 
-        # replace batch norm by frozen batch norm
         with torch.no_grad():
             replace_batch_norm(backbone)
 
-        # We used to load with timm library directly instead of the AutoBackbone API
-        # so we need to unwrap the `backbone._backbone` module to load weights without mismatch
         is_timm_model = False
         if hasattr(backbone, "_backbone"):
             backbone = backbone._backbone
@@ -278,24 +189,18 @@ class DetrConvEncoder(nn.Module):
                         parameter.requires_grad_(False)
 
     def forward(self, pixel_values: torch.Tensor, pixel_mask: torch.Tensor):
-        # send pixel_values through the model to get list of feature maps
         features = self.model(pixel_values)
         if isinstance(features, dict):
             features = features.feature_maps
 
         out = []
         for feature_map in features:
-            # downsample pixel_mask to match shape of corresponding feature_map
             mask = nn.functional.interpolate(pixel_mask[None].float(), size=feature_map.shape[-2:]).to(torch.bool)[0]
             out.append((feature_map, mask))
         return out
 
 
 class DetrSinePositionEmbedding(nn.Module):
-    """
-    This is a more standard version of the position embedding, very similar to the one used by the Attention is all you
-    need paper, generalized to work on images.
-    """
 
     def __init__(
         self,
@@ -326,11 +231,6 @@ class DetrSinePositionEmbedding(nn.Module):
     ) -> torch.Tensor:
         batch_size, _, height, width = shape
         if mask is None:
-            # Without a mask this is just a cumsum over ones, written out as arange
-            # instead: inductor's cumsum(ones) rewrite drops the requested dtype
-            # (https://github.com/pytorch/pytorch/issues/189518), which breaks
-            # float16/bfloat16 under torch.compile — don't revert to cumsum here
-            # until that fix is widely released.
             y_embed = torch.arange(1, height + 1, dtype=dtype, device=device)[None, :, None].expand(
                 batch_size, height, width
             )
@@ -369,9 +269,6 @@ class DetrSinePositionEmbedding(nn.Module):
 
 
 class DetrLearnedPositionEmbedding(nn.Module):
-    """
-    This module learns positional embeddings up to a fixed maximum size.
-    """
 
     def __init__(self, embedding_dim=256):
         super().__init__()
@@ -398,7 +295,6 @@ class DetrLearnedPositionEmbedding(nn.Module):
         return pos
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -412,7 +308,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -428,11 +323,6 @@ def eager_attention_forward(
 
 
 class DetrSelfAttention(nn.Module):
-    """
-    Multi-headed self-attention from 'Attention Is All You Need' paper.
-
-    In DETR, position embeddings are added to both queries and keys (but not values) in self-attention.
-    """
 
     def __init__(
         self,
@@ -494,12 +384,6 @@ class DetrSelfAttention(nn.Module):
 
 
 class DetrCrossAttention(nn.Module):
-    """
-    Multi-headed cross-attention from 'Attention Is All You Need' paper.
-
-    In DETR, queries get their own position embeddings, while keys get encoder position embeddings.
-    Values don't get any position embeddings.
-    """
 
     def __init__(
         self,
@@ -701,7 +585,6 @@ class DetrDecoderLayer(GradientCheckpointingLayer):
         """
         residual = hidden_states
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             position_embeddings=object_queries_position_embeddings,
@@ -713,7 +596,6 @@ class DetrDecoderLayer(GradientCheckpointingLayer):
         hidden_states = residual + hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Cross-Attention Block
         if encoder_hidden_states is not None:
             residual = hidden_states
 
@@ -730,7 +612,6 @@ class DetrDecoderLayer(GradientCheckpointingLayer):
             hidden_states = residual + hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.mlp(hidden_states)
         hidden_states = residual + hidden_states
@@ -740,7 +621,6 @@ class DetrDecoderLayer(GradientCheckpointingLayer):
 
 
 class DetrConvBlock(nn.Module):
-    """Basic conv block: Conv3x3 -> GroupNorm -> Activation."""
 
     def __init__(self, in_channels: int, out_channels: int, activation: str = "relu"):
         super().__init__()
@@ -753,7 +633,6 @@ class DetrConvBlock(nn.Module):
 
 
 class DetrFPNFusionStage(nn.Module):
-    """Single FPN fusion stage combining low-resolution features with high-resolution FPN features."""
 
     def __init__(self, fpn_channels: int, current_channels: int, output_channels: int, activation: str = "relu"):
         super().__init__()
@@ -775,12 +654,6 @@ class DetrFPNFusionStage(nn.Module):
 
 
 class DetrMaskHeadSmallConv(nn.Module):
-    """
-    Segmentation mask head that generates per-query masks using FPN-based progressive upsampling.
-
-    Combines attention maps (spatial localization) with encoder features (semantics) and progressively
-    upsamples through multiple scales, fusing with FPN features for high-resolution detail.
-    """
 
     def __init__(
         self,
@@ -796,7 +669,6 @@ class DetrMaskHeadSmallConv(nn.Module):
         self.conv1 = DetrConvBlock(input_channels, input_channels, activation_function)
         self.conv2 = DetrConvBlock(input_channels, hidden_size // 2, activation_function)
 
-        # Progressive channel reduction: /2 -> /4 -> /8 -> /16
         self.fpn_stages = nn.ModuleList(
             [
                 DetrFPNFusionStage(fpn_channels[0], hidden_size // 2, hidden_size // 4, activation_function),
@@ -824,7 +696,6 @@ class DetrMaskHeadSmallConv(nn.Module):
         """
         num_queries = attention_masks.shape[1]
 
-        # Expand to (batch_size * num_queries) dimension
         features = features.unsqueeze(1).expand(-1, num_queries, -1, -1, -1).flatten(0, 1)
         attention_masks = attention_masks.flatten(0, 1)
         fpn_features = [
@@ -842,7 +713,6 @@ class DetrMaskHeadSmallConv(nn.Module):
 
 
 class DetrMHAttentionMap(nn.Module):
-    """This is a 2D attention module, which only returns the attention softmax (no multiplication by value)"""
 
     def __init__(
         self,
@@ -914,7 +784,6 @@ class DetrPreTrainedModel(PreTrainedModel):
         xavier_std = self.config.init_xavier_std
 
         if isinstance(module, DetrMaskHeadSmallConv):
-            # DetrMaskHeadSmallConv uses kaiming initialization for all its Conv2d layers
             for m in module.modules():
                 if isinstance(m, nn.Conv2d):
                     init.kaiming_uniform_(m.weight, a=1)
@@ -931,13 +800,6 @@ class DetrPreTrainedModel(PreTrainedModel):
 
 
 class DetrEncoder(DetrPreTrainedModel):
-    """
-    Transformer encoder that processes a flattened feature map from a vision backbone, composed of a stack of
-    [`DetrEncoderLayer`] modules.
-
-    Args:
-        config (`DetrConfig`): Model configuration object.
-    """
 
     _can_record_outputs = {"hidden_states": DetrEncoderLayer, "attentions": DetrSelfAttention}
 
@@ -947,7 +809,6 @@ class DetrEncoder(DetrPreTrainedModel):
         self.dropout = config.dropout
         self.layers = nn.ModuleList([DetrEncoderLayer(config) for _ in range(config.encoder_layers)])
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -983,7 +844,6 @@ class DetrEncoder(DetrPreTrainedModel):
         )
 
         for encoder_layer in self.layers:
-            # we add spatial_position_embeddings as extra input to the encoder_layer
             hidden_states = encoder_layer(
                 hidden_states, attention_mask, spatial_position_embeddings=spatial_position_embeddings, **kwargs
             )
@@ -992,13 +852,6 @@ class DetrEncoder(DetrPreTrainedModel):
 
 
 class DetrDecoder(DetrPreTrainedModel):
-    """
-    Transformer decoder that refines a set of object queries. It is composed of a stack of [`DetrDecoderLayer`] modules,
-    which apply self-attention to the queries and cross-attention to the encoder's outputs.
-
-    Args:
-        config (`DetrConfig`): Model configuration object.
-    """
 
     _can_record_outputs = {
         "hidden_states": DetrDecoderLayer,
@@ -1011,10 +864,8 @@ class DetrDecoder(DetrPreTrainedModel):
         self.dropout = config.dropout
 
         self.layers = nn.ModuleList([DetrDecoderLayer(config) for _ in range(config.decoder_layers)])
-        # in DETR, the decoder uses layernorm after the last decoder layer output
         self.layernorm = nn.LayerNorm(config.d_model)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -1067,7 +918,6 @@ class DetrDecoder(DetrPreTrainedModel):
                 attention_mask=attention_mask,
             )
 
-        # expand encoder attention mask (for cross-attention on encoder outputs)
         if encoder_hidden_states is not None and encoder_attention_mask is not None:
             encoder_attention_mask = create_bidirectional_mask(
                 config=self.config,
@@ -1076,10 +926,8 @@ class DetrDecoder(DetrPreTrainedModel):
                 encoder_hidden_states=encoder_hidden_states,
             )
 
-        # optional intermediate hidden states
         intermediate = () if self.config.auxiliary_loss else None
 
-        # decoder layers
 
         for idx, decoder_layer in enumerate(self.layers):
             hidden_states = decoder_layer(
@@ -1096,10 +944,8 @@ class DetrDecoder(DetrPreTrainedModel):
                 hidden_states = self.layernorm(hidden_states)
                 intermediate += (hidden_states,)
 
-        # finally, apply layernorm
         hidden_states = self.layernorm(hidden_states)
 
-        # stack intermediate decoder activations
         if self.config.auxiliary_loss:
             intermediate = torch.stack(intermediate)
 
@@ -1130,16 +976,13 @@ class DetrModel(DetrPreTrainedModel):
         self.encoder = DetrEncoder(config)
         self.decoder = DetrDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def freeze_backbone(self):
-        for _, param in self.backbone.model.named_parameters():
-            param.requires_grad_(False)
+        pass
 
     def unfreeze_backbone(self):
-        for _, param in self.backbone.model.named_parameters():
-            param.requires_grad_(True)
+        pass
 
     @auto_docstring
     @can_return_tuple
@@ -1205,7 +1048,6 @@ class DetrModel(DetrPreTrainedModel):
             vision_features = self.backbone(pixel_values, pixel_mask)
             feature_map, mask = vision_features[-1]
 
-            # Apply 1x1 conv to map (batch_size, C, H, W) -> (batch_size, hidden_size, H, W), then flatten to (batch_size, HW, hidden_size)
             projected_feature_map = self.input_projection(feature_map)
             flattened_features = projected_feature_map.flatten(2).transpose(1, 2)
             spatial_position_embeddings = (
@@ -1218,11 +1060,8 @@ class DetrModel(DetrPreTrainedModel):
             batch_size = inputs_embeds.shape[0]
             device = inputs_embeds.device
             flattened_features = inputs_embeds
-            # When using inputs_embeds, we need to infer spatial dimensions for position embeddings
-            # Assume square feature map
             seq_len = inputs_embeds.shape[1]
             feat_dim = int(seq_len**0.5)
-            # Create position embeddings for the inferred spatial size
             spatial_position_embeddings = (
                 self.position_embedding(
                     shape=torch.Size([batch_size, self.config.d_model, feat_dim, feat_dim]),
@@ -1232,12 +1071,10 @@ class DetrModel(DetrPreTrainedModel):
                 .flatten(2)
                 .transpose(1, 2)
             )
-            # If a pixel_mask is provided with inputs_embeds, interpolate it to feat_dim, then flatten.
             if pixel_mask is not None:
                 mask = nn.functional.interpolate(pixel_mask[None].float(), size=(feat_dim, feat_dim)).to(torch.bool)[0]
                 flattened_mask = mask.flatten(1)
             else:
-                # If no mask provided, assume all positions are valid
                 flattened_mask = torch.ones((batch_size, seq_len), device=device, dtype=torch.long)
 
         if encoder_outputs is None:
@@ -1252,13 +1089,11 @@ class DetrModel(DetrPreTrainedModel):
             batch_size, 1, 1
         )
 
-        # Use decoder_inputs_embeds as queries if provided, otherwise initialize with zeros
         if decoder_inputs_embeds is not None:
             queries = decoder_inputs_embeds
         else:
             queries = torch.zeros_like(object_queries_position_embeddings)
 
-        # decoder outputs consists of (dec_features, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
             inputs_embeds=queries,
             attention_mask=decoder_attention_mask,
@@ -1282,11 +1117,6 @@ class DetrModel(DetrPreTrainedModel):
 
 
 class DetrMLPPredictionHead(nn.Module):
-    """
-    Very simple multi-layer perceptron (MLP, also called FFN), used to predict the normalized center coordinates,
-    height and width of a bounding box w.r.t. an image.
-
-    """
 
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
         super().__init__()
@@ -1310,10 +1140,8 @@ class DetrForObjectDetection(DetrPreTrainedModel):
     def __init__(self, config: DetrConfig):
         super().__init__(config)
 
-        # DETR encoder-decoder model
         self.model = DetrModel(config)
 
-        # Object detection heads
         self.class_labels_classifier = nn.Linear(
             config.d_model, config.num_labels + 1
         )  # We add one for the "no object" class
@@ -1321,7 +1149,6 @@ class DetrForObjectDetection(DetrPreTrainedModel):
             input_dim=config.d_model, hidden_dim=config.d_model, output_dim=4, num_layers=3
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1393,7 +1220,6 @@ class DetrForObjectDetection(DetrPreTrainedModel):
         Detected cat with confidence 0.999 at location [345.4, 23.85, 640.37, 368.72]
         ```"""
 
-        # First, sent images through DETR base model to obtain encoder + decoder outputs
         outputs = self.model(
             pixel_values,
             pixel_mask=pixel_mask,
@@ -1406,7 +1232,6 @@ class DetrForObjectDetection(DetrPreTrainedModel):
 
         sequence_output = outputs[0]
 
-        # class logits + predicted bounding boxes
         logits = self.class_labels_classifier(sequence_output)
         pred_boxes = self.bbox_predictor(sequence_output).sigmoid()
 
@@ -1447,10 +1272,8 @@ class DetrForSegmentation(DetrPreTrainedModel):
     def __init__(self, config: DetrConfig):
         super().__init__(config)
 
-        # object detection model
         self.detr = DetrForObjectDetection(config)
 
-        # segmentation head
         hidden_size, number_of_heads = config.d_model, config.encoder_attention_heads
         intermediate_channel_sizes = self.detr.model.backbone.intermediate_channel_sizes
 
@@ -1462,7 +1285,6 @@ class DetrForSegmentation(DetrPreTrainedModel):
         )
 
         self.bbox_attention = DetrMHAttentionMap(hidden_size, number_of_heads, dropout=0.0)
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1547,7 +1369,6 @@ class DetrForSegmentation(DetrPreTrainedModel):
         vision_features = self.detr.model.backbone(pixel_values, pixel_mask)
         feature_map, mask = vision_features[-1]
 
-        # Apply 1x1 conv to map (batch_size, C, H, W) -> (batch_size, hidden_size, H, W), then flatten to (batch_size, HW, hidden_size)
         projected_feature_map = self.detr.model.input_projection(feature_map)
         flattened_features = projected_feature_map.flatten(2).transpose(1, 2)
         spatial_position_embeddings = (
@@ -1571,7 +1392,6 @@ class DetrForSegmentation(DetrPreTrainedModel):
             batch_size, 1, 1
         )
 
-        # Use decoder_inputs_embeds as queries if provided, otherwise initialize with zeros
         if decoder_inputs_embeds is not None:
             queries = decoder_inputs_embeds
         else:

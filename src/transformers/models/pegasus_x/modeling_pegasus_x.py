@@ -1,17 +1,3 @@
-# Copyright 2022, Google and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch PEGASUS-X model."""
 
 import math
 from collections.abc import Callable
@@ -47,7 +33,6 @@ logger = logging.get_logger(__name__)
 
 @dataclass
 class DimensionInfo:
-    """Wrapper for dimension info."""
 
     batch_size: int  # batch size
     seq_len: int  # token length
@@ -60,7 +45,6 @@ class DimensionInfo:
     padded_seq_len: int  # padded token seq length
 
 
-# Copied from transformers.models.bart.modeling_bart.shift_tokens_right
 def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
     """
     Shift input ids one token to the right.
@@ -71,17 +55,12 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("self.model.config.pad_token_id has to be defined.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
 
 
-# Copied from transformers.models.bart.modeling_bart.BartScaledWordEmbedding with Bart->PegasusX
 class PegasusXScaledWordEmbedding(nn.Embedding):
-    """
-    This module overrides nn.Embeddings' forward by multiplying with embeddings scale.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int, embed_scale: float | None = 1.0):
         super().__init__(num_embeddings, embedding_dim, padding_idx)
@@ -92,7 +71,6 @@ class PegasusXScaledWordEmbedding(nn.Embedding):
 
 
 class PegasusXSinusoidalPositionalEmbedding(nn.Module):
-    """This module produces sinusoidal positional embeddings of any length."""
 
     def __init__(self, embed_dim, max_scale: int = 10000.0):
         super().__init__()
@@ -121,7 +99,6 @@ class PegasusXSinusoidalPositionalEmbedding(nn.Module):
         return pe[None].expand(batch_size, -1, -1)
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -135,7 +112,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -150,9 +126,7 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.bart.modeling_bart.BartAttention with Bart->PegasusX
 class PegasusXAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -199,22 +173,16 @@ class PegasusXAttention(nn.Module):
         key_value_states: torch.Tensor | None = None,
         past_key_values: Cache | None = None,
         attention_mask: torch.Tensor | None = None,
-        # TODO: we need a refactor so that the different attention modules can get their specific kwargs
-        # ATM, we have mixed things encoder, decoder, and encoder-decoder attn
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        # get query proj
         query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         is_updated = False
@@ -222,7 +190,6 @@ class PegasusXAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -231,7 +198,6 @@ class PegasusXAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -243,7 +209,6 @@ class PegasusXAttention(nn.Module):
 
             if past_key_values is not None:
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -269,7 +234,6 @@ class PegasusXAttention(nn.Module):
 
 
 class PegasusXGlobalLocalAttention(nn.Module):
-    """Global + Local attention. For use with Encoder only."""
 
     def __init__(
         self,
@@ -322,7 +286,6 @@ class PegasusXGlobalLocalAttention(nn.Module):
             padded_seq_len=token_hidden_states.shape[1],
         )
 
-        # [batch_size, num_heads, padded_seq_len, dim_per_head]
         local_q = self._shape(
             self.q_proj(token_hidden_states) * self.scaling,
             seq_len=dim.padded_seq_len,
@@ -339,7 +302,6 @@ class PegasusXGlobalLocalAttention(nn.Module):
             bsz=dim.batch_size,
         )
 
-        # [batch_size, num_heads, global_len, dim_per_head]
         global_q = self._shape(
             self.q_proj(global_hidden_states) * self.scaling,
             seq_len=dim.global_len,
@@ -375,17 +337,12 @@ class PegasusXGlobalLocalAttention(nn.Module):
             dim=dim,
         )
 
-        # [batch_size, global_len, hidden_dim]
         global_attn_output = (
             global_attn_output.transpose(1, 2).contiguous().view(dim.batch_size, dim.global_len, dim.hidden_dim)
         )
-        # [batch_size, global_len, hidden_dim]
         global_attn_output = self.out_proj(global_attn_output)
-        # [batch_size, num_heads, block_size, num_heads, dim_per_head]
         local_attn_output = local_attn_output.permute(0, 2, 3, 1, 4).contiguous()
-        # [batch_size, padded_seq_len, hidden_dim]
         local_attn_output = local_attn_output.view(dim.batch_size, dim.padded_seq_len, dim.hidden_dim)
-        # [batch_size, padded_seq_len, hidden_dim]
         local_attn_output = self.out_proj(local_attn_output)
 
         attn_probs = {"global": global_attn_probs, "local": local_attn_probs}
@@ -417,21 +374,16 @@ class PegasusXGlobalLocalAttention(nn.Module):
         Returns:
             output of shape `[batch_sizes, length, features]`. where length will be padded to a multiple of block_size
         """
-        # [batch_size, num_heads, global_len+padded_seq_len, dim_per_head]
         global_and_local_k = torch.cat([global_k, local_k], dim=2)
-        # [batch_size, num_heads, global_len+padded_seq_len, dim_per_head]
         global_and_local_v = torch.cat([global_v, local_v], dim=2)
 
-        # [batch_size, global_len+padded_seq_len]
         extended_mask = nn.functional.pad(mask, pad=(dim.global_len, 0), value=0)
 
-        # [batch_size, num_heads, global_len, global_len+padded_seq_len]
         attn_weights = torch.einsum("BHGF,BHXF->BHGX", global_q, global_and_local_k)
         attn_weights = attn_weights + extended_mask[:, None, None, :]
         attn_probs = nn.functional.softmax(attn_weights, dim=-1)
         attn_probs = nn.functional.dropout(attn_probs, p=self.dropout, training=self.training)
 
-        # [batch_size, num_heads, global_len, F]
         attn_output = torch.einsum("BHGX,BHXF->BHGF", attn_probs, global_and_local_v)
         return attn_output, attn_probs
 
@@ -460,41 +412,29 @@ class PegasusXGlobalLocalAttention(nn.Module):
         Returns:
             output of shape `[batch_sizes, length, features]`. where length will be padded to a multiple of block_size
         """
-        # [batch_size, num_heads, num_blocks, block_size, dim_per_head]
         blocked_local_q = local_q.view(dim.batch_size, dim.num_heads, dim.num_blocks, dim.block_size, dim.dim_per_head)
-        # [batch_size, num_heads, num_blocks, block_size, dim_per_head]
         blocked_local_k = local_k.view(dim.batch_size, dim.num_heads, dim.num_blocks, dim.block_size, dim.dim_per_head)
-        # [batch_size, num_heads, num_blocks, block_size, dim_per_head]
         blocked_local_v = local_v.view(dim.batch_size, dim.num_heads, dim.num_blocks, dim.block_size, dim.dim_per_head)
 
-        # [batch_size, num_blocks, global_len+block_size]
         extended_mask = nn.functional.pad(
             mask.view(dim.batch_size, dim.num_blocks, dim.block_size),
             pad=(dim.global_len, 0),
             value=0,
         )
 
-        # [batch_size, num_heads, num_blocks, block_size, global_len]
         blocked_local2global = torch.einsum("BHNKF,BHGF->BHNKG", blocked_local_q, global_k)
-        # [batch_size, num_heads, num_blocks, block_size, block_size]
         blocked_local2local = torch.einsum("BHNKF,BHNXF->BHNKX", blocked_local_q, blocked_local_k)
 
-        # [batch_size, num_heads, num_blocks, block_size, global_len+block_size]
         attn_weights = torch.cat([blocked_local2global, blocked_local2local], dim=-1)
         attn_weights = attn_weights + extended_mask[:, None, :, None, :]
         attn_probs = nn.functional.softmax(attn_weights, dim=-1)
         attn_probs = nn.functional.dropout(attn_probs, p=self.dropout, training=self.training)
 
-        # [batch_size, num_heads, num_blocks, block_size, global_len]
         local2global_attn_probs = attn_probs[:, :, :, :, : dim.global_len]
-        # [batch_size, num_heads, num_blocks, block_size, block_size]
         local2local_attn_probs = attn_probs[:, :, :, :, dim.global_len :]
 
-        # [batch_size, num_heads, num_blocks, block_size, dim_per_head]
         local2global_attn_output = torch.einsum("BHNKG,BHGF->BHNKF", local2global_attn_probs, global_v)
-        # [batch_size, num_heads, num_blocks, block_size, dim_per_head]
         local2local_attn_output = torch.einsum("BHNKX,BHNXF->BHNKF", local2local_attn_probs, blocked_local_v)
-        # [batch_size, num_heads, num_blocks, block_size, dim_per_head]
         attn_output = local2global_attn_output + local2local_attn_output
         return attn_output, attn_probs
 
@@ -545,7 +485,6 @@ class PegasusXEncoderLayer(GradientCheckpointingLayer):
         global_hidden_states = self.global_self_attn_layer_norm(global_hidden_states)
 
         if self.stagger_blocks_this_layer:
-            # Pad the blocks to simulate staggering
             hidden_states, attention_mask = self.pad_local_tokens(
                 hidden_states=hidden_states, attention_mask=attention_mask, block_size=self.block_size
             )
@@ -558,7 +497,6 @@ class PegasusXEncoderLayer(GradientCheckpointingLayer):
         )
 
         if self.stagger_blocks_this_layer:
-            # Undo the padding
             hidden_states = self.unpad_local_tokens(padded_hidden_states=hidden_states, block_size=self.block_size)
 
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
@@ -589,7 +527,6 @@ class PegasusXEncoderLayer(GradientCheckpointingLayer):
 
     @classmethod
     def pad_local_tokens(cls, hidden_states, attention_mask, block_size):
-        # hidden_states: [batch_size, seq_len, hidden_dim]
         pad_size = block_size // 2
         mask_min_value = torch.finfo(hidden_states.dtype).min
         padded_hidden_states = torch.nn.functional.pad(
@@ -605,7 +542,6 @@ class PegasusXEncoderLayer(GradientCheckpointingLayer):
 
     @classmethod
     def unpad_local_tokens(cls, padded_hidden_states, block_size):
-        # padded_hidden_states: [batch_size, padded seq_len, hidden_dim]
         pad_size = block_size // 2
         return padded_hidden_states[:, pad_size:-pad_size, :]
 
@@ -668,7 +604,6 @@ class PegasusXDecoderLayer(GradientCheckpointingLayer):
         residual = hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             past_key_values=past_key_values,
@@ -678,7 +613,6 @@ class PegasusXDecoderLayer(GradientCheckpointingLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
 
-        # Cross-Attention Block
         if encoder_hidden_states is not None:
             residual = hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
@@ -693,7 +627,6 @@ class PegasusXDecoderLayer(GradientCheckpointingLayer):
             hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
             hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.activation_fn(self.fc1(hidden_states))
@@ -712,7 +645,6 @@ class PegasusXPreTrainedModel(PreTrainedModel):
     supports_gradient_checkpointing = True
     _no_split_modules = [r"PegasusXEncoderLayer", r"PegasusXDecoderLayer"]
     _supports_flash_attn = True
-    # Flaky logits
     _supports_sdpa = False
     _supports_flex_attn = True
     _can_compile_fullgraph = True
@@ -758,33 +690,13 @@ class PegasusXEncoder(PegasusXPreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings matrix of the model if `new_num_position_embeddings !=
-        config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embeddings. If position embeddings are learned, increasing the size will add
-                newly initialized vectors at the end, whereas reducing the size will remove vectors from the end. If
-                position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the size will
-                add correct vectors at the end following the position encoding algorithm, whereas reducing the size
-                will remove vectors from the end.
-        """
-        logger.info(f"Setting `config.max_position_embeddings={new_num_position_embeddings}`...")
-        self.config.max_position_embeddings = new_num_position_embeddings
-
-        self.embed_positions = PegasusXSinusoidalPositionalEmbedding(self.config.d_model)
-        self.embed_positions.to(self.device)
+        pass
 
     def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings matrix
-        """
-        return self.embed_positions
+        pass
 
     @merge_with_config_defaults
     @capture_outputs
@@ -825,7 +737,6 @@ class PegasusXEncoder(PegasusXPreTrainedModel):
                 Whether or not to return the hidden states of all layers. See `hidden_states` under returned tensors
                 for more detail.
         """
-        # We need to treat this special because it only adds the last global state which is unique
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
@@ -844,7 +755,6 @@ class PegasusXEncoder(PegasusXPreTrainedModel):
 
         batch_size, seq_len, _ = hidden_states.shape
 
-        # Setup mask
         if attention_mask is None:
             attention_mask = torch.ones(
                 *inputs_embeds.shape[:-1], dtype=inputs_embeds.dtype, device=inputs_embeds.device
@@ -857,13 +767,11 @@ class PegasusXEncoder(PegasusXPreTrainedModel):
             mask_min_value,
         )
 
-        # padding to block_size
         if seq_len % self.config.block_size != 0:
             pad_len = self.config.block_size - seq_len % self.config.block_size
             hidden_states = nn.functional.pad(hidden_states, pad=(0, 0, 0, pad_len), value=0)
             attention_mask = nn.functional.pad(attention_mask, pad=(0, pad_len), value=mask_min_value)
 
-        # Global tokens
         global_hidden_states = self.embed_global(
             torch.arange(self.config.num_global_tokens, device=hidden_states.device)[None].expand(batch_size, -1)
         )
@@ -872,7 +780,6 @@ class PegasusXEncoder(PegasusXPreTrainedModel):
         for encoder_layer in self.layers:
             if output_hidden_states:
                 encoder_states = encoder_states + (hidden_states,)
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -889,7 +796,6 @@ class PegasusXEncoder(PegasusXPreTrainedModel):
                     **kwargs,
                 )
 
-        # Undo padding-to-block-size
         hidden_states = hidden_states[:, :seq_len]
 
         hidden_states = self.layer_norm(hidden_states)
@@ -901,13 +807,6 @@ class PegasusXEncoder(PegasusXPreTrainedModel):
 
 
 class PegasusXDecoder(PegasusXPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a [`PegasusDecoderLayer`]
-
-    Args:
-        config: PegasusXConfig
-        embed_tokens (nn.Embedding): output embedding
-    """
 
     _can_record_outputs = {
         "hidden_states": PegasusXDecoderLayer,
@@ -932,7 +831,6 @@ class PegasusXDecoder(PegasusXPreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @capture_outputs
@@ -1006,7 +904,6 @@ class PegasusXDecoder(PegasusXPreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # initialize `past_key_values`
         if use_cache and past_key_values is None:
             past_key_values = EncoderDecoderCache(DynamicCache(config=self.config), DynamicCache(config=self.config))
 
@@ -1014,7 +911,6 @@ class PegasusXDecoder(PegasusXPreTrainedModel):
         past_key_values_length = past_key_values.get_seq_length() if past_key_values is not None else 0
 
         if attention_mask is None and not is_torchdynamo_compiling():
-            # required mask seq length can be calculated via length of past cache
             mask_seq_length = past_key_values_length + seq_length
             attention_mask = torch.ones(batch_size, mask_seq_length, device=inputs_embeds.device)
 
@@ -1037,7 +933,6 @@ class PegasusXDecoder(PegasusXPreTrainedModel):
             encoder_hidden_states=encoder_hidden_states,
         )
 
-        # embed positions
         position_ids = torch.arange(seq_length, device=inputs_embeds.device) + past_key_values_length
         position_ids = position_ids.unsqueeze(1)
         position_ids = self.embed_positions(inputs_embeds, past_key_values_length, position_ids)
@@ -1045,9 +940,7 @@ class PegasusXDecoder(PegasusXPreTrainedModel):
         hidden_states = inputs_embeds + position_ids
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
-        # decoder layers
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if self.training:
                 dropout_probability = torch.rand([])
                 if dropout_probability < self.layerdrop:
@@ -1091,7 +984,6 @@ class PegasusXModel(PegasusXPreTrainedModel):
         self.encoder = PegasusXEncoder(config)
         self.decoder = PegasusXDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1103,27 +995,10 @@ class PegasusXModel(PegasusXPreTrainedModel):
         self.decoder.embed_tokens = self.shared
 
     def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings matrix of the model if `new_num_position_embeddings !=
-        config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embeddings. If position embeddings are learned, increasing the size will add
-                newly initialized vectors at the end, whereas reducing the size will remove vectors from the end. If
-                position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the size will
-                add correct vectors at the end following the position encoding algorithm, whereas reducing the size
-                will remove vectors from the end.
-        """
-        self.config.max_position_embeddings = new_num_position_embeddings
-        self.encoder.resize_position_embeddings(new_num_position_embeddings)
-        self.decoder.resize_position_embeddings(new_num_position_embeddings)
+        pass
 
     def get_position_embeddings(self) -> tuple[nn.Embedding]:
-        """
-        Returns the position embeddings matrix
-        """
-        return (self.encoder.get_position_embeddings(), self.decoder.get_position_embeddings())
+        pass
 
     @can_return_tuple
     @auto_docstring
@@ -1226,31 +1101,13 @@ class PegasusXForConditionalGeneration(PegasusXPreTrainedModel, GenerationMixin)
         self.model = PegasusXModel(config)
         self.lm_head = nn.Linear(config.d_model, self.model.shared.num_embeddings, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings matrix of the model if `new_num_position_embeddings !=
-        config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embeddings. If position embeddings are learned, increasing the size will add
-                newly initialized vectors at the end, whereas reducing the size will remove vectors from the end. If
-                position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the size will
-                add correct vectors at the end following the position encoding algorithm, whereas reducing the size
-                will remove vectors from the end.
-        """
-        self.config.max_position_embeddings = new_num_position_embeddings
-        self.model.encoder.resize_position_embeddings(new_num_position_embeddings)
-        self.model.decoder.resize_position_embeddings(new_num_position_embeddings)
+        pass
 
     def get_position_embeddings(self) -> tuple[nn.Embedding]:
-        """
-        Returns the position embeddings matrix
-        """
-        return (self.model.encoder.get_position_embeddings(), self.model.decoder.get_position_embeddings())
+        pass
 
     @can_return_tuple
     @auto_docstring
@@ -1332,12 +1189,7 @@ class PegasusXForConditionalGeneration(PegasusXPreTrainedModel, GenerationMixin)
         return shift_tokens_right(labels, self.config.pad_token_id, self.config.decoder_start_token_id)
 
 
-# Copied from transformers.models.bart.modeling_bart.BartDecoderWrapper with Bart->PegasusX
 class PegasusXDecoderWrapper(PegasusXPreTrainedModel):
-    """
-    This wrapper class is a helper class to correctly load pretrained checkpoints when the causal language model is
-    used in combination with the [`EncoderDecoderModel`] framework.
-    """
 
     def __init__(self, config):
         super().__init__(config)

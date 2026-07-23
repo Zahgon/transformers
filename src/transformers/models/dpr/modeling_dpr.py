@@ -1,17 +1,3 @@
-# Copyright 2018 DPR Authors, The Hugging Face Team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch DPR model for Open Domain Question Answering."""
 
 from dataclasses import dataclass
 
@@ -32,9 +18,6 @@ from .configuration_dpr import DPRConfig
 logger = logging.get_logger(__name__)
 
 
-##########
-# Outputs
-##########
 
 
 @auto_docstring(
@@ -44,12 +27,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class DPRContextEncoderOutput(ModelOutput):
-    r"""
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, embeddings_size)`):
-        The DPR encoder outputs the *pooler_output* that corresponds to the context representation. Last layer
-        hidden-state of the first token of the sequence (classification token) further processed by a Linear layer.
-        This output is to be used to embed contexts for nearest neighbors queries with questions embeddings.
-    """
 
     pooler_output: torch.FloatTensor
     hidden_states: tuple[torch.FloatTensor, ...] | None = None
@@ -63,12 +40,6 @@ class DPRContextEncoderOutput(ModelOutput):
 )
 @dataclass
 class DPRQuestionEncoderOutput(ModelOutput):
-    r"""
-    pooler_output (`torch.FloatTensor` of shape `(batch_size, embeddings_size)`):
-        The DPR encoder outputs the *pooler_output* that corresponds to the question representation. Last layer
-        hidden-state of the first token of the sequence (classification token) further processed by a Linear layer.
-        This output is to be used to embed questions for nearest neighbors queries with context embeddings.
-    """
 
     pooler_output: torch.FloatTensor
     hidden_states: tuple[torch.FloatTensor, ...] | None = None
@@ -82,15 +53,6 @@ class DPRQuestionEncoderOutput(ModelOutput):
 )
 @dataclass
 class DPRReaderOutput(ModelOutput):
-    r"""
-    start_logits (`torch.FloatTensor` of shape `(n_passages, sequence_length)`):
-        Logits of the start index of the span for each passage.
-    end_logits (`torch.FloatTensor` of shape `(n_passages, sequence_length)`):
-        Logits of the end index of the span for each passage.
-    relevance_logits (`torch.FloatTensor` of shape `(n_passages, )`):
-        Outputs of the QA classifier of the DPRReader that corresponds to the scores of each passage to answer the
-        question, compared to all the other passages.
-    """
 
     start_logits: torch.FloatTensor
     end_logits: torch.FloatTensor | None = None
@@ -115,7 +77,6 @@ class DPREncoder(DPRPreTrainedModel):
         self.projection_dim = config.projection_dim
         if self.projection_dim > 0:
             self.encode_proj = nn.Linear(self.bert_model.config.hidden_size, config.projection_dim)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -156,9 +117,7 @@ class DPREncoder(DPRPreTrainedModel):
 
     @property
     def embeddings_size(self) -> int:
-        if self.projection_dim > 0:
-            return self.encode_proj.out_features
-        return self.bert_model.config.hidden_size
+        pass
 
 
 class DPRSpanPredictor(DPRPreTrainedModel):
@@ -169,7 +128,6 @@ class DPRSpanPredictor(DPRPreTrainedModel):
         self.encoder = DPREncoder(config)
         self.qa_outputs = nn.Linear(self.encoder.embeddings_size, 2)
         self.qa_classifier = nn.Linear(self.encoder.embeddings_size, 1)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -182,9 +140,7 @@ class DPRSpanPredictor(DPRPreTrainedModel):
         return_dict: bool = False,
         **kwargs,
     ) -> DPRReaderOutput | tuple[Tensor, ...]:
-        # notations: N - number of questions in a batch, M - number of passages per questions, L - sequence length
         n_passages, sequence_length = input_ids.size() if input_ids is not None else inputs_embeds.size()[:2]
-        # feed encoder
         outputs = self.encoder(
             input_ids,
             attention_mask=attention_mask,
@@ -195,14 +151,12 @@ class DPRSpanPredictor(DPRPreTrainedModel):
         )
         sequence_output = outputs[0]
 
-        # compute logits
         logits = self.qa_outputs(sequence_output)
         start_logits, end_logits = logits.split(1, dim=-1)
         start_logits = start_logits.squeeze(-1).contiguous()
         end_logits = end_logits.squeeze(-1).contiguous()
         relevance_logits = self.qa_classifier(sequence_output[:, 0, :])
 
-        # resize
         start_logits = start_logits.view(n_passages, sequence_length)
         end_logits = end_logits.view(n_passages, sequence_length)
         relevance_logits = relevance_logits.view(n_passages)
@@ -219,44 +173,26 @@ class DPRSpanPredictor(DPRPreTrainedModel):
         )
 
 
-##################
-# PreTrainedModel
-##################
 
 
 class DPRPretrainedContextEncoder(DPRPreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
 
     config: DPRConfig
     base_model_prefix = "ctx_encoder"
 
 
 class DPRPretrainedQuestionEncoder(DPRPreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
 
     config: DPRConfig
     base_model_prefix = "question_encoder"
 
 
 class DPRPretrainedReader(DPRPreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models.
-    """
 
     config: DPRConfig
     base_model_prefix = "span_predictor"
 
 
-###############
-# Actual Models
-###############
 
 
 @auto_docstring(
@@ -269,7 +205,6 @@ class DPRContextEncoder(DPRPretrainedContextEncoder):
         super().__init__(config)
         self.config = config
         self.ctx_encoder = DPREncoder(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -375,7 +310,6 @@ class DPRQuestionEncoder(DPRPretrainedQuestionEncoder):
         super().__init__(config)
         self.config = config
         self.question_encoder = DPREncoder(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -482,7 +416,6 @@ class DPRReader(DPRPretrainedReader):
         super().__init__(config)
         self.config = config
         self.span_predictor = DPRSpanPredictor(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

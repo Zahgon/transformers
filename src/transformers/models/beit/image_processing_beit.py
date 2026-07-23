@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for BEiT."""
 
 from typing import Union
 
@@ -36,19 +22,12 @@ from ...utils import TensorType, auto_docstring, is_torch_available
 
 
 class BeitImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    do_reduce_labels (`bool`, *optional*, defaults to `self.do_reduce_labels`):
-        Whether or not to reduce all label values of segmentation maps by 1. Usually used for datasets where 0
-        is used for background, and background itself is not included in all classes of a dataset (e.g.
-        ADE20k). The background label will be replaced by 255.
-    """
 
     do_reduce_labels: bool
 
 
 @auto_docstring
 class BeitImageProcessor(TorchvisionBackend):
-    """PIL backend for BEiT with reduce_label support."""
 
     valid_kwargs = BeitImageProcessorKwargs
 
@@ -99,7 +78,6 @@ class BeitImageProcessor(TorchvisionBackend):
         data = {}
         data["pixel_values"] = self._preprocess(images, **images_kwargs)
 
-        # Prepare segmentation maps if provided
         if segmentation_maps is not None:
             processed_segmentation_maps = self._prepare_image_like_inputs(
                 images=segmentation_maps,
@@ -108,14 +86,12 @@ class BeitImageProcessor(TorchvisionBackend):
                 input_data_format=ChannelDimension.FIRST,
             )
 
-            # Process segmentation maps with do_normalize=False and do_rescale=False
             segmentation_maps_kwargs = kwargs.copy()
             segmentation_maps_kwargs.update({"do_normalize": False, "do_rescale": False})
             processed_segmentation_maps = self._preprocess(
                 images=processed_segmentation_maps, **segmentation_maps_kwargs
             )
 
-            # Convert to int64 and squeeze channel dimension
             processed_segmentation_maps = [
                 processed_segmentation_map.squeeze(0).to(torch.int64)
                 for processed_segmentation_map in processed_segmentation_maps
@@ -155,7 +131,6 @@ class BeitImageProcessor(TorchvisionBackend):
         if do_reduce_labels:
             images = self.reduce_label(images)
 
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -164,13 +139,11 @@ class BeitImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_center_crop:
                 stacked_images = self.center_crop(stacked_images, crop_size)
-            # Use fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -210,7 +183,6 @@ class BeitImageProcessor(TorchvisionBackend):
 
         logits = outputs.logits
 
-        # Resize logits and compute semantic segmentation maps
         if target_sizes is not None:
             if len(logits) != len(target_sizes):
                 raise ValueError(

@@ -1,20 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team and the librosa & torchaudio authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Audio processing functions to extract features from audio waveforms. This code is pure numpy to support all frameworks
-and remove unnecessary dependencies.
-"""
 
 import base64
 import importlib
@@ -51,7 +34,6 @@ if is_soundfile_available():
 if is_librosa_available():
     import librosa
 
-    # TODO: @eustlb, we actually don't need librosa but soxr is installed with librosa
     import soxr
 
 if is_torchaudio_available():
@@ -120,7 +102,6 @@ def get_audio_filetype(data: bytes) -> str:
     """
     head = data[:64]
 
-    # Containers that host several filetypes -> sniff a bit deeper.
     if head[4:8] == b"ftyp":  # ISO-BMFF: m4v & hevc share the 'isom' brand -> mp4
         brand = head[8:12]
         return (
@@ -148,7 +129,6 @@ def get_audio_filetype(data: bytes) -> str:
     if head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
         return "aiff"
 
-    # Single fixed-signature formats, keyed by their leading bytes.
     signatures = {
         b"fLaC": "flac",
         b"RF64": "rf64",
@@ -183,7 +163,6 @@ def _resolve_audio_source(audio: str, timeout: float | None = None) -> "str | by
         return _fetch_audio_bytes(audio, timeout=timeout)
     if os.path.isfile(audio):
         return audio
-    # Not a URL or a local path — assume base64, optionally wrapped as a `data:<media-type>;base64,` URI
     if audio.startswith("data:"):
         audio = audio.split(",", 1)[1]
     try:
@@ -226,7 +205,6 @@ def load_audio(audio: str | np.ndarray, sampling_rate=16000, timeout=None, backe
             "a local file path, or a base64-encoded string (optionally wrapped as a `data:...` URI)."
         )
 
-    # torchcodec handles audio/video; librosa only plain audio. `backend` lets callers pin one.
     if backend == "auto":
         resolved_backend = (
             "torchcodec" if is_torchcodec_available() and version.parse("0.3.0") <= TORCHCODEC_VERSION else "librosa"
@@ -235,18 +213,14 @@ def load_audio(audio: str | np.ndarray, sampling_rate=16000, timeout=None, backe
         resolved_backend = backend
     else:
         raise ValueError(f"Unknown backend {backend!r}; expected 'auto', 'torchcodec', 'librosa', or 'torchaudio'.")
-    # soundfile-based backends (librosa / torchaudio) cannot decode the video-ish formats below.
     use_torchcodec = resolved_backend == "torchcodec"
 
-    # 1. Identify the format from the source string (extension / `data:` media type), without fetching.
     filetype = _format_from_source(audio)
-    # 2. With librosa as the only backend, fail fast and clearly on a format it cannot decode.
     if not use_torchcodec and filetype in TORCHCODEC_ONLY_FILETYPES:
         raise RuntimeError(
             f"The audio source is a '{filetype}' file, which librosa cannot decode. {_NEEDS_TORCHCODEC}"
         )
 
-    # 3. Resolve to local path or bytes; sniff format for raw base64 payloads before passing to librosa.
     source = _resolve_audio_source(audio, timeout=timeout)
     if not use_torchcodec and filetype is None and isinstance(source, bytes):
         try:
@@ -258,12 +232,10 @@ def load_audio(audio: str | np.ndarray, sampling_rate=16000, timeout=None, backe
                 f"The audio source is a '{filetype}' file, which librosa cannot decode. {_NEEDS_TORCHCODEC}"
             )
 
-    # 4. Decode with the selected backend (`requires_backends` raises a clear error if it is missing).
     if use_torchcodec:
         requires_backends(load_audio, ["torchcodec"])
         from torchcodec.decoders import AudioDecoder
 
-        # `num_channels=1` matches what most models expect and librosa's default.
         return AudioDecoder(source, sample_rate=sampling_rate, num_channels=1).get_all_samples().data[0].numpy()
 
     if resolved_backend == "torchaudio":
@@ -331,7 +303,6 @@ def load_audio_as(
         raise ValueError(f"Invalid return_format: {return_format}. Must be 'base64', 'dict', or 'buffer'")
 
     try:
-        # Load audio bytes from URL or file
         audio_bytes = None
         if audio.startswith(("http://", "https://")):
             audio_bytes = _fetch_audio_bytes(audio, timeout=timeout)
@@ -341,19 +312,16 @@ def load_audio_as(
         else:
             raise ValueError(f"File not found: {audio}")
 
-        # Process audio data
         with io.BytesIO(audio_bytes) as audio_file:
             with sf.SoundFile(audio_file) as f:
                 audio_array = f.read(dtype="float32")
                 original_sr = f.samplerate
                 audio_format = f.format
                 if sampling_rate is not None and sampling_rate != original_sr:
-                    # Resample audio to target sampling rate
                     audio_array = soxr.resample(audio_array, original_sr, sampling_rate, quality="HQ")
                 else:
                     sampling_rate = original_sr
 
-        # Convert to mono if needed
         if force_mono and audio_array.ndim != 1:
             audio_array = audio_array.mean(axis=1)
 
@@ -396,53 +364,19 @@ def is_valid_audio(audio):
 
 
 def is_valid_list_of_audio(audio):
-    return audio and all(is_valid_audio(audio_i) for audio_i in audio)
+    pass
 
 
 def make_list_of_audio(
     audio: list[AudioInput] | AudioInput,
 ) -> AudioInput:
-    """
-    Ensure that the output is a list of audio.
-    Args:
-        audio (`Union[list[AudioInput], AudioInput]`):
-            The input audio.
-    Returns:
-        list: A list of audio.
-    """
-    # If it's a list of audios, it's already in the right format
-    if isinstance(audio, (list, tuple)) and is_valid_list_of_audio(audio):
-        return audio
-
-    # If it's a single audio, convert it to a list of
-    if is_valid_audio(audio):
-        return [audio]
-
-    raise ValueError("Invalid input type. Must be a single audio or a list of audio")
+    pass
 
 
 def make_list_of_audio_chat_template(
     audio: list[AudioInput] | AudioInput | str | list[str],
 ) -> AudioInput:
-    """
-    Ensure that the output is a list of audio. Unlike `make_list_of_audio`, this function also accepts a URL string or
-    local path, as accepted by chat templates.
-
-    Args:
-        audio (`Union[list[AudioInput], AudioInput]`):
-            The input audio. Can be a URL string, local path, numpy/torch array,  or a list of these.
-    Returns:
-        list: A list of audio.
-    """
-
-    # Handle string inputs
-    if isinstance(audio, str):
-        return [audio]
-    if isinstance(audio, (list, tuple)) and audio and all(isinstance(a, str) for a in audio):
-        return list(audio)
-
-    # Handle numpy/torch array inputs
-    return make_list_of_audio(audio)
+    pass
 
 
 def hertz_to_mel(freq: float | np.ndarray, mel_scale: str = "htk") -> float | np.ndarray:
@@ -593,13 +527,10 @@ def chroma_filter_bank(
     Returns:
         `np.ndarray` of shape `(num_frequency_bins, num_chroma)`
     """
-    # Get the FFT bins, not counting the DC component
     frequencies = np.linspace(0, sampling_rate, num_frequency_bins, endpoint=False)[1:]
 
     freq_bins = num_chroma * hertz_to_octave(frequencies, tuning=tuning, bins_per_octave=num_chroma)
 
-    # make up a value for the 0 Hz bin = 1.5 octaves below bin 1
-    # (so chroma is 50% rotated from bin 1, and bin width is broad)
     freq_bins = np.concatenate(([freq_bins[0] - 1.5 * num_chroma], freq_bins))
 
     bins_width = np.concatenate((np.maximum(freq_bins[1:] - freq_bins[:-1], 1.0), [1]))
@@ -608,19 +539,13 @@ def chroma_filter_bank(
 
     num_chroma2 = np.round(float(num_chroma) / 2)
 
-    # Project into range -num_chroma/2 .. num_chroma/2
-    # add on fixed offset of 10*num_chroma to ensure all values passed to
-    # rem are positive
     chroma_filters = np.remainder(chroma_filters + num_chroma2 + 10 * num_chroma, num_chroma) - num_chroma2
 
-    # Gaussian bumps - 2*D to make them narrower
     chroma_filters = np.exp(-0.5 * (2 * chroma_filters / np.tile(bins_width, (num_chroma, 1))) ** 2)
 
-    # normalize each column
     if power is not None:
         chroma_filters = chroma_filters / np.sum(chroma_filters**power, axis=0, keepdims=True) ** (1.0 / power)
 
-    # Maybe apply scaling for fft bins
     if weighting_parameters is not None:
         center, half_width = weighting_parameters
         chroma_filters *= np.tile(
@@ -631,7 +556,6 @@ def chroma_filter_bank(
     if start_at_c_chroma:
         chroma_filters = np.roll(chroma_filters, -3 * (num_chroma // 12), axis=0)
 
-    # remove aliasing columns, copy to ensure row-contiguity
     return np.ascontiguousarray(chroma_filters[:, : int(1 + num_frequency_bins / 2)])
 
 
@@ -697,25 +621,21 @@ def mel_filter_bank(
     if min_frequency > max_frequency:
         raise ValueError(f"Require min_frequency: {min_frequency} <= max_frequency: {max_frequency}")
 
-    # center points of the triangular mel filters
     mel_min = hertz_to_mel(min_frequency, mel_scale=mel_scale)
     mel_max = hertz_to_mel(max_frequency, mel_scale=mel_scale)
     mel_freqs = np.linspace(mel_min, mel_max, num_mel_filters + 2)
     filter_freqs = mel_to_hertz(mel_freqs, mel_scale=mel_scale)
 
     if triangularize_in_mel_space:
-        # frequencies of FFT bins in Hz, but filters triangularized in mel space
         fft_bin_width = sampling_rate / ((num_frequency_bins - 1) * 2)
         fft_freqs = hertz_to_mel(fft_bin_width * np.arange(num_frequency_bins), mel_scale=mel_scale)
         filter_freqs = mel_freqs
     else:
-        # frequencies of FFT bins in Hz
         fft_freqs = np.linspace(0, sampling_rate // 2, num_frequency_bins)
 
     mel_filters = _create_triangular_filter_bank(fft_freqs, filter_freqs)
 
     if norm is not None and norm == "slaney":
-        # Slaney-style mel is scaled to be approx constant energy per channel
         enorm = 2.0 / (filter_freqs[2 : num_mel_filters + 2] - filter_freqs[:num_mel_filters])
         mel_filters *= np.expand_dims(enorm, 0)
 
@@ -805,7 +725,6 @@ def window_function(
     return padded_window
 
 
-# Note: This method processes a single waveform. For batch processing, use spectrogram_batch().
 def spectrogram(
     waveform: np.ndarray,
     window: np.ndarray,
@@ -950,22 +869,18 @@ def spectrogram(
             "Specify `power` to fix this issue."
         )
 
-    # center pad the waveform
     if center:
         padding = [(int(frame_length // 2), int(frame_length // 2))]
         waveform = np.pad(waveform, padding, mode=pad_mode)
 
-    # promote to float64, since np.fft uses float64 internally
     waveform = waveform.astype(np.float64)
     window = window.astype(np.float64)
 
-    # split waveform into frames of frame_length size
     num_frames = int(1 + np.floor((waveform.size - frame_length) / hop_length))
 
     num_frequency_bins = (fft_length // 2) + 1 if onesided else fft_length
     spectrogram = np.empty((num_frames, num_frequency_bins), dtype=np.complex64)
 
-    # rfft is faster than fft
     fft_func = np.fft.rfft if onesided else np.fft.fft
     buffer = np.zeros(fft_length)
 
@@ -988,7 +903,6 @@ def spectrogram(
         spectrogram[frame_idx] = fft_func(buffer)
         timestep += hop_length
 
-    # note: ** is much faster than np.power
     if power is not None:
         spectrogram = np.abs(spectrogram, dtype=np.float64) ** power
 
@@ -1130,13 +1044,11 @@ def spectrogram_batch(
     if hop_length <= 0:
         raise ValueError("hop_length must be greater than zero")
 
-    # Check the dimensions of the waveform , and if waveform is complex
     for waveform in waveform_list:
         if waveform.ndim != 1:
             raise ValueError(f"Input waveform must have only one dimension, shape is {waveform.shape}")
         if np.iscomplexobj(waveform):
             raise ValueError("Complex-valued input waveforms are not currently supported")
-    # Center pad the waveform
     if center:
         padding = [(int(frame_length // 2), int(frame_length // 2))]
         waveform_list = [
@@ -1151,7 +1063,6 @@ def spectrogram_batch(
         len(waveform) for waveform in waveform_list
     ]  # these lengths will be used to remove padding later
 
-    # Batch pad the waveform
     max_length = max(original_waveform_lengths)
     padded_waveform_batch = np.array(
         [
@@ -1161,20 +1072,16 @@ def spectrogram_batch(
         dtype=dtype,
     )
 
-    # Promote to float64, since np.fft uses float64 internally
     padded_waveform_batch = padded_waveform_batch.astype(np.float64)
     window = window.astype(np.float64)
 
-    # Split waveform into frames of frame_length size
     num_frames = int(1 + np.floor((padded_waveform_batch.shape[1] - frame_length) / hop_length))
-    # these lengths will be used to remove padding later
     true_num_frames = [int(1 + np.floor((length - frame_length) / hop_length)) for length in original_waveform_lengths]
     num_batches = padded_waveform_batch.shape[0]
 
     num_frequency_bins = (fft_length // 2) + 1 if onesided else fft_length
     spectrogram = np.empty((num_batches, num_frames, num_frequency_bins), dtype=np.complex64)
 
-    # rfft is faster than fft
     fft_func = np.fft.rfft if onesided else np.fft.fft
     buffer = np.zeros((num_batches, fft_length))
 
@@ -1196,16 +1103,13 @@ def spectrogram_batch(
 
         spectrogram[:, frame_idx] = fft_func(buffer)
 
-    # Note: ** is much faster than np.power
     if power is not None:
         spectrogram = np.abs(spectrogram, dtype=np.float64) ** power
 
-    # Apply mel filters if provided
     if mel_filters is not None:
         result = np.tensordot(spectrogram, mel_filters.T, axes=([2], [1]))
         spectrogram = np.maximum(mel_floor, result)
 
-    # Convert to log scale if specified
     if power is not None and log_mel is not None:
         if log_mel == "log":
             spectrogram = np.log(spectrogram)
@@ -1321,7 +1225,6 @@ def power_to_db_batch(
     if db_range is not None:
         if db_range <= 0.0:
             raise ValueError("db_range must be greater than zero")
-        # Apply db_range clipping per batch item
         max_values = spectrogram.max(axis=(1, 2), keepdims=True)
         spectrogram = np.clip(spectrogram, a_min=max_values - db_range, a_max=None)
 
@@ -1415,7 +1318,6 @@ def amplitude_to_db_batch(
     if db_range is not None:
         if db_range <= 0.0:
             raise ValueError("db_range must be greater than zero")
-        # Apply db_range clipping per batch item
         max_values = spectrogram.max(axis=(1, 2), keepdims=True)
         spectrogram = np.clip(spectrogram, a_min=max_values - db_range, a_max=None)
 

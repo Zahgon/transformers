@@ -1,17 +1,3 @@
-# Copyright 2021 Facebook AI Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""DETR model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -24,30 +10,6 @@ from ..auto import AutoConfig
 @auto_docstring(checkpoint="facebook/detr-resnet-50")
 @strict
 class DetrConfig(PreTrainedConfig):
-    r"""
-    num_queries (`int`, *optional*, defaults to 100):
-        Number of object queries, i.e. detection slots. This is the maximal number of objects
-        [`ConditionalDetrModel`] can detect in a single image. For COCO, we recommend 100 queries.
-    position_embedding_type (`str`, *optional*, defaults to `"sine"`):
-        Type of position embeddings to be used on top of the image features. One of `"sine"` or `"learned"`.
-    dilation (`bool`, *optional*, defaults to `False`):
-        Whether to replace stride with dilation in the last convolutional block (DC5). Only supported when
-        `use_timm_backbone` = `True`.
-
-    Examples:
-
-    ```python
-    >>> from transformers import DetrConfig, DetrModel
-
-    >>> # Initializing a DETR facebook/detr-resnet-50 style configuration
-    >>> configuration = DetrConfig()
-
-    >>> # Initializing a model (with random weights) from the facebook/detr-resnet-50 style configuration
-    >>> model = DetrModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "detr"
     sub_configs = {"backbone_config": AutoConfig}

@@ -1,17 +1,3 @@
-# Copyright 2020 The Microsoft Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""ProphetNet model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,22 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="microsoft/prophetnet-large-uncased")
 @strict
 class ProphetNetConfig(PreTrainedConfig):
-    r"""
-    ngram (`int`, *optional*, defaults to 2):
-        Number of future tokens to predict. Set to 1 to be same as traditional Language model to predict next first
-        token.
-    num_buckets (`int`, *optional*, defaults to 32):
-        The number of buckets to use for each attention layer. This is for relative position calculation. See the
-        [T5 paper](see https://huggingface.co/papers/1910.10683) for more details.
-    relative_max_distance (`int`, *optional*, defaults to 128):
-        Relative distances greater than this number will be put into the last same bucket. This is for relative
-        position calculation. See the [T5 paper](see https://huggingface.co/papers/1910.10683) for more details.
-    disable_ngram_loss (`bool`, *optional*, defaults to `False`):
-        Whether be trained predicting only the next first token.
-    eps (`float`, *optional*, defaults to 0.0):
-        Controls the `epsilon` parameter value for label smoothing in the loss calculation. If set to 0, no label
-        smoothing is performed.
-    """
 
     model_type = "prophetnet"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -76,7 +46,7 @@ class ProphetNetConfig(PreTrainedConfig):
 
     @property
     def num_hidden_layers(self) -> int:
-        return self.num_encoder_layers
+        pass
 
     @num_hidden_layers.setter
     def num_hidden_layers(self, value):

@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert ResNet checkpoints from timm."""
 
 import argparse
 import json
@@ -40,9 +26,7 @@ class Tracker:
     handles: list = field(default_factory=list)
 
     def _forward_hook(self, m, inputs: Tensor, outputs: Tensor):
-        has_not_submodules = len(list(m.modules())) == 1 or isinstance(m, (nn.Conv2d, nn.BatchNorm2d))
-        if has_not_submodules:
-            self.traced.append(m)
+        pass
 
     def __call__(self, x: Tensor):
         for m in self.module.modules():
@@ -53,8 +37,7 @@ class Tracker:
 
     @property
     def parametrized(self):
-        # check the len of the state_dict keys to see if we have learnable params
-        return list(filter(lambda x: len(list(x.state_dict().keys())) > 0, self.traced))
+        pass
 
 
 @dataclass
@@ -89,74 +72,15 @@ class ModuleTransfer:
 
 
 def convert_weight_and_push(name: str, config: ResNetConfig, save_directory: Path, push_to_hub: bool = True):
-    print(f"Converting {name}...")
-    with torch.no_grad():
-        from_model = timm.create_model(name, pretrained=True).eval()
-        our_model = ResNetForImageClassification(config).eval()
-        module_transfer = ModuleTransfer(src=from_model, dest=our_model)
-        x = torch.randn((1, 3, 224, 224))
-        module_transfer(x)
-
-    assert torch.allclose(from_model(x), our_model(x).logits), "The model logits don't match the original one."
-
-    checkpoint_name = f"resnet{'-'.join(name.split('resnet'))}"
-    print(checkpoint_name)
-
-    if push_to_hub:
-        our_model.push_to_hub(repo_id=checkpoint_name)
-
-        # we can use the convnext one
-        image_processor = AutoImageProcessor.from_pretrained("facebook/convnext-base-224-22k-1k")
-        image_processor.push_to_hub(repo_id=checkpoint_name)
-
-        print(f"Pushed {checkpoint_name}")
+    pass
 
 
 def convert_weights_and_push(save_directory: Path, model_name: str | None = None, push_to_hub: bool = True):
-    filename = "imagenet-1k-id2label.json"
-    num_labels = 1000
-    expected_shape = (1, num_labels)
-
-    repo_id = "huggingface/label-files"
-    id2label = json.load(open(hf_hub_download(repo_id, filename, repo_type="dataset"), "r"))
-    id2label = {int(k): v for k, v in id2label.items()}
-
-    label2id = {v: k for k, v in id2label.items()}
-
-    ImageNetPreTrainedConfig = partial(ResNetConfig, num_labels=num_labels, id2label=id2label, label2id=label2id)
-
-    names_to_config = {
-        "resnet18": ImageNetPreTrainedConfig(
-            depths=[2, 2, 2, 2], hidden_sizes=[64, 128, 256, 512], layer_type="basic"
-        ),
-        "resnet26": ImageNetPreTrainedConfig(
-            depths=[2, 2, 2, 2], hidden_sizes=[256, 512, 1024, 2048], layer_type="bottleneck"
-        ),
-        "resnet34": ImageNetPreTrainedConfig(
-            depths=[3, 4, 6, 3], hidden_sizes=[64, 128, 256, 512], layer_type="basic"
-        ),
-        "resnet50": ImageNetPreTrainedConfig(
-            depths=[3, 4, 6, 3], hidden_sizes=[256, 512, 1024, 2048], layer_type="bottleneck"
-        ),
-        "resnet101": ImageNetPreTrainedConfig(
-            depths=[3, 4, 23, 3], hidden_sizes=[256, 512, 1024, 2048], layer_type="bottleneck"
-        ),
-        "resnet152": ImageNetPreTrainedConfig(
-            depths=[3, 8, 36, 3], hidden_sizes=[256, 512, 1024, 2048], layer_type="bottleneck"
-        ),
-    }
-
-    if model_name:
-        convert_weight_and_push(model_name, names_to_config[model_name], save_directory, push_to_hub)
-    else:
-        for model_name, config in names_to_config.items():
-            convert_weight_and_push(model_name, config, save_directory, push_to_hub)
-    return config, expected_shape
+    pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--model_name",
         default=None,

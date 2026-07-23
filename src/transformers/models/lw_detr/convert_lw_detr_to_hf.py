@@ -1,20 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert LW-DETR checkpoints from the original repository.
-
-URL: https://huggingface.co/xbsu/LW-DETR/tree/main/pretrain_weights
-"""
 
 import argparse
 import os
@@ -31,18 +14,14 @@ from transformers import DeformableDetrImageProcessor, LwDetrConfig, LwDetrForOb
 from transformers.image_utils import load_image
 
 
-# All available LW-DETR checkpoints from the Hugging Face repository
 HUB_MODEL_REPO = "xbsu/LW-DETR"
 
-# Mapping of model names to their checkpoint files
 HUB_CHECKPOINTS = {
-    # LW-DETR models trained on Objects365
     "lwdetr_tiny_30e_objects365": "LWDETR_tiny_30e_objects365.pth",
     "lwdetr_small_30e_objects365": "LWDETR_small_30e_objects365.pth",
     "lwdetr_medium_30e_objects365": "LWDETR_medium_30e_objects365.pth",
     "lwdetr_large_30e_objects365": "LWDETR_large_30e_objects365.pth",
     "lwdetr_xlarge_30e_objects365": "LWDETR_xlarge_30e_objects365.pth",
-    # LW-DETR models trained on COCO
     "lwdetr_tiny_60e_coco": "LWDETR_tiny_60e_coco.pth",
     "lwdetr_small_60e_coco": "LWDETR_small_60e_coco.pth",
     "lwdetr_medium_60e_coco": "LWDETR_medium_60e_coco.pth",
@@ -50,7 +29,6 @@ HUB_CHECKPOINTS = {
     "lwdetr_xlarge_60e_coco": "LWDETR_xlarge_60e_coco.pth",
 }
 
-# Model configurations for different sizes
 BACKBONE_CONFIGS = {
     "tiny": {
         "image_size": 1024,
@@ -142,10 +120,7 @@ MODEL_CONFIGS = {
     },
 }
 
-# Key mapping for converting original checkpoint keys to HuggingFace format
-# fmt: off
 ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
-    # backbone encoder
     r"backbone.0.encoder.pos_embed":                            r"backbone.backbone.embeddings.position_embeddings",
     r"backbone.0.encoder.patch_embed.proj":                     r"backbone.backbone.embeddings.projection",
     r"backbone.0.encoder.blocks.(\d+).gamma_1":                 r"backbone.backbone.encoder.layer.\1.gamma_1",
@@ -156,7 +131,6 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"backbone.0.encoder.blocks.(\d+).mlp.fc1.(weight|bias)":   r"backbone.backbone.encoder.layer.\1.intermediate.fc1.\2",
     r"backbone.0.encoder.blocks.(\d+).mlp.fc2.(weight|bias)":   r"backbone.backbone.encoder.layer.\1.intermediate.fc2.\2",
 
-    # backbone projector scaling layers, sampling layers are dealt with separately depending on the config
     r"backbone.0.projector.stages.(\d+).0.cv1.conv.(weight|bias)":                                                      r"backbone.projector.scale_layers.\1.projector_layer.conv1.conv.\2",
     r"backbone.0.projector.stages.(\d+).0.cv1.bn.(weight|bias|running_mean|running_var|num_batches_tracked)":           r"backbone.projector.scale_layers.\1.projector_layer.conv1.norm.\2",
     r"backbone.0.projector.stages.(\d+).0.cv2.conv.(weight|bias)":                                                      r"backbone.projector.scale_layers.\1.projector_layer.conv2.conv.\2",
@@ -167,7 +141,6 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"backbone.0.projector.stages.(\d+).0.m.(\d+).cv2.bn.(weight|bias|running_mean|running_var|num_batches_tracked)":   r"backbone.projector.scale_layers.\1.projector_layer.bottlenecks.\2.conv2.norm.\3",
     r"backbone.0.projector.stages.(\d+).1.(weight|bias)":                                                               r"backbone.projector.scale_layers.\1.layer_norm.\2",
 
-    # transformer decoder
     r"transformer.decoder.layers.(\d+).self_attn.out_proj.(weight|bias)":               r"decoder.layers.\1.self_attn.o_proj.\2",
     r"transformer.decoder.layers.(\d+).norm1.(weight|bias)":                            r"decoder.layers.\1.self_attn_layer_norm.\2",
     r"transformer.decoder.layers.(\d+).cross_attn.sampling_offsets.(weight|bias)":      r"decoder.layers.\1.cross_attn.sampling_offsets.\2",
@@ -190,11 +163,7 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
 }
 
 def delete_positional_embeddings_keys(state_dict):
-    key_prefix = "backbone.0.encoder.pos_embed"
-    keys_to_delete = [key for key in state_dict.keys() if key.startswith(key_prefix)]
-    for key in keys_to_delete:
-        del state_dict[key]
-    return state_dict
+    pass
 
 def convert_old_keys_to_new_keys(state_dict_keys: dict | None = None, key_mapping: dict | None = None):
     """
@@ -215,16 +184,13 @@ def convert_old_keys_to_new_keys(state_dict_keys: dict | None = None, key_mappin
 
 def backbone_read_in_q_k_v(state_dict, config):
     hidden_size = config.backbone_config.hidden_size
-    # backbone encoder self-attention layers
     for i in range(config.backbone_config.num_hidden_layers):
-        # read in weights + bias of input projection layer of self-attention
         in_proj_weight = state_dict.pop(f"backbone.0.encoder.blocks.{i}.attn.qkv.weight")
         in_proj_bias = torch.cat([
             state_dict.pop(f"backbone.0.encoder.blocks.{i}.attn.q_bias"),
             state_dict.pop(f"backbone.0.encoder.blocks.{i}.attn.v_bias"),
         ])
 
-        # next, add query, keys and values (in that order) to the state dict
         state_dict[f"backbone.backbone.encoder.layer.{i}.attention.attention.query.weight"] = in_proj_weight[:hidden_size, :]
         state_dict[f"backbone.backbone.encoder.layer.{i}.attention.attention.key.weight"] = in_proj_weight[hidden_size:2*hidden_size, :]
         state_dict[f"backbone.backbone.encoder.layer.{i}.attention.attention.value.weight"] = in_proj_weight[-hidden_size:, :]
@@ -234,12 +200,9 @@ def backbone_read_in_q_k_v(state_dict, config):
 
 def read_in_q_k_v(state_dict, config):
     d_model = config.d_model
-    # transformer decoder self-attention layers
     for i in range(config.decoder_layers):
-        # read in weights + bias of input projection layer of self-attention
         in_proj_weight = state_dict.pop(f"transformer.decoder.layers.{i}.self_attn.in_proj_weight")
         in_proj_bias = state_dict.pop(f"transformer.decoder.layers.{i}.self_attn.in_proj_bias")
-        # next, add query, keys and values (in that order) to the state dict
         state_dict[f"decoder.layers.{i}.self_attn.q_proj.weight"] = in_proj_weight[:d_model, :]
         state_dict[f"decoder.layers.{i}.self_attn.q_proj.bias"] = in_proj_bias[:d_model]
         state_dict[f"decoder.layers.{i}.self_attn.k_proj.weight"] = in_proj_weight[d_model:2*d_model, :]
@@ -257,7 +220,6 @@ def get_model_config(model_name: str):
             config = MODEL_CONFIGS[size]
             config["backbone_config"] = BACKBONE_CONFIGS[size]
 
-    # Default to base configuration
     if config is None:
         config = MODEL_CONFIGS["base"]
         config["backbone_config"] = BACKBONE_CONFIGS["base"]
@@ -293,7 +255,6 @@ def get_backbone_projector_sampling_key_mapping(config: LwDetrConfig):
             })
     return key_mapping
 
-# We will verify our results on an image of cute cats
 def prepare_img():
     url = "http://images.cocodataset.org/val2017/000000039769.jpg"
     with httpx.stream("GET", url) as response:
@@ -370,7 +331,6 @@ def test_models_outputs(model: LwDetrForObjectDetection, image_processor: Deform
     device = "cuda" if torch.cuda.is_available() else "cpu"
     image_path = "http://images.cocodataset.org/val2017/000000039769.jpg"
     image = load_image(image_path)
-    # Fake annotation for testing
     annotations = {
         "image_id": 0,
         "annotations": [
@@ -422,26 +382,20 @@ def convert_lw_detr_checkpoint(
     """
     print(f"Converting {model_name} checkpoint...")
 
-    # Create output directory
     os.makedirs(pytorch_dump_folder_path, exist_ok=True)
 
-    # Get model configuration
     config = get_model_config(model_name)
     lw_detr_config = LwDetrConfig(**config)
 
-    # Save configuration
     lw_detr_config.save_pretrained(pytorch_dump_folder_path)
     print("Configuration saved successfully...")
 
-    # Load checkpoint
     print(f"Loading checkpoint from {checkpoint_path}...")
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
-    # Create model and load weights
     print("Creating model and loading weights...")
     model = LwDetrForObjectDetection(lw_detr_config)
 
-    # Handle different checkpoint formats
     if "state_dict" in checkpoint:
         state_dict = checkpoint["state_dict"]
     elif "model" in checkpoint:
@@ -449,7 +403,6 @@ def convert_lw_detr_checkpoint(
     else:
         state_dict = checkpoint
 
-    # Convert keys if needed
     if ORIGINAL_TO_CONVERTED_KEY_MAPPING:
         backbone_projector_sampling_key_mapping = get_backbone_projector_sampling_key_mapping(lw_detr_config)
         state_dict = backbone_read_in_q_k_v(state_dict, lw_detr_config)
@@ -466,18 +419,15 @@ def convert_lw_detr_checkpoint(
             else:
                 converted_state_dict[key] = state_dict[key]
 
-    # Load state dict
     missing_keys, unexpected_keys = model.load_state_dict(converted_state_dict, strict=False)
     if missing_keys:
         print(f"Missing keys: {missing_keys}")
     if unexpected_keys:
         print(f"Unexpected keys: {unexpected_keys}")
 
-    # Save model
     print("Saving model...")
     model.save_pretrained(pytorch_dump_folder_path)
 
-    # Save image processor
     print("Saving image processor...")
     image_processor = DeformableDetrImageProcessor(size={"height": 640, "width": 640})
     image_processor.save_pretrained(pytorch_dump_folder_path)
@@ -510,16 +460,13 @@ def main():
 
     args = parser.parse_args()
 
-    # Get checkpoint path
     if args.checkpoint_path:
         checkpoint_path = args.checkpoint_path
     else:
-        # Download from hub
         repo_id = HUB_MODEL_REPO
         filename = HUB_CHECKPOINTS[args.model_name]
         checkpoint_path = hf_hub_download(repo_id=repo_id, filename=filename, subfolder="pretrain_weights")
 
-    # Convert checkpoint
     convert_lw_detr_checkpoint(
         model_name=args.model_name,
         checkpoint_path=checkpoint_path,

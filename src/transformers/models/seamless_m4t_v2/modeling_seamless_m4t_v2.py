@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SeamlessM4Tv2 model."""
 
 import copy
 import math
@@ -82,22 +68,7 @@ SEAMLESS_M4T_V2_COMMON_CUSTOM_ARGS = r"""
     """
 )
 @dataclass
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TGenerationOutput with SeamlessM4T->SeamlessM4Tv2
 class SeamlessM4Tv2GenerationOutput(ModelOutput):
-    r"""
-    waveform (`torch.FloatTensor` of shape `(batch_size, sequence_length)`):
-        The final audio waveform predicted by the model.
-    waveform_lengths (`torch.IntTensor` of shape `(batch_size,)`, *optional*):
-        The length in samples of each element in the `waveform` batch.
-    sequences (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
-        The generated translated sequences. This is the output of the text-to-text or the speech-to-text models.
-        The second dimension (sequence_length) is either equal to `max_length` or shorter if all batches finished
-        early due to the `eos_token_id`.
-    unit_sequences (`torch.LongTensor` of shape `(batch_size, unit_sequence_length)`, *optional*):
-        The generated translated unit sequences. This is the output of the text-to-units model. The second
-        dimension (unit_sequence_length) is either equal to `t2u_max_length` or shorter if all batches finished
-        early due to the `t2u_eos_token_id`.
-    """
 
     waveform: torch.FloatTensor | None = None
     waveform_lengths: torch.IntTensor | None = None
@@ -112,11 +83,6 @@ class SeamlessM4Tv2GenerationOutput(ModelOutput):
 )
 @dataclass
 class SeamlessM4Tv2TextToUnitDecoderOutput(ModelOutput):
-    r"""
-    padding_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
-        Indicates which inputs are to be ignored due to padding, where elements are either 1 for *not masked* or 0
-        for *masked*
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     hidden_states: tuple[torch.FloatTensor] | None = None
@@ -132,18 +98,6 @@ class SeamlessM4Tv2TextToUnitDecoderOutput(ModelOutput):
 )
 @dataclass
 class SeamlessM4Tv2TextToUnitOutput(ModelOutput):
-    r"""
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the decoder of the model.
-
-        If `past_key_values` is used only the last hidden-state of the sequences of shape `(batch_size, 1,
-        hidden_size)` is output.
-    padding_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
-        Indicates which inputs are to be ignored due to padding, where elements are either 1 for *not masked* or 0
-        for *masked*
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     padding_mask: torch.Tensor | None = None
@@ -155,10 +109,8 @@ class SeamlessM4Tv2TextToUnitOutput(ModelOutput):
     loss: torch.FloatTensor | None = None
 
 
-############ UTILS ################
 
 
-# Copied from transformers.models.bart.modeling_bart.shift_tokens_right
 def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
     """
     Shift input ids one token to the right.
@@ -169,7 +121,6 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("self.model.config.pad_token_id has to be defined.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
@@ -202,7 +153,6 @@ def _compute_new_attention_mask(hidden_states: torch.Tensor, seq_lens: torch.Ten
     return mask
 
 
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.format_speech_generation_kwargs with SeamlessM4T->SeamlessM4Tv2
 def format_speech_generation_kwargs(kwargs):
     """
     Format kwargs for SeamlessM4Tv2 models that generate speech, attribute kwargs to either the text generation or the
@@ -220,7 +170,6 @@ def format_speech_generation_kwargs(kwargs):
                 This means you can, for example, specify a generation strategy for one generation but not for the
                 other.
     """
-    # attribute kwargs to models
     kwargs_text = {}
     kwargs_speech = {}
     for key, value in kwargs.items():
@@ -233,8 +182,6 @@ def format_speech_generation_kwargs(kwargs):
         elif key == "generation_config":
             kwargs_text[key] = value
         else:
-            # If the key is already in a specific config, then it's been set with a
-            # submodules specific value and we don't override
             if key not in kwargs_text:
                 kwargs_text[key] = value
             if key not in kwargs_speech:
@@ -242,11 +189,9 @@ def format_speech_generation_kwargs(kwargs):
     return kwargs_text, kwargs_speech
 
 
-############ SPEECH ENCODER related code ################
 
 
 class SeamlessM4Tv2ConformerFeatureProjection(nn.Module):
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TConformerFeatureProjection.__init__
     def __init__(self, config):
         super().__init__()
         self.layer_norm = nn.LayerNorm(config.feature_projection_input_dim, eps=config.layer_norm_eps)
@@ -254,14 +199,12 @@ class SeamlessM4Tv2ConformerFeatureProjection(nn.Module):
         self.dropout = nn.Dropout(config.speech_encoder_dropout)
 
     def forward(self, hidden_states):
-        # non-projected hidden states are needed for quantization
         norm_hidden_states = self.layer_norm(hidden_states.to(self.layer_norm.weight.dtype))
         hidden_states = self.projection(norm_hidden_states)
         hidden_states = self.dropout(hidden_states)
         return hidden_states
 
 
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TConformerFeedForward with SeamlessM4T->SeamlessM4Tv2
 class SeamlessM4Tv2ConformerFeedForward(nn.Module):
     def __init__(self, config, act_fn=None, dropout=None):
         super().__init__()
@@ -286,9 +229,6 @@ class SeamlessM4Tv2ConformerFeedForward(nn.Module):
 
 
 class SeamlessM4Tv2ConformerConvolutionModule(nn.Module):
-    """Convolution block used in the conformer block. Uses a causal depthwise convolution similar to that
-    described in Section 2.1 of https://huggingface.co/papers/1609.03499
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -328,24 +268,16 @@ class SeamlessM4Tv2ConformerConvolutionModule(nn.Module):
     def forward(self, hidden_states, attention_mask=None):
         hidden_states = self.layer_norm(hidden_states)
 
-        # Ensure that we do not leak padded positions in depthwise convolution.
-        # Put 0 where necessary
         if attention_mask is not None:
             hidden_states = hidden_states.masked_fill(~attention_mask.bool().unsqueeze(-1), 0.0)
 
-        # exchange the temporal dimension and the feature dimension
         hidden_states = hidden_states.transpose(1, 2)
 
-        # GLU mechanism
-        # => (batch, 2*channel, dim)
         hidden_states = self.pointwise_conv1(hidden_states)
-        # => (batch, channel, dim)
         hidden_states = self.glu(hidden_states)
 
-        # Pad the sequence entirely on the left because of causal convolution.
         hidden_states = torch.nn.functional.pad(hidden_states, (self.depthwise_conv.kernel_size[0] - 1, 0))
 
-        # 1D Depthwise Conv
         hidden_states = self.depthwise_conv(hidden_states)
         hidden_states = self.depthwise_layer_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
         hidden_states = self.activation(hidden_states)
@@ -357,9 +289,6 @@ class SeamlessM4Tv2ConformerConvolutionModule(nn.Module):
 
 
 class SeamlessM4Tv2ConformerSelfAttention(nn.Module):
-    """Construct a SeamlessM4Tv2ConformerSelfAttention object.
-    Can be enhanced with relative position embeddings.
-    """
 
     def __init__(self, config, use_position_embeddings=True):
         super().__init__()
@@ -387,19 +316,15 @@ class SeamlessM4Tv2ConformerSelfAttention(nn.Module):
         attention_mask: torch.Tensor | None = None,
         output_attentions: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
-        # self-attention mechanism
         batch_size, sequence_length, hidden_size = hidden_states.size()
 
-        # make sure query/key states can be != value states
         query_key_states = hidden_states
         value_states = hidden_states
 
-        # project query_key_states and value_states
         query = self.linear_q(query_key_states).view(batch_size, -1, self.num_heads, self.head_size)
         key = self.linear_k(query_key_states).view(batch_size, -1, self.num_heads, self.head_size)
         value = self.linear_v(value_states).view(batch_size, -1, self.num_heads, self.head_size)
 
-        # => (batch, head, time1, d_k)
         query = query.transpose(1, 2)
         key = key.transpose(1, 2)
         value = value.transpose(1, 2)
@@ -420,18 +345,14 @@ class SeamlessM4Tv2ConformerSelfAttention(nn.Module):
             relative_position_attn_weights = torch.einsum("bhld,lrd->bhlr", query, positional_embedding)
             attn_weights = attn_weights + (relative_position_attn_weights / math.sqrt(self.head_size))
 
-        # apply attention_mask if necessary
         if attention_mask is not None:
             attn_weights = attn_weights + attention_mask
 
-        # => (batch, head, time1, time2)
         attn_weights = torch.softmax(attn_weights, dim=-1)
         attn_weights = self.dropout(attn_weights)
 
-        # => (batch, head, time1, d_k)
         attn_output = torch.matmul(attn_weights, value)
 
-        # => (batch, time1, hidden_size)
         attn_output = attn_output.transpose(1, 2).reshape(batch_size, -1, self.num_heads * self.head_size)
         attn_output = self.linear_out(attn_output)
 
@@ -442,27 +363,21 @@ class SeamlessM4Tv2ConformerSelfAttention(nn.Module):
 
 
 class SeamlessM4Tv2ConformerEncoderLayer(GradientCheckpointingLayer):
-    """Conformer block based on https://huggingface.co/papers/2005.08100."""
 
-    # Copied from transformers.models.wav2vec2_conformer.modeling_wav2vec2_conformer.Wav2Vec2ConformerEncoderLayer.__init__ with Wav2Vec2->SeamlessM4Tv2, attention_dropout->speech_encoder_dropout, torch.nn->nn
     def __init__(self, config):
         super().__init__()
         embed_dim = config.hidden_size
         dropout = config.speech_encoder_dropout
 
-        # Feed-forward 1
         self.ffn1_layer_norm = nn.LayerNorm(embed_dim)
         self.ffn1 = SeamlessM4Tv2ConformerFeedForward(config)
 
-        # Self-Attention
         self.self_attn_layer_norm = nn.LayerNorm(embed_dim)
         self.self_attn_dropout = nn.Dropout(dropout)
         self.self_attn = SeamlessM4Tv2ConformerSelfAttention(config)
 
-        # Conformer Convolution
         self.conv_module = SeamlessM4Tv2ConformerConvolutionModule(config)
 
-        # Feed-forward 2
         self.ffn2_layer_norm = nn.LayerNorm(embed_dim)
         self.ffn2 = SeamlessM4Tv2ConformerFeedForward(config)
         self.final_layer_norm = nn.LayerNorm(embed_dim)
@@ -474,14 +389,12 @@ class SeamlessM4Tv2ConformerEncoderLayer(GradientCheckpointingLayer):
         output_attentions: bool = False,
         conv_attention_mask: torch.Tensor | None = None,
     ):
-        # 1. Feed-Forward 1 layer
         residual = hidden_states
         hidden_states = self.ffn1_layer_norm(hidden_states)
         hidden_states = self.ffn1(hidden_states)
         hidden_states = hidden_states * 0.5 + residual
         residual = hidden_states
 
-        # 2. Self-Attention layer
         hidden_states = self.self_attn_layer_norm(hidden_states)
         hidden_states, attn_weights = self.self_attn(
             hidden_states=hidden_states,
@@ -491,12 +404,10 @@ class SeamlessM4Tv2ConformerEncoderLayer(GradientCheckpointingLayer):
         hidden_states = self.self_attn_dropout(hidden_states)
         hidden_states = hidden_states + residual
 
-        # 3. Convolutional Layer
         residual = hidden_states
         hidden_states = self.conv_module(hidden_states, attention_mask=conv_attention_mask)
         hidden_states = residual + hidden_states
 
-        # 4. Feed-Forward 2 Layer
         residual = hidden_states
         hidden_states = self.ffn2_layer_norm(hidden_states)
         hidden_states = self.ffn2(hidden_states)
@@ -564,9 +475,7 @@ class SeamlessM4Tv2ConformerEncoder(nn.Module):
 
         conv_attention_mask = attention_mask
         if attention_mask is not None:
-            # make sure padded tokens output 0
             hidden_states = hidden_states.masked_fill(~attention_mask.bool().unsqueeze(-1), 0.0)
-            # extend attention_mask
             attention_mask = 1.0 - attention_mask[:, None, None, :].to(dtype=hidden_states.dtype)
             attention_mask = attention_mask.expand(
                 attention_mask.shape[0], 1, attention_mask.shape[-1], attention_mask.shape[-1]
@@ -586,12 +495,10 @@ class SeamlessM4Tv2ConformerEncoder(nn.Module):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             dropout_probability = torch.rand([])
 
             skip_the_layer = self.training and dropout_probability < self.config.speech_encoder_layerdrop
             if not skip_the_layer or synced_gpus:
-                # under fsdp or deepspeed zero3 all gpus must run in sync
                 layer_outputs = layer(
                     hidden_states,
                     attention_mask=attention_mask,
@@ -619,7 +526,6 @@ class SeamlessM4Tv2ConformerEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TConformerAdapterLayer with SeamlessM4T->SeamlessM4Tv2
 class SeamlessM4Tv2ConformerAdapterLayer(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -631,7 +537,6 @@ class SeamlessM4Tv2ConformerAdapterLayer(nn.Module):
         self.kernel_size = config.adaptor_kernel_size
         self.stride = config.adaptor_stride
 
-        # 1. residual convolution
         self.residual_layer_norm = nn.LayerNorm(embed_dim)
         self.residual_conv = nn.Conv1d(
             embed_dim,
@@ -642,7 +547,6 @@ class SeamlessM4Tv2ConformerAdapterLayer(nn.Module):
         )
         self.activation = nn.GLU(dim=1)
 
-        # Self-Attention
         self.self_attn_layer_norm = nn.LayerNorm(embed_dim)
         self.self_attn_conv = nn.Conv1d(
             embed_dim,
@@ -654,7 +558,6 @@ class SeamlessM4Tv2ConformerAdapterLayer(nn.Module):
         self.self_attn = SeamlessM4Tv2ConformerSelfAttention(config, use_position_embeddings=False)
         self.self_attn_dropout = nn.Dropout(dropout)
 
-        # Feed-forward
         self.ffn_layer_norm = nn.LayerNorm(embed_dim)
         self.ffn = SeamlessM4Tv2ConformerFeedForward(config, act_fn="relu", dropout=dropout)
 
@@ -674,22 +577,15 @@ class SeamlessM4Tv2ConformerAdapterLayer(nn.Module):
     ):
         residual = self.residual_layer_norm(hidden_states)
 
-        # Apply pooling to the residual to match the sequence length of the
-        # multi-head attention output.
-        # (batch, seq_len, feature_dim) -> (batch, feature_dim, seq_len)
         residual = residual.transpose(1, 2)
         residual = self.residual_conv(residual)
         residual = self.activation(residual)
-        # (batch, feature_dim, seq_len) -> (batch, seq_len, feature_dim)
         residual = residual.transpose(1, 2)
 
         hidden_states = self.self_attn_layer_norm(hidden_states)
-        # Apply pooling before feeding to the multihead-attention layer.
-        # (batch, seq_len, feature_dim) -> (batch, feature_dim, seq_len)
         hidden_states = hidden_states.transpose(1, 2)
         hidden_states = self.self_attn_conv(hidden_states)
         hidden_states = self.activation(hidden_states)
-        # (batch, feature_dim, seq_len) -> (batch, seq_len, feature_dim)
         hidden_states = hidden_states.transpose(1, 2)
 
         if attention_mask is not None:
@@ -703,8 +599,6 @@ class SeamlessM4Tv2ConformerAdapterLayer(nn.Module):
                 attention_mask=attention_mask,
             )
 
-        # The rest of the computation is identical to a vanilla Transformer
-        # encoder layer.
         hidden_states, attn_weights = self.self_attn(
             hidden_states,
             attention_mask=attention_mask,
@@ -721,7 +615,6 @@ class SeamlessM4Tv2ConformerAdapterLayer(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TConformerAdapter with SeamlessM4T->SeamlessM4Tv2
 class SeamlessM4Tv2ConformerAdapter(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -731,7 +624,6 @@ class SeamlessM4Tv2ConformerAdapter(nn.Module):
         )
 
     def forward(self, hidden_states, attention_mask):
-        # down project hidden_states if necessary
 
         for layer in self.layers:
             hidden_states = layer(hidden_states, attention_mask)
@@ -739,14 +631,9 @@ class SeamlessM4Tv2ConformerAdapter(nn.Module):
         return hidden_states
 
 
-############ TEXT / UNITS related code ################
 
 
-# Copied from transformers.models.m2m_100.modeling_m2m_100.M2M100ScaledWordEmbedding with M2M100->SeamlessM4Tv2
 class SeamlessM4Tv2ScaledWordEmbedding(nn.Embedding):
-    """
-    This module overrides nn.Embeddings' forward by multiplying with embeddings scale.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int, embed_scale: float | None = 1.0):
         super().__init__(num_embeddings, embedding_dim, padding_idx)
@@ -756,9 +643,7 @@ class SeamlessM4Tv2ScaledWordEmbedding(nn.Embedding):
         return super().forward(input_ids) * self.embed_scale
 
 
-# Copied from transformers.models.m2m_100.modeling_m2m_100.M2M100SinusoidalPositionalEmbedding with M2M100->SeamlessM4Tv2
 class SeamlessM4Tv2SinusoidalPositionalEmbedding(nn.Module):
-    """This module produces sinusoidal positional embeddings of any length."""
 
     def __init__(self, num_positions: int, embedding_dim: int, padding_idx: int | None = None):
         super().__init__()
@@ -771,7 +656,6 @@ class SeamlessM4Tv2SinusoidalPositionalEmbedding(nn.Module):
     def make_weights(self, num_embeddings: int, embedding_dim: int, padding_idx: int | None = None):
         emb_weights = self.get_embedding(num_embeddings, embedding_dim, padding_idx)
         if hasattr(self, "weights"):
-            # in forward put the weights on the correct dtype and device of the param
             emb_weights = emb_weights.to(dtype=self.weights.dtype, device=self.weights.device)
 
         self.register_buffer("weights", emb_weights, persistent=False)
@@ -790,7 +674,6 @@ class SeamlessM4Tv2SinusoidalPositionalEmbedding(nn.Module):
         emb = torch.arange(num_embeddings, dtype=torch.int64).float().unsqueeze(1) * emb.unsqueeze(0)
         emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_embeddings, -1)
         if embedding_dim % 2 == 1:
-            # zero pad
             emb = torch.cat([emb, torch.zeros(num_embeddings, 1)], dim=1)
         if padding_idx is not None:
             emb[padding_idx, :] = 0
@@ -806,7 +689,6 @@ class SeamlessM4Tv2SinusoidalPositionalEmbedding(nn.Module):
     ):
         if input_ids is not None:
             bsz, seq_len = input_ids.size()
-            # Create the position ids from the input token ids. Any padded tokens remain padded.
             position_ids = self.create_position_ids_from_input_ids(
                 input_ids, self.padding_idx, past_key_values_length
             ).to(input_ids.device)
@@ -816,7 +698,6 @@ class SeamlessM4Tv2SinusoidalPositionalEmbedding(nn.Module):
                 inputs_embeds, past_key_values_length, self.padding_idx
             )
 
-        # expand embeddings if needed
         max_pos = self.padding_idx + 1 + seq_len + past_key_values_length
         if max_pos > self.weights.size(0):
             self.make_weights(max_pos + self.offset, self.embedding_dim, self.padding_idx)
@@ -842,7 +723,6 @@ class SeamlessM4Tv2SinusoidalPositionalEmbedding(nn.Module):
         return position_ids.unsqueeze(0).expand(input_shape).contiguous() + past_key_values_length
 
     @staticmethod
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaEmbeddings.create_position_ids_from_input_ids
     def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_length=0):
         """
         Replace non-padding symbols with their position numbers. Position numbers begin at padding_idx+1. Padding symbols
@@ -853,16 +733,13 @@ class SeamlessM4Tv2SinusoidalPositionalEmbedding(nn.Module):
 
         Returns: torch.Tensor
         """
-        # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
         mask = input_ids.ne(padding_idx).int()
         incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
         return incremental_indices.long() + padding_idx
 
 
 class SeamlessM4Tv2Attention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    # Copied from transformers.models.bart.modeling_bart.BartAttention.__init__ with Bart->SeamlessM4Tv2
     def __init__(
         self,
         embed_dim: int,
@@ -921,7 +798,6 @@ class SeamlessM4Tv2Attention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -930,7 +806,6 @@ class SeamlessM4Tv2Attention(nn.Module):
 
         current_states = encoder_hidden_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -940,9 +815,7 @@ class SeamlessM4Tv2Attention(nn.Module):
             value_states = value_states.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all key/value_states to cache to be re-used for fast auto-regressive generation
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -954,20 +827,16 @@ class SeamlessM4Tv2Attention(nn.Module):
         if attention_mask is not None:
             attention_scores = attention_scores + attention_mask
 
-        # (batch_size, n_heads, seq_length, key_length)
         attn_weights = nn.functional.softmax(attention_scores.float(), dim=-1).type_as(attention_scores)
         attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
 
-        #  attn_output = torch.bmm(attn_probs, value_states) ?
         context_states = torch.matmul(attn_weights, value_states)
-        # attn_output = attn_output.view(bsz, self.num_heads, tgt_len, self.head_dim) ?
         context_states = context_states.permute(0, 2, 1, 3).contiguous().view(batch_size, seq_length, -1)
         attn_output = self.out_proj(context_states)
 
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.nllb_moe.modeling_nllb_moe.NllbMoeDenseActDense with NllbMoe->SeamlessM4Tv2,DenseActDense->FeedForwardNetwork, d_model->hidden_size
 class SeamlessM4Tv2FeedForwardNetwork(nn.Module):
     def __init__(self, config: SeamlessM4Tv2Config, ffn_dim: int):
         super().__init__()
@@ -990,7 +859,6 @@ class SeamlessM4Tv2FeedForwardNetwork(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TEncoderLayer with SeamlessM4T->SeamlessM4Tv2
 class SeamlessM4Tv2EncoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: SeamlessM4Tv2Config, encoder_ffn_dim=None, encoder_attention_heads=None):
         super().__init__()
@@ -1054,7 +922,6 @@ class SeamlessM4Tv2EncoderLayer(GradientCheckpointingLayer):
         return outputs
 
 
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TDecoderLayer with SeamlessM4T->SeamlessM4Tv2
 class SeamlessM4Tv2DecoderLayer(GradientCheckpointingLayer):
     def __init__(
         self, config: SeamlessM4Tv2Config, decoder_ffn_dim=None, decoder_attention_heads=None, layer_idx=None
@@ -1124,7 +991,6 @@ class SeamlessM4Tv2DecoderLayer(GradientCheckpointingLayer):
         residual = hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Self Attention
         hidden_states, self_attn_weights = self.self_attn(
             hidden_states=hidden_states,
             past_key_values=past_key_values,
@@ -1134,7 +1000,6 @@ class SeamlessM4Tv2DecoderLayer(GradientCheckpointingLayer):
         hidden_states = self.attn_dropout(hidden_states)
         hidden_states = residual + hidden_states
 
-        # Cross-Attention Block
         cross_attn_weights = None
         if encoder_hidden_states is not None:
             residual = hidden_states
@@ -1150,7 +1015,6 @@ class SeamlessM4Tv2DecoderLayer(GradientCheckpointingLayer):
             hidden_states = self.attn_dropout(hidden_states)
             hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
 
         hidden_states = self.ffn_layer_norm(hidden_states)
@@ -1211,7 +1075,6 @@ class SeamlessM4Tv2TextToUnitDecoderLayer(GradientCheckpointingLayer):
         """
         residual = hidden_states
 
-        # Self Attention
         hidden_states, self_attn_weights = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -1220,10 +1083,8 @@ class SeamlessM4Tv2TextToUnitDecoderLayer(GradientCheckpointingLayer):
         hidden_states = residual + hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Conv
         residual = hidden_states
 
-        # Apply padding mask to avoid leaking padded positions in the convolution layer
         if padding_mask is not None:
             hidden_states = hidden_states.masked_fill(~padding_mask.bool().unsqueeze(-1), 0.0)
         hidden_states = self.conv1(hidden_states.transpose(1, 2)).transpose(1, 2)
@@ -1241,7 +1102,6 @@ class SeamlessM4Tv2TextToUnitDecoderLayer(GradientCheckpointingLayer):
         return hidden_states, self_attn_weights
 
 
-############ SUB-MODELS related code ################
 
 
 @auto_docstring
@@ -1283,7 +1143,6 @@ class SeamlessM4Tv2PreTrainedModel(PreTrainedModel):
             )
             init.copy_(module.weights, emb_weights)
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TPreTrainedModel._compute_sub_sample_lengths_from_attention_mask
     def _compute_sub_sample_lengths_from_attention_mask(self, attention_mask):
         kernel_size, stride = self.config.adaptor_kernel_size, self.config.adaptor_stride
         pad = kernel_size // 2
@@ -1348,7 +1207,6 @@ class SeamlessM4Tv2PreTrainedModel(PreTrainedModel):
         subword_lens = input_ids.ne(pad_token_id).sum(1)
 
         for batch_id in range(batch_size):
-            # We slice out the tensor till the padding index.
             subword_indices = input_ids[batch_id, : subword_lens[batch_id]]
             subwords = subwords_batch[batch_id][: subword_lens[batch_id]]
 
@@ -1368,28 +1226,21 @@ class SeamlessM4Tv2PreTrainedModel(PreTrainedModel):
                     break
 
                 if subword_idx == unk_token_id:
-                    # We set char_len to 1 for an unk token.
                     char_len = 1
 
                     if merge_space_with_prev_subword and is_next_start_with_space[i]:
                         char_len += 1
                 else:
-                    # By default, spaces are merged with the next subword.
-                    # char_len includes the space.
                     char_len = len(subword)
 
                     if merge_space_with_prev_subword:
-                        # Add the space for the next subword.
                         if is_next_start_with_space[i]:
                             char_len += 1
-                        # Subtract the space for the current subword.
                         if i > 0 and is_next_start_with_space[i - 1]:
                             char_len -= 1
                     else:
-                        # Merge space with punctuation mark by default.
                         if is_punc[i] and is_next_start_with_space[i]:
                             char_len += 1
-                        # Subtract the space for the subword succeeding the punctuation mark.
                         elif i > 0 and is_punc[i - 1] and is_next_start_with_space[i - 1]:
                             char_len -= 1
 
@@ -1437,7 +1288,6 @@ class SeamlessM4Tv2PreTrainedModel(PreTrainedModel):
                 if subword_idx == unk_token_id:
                     char_ids = [unk_token_id]
                 else:
-                    # Get char token indices corresponding to the subwords.
                     char_ids = [self.generation_config.char_to_id.get(ch, unk_token_id) for ch in list(subword)]
                 char_seq_len = len(char_ids)
                 char_seqs[batch_id, total : total + char_seq_len] = torch.tensor(char_ids).to(char_seqs)
@@ -1457,7 +1307,6 @@ class SeamlessM4Tv2PreTrainedModel(PreTrainedModel):
         if hidden_states.size(0) == 1:
             hidden_states = torch.repeat_interleave(hidden_states, durations.view(-1), dim=1)
         else:
-            # if batched sample, need to interleave per sample, and pad -> loss of parallelism
             if hidden_states.shape[0] > 1 and self.training:
                 logger.warning_once(
                     """`self.training=True` and you use batching. You lose parallelism during the hifigan
@@ -1479,7 +1328,6 @@ class SeamlessM4Tv2PreTrainedModel(PreTrainedModel):
     Each layer is a [`SeamlessM4Tv2ConformerEncoderLayer`].
     """
 )
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TSpeechEncoder with SeamlessM4T->SeamlessM4Tv2
 class SeamlessM4Tv2SpeechEncoder(SeamlessM4Tv2PreTrainedModel):
     main_input_name = "input_features"
     input_modalities = "audio"
@@ -1493,7 +1341,6 @@ class SeamlessM4Tv2SpeechEncoder(SeamlessM4Tv2PreTrainedModel):
         self.adapter = SeamlessM4Tv2ConformerAdapter(config) if config.add_adapter else None
         self.inner_layer_norm = nn.LayerNorm(config.hidden_size)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -1547,13 +1394,11 @@ class SeamlessM4Tv2SpeechEncoder(SeamlessM4Tv2PreTrainedModel):
         )
 
 
-# inspired from MBart and NllbMoe
 @auto_docstring(
     custom_intro="""
     Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a [`SeamlessM4Tv2EncoderLayer`].
     """
 )
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TEncoder with SeamlessM4T->SeamlessM4Tv2
 class SeamlessM4Tv2Encoder(SeamlessM4Tv2PreTrainedModel):
     def __init__(
         self,
@@ -1608,7 +1453,6 @@ class SeamlessM4Tv2Encoder(SeamlessM4Tv2PreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.hidden_size)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -1662,7 +1506,6 @@ class SeamlessM4Tv2Encoder(SeamlessM4Tv2PreTrainedModel):
                 "You cannot pass input_ids to the encoder of the text_to_units model. Pass inputs_embeds instead."
             )
 
-        # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
         elif input_ids is not None:
@@ -1686,7 +1529,6 @@ class SeamlessM4Tv2Encoder(SeamlessM4Tv2PreTrainedModel):
 
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
-        # expand attention_mask
         if attention_mask is not None:
             attention_mask = create_bidirectional_mask(
                 config=self.config,
@@ -1700,7 +1542,6 @@ class SeamlessM4Tv2Encoder(SeamlessM4Tv2PreTrainedModel):
         for idx, encoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 encoder_states = encoder_states + (hidden_states,)
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -1738,7 +1579,6 @@ class SeamlessM4Tv2Encoder(SeamlessM4Tv2PreTrainedModel):
     Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a [`SeamlessM4Tv2DecoderLayer`].
     """
 )
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TDecoder with SeamlessM4T->SeamlessM4Tv2
 class SeamlessM4Tv2Decoder(SeamlessM4Tv2PreTrainedModel):
     def __init__(
         self,
@@ -1758,7 +1598,6 @@ class SeamlessM4Tv2Decoder(SeamlessM4Tv2PreTrainedModel):
         embed_scale = math.sqrt(config.hidden_size) if config.scale_embedding else 1.0
 
         if embed_tokens is not None:
-            # if embed_tokens defined, use its shape instead
             self.embed_tokens = SeamlessM4Tv2ScaledWordEmbedding(
                 embed_tokens.num_embeddings, embed_tokens.embedding_dim, self.padding_idx, embed_scale=embed_scale
             )
@@ -1788,7 +1627,6 @@ class SeamlessM4Tv2Decoder(SeamlessM4Tv2PreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.hidden_size)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1813,7 +1651,6 @@ class SeamlessM4Tv2Decoder(SeamlessM4Tv2PreTrainedModel):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError("You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
         elif input_ids is not None:
@@ -1836,7 +1673,6 @@ class SeamlessM4Tv2Decoder(SeamlessM4Tv2PreTrainedModel):
                 )
                 use_cache = False
 
-        # initialize `past_key_values`
         if use_cache and past_key_values is None:
             past_key_values = EncoderDecoderCache(DynamicCache(config=self.config), DynamicCache(config=self.config))
 
@@ -1849,7 +1685,6 @@ class SeamlessM4Tv2Decoder(SeamlessM4Tv2PreTrainedModel):
             past_key_values=past_key_values,
         )
 
-        # expand encoder attention mask
         if encoder_hidden_states is not None and encoder_attention_mask is not None:
             encoder_attention_mask = create_bidirectional_mask(
                 config=self.config,
@@ -1858,20 +1693,17 @@ class SeamlessM4Tv2Decoder(SeamlessM4Tv2PreTrainedModel):
                 encoder_hidden_states=encoder_hidden_states,
             )
 
-        # embed positions
         positions = self.embed_positions(input, past_key_values_length=past_key_values_length)
 
         hidden_states = inputs_embeds + positions.to(inputs_embeds.device)
 
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
-        # decoder layers
         all_hidden_states = () if output_hidden_states else None
         all_self_attns = () if output_attentions else None
         all_cross_attentions = () if (output_attentions and encoder_hidden_states is not None) else None
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
             if self.training:
@@ -1897,7 +1729,6 @@ class SeamlessM4Tv2Decoder(SeamlessM4Tv2PreTrainedModel):
 
         hidden_states = self.layer_norm(hidden_states)
 
-        # add hidden states from the last decoder layer
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
 
@@ -1940,7 +1771,6 @@ class SeamlessM4Tv2TextToUnitDecoder(SeamlessM4Tv2PreTrainedModel):
         self.embed_scale = math.sqrt(config.hidden_size) if config.scale_embedding else 1.0
 
         if embed_tokens is not None:
-            # if embed_tokens defined, use its shape instead
             self.embed_tokens = nn.Embedding(embed_tokens.num_embeddings, embed_tokens.embedding_dim, self.padding_idx)
             self.embed_tokens.weight = embed_tokens.weight
         else:
@@ -1981,7 +1811,6 @@ class SeamlessM4Tv2TextToUnitDecoder(SeamlessM4Tv2PreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.hidden_size)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -2019,22 +1848,16 @@ class SeamlessM4Tv2TextToUnitDecoder(SeamlessM4Tv2PreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # create padding mask for character lengths
         char_padding_mask = _compute_new_attention_mask(char_input_ids, char_count_per_id.sum(1))
 
-        # upsample hidden states according to characters sequence lengths
         char_hidden_states = self._hard_upsample(encoder_hidden_states, char_count_per_id)
-        # embed char positions
         char_positions = self.pos_emb_alpha_char * self.embed_char_positions(inputs_embeds=char_hidden_states)
-        # update char hidden states with positions and char embeddings
         char_hidden_states = self.embed_char(char_input_ids) * self.embed_scale + char_positions + char_hidden_states
 
-        # predict duration
         log_dur_pred = self.duration_predictor(char_hidden_states, padding_mask=char_padding_mask)
         dur_out = torch.clamp(torch.round(torch.expm1(log_dur_pred)).long(), min=1)
         dur_out = dur_out.masked_fill(~char_padding_mask.bool(), 0.0)
 
-        # upsample char hidden states according to predicted duration
         char_hidden_states = self._hard_upsample(char_hidden_states, dur_out)
 
         positions = self.pos_emb_alpha * self.embed_positions(inputs_embeds=char_hidden_states)
@@ -2049,12 +1872,10 @@ class SeamlessM4Tv2TextToUnitDecoder(SeamlessM4Tv2PreTrainedModel):
 
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
-        # decoder layers
         all_hidden_states = () if output_hidden_states else None
         all_self_attns = () if output_attentions else None
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
             if self.training:
@@ -2075,7 +1896,6 @@ class SeamlessM4Tv2TextToUnitDecoder(SeamlessM4Tv2PreTrainedModel):
 
         hidden_states = self.layer_norm(hidden_states)
 
-        # add hidden states from the last decoder layer
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
 
@@ -2095,7 +1915,6 @@ class SeamlessM4Tv2TextToUnitDecoder(SeamlessM4Tv2PreTrainedModel):
     """
 )
 class SeamlessM4Tv2TextToUnitModel(SeamlessM4Tv2PreTrainedModel):
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TTextToUnitModel.__init__ with SeamlessM4T->SeamlessM4Tv2, Decoder->TextToUnitDecoder
     def __init__(
         self,
         config: SeamlessM4Tv2Config,
@@ -2110,7 +1929,6 @@ class SeamlessM4Tv2TextToUnitModel(SeamlessM4Tv2PreTrainedModel):
         self.encoder = SeamlessM4Tv2Encoder(config, is_t2u_encoder=True)
         self.decoder = SeamlessM4Tv2TextToUnitDecoder(config, embed_tokens_decoder)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -2141,7 +1959,6 @@ class SeamlessM4Tv2TextToUnitModel(SeamlessM4Tv2PreTrainedModel):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -2149,7 +1966,6 @@ class SeamlessM4Tv2TextToUnitModel(SeamlessM4Tv2PreTrainedModel):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        # decoder outputs consists of (dec_features, dec_hidden, dec_attn, padding_mask)
         decoder_outputs = self.decoder(
             char_input_ids=char_input_ids,
             char_count_per_id=char_count_per_id,
@@ -2187,7 +2003,6 @@ class SeamlessM4Tv2TextToUnitForConditionalGeneration(SeamlessM4Tv2PreTrainedMod
     ]
     _tied_weights_keys = {"lm_head.weight": "model.decoder.embed_tokens.weight"}
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TTextToUnitForConditionalGeneration.__init__ with SeamlessM4T->SeamlessM4Tv2
     def __init__(
         self,
         config: SeamlessM4Tv2Config,
@@ -2197,7 +2012,6 @@ class SeamlessM4Tv2TextToUnitForConditionalGeneration(SeamlessM4Tv2PreTrainedMod
         embed_tokens_decoder (`nn.Embedding`, *optional*):
             input embedding of the decoder.
         """
-        # update config - used principality for bos_token_id etc.
         config = copy.deepcopy(config)
         for param, val in config.to_dict().items():
             if param.startswith("t2u_"):
@@ -2208,22 +2022,17 @@ class SeamlessM4Tv2TextToUnitForConditionalGeneration(SeamlessM4Tv2PreTrainedMod
 
         self.lm_head = nn.Linear(config.hidden_size, config.t2u_vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TTextToUnitForConditionalGeneration.get_encoder
     def get_encoder(self, modality: str | None = None):
         return self.model.encoder
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TTextToUnitForConditionalGeneration.get_decoder
     def get_decoder(self):
         return self.model.decoder
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TTextToUnitForConditionalGeneration.get_input_embeddings
     def get_input_embeddings(self):
         return self.model.decoder.embed_tokens
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TTextToUnitForConditionalGeneration.set_input_embeddings
     def set_input_embeddings(self, value):
         self.model.decoder.embed_tokens = value
 
@@ -2294,10 +2103,8 @@ class SeamlessM4Tv2TextToUnitForConditionalGeneration(SeamlessM4Tv2PreTrainedMod
         )
 
 
-############ VOCODER related code ################
 
 
-# Copied from transformers.models.speecht5.modeling_speecht5.HifiGanResidualBlock
 class HifiGanResidualBlock(nn.Module):
     def __init__(self, channels, kernel_size=3, dilation=(1, 3, 5), leaky_relu_slope=0.1):
         super().__init__()
@@ -2383,7 +2190,6 @@ class SeamlessM4Tv2VariancePredictor(nn.Module):
         self.proj = nn.Linear(hidden_dim, 1)
 
     def forward(self, hidden_states: Tensor, padding_mask: Tensor | None = None) -> Tensor:
-        # Input: B x T x C; Output: B x T
         if padding_mask is not None:
             hidden_states = hidden_states.masked_fill(~padding_mask.bool().unsqueeze(-1), 0.0)
         hidden_states = self.conv1(hidden_states.transpose(1, 2))
@@ -2397,7 +2203,6 @@ class SeamlessM4Tv2VariancePredictor(nn.Module):
         return self.proj(hidden_states).squeeze(dim=2)
 
 
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4THifiGan with SeamlessM4T->SeamlessM4Tv2
 class SeamlessM4Tv2HifiGan(nn.Module):
     def __init__(self, config: SeamlessM4Tv2Config):
         super().__init__()
@@ -2464,7 +2269,6 @@ class SeamlessM4Tv2HifiGan(nn.Module):
         hidden_states = self.conv_post(hidden_states)
         hidden_states = torch.tanh(hidden_states)
 
-        # remove seq-len dim since this collapses to 1
         waveform = hidden_states.squeeze(1)
 
         return waveform
@@ -2496,17 +2300,14 @@ class SeamlessM4Tv2CodeHifiGan(PreTrainedModel):
 
         self.hifi_gan = SeamlessM4Tv2HifiGan(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TCodeHifiGan._get_dur_output_lengths
     def _get_dur_output_lengths(self, input_ids, dur_out):
         """
         Computes the output length after the duration layer.
         """
         unit_lengths = (input_ids != self.pad_token_id).sum(1)
 
-        # take care of edge cases where no padding or too many padding
         unit_lengths = torch.clamp(unit_lengths, 0, dur_out.shape[1] - 1)
 
         cumulative_dur_out = torch.cumsum(dur_out, dim=1)
@@ -2514,15 +2315,12 @@ class SeamlessM4Tv2CodeHifiGan(PreTrainedModel):
 
         return unit_lengths
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TCodeHifiGan._get_output_hifigan_lengths
     def _get_output_hifigan_lengths(self, input_lengths: torch.LongTensor | int):
         """
         Computes the output length of the hifigan convolutional layers
         """
 
         def _conv_out_length(input_length, kernel_size, stride, pad, dilation=1):
-            # 1D convolutional layer output length formula taken
-            # from https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html
             return (
                 torch.div(input_length + 2 * pad - dilation * (kernel_size - 1) - 1, stride, rounding_mode="floor") + 1
             )
@@ -2530,10 +2328,8 @@ class SeamlessM4Tv2CodeHifiGan(PreTrainedModel):
         def _transpose_conv_out_length(input_length, kernel_size, stride, pad, dilation=1):
             return (input_length - 1) * stride - 2 * pad + dilation * (kernel_size - 1) + 1
 
-        # conv_pre
         input_lengths = _conv_out_length(input_lengths, 7, 1, 3)
 
-        # upsampler
         for i, (upsample_rate, kernel_size) in enumerate(
             zip(self.config.upsample_rates, self.config.upsample_kernel_sizes)
         ):
@@ -2541,7 +2337,6 @@ class SeamlessM4Tv2CodeHifiGan(PreTrainedModel):
                 input_lengths, kernel_size, upsample_rate, (kernel_size - upsample_rate) // 2
             )
 
-        # resblock
         for i in range(len(self.config.upsample_rates)):
             for kernel_size, dilation in zip(self.config.resblock_kernel_sizes, self.config.resblock_dilation_sizes):
                 for dil in dilation:
@@ -2552,12 +2347,10 @@ class SeamlessM4Tv2CodeHifiGan(PreTrainedModel):
                 for dil in dilation:
                     input_lengths = _conv_out_length(input_lengths, kernel_size, 1, (kernel_size - 1) // 2, dilation=1)
 
-        # conv_post
         input_lengths = _conv_out_length(input_lengths, 7, 1, 3)
 
         return input_lengths
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TCodeHifiGan.forward with SeamlessM4T->SeamlessM4Tv2, spkr_id->speaker_id
     def forward(
         self, input_ids: torch.LongTensor, speaker_id: torch.Tensor, lang_id: torch.Tensor, **kwargs
     ) -> tuple[torch.Tensor]:
@@ -2579,11 +2372,9 @@ class SeamlessM4Tv2CodeHifiGan(PreTrainedModel):
 
         log_dur_pred = self.dur_predictor(hidden_states.transpose(1, 2))
         dur_out = torch.clamp(torch.round(torch.expm1(log_dur_pred)).long(), min=1)
-        # B x C x T
         if hidden_states.size(0) == 1:
             hidden_states = torch.repeat_interleave(hidden_states, dur_out.view(-1), dim=2)
         else:
-            # if batched sample, need to interleave per sample, and pad -> loss of parallelism
             if hidden_states.shape[0] > 1 and self.training:
                 logger.warning(
                     """`self.training=True` and you use batching. You lose parallelism during the hifigan
@@ -2607,7 +2398,6 @@ class SeamlessM4Tv2CodeHifiGan(PreTrainedModel):
 
         return hidden_states, lengths
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TCodeHifiGan.apply_weight_norm
     def apply_weight_norm(self):
         weight_norm = nn.utils.weight_norm
         if hasattr(nn.utils.parametrizations, "weight_norm"):
@@ -2620,7 +2410,6 @@ class SeamlessM4Tv2CodeHifiGan(PreTrainedModel):
             layer.apply_weight_norm()
         weight_norm(self.hifi_gan.conv_post)
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TCodeHifiGan.remove_weight_norm
     def remove_weight_norm(self):
         nn.utils.remove_weight_norm(self.hifi_gan.conv_pre)
         for layer in self.hifi_gan.upsampler:
@@ -2630,7 +2419,6 @@ class SeamlessM4Tv2CodeHifiGan(PreTrainedModel):
         nn.utils.remove_weight_norm(self.hifi_gan.conv_post)
 
 
-############ WHOLE MODEL related code ################
 
 
 @auto_docstring(
@@ -2638,7 +2426,6 @@ class SeamlessM4Tv2CodeHifiGan(PreTrainedModel):
     The text-to-text SeamlessM4Tv2 Model transformer which can be used for T2TT.
     """
 )
-# Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForTextToText with SeamlessM4T->SeamlessM4Tv2,SeamlessM4Tv2Tokenizer->SeamlessM4TTokenizer, SeamlessM4Tv2Processor->SeamlessM4TProcessor, SEAMLESS_M4T->SEAMLESS_M4T_V2
 class SeamlessM4Tv2ForTextToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
     _keys_to_ignore_on_load_missing = ["speech_encoder", "t2u_model", "vocoder"]
     main_input_name = "input_ids"
@@ -2658,7 +2445,6 @@ class SeamlessM4Tv2ForTextToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
         self.text_decoder = SeamlessM4Tv2Decoder(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_encoder(self, modality: str | None = None):
@@ -2724,7 +2510,6 @@ class SeamlessM4Tv2ForTextToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -2734,7 +2519,6 @@ class SeamlessM4Tv2ForTextToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
 
         encoder_attention_mask = attention_mask
 
-        # decoder outputs consists of (dec_features, past_key_values, dec_hidden, dec_attn)
         decoder_outputs = self.text_decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -2844,21 +2628,17 @@ class SeamlessM4Tv2ForTextToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
                 - [`~generation.GenerateEncoderDecoderOutput`],
                 - [`~generation.GenerateBeamEncoderDecoderOutput`]
         """
-        # prepare text_decoder_input_ids
         text_decoder_input_ids = kwargs.pop("decoder_input_ids", None)
-        # overwrite text_decoder_input_ids if tgt_lang is passed. The latter gets priority over decoder_input_ids.
         if tgt_lang is not None:
             batch_size = len(input_ids) if input_ids is not None else len(kwargs.get("inputs_embeds"))
 
             if hasattr(self.generation_config, "text_decoder_lang_to_code_id"):
-                # also accept __xxx__
                 tgt_lang = tgt_lang.replace("__", "")
                 if tgt_lang not in self.generation_config.text_decoder_lang_to_code_id:
                     raise ValueError(
                         f"""`tgt_lang={tgt_lang}` is not supported by this model. Please specify a `tgt_lang` in
                         {", ".join(self.generation_config.text_decoder_lang_to_code_id.keys())}"""
                     )
-                # tgt_lang gets priority over decoder input ids
                 text_tgt_lang_id = self.generation_config.text_decoder_lang_to_code_id.get(tgt_lang)
                 text_decoder_input_ids = torch.tensor([[text_tgt_lang_id]] * batch_size, device=self.device)
             else:
@@ -2867,7 +2647,6 @@ class SeamlessM4Tv2ForTextToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
                     the target language to the right token id. Make sure to load the right generation config."""
                 )
         else:
-            # only a warning, otherwise errors appear in the tests
             logger.warning(
                 """You must either specify a `tgt_lang` or pass a correct `text_decoder_input_ids` to get
                 a correct generation, otherwise the generation will probably make no sense."""
@@ -2900,7 +2679,6 @@ class SeamlessM4Tv2ForSpeechToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin
         "text_decoder.embed_tokens.weight": "shared.weight",
     }
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToText.__init__ with SeamlessM4T->SeamlessM4Tv2
     def __init__(self, config: SeamlessM4Tv2Config):
         super().__init__(config)
 
@@ -2909,27 +2687,21 @@ class SeamlessM4Tv2ForSpeechToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin
         self.text_decoder = SeamlessM4Tv2Decoder(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToText.get_encoder
     def get_encoder(self, modality: str | None = None):
         return self.speech_encoder
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToText.get_decoder
     def get_decoder(self):
         return self.text_decoder
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToText.get_input_embeddings
     def get_input_embeddings(self):
         return self.text_decoder.embed_tokens
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToText.set_input_embeddings
     def set_input_embeddings(self, value):
         self.text_decoder.embed_tokens = value
 
     @auto_docstring(custom_args=SEAMLESS_M4T_V2_COMMON_CUSTOM_ARGS)
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToText.forward
     def forward(
         self,
         input_features: torch.LongTensor | None = None,
@@ -2978,7 +2750,6 @@ class SeamlessM4Tv2ForSpeechToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -2995,7 +2766,6 @@ class SeamlessM4Tv2ForSpeechToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin
                 hidden_states=encoder_outputs[0], seq_lens=sub_sampled_lengths
             )
 
-        # decoder outputs consists of (dec_features, past_key_values, dec_hidden, dec_attn)
         decoder_outputs = self.text_decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -3034,7 +2804,6 @@ class SeamlessM4Tv2ForSpeechToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin
             encoder_attentions=encoder_outputs.attentions,
         )
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToText.generate
     def generate(
         self,
         input_features=None,
@@ -3104,7 +2873,6 @@ class SeamlessM4Tv2ForSpeechToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin
                 - [`~generation.GenerateBeamEncoderDecoderOutput`]
         """
         text_decoder_input_ids = kwargs.pop("decoder_input_ids", None)
-        # overwrite text_decoder_input_ids if tgt_lang is passed. The latter gets priority over decoder_input_ids.
         input_features = input_features if input_features is not None else kwargs.pop("inputs")
         if tgt_lang is not None:
             inputs = kwargs.get("inputs_embeds") if input_features is None else input_features
@@ -3116,14 +2884,12 @@ class SeamlessM4Tv2ForSpeechToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin
             batch_size = len(inputs)
 
             if hasattr(self.generation_config, "text_decoder_lang_to_code_id"):
-                # also accept __xxx__
                 tgt_lang = tgt_lang.replace("__", "")
                 if tgt_lang not in self.generation_config.text_decoder_lang_to_code_id:
                     raise ValueError(
                         f"""`tgt_lang={tgt_lang}` is not supported by this model. Please specify a `tgt_lang` in
                         {", ".join(self.generation_config.text_decoder_lang_to_code_id.keys())}"""
                     )
-                # tgt_lang gets priority over decoder input ids
                 text_tgt_lang_id = self.generation_config.text_decoder_lang_to_code_id.get(tgt_lang)
                 text_decoder_input_ids = torch.tensor([[text_tgt_lang_id]] * batch_size, device=self.device)
             else:
@@ -3132,7 +2898,6 @@ class SeamlessM4Tv2ForSpeechToText(SeamlessM4Tv2PreTrainedModel, GenerationMixin
                     the target language to the right token id. Make sure to load the right generation config."""
                 )
         else:
-            # only a warning, otherwise errors appear in the tests
             logger.warning(
                 """You must either specify a `tgt_lang` or pass a correct `text_decoder_input_ids` to get
                 a correct generation, otherwise the generation will probably make no sense."""
@@ -3165,7 +2930,6 @@ class SeamlessM4Tv2ForTextToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMixin
         "text_decoder.embed_tokens.weight": "shared.weight",
     }
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForTextToSpeech.__init__ with SeamlessM4T->SeamlessM4Tv2
     def __init__(self, config: SeamlessM4Tv2Config):
         super().__init__(config)
 
@@ -3178,29 +2942,23 @@ class SeamlessM4Tv2ForTextToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMixin
         self.t2u_model = SeamlessM4Tv2TextToUnitForConditionalGeneration(config)
         self.vocoder = SeamlessM4Tv2CodeHifiGan(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForTextToSpeech.get_encoder
     def get_encoder(self, modality: str | None = None):
         return self.text_encoder
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForTextToSpeech.get_decoder
     def get_decoder(self):
         return self.text_decoder
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForTextToSpeech.get_input_embeddings
     def get_input_embeddings(self):
         return self.text_decoder.embed_tokens
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForTextToSpeech.set_input_embeddings
     def set_input_embeddings(self, value):
         self.text_encoder.embed_tokens = value
         self.text_decoder.embed_tokens = value
         self.shared = value
 
     @auto_docstring(custom_args=SEAMLESS_M4T_V2_COMMON_CUSTOM_ARGS)
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForTextToSpeech.forward with SeamlessM4T->SeamlessM4Tv2
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -3241,7 +2999,6 @@ class SeamlessM4Tv2ForTextToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMixin
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
         if encoder_outputs is None:
-            # if encoder_outputs is not None, it's probably used within a .generate method so no need to warn
             logger.warning(
                 "This is the same forward method as `SeamlessM4Tv2ForTextToText`."
                 "It doesn't use the text-to-unit model `SeamlessM4Tv2TextToUnitForConditionalGeneration`."
@@ -3255,7 +3012,6 @@ class SeamlessM4Tv2ForTextToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMixin
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -3265,7 +3021,6 @@ class SeamlessM4Tv2ForTextToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMixin
 
         encoder_attention_mask = attention_mask
 
-        # decoder outputs consists of (dec_features, past_key_values, dec_hidden, dec_attn)
         decoder_outputs = self.text_decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -3369,7 +3124,6 @@ class SeamlessM4Tv2ForTextToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMixin
         if tgt_lang is None:
             raise ValueError("You must specify a `tgt_lang` to generate translated speech.")
         else:
-            # also accept __xxx__
             tgt_lang = tgt_lang.replace("__", "")
             for key in ["text_decoder_lang_to_code_id", "t2u_lang_code_to_id", "vocoder_lang_code_to_id"]:
                 lang_code_to_id = getattr(self.generation_config, key, None)
@@ -3392,29 +3146,23 @@ class SeamlessM4Tv2ForTextToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMixin
 
         text_decoder_input_ids = kwargs_text.get("decoder_input_ids")
 
-        # overwrite text_decoder_input_ids if tgt_lang is passed. The latter gets priority over decoder_input_ids.
         text_tgt_lang_id = self.generation_config.text_decoder_lang_to_code_id.get(tgt_lang)
         text_decoder_input_ids = torch.tensor([[text_tgt_lang_id]] * batch_size, device=self.device)
 
         kwargs_text["decoder_input_ids"] = text_decoder_input_ids
 
-        # first generation
         text_generation_output = super().generate(input_ids, **kwargs_text)
         sequences = text_generation_output.sequences
 
-        # prepare second generation
         num_return_sequences = len(sequences) // batch_size
         attention_mask = kwargs_speech.get("attention_mask", kwargs_text.get("attention_mask", None))
 
         if attention_mask is not None:
-            # repeat attention mask alongside batch dimension
             attention_mask = torch.repeat_interleave(attention_mask, num_return_sequences, dim=0)
         encoder_hidden_states = text_generation_output.encoder_hidden_states[-1]
 
-        # repeat attention mask alongside batch dimension
         encoder_hidden_states = torch.repeat_interleave(encoder_hidden_states, num_return_sequences, dim=0)
 
-        # get decoder last hidden state - must do a pass through the text decoder
         t2u_input_embeds = self.text_decoder(
             input_ids=sequences[:, :-1],  # Manually trim the final EOS token
             encoder_hidden_states=encoder_hidden_states,
@@ -3423,32 +3171,26 @@ class SeamlessM4Tv2ForTextToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMixin
 
         pad_token_id = self.generation_config.pad_token_id
 
-        # Compute new attention mask
         seq_lens = (sequences[:, :-1] != pad_token_id).int().sum(1)
         t2u_model_attention_mask = _compute_new_attention_mask(t2u_input_embeds, seq_lens)
         kwargs_speech["attention_mask"] = t2u_model_attention_mask
 
-        # REMOVE EOS and lang_id
         t2u_input_ids = sequences[:, 2:-1]
-        # replace every other EOS
         t2u_input_ids = torch.masked_fill(
             t2u_input_ids, t2u_input_ids == self.generation_config.eos_token_id, pad_token_id
         )
 
-        # compute t2u_char_input_ids
         t2u_subwords = self._indices_to_subwords(t2u_input_ids)
         t2u_char_count_per_id = self._count_character_length_in_subword(
             t2u_input_ids, t2u_subwords, pad_token_id=pad_token_id
         )
 
-        # Add pads for lang, EOS tokens as per NLLB "source" tokenizer mode.
         pad_zero = t2u_char_count_per_id.new_zeros((t2u_char_count_per_id.shape[0], 1))
         t2u_char_count_per_id = torch.cat([pad_zero, t2u_char_count_per_id, pad_zero], dim=1)
         t2u_char_input_ids = self._get_char_input_ids(
             t2u_input_ids, t2u_subwords, t2u_char_count_per_id, pad_token_id=pad_token_id
         )
 
-        # second pass
         t2u_output = self.t2u_model(
             inputs_embeds=t2u_input_embeds,
             char_input_ids=t2u_char_input_ids,
@@ -3459,26 +3201,20 @@ class SeamlessM4Tv2ForTextToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMixin
         t2u_logits = t2u_output[0]
         padding_mask = t2u_output[1].bool()
 
-        # The text-to-unit model is non auto-regressive. We keep the ability to use sampling with temperature
         temperature = kwargs_speech.get("temperature", None)
         if (temperature is None or temperature == 1.0) or not kwargs_speech.get("do_sample", False):
             unit_ids = t2u_logits.argmax(dim=-1)
         else:
             t2u_logits = t2u_logits / temperature
-            # apply softmax
             probs = nn.functional.softmax(t2u_logits, dim=-1)
-            # reshape to 2D: (batch_size, seq_len, t2u_vocab_size) -> (batch_size*seq_len, t2u_vocab_size)
             probs = probs.reshape((-1, probs.shape[2]))
-            # multinomial then reshape : (batch_size*seq_len)-> (batch_size,seq_len)
             unit_ids = torch.multinomial(probs, num_samples=1).view(t2u_logits.shape[0], -1)
 
         output_unit_ids = unit_ids.detach().clone()
 
         replace_mask = (unit_ids == self.config.t2u_eos_token_id) | (~padding_mask)
-        # replace eos per pad
         unit_ids = unit_ids.masked_fill(replace_mask, self.config.t2u_pad_token_id)
 
-        # offset of control symbols
         unit_ids = torch.where(
             unit_ids == self.config.t2u_pad_token_id, unit_ids, unit_ids - self.config.vocoder_offset
         )
@@ -3516,7 +3252,6 @@ class SeamlessM4Tv2ForSpeechToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMix
 
     _tied_weights_keys = {"lm_head.weight": "shared.weight", "text_decoder.embed_tokens.weight": "shared.weight"}
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToSpeech.__init__ with SeamlessM4T->SeamlessM4Tv2
     def __init__(self, config):
         super().__init__(config)
 
@@ -3529,24 +3264,19 @@ class SeamlessM4Tv2ForSpeechToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMix
         self.vocoder = SeamlessM4Tv2CodeHifiGan(config)
         self.post_init()
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToSpeech.get_encoder
     def get_encoder(self, modality: str | None = None):
         return self.speech_encoder
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToSpeech.get_decoder
     def get_decoder(self):
         return self.text_decoder
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToSpeech.get_input_embeddings
     def get_input_embeddings(self):
         return self.text_decoder.embed_tokens
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToSpeech.set_input_embeddings
     def set_input_embeddings(self, value):
         self.text_decoder.embed_tokens = value
 
     @auto_docstring(custom_args=SEAMLESS_M4T_V2_COMMON_CUSTOM_ARGS)
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TForSpeechToSpeech.forward with SeamlessM4T->SeamlessM4Tv2
     def forward(
         self,
         input_features: torch.LongTensor | None = None,
@@ -3587,7 +3317,6 @@ class SeamlessM4Tv2ForSpeechToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMix
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
         if encoder_outputs is None:
-            # if encoder_outputs is not None, it's probably used within a .generate method so no need to warn
             logger.warning(
                 "This is the same forward method as `SeamlessM4Tv2ForSpeechToText`. It doesn't use `self.t2u_model`."
                 "If you want to generate speech, use the `generate` method."
@@ -3601,7 +3330,6 @@ class SeamlessM4Tv2ForSpeechToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMix
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -3618,7 +3346,6 @@ class SeamlessM4Tv2ForSpeechToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMix
                 hidden_states=encoder_outputs[0], seq_lens=sub_sampled_lengths
             )
 
-        # decoder outputs consists of (dec_features, past_key_values, dec_hidden, dec_attn)
         decoder_outputs = self.text_decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -3719,7 +3446,6 @@ class SeamlessM4Tv2ForSpeechToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMix
         if tgt_lang is None:
             raise ValueError("You must specify a `tgt_lang` to generate translated speech.")
         else:
-            # also accept __xxx__
             tgt_lang = tgt_lang.replace("__", "")
             for key in ["text_decoder_lang_to_code_id", "t2u_lang_code_to_id", "vocoder_lang_code_to_id"]:
                 lang_code_to_id = getattr(self.generation_config, key, None)
@@ -3741,24 +3467,19 @@ class SeamlessM4Tv2ForSpeechToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMix
         kwargs_text["output_scores"] = True
 
         text_decoder_input_ids = kwargs_text.get("decoder_input_ids")
-        # overwrite text_decoder_input_ids if tgt_lang is passed. The latter gets priority over decoder_input_ids.
         text_tgt_lang_id = self.generation_config.text_decoder_lang_to_code_id.get(tgt_lang)
         text_decoder_input_ids = torch.tensor([[text_tgt_lang_id]] * batch_size, device=self.device)
 
         kwargs_text["decoder_input_ids"] = text_decoder_input_ids
 
-        # first generation
         text_generation_output = super().generate(input_features, **kwargs_text)
         sequences = text_generation_output.sequences
 
-        # prepare second generation
         num_return_sequences = len(sequences) // batch_size
         attention_mask = kwargs_speech.get("attention_mask", kwargs_text.get("attention_mask", None))
 
-        # get last_hidden_state from encoder
         encoder_hidden_states = self.speech_encoder(input_features=input_features, attention_mask=attention_mask)[0]
 
-        # input modality = speech so new attention mask for the decoder
         if attention_mask is not None:
             sub_sampled_lengths = self._compute_sub_sample_lengths_from_attention_mask(attention_mask).to(
                 encoder_hidden_states.device
@@ -3767,13 +3488,10 @@ class SeamlessM4Tv2ForSpeechToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMix
                 hidden_states=encoder_hidden_states, seq_lens=sub_sampled_lengths
             )
 
-            # repeat attention mask alongside batch dimension
             attention_mask = torch.repeat_interleave(attention_mask, num_return_sequences, dim=0)
 
-        # repeat attention mask alongside batch dimension
         encoder_hidden_states = torch.repeat_interleave(encoder_hidden_states, num_return_sequences, dim=0)
 
-        # get decoder last hidden state - must do a pass through the text decoder
         t2u_input_embeds = self.text_decoder(
             input_ids=sequences[:, :-1],  # Manually trim the final EOS token
             encoder_hidden_states=encoder_hidden_states,
@@ -3782,32 +3500,26 @@ class SeamlessM4Tv2ForSpeechToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMix
 
         pad_token_id = self.generation_config.pad_token_id
 
-        # Compute new attention mask
         seq_lens = (sequences[:, :-1] != pad_token_id).int().sum(1)
         t2u_model_attention_mask = _compute_new_attention_mask(t2u_input_embeds, seq_lens)
         kwargs_speech["attention_mask"] = t2u_model_attention_mask
 
-        # REMOVE EOS and lang_id
         t2u_input_ids = sequences[:, 2:-1]
-        # replace every other EOS
         t2u_input_ids = torch.masked_fill(
             t2u_input_ids, t2u_input_ids == self.generation_config.eos_token_id, pad_token_id
         )
 
-        # compute t2u_char_input_ids
         t2u_subwords = self._indices_to_subwords(t2u_input_ids)
         t2u_char_count_per_id = self._count_character_length_in_subword(
             t2u_input_ids, t2u_subwords, pad_token_id=pad_token_id
         )
 
-        # Add pads for lang, EOS tokens as per NLLB "source" tokenizer mode.
         pad_zero = t2u_char_count_per_id.new_zeros((t2u_char_count_per_id.shape[0], 1))
         t2u_char_count_per_id = torch.cat([pad_zero, t2u_char_count_per_id, pad_zero], dim=1)
         t2u_char_input_ids = self._get_char_input_ids(
             t2u_input_ids, t2u_subwords, t2u_char_count_per_id, pad_token_id=pad_token_id
         )
 
-        # second pass
         t2u_output = self.t2u_model(
             inputs_embeds=t2u_input_embeds,
             char_input_ids=t2u_char_input_ids,
@@ -3818,26 +3530,20 @@ class SeamlessM4Tv2ForSpeechToSpeech(SeamlessM4Tv2PreTrainedModel, GenerationMix
         t2u_logits = t2u_output[0]
         padding_mask = t2u_output[1].bool()
 
-        # The text-to-unit model is non auto-regressive. We keep the ability to use sampling with temperature
         temperature = kwargs_speech.get("temperature", None)
         if (temperature is None or temperature == 1.0) or not kwargs_speech.get("do_sample", False):
             unit_ids = t2u_logits.argmax(dim=-1)
         else:
             t2u_logits = t2u_logits / temperature
-            # apply softmax
             probs = nn.functional.softmax(t2u_logits, dim=-1)
-            # reshape to 2D: (batch_size, seq_len, t2u_vocab_size) -> (batch_size*seq_len, t2u_vocab_size)
             probs = probs.reshape((-1, probs.shape[2]))
-            # multinomial then reshape : (batch_size*seq_len)-> (batch_size,seq_len)
             unit_ids = torch.multinomial(probs, num_samples=1).view(t2u_logits.shape[0], -1)
 
         output_unit_ids = unit_ids.detach().clone()
 
         replace_mask = (unit_ids == self.config.t2u_eos_token_id) | (~padding_mask)
-        # replace eos per pad
         unit_ids = unit_ids.masked_fill(replace_mask, self.config.t2u_pad_token_id)
 
-        # offset of control symbols
         unit_ids = torch.where(
             unit_ids == self.config.t2u_pad_token_id, unit_ids, unit_ids - self.config.vocoder_offset
         )
@@ -3876,7 +3582,6 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
         "text_decoder.embed_tokens.weight": "shared.weight",
     }
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TModel.__init__ with SeamlessM4T->SeamlessM4Tv2
     def __init__(self, config, current_modality="text"):
         r"""
         current_modality (`str`, *optional*, defaults to `"text"`):
@@ -3895,14 +3600,11 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
         if current_modality == "speech":
             self.main_input_name = "input_features"
 
-        # these models already call post_init in their initialization
         self.t2u_model = SeamlessM4Tv2TextToUnitForConditionalGeneration(config)
         self.vocoder = SeamlessM4Tv2CodeHifiGan(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TModel.set_modality
     def set_modality(self, modality="text"):
         if modality == "text":
             self.main_input_name = "input_ids"
@@ -3913,25 +3615,21 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
         else:
             raise ValueError(f"`modality={modality}` is not a valid modality. It must be `text` or `speech`.")
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TModel.get_encoder
     def get_encoder(self, modality: str | None = None):
         if self.current_modality == "text":
             return self.text_encoder
         else:
             return self.speech_encoder
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TModel.get_input_embeddings
     def get_input_embeddings(self):
         return self.text_decoder.embed_tokens
 
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TModel.set_input_embeddings
     def set_input_embeddings(self, value):
         self.text_encoder.embed_tokens = value
         self.text_decoder.embed_tokens = value
         self.shared = value
 
     @auto_docstring(custom_args=SEAMLESS_M4T_V2_COMMON_CUSTOM_ARGS)
-    # Copied from transformers.models.seamless_m4t.modeling_seamless_m4t.SeamlessM4TModel.forward with SeamlessM4T->SeamlessM4Tv2
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -3991,7 +3689,6 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
                     "`inputs_embeds` will be ignored."
                 )
 
-            # if encoder_outputs is not None, it's probably used within a .generate method so no need to warn
             logger.warning(
                 "This calls the same method `forward` as `SeamlessM4Tv2ForTextToText` and `SeamlessM4Tv2ForSpeechToText`"
                 "depending on the input modality. If you want to generate speech, use the `generate` method."
@@ -4008,7 +3705,6 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
             )
 
         elif input_ids is not None or inputs_embeds is not None:
-            # if encoder_outputs is not None, it's probably used within a .generate method so no need to warn
             logger.warning(
                 "This calls the same method `forward` as `SeamlessM4Tv2ForTextToText` and `SeamlessM4Tv2ForSpeechToText`"
                 "depending on the input modality. If you want to generate speech, use the `generate` method."
@@ -4022,7 +3718,6 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -4031,7 +3726,6 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
             )
 
         encoder_attention_mask = attention_mask
-        # input modality = speech so new attention mask
         if self.current_modality == "speech" and attention_mask is not None:
             sub_sampled_lengths = self._compute_sub_sample_lengths_from_attention_mask(attention_mask).to(
                 encoder_outputs[0].device
@@ -4040,7 +3734,6 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
                 hidden_states=encoder_outputs[0], seq_lens=sub_sampled_lengths
             )
 
-        # decoder outputs consists of (dec_features, past_key_values, dec_hidden, dec_attn)
         decoder_outputs = self.text_decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -4159,7 +3852,6 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
             raise ValueError("You must specify a `tgt_lang` to generate translated speech.")
 
         if tgt_lang is not None:
-            # also accept __xxx__
             tgt_lang = tgt_lang.replace("__", "")
             if generate_speech:
                 keys_to_check = ["text_decoder_lang_to_code_id", "t2u_lang_code_to_id", "vocoder_lang_code_to_id"]
@@ -4191,15 +3883,12 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
         kwargs_text["output_scores"] = True
 
         text_decoder_input_ids = kwargs_text.get("decoder_input_ids")
-        # overwrite text_decoder_input_ids if tgt_lang is passed. The latter gets priority over decoder_input_ids.
         if tgt_lang is not None:
-            # tgt_lang gets priority over decoder input ids
             text_tgt_lang_id = self.generation_config.text_decoder_lang_to_code_id.get(tgt_lang)
             text_decoder_input_ids = torch.tensor([[text_tgt_lang_id]] * batch_size, device=self.device)
 
         kwargs_text["decoder_input_ids"] = text_decoder_input_ids
 
-        # first generation
         if input_features is not None:
             self.set_modality("speech")
             if input_ids is not None:
@@ -4216,18 +3905,14 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
         if not generate_speech:
             return text_generation_output
 
-        # prepare second generation
         num_return_sequences = len(sequences) // batch_size
         attention_mask = kwargs_speech.get("attention_mask", kwargs_text.get("attention_mask", None))
 
-        # get encoder last hidden states
         if self.current_modality == "speech":
-            # get last_hidden_state from encoder - must do a pass through the speech encoder
             encoder_hidden_states = self.speech_encoder(
                 input_features=input_features, attention_mask=attention_mask
             ).last_hidden_state
 
-            # input modality = speech so new attention mask for the decoder
             if attention_mask is not None:
                 sub_sampled_lengths = self._compute_sub_sample_lengths_from_attention_mask(attention_mask).to(
                     encoder_hidden_states.device
@@ -4239,13 +3924,10 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
             encoder_hidden_states = text_generation_output.encoder_hidden_states[-1]
 
         if attention_mask is not None:
-            # repeat attention mask alongside batch dimension
             attention_mask = torch.repeat_interleave(attention_mask, num_return_sequences, dim=0)
 
-        # repeat attention mask alongside batch dimension
         encoder_hidden_states = torch.repeat_interleave(encoder_hidden_states, num_return_sequences, dim=0)
 
-        # get decoder last hidden state - must do a pass through the text decoder
         t2u_input_embeds = self.text_decoder(
             input_ids=sequences[:, :-1],  # Manually trim the final EOS token
             encoder_hidden_states=encoder_hidden_states,
@@ -4254,32 +3936,26 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
 
         pad_token_id = self.generation_config.pad_token_id
 
-        # Compute new attention mask
         seq_lens = (sequences[:, :-1] != pad_token_id).int().sum(1)
         t2u_model_attention_mask = _compute_new_attention_mask(t2u_input_embeds, seq_lens)
         kwargs_speech["attention_mask"] = t2u_model_attention_mask
 
-        # REMOVE EOS and lang_id
         t2u_input_ids = sequences[:, 2:-1]
-        # replace every other EOS
         t2u_input_ids = torch.masked_fill(
             t2u_input_ids, t2u_input_ids == self.generation_config.eos_token_id, pad_token_id
         )
 
-        # compute t2u_char_input_ids
         t2u_subwords = self._indices_to_subwords(t2u_input_ids)
         t2u_char_count_per_id = self._count_character_length_in_subword(
             t2u_input_ids, t2u_subwords, pad_token_id=pad_token_id
         )
 
-        # Add pads for lang, EOS tokens as per NLLB "source" tokenizer mode.
         pad_zero = t2u_char_count_per_id.new_zeros((t2u_char_count_per_id.shape[0], 1))
         t2u_char_count_per_id = torch.cat([pad_zero, t2u_char_count_per_id, pad_zero], dim=1)
         t2u_char_input_ids = self._get_char_input_ids(
             t2u_input_ids, t2u_subwords, t2u_char_count_per_id, pad_token_id=pad_token_id
         )
 
-        # second pass
         t2u_output = self.t2u_model(
             inputs_embeds=t2u_input_embeds,
             char_input_ids=t2u_char_input_ids,
@@ -4290,26 +3966,20 @@ class SeamlessM4Tv2Model(SeamlessM4Tv2PreTrainedModel, GenerationMixin):
         t2u_logits = t2u_output[0]
         padding_mask = t2u_output[1].bool()
 
-        # The text-to-unit model is non auto-regressive. We keep the ability to use sampling with temperature
         temperature = kwargs_speech.get("temperature", None)
         if (temperature is None or temperature == 1.0) or not kwargs_speech.get("do_sample", False):
             unit_ids = t2u_logits.argmax(dim=-1)
         else:
             t2u_logits = t2u_logits / temperature
-            # apply softmax
             probs = nn.functional.softmax(t2u_logits, dim=-1)
-            # reshape to 2D: (batch_size, seq_len, t2u_vocab_size) -> (batch_size*seq_len, t2u_vocab_size)
             probs = probs.reshape((-1, probs.shape[2]))
-            # multinomial then reshape : (batch_size*seq_len)-> (batch_size,seq_len)
             unit_ids = torch.multinomial(probs, num_samples=1).view(t2u_logits.shape[0], -1)
 
         output_unit_ids = unit_ids.detach().clone()
 
         replace_mask = (unit_ids == self.config.t2u_eos_token_id) | (~padding_mask)
-        # replace eos per pad
         unit_ids = unit_ids.masked_fill(replace_mask, self.config.t2u_pad_token_id)
 
-        # offset of control symbols
         unit_ids = torch.where(
             unit_ids == self.config.t2u_pad_token_id, unit_ids, unit_ids - self.config.vocoder_offset
         )

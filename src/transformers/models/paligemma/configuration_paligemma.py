@@ -1,16 +1,3 @@
-# Copyright 2024 Microsoft Research & University of Wisconsin-Madison and the HuggingFace Inc. team. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PaliGemmamodel configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,27 +9,6 @@ from ..auto import CONFIG_MAPPING, AutoConfig
 @auto_docstring(checkpoint="google/paligemma-3b-pt-224")
 @strict
 class PaliGemmaConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import PaliGemmaForConditionalGeneration, PaliGemmaConfig, SiglipVisionConfig, GemmaConfig
-
-    >>> # Initializing a Siglip-like vision config
-    >>> vision_config = SiglipVisionConfig()
-
-    >>> # Initializing a PaliGemma config
-    >>> text_config = GemmaConfig()
-
-    >>> # Initializing a PaliGemma paligemma-3b-224 style configuration
-    >>> configuration = PaliGemmaConfig(vision_config, text_config)
-
-    >>> # Initializing a model from the paligemma-3b-224 style configuration
-    >>> model = PaliGemmaForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "paligemma"
     attribute_map = {
@@ -89,8 +55,6 @@ class PaliGemmaConfig(PreTrainedConfig):
                 vocab_size=self.vocab_size,
             )
 
-        # BC: `use_bidirectional_attention` was originally unset in PaliGemma1 (backbone = Gemma1) AND PaliGemma2
-        # (backbone = Gemma2). Both PaliGemmas want to default to True.
         if self.text_config.use_bidirectional_attention is None:
             self.text_config.use_bidirectional_attention = True
 

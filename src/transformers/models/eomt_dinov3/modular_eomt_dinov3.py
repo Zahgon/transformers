@@ -1,17 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch EoMT model backed by DINOv3."""
 
 from collections.abc import Callable
 from typing import Optional
@@ -50,42 +36,6 @@ from ..eomt.modeling_eomt import (
 @auto_docstring(checkpoint="tue-mps/coco_panoptic_eomt_large_640_dinov3")
 @strict
 class EomtDinov3Config(EomtConfig):
-    r"""
-    layerscale_value (`float`, *optional*, defaults to 1.0):
-        Initial value for the LayerScale parameter.
-    num_upscale_blocks (`int`, *optional*, defaults to 2):
-        Number of upsampling blocks used in the decoder or segmentation head.
-    num_blocks (`int`, *optional*, defaults to 4):
-        Number of feature blocks or stages in the architecture.
-    no_object_weight (`float`, *optional*, defaults to 0.1):
-        Loss weight for the "no object" class in panoptic/instance segmentation.
-    train_num_points (`int`, *optional*, defaults to 12544):
-        Number of points to sample for mask loss computation during training.
-    oversample_ratio (`float`, *optional*, defaults to 3.0):
-        Oversampling ratio used in point sampling for mask training.
-    importance_sample_ratio (`float`, *optional*, defaults to 0.75):
-        Ratio of points to sample based on importance during training.
-    num_queries (`int`, *optional*, defaults to 200):
-        Number of object queries in the Transformer.
-    num_register_tokens (`int`, *optional*, defaults to 4):
-        Number of learnable register tokens added to the transformer input.
-    query_bias (`bool`, *optional*, defaults to `True`):
-        Whether to use bias in query projection.
-    key_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use bias in key projection.
-    value_bias (`bool`, *optional*, defaults to `True`):
-        Whether to use bias in value projection.
-    proj_bias (`bool`, *optional*, defaults to `True`):
-        Whether to use bias in output projection.
-    use_gated_mlp (`bool`, *optional*, defaults to `False`):
-        Whether to use gated MLP layers.
-    pos_embed_shift (`float`, *optional*):
-        Shift value for position embeddings.
-    pos_embed_jitter (`float`, *optional*):
-        Jitter value for position embeddings.
-    pos_embed_rescale (`float`, *optional*, defaults to 2.0):
-        Rescale value for position embeddings.
-    """
 
     model_type = "eomt_dinov3"
     default_theta = 100.0
@@ -188,7 +138,6 @@ class EomtDinov3RotaryEmbedding(DINOv3ViTRopePositionEmbedding):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1 / base ** torch.arange(0, 1, 4 / head_dim, dtype=torch.float32, device=device)
         return inv_freq, attention_factor
 
@@ -246,8 +195,6 @@ class EomtDinov3ForUniversalSegmentation(EomtDinov3PreTrainedModel, EomtForUnive
 
         self.post_init()
 
-    # We redefine forward here because EoMT-DINOv3 uses DINOv3 backbone components (RoPE embeddings, layers)
-    # which require different integration than the base EoMT model that uses a separate encoder.
     @merge_with_config_defaults
     @capture_outputs
     @auto_docstring
@@ -304,10 +251,8 @@ class EomtDinov3ForUniversalSegmentation(EomtDinov3PreTrainedModel, EomtForUnive
                 num_query_tokens = self.config.num_queries
                 encoder_start_tokens = num_query_tokens + self.num_prefix_tokens
 
-                # Set attention mask for queries to focus on encoder tokens based on interpolated logits
                 attention_mask[:, :num_query_tokens, encoder_start_tokens:] = interpolated_logits > 0
 
-                # Disable attention mask for random query tokens.
                 attention_mask = self._disable_attention_mask(
                     attention_mask,
                     prob=self.attn_mask_probs[idx - self.num_hidden_layers + self.config.num_blocks],
@@ -316,7 +261,6 @@ class EomtDinov3ForUniversalSegmentation(EomtDinov3PreTrainedModel, EomtForUnive
                     device=attention_mask.device,
                 )
 
-                # Expand attention mask to 4d mask.
                 attention_mask = attention_mask[:, None, ...].expand(-1, self.config.num_attention_heads, -1, -1)
                 dtype_min = torch.finfo(hidden_states.dtype).min
                 attention_mask = attention_mask.to(hidden_states.dtype).masked_fill(~attention_mask, dtype_min)

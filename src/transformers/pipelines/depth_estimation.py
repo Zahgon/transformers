@@ -23,29 +23,6 @@ logger = logging.get_logger(__name__)
 
 @add_end_docstrings(build_pipeline_init_args(has_image_processor=True))
 class DepthEstimationPipeline(Pipeline):
-    """
-    Depth estimation pipeline using any `AutoModelForDepthEstimation`. This pipeline predicts the depth of an image.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> depth_estimator = pipeline(task="depth-estimation", model="LiheYoung/depth-anything-base-hf")
-    >>> output = depth_estimator("http://images.cocodataset.org/val2017/000000039769.jpg")
-    >>> # This is a tensor with the values being the depth expressed in meters for each pixel
-    >>> output["predicted_depth"].shape
-    torch.Size([1, 384, 384])
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-
-    This depth estimation pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"depth-estimation"`.
-
-    See the list of available models on [huggingface.co/models](https://huggingface.co/models?filter=depth-estimation).
-    """
 
     _load_processor = False
     _load_image_processor = True
@@ -98,7 +75,6 @@ class DepthEstimationPipeline(Pipeline):
             - **predicted_depth** (`torch.Tensor`) -- The predicted depth by the model as a `torch.Tensor`.
             - **depth** (`PIL.Image`) -- The predicted depth by the model as a `PIL.Image`.
         """
-        # After deprecation of this is completed, remove the default `None` value for `images`
         if "images" in kwargs:
             inputs = kwargs.pop("images")
         if inputs is None:
@@ -129,8 +105,6 @@ class DepthEstimationPipeline(Pipeline):
     def postprocess(self, model_outputs):
         outputs = self.image_processor.post_process_depth_estimation(
             model_outputs,
-            # this acts as `source_sizes` for ZoeDepth and as `target_sizes` for the rest of the models so do *not*
-            # replace with `target_sizes = [model_outputs["target_size"]]`
             [model_outputs["target_size"]],
         )
 

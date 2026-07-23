@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import json
 import re
 from typing import TYPE_CHECKING
@@ -57,9 +44,6 @@ def _fuzzy_match_size(config_name: str) -> str | None:
 
 
 class TorchAoHfQuantizer(HfQuantizer):
-    """
-    Quantizer for torchao: https://github.com/pytorch/ao/
-    """
 
     requires_calibration = False
     quantization_config: "TorchAoConfig"
@@ -99,7 +83,6 @@ class TorchAoHfQuantizer(HfQuantizer):
         return super().param_element_size(model, param_name, param)
 
     def adjust_max_memory(self, max_memory: dict[str, int | str]) -> dict[str, int | str]:
-        # need more space for the quantization parameters (e.g. scale). Tested with int4 wo and group size = 128
         max_memory = {key: val * 0.9 for key, val in max_memory.items()}
         return max_memory
 
@@ -116,15 +99,12 @@ class TorchAoHfQuantizer(HfQuantizer):
                 x for x in self.modules_to_not_convert if x not in input_emb_names + output_emb_names
             ]
         if checkpoint_files is not None:
-            # Torchao needs access to all metadata later
             self.set_metadata(checkpoint_files)
 
     def param_needs_quantization(self, model: "PreTrainedModel", param_name: str, **kwargs) -> bool:
-        # check if the param_name is not in self.modules_to_not_convert
         if not should_convert_module(param_name, self.modules_to_not_convert):
             return False
 
-        # we only quantize the weight of nn.Linear and nn.Embedding
         module, tensor_name = get_module_from_name(model, param_name)
         _QUANTIZABLE = [torch.nn.Linear]
         if self.quantization_config.include_input_output_embeddings:
@@ -151,12 +131,11 @@ class TorchAoHfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self) -> bool:
-        # Only 8-bit quantization (e.g. Int8WeightOnly, Int8DynamicActivationInt8Weight) supports training
-        return _fuzzy_match_size(type(self.quantization_config.quant_type).__name__) == "8"
+        pass
 
     @property
     def is_compileable(self) -> bool:
-        return True
+        pass
 
     def set_metadata(self, checkpoint_files: list[str]):
         if checkpoint_files[0].endswith(".safetensors"):
@@ -165,7 +144,6 @@ class TorchAoHfQuantizer(HfQuantizer):
                 with safe_open(checkpoint, framework="pt") as f:
                     metadata_ = f.metadata() or {}
                     metadata.update(metadata_)
-            # Save it
             self.metadata = metadata
 
     def get_quantize_ops(self):

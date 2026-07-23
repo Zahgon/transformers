@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import torch
 import torch.nn as nn
 
@@ -23,8 +10,6 @@ if is_scipy_available():
     from scipy.optimize import linear_sum_assignment
 
 
-# Similar to the one used in `DeformableDetr` but we reduce with sum and normalize by num_boxes
-# instead of mean.
 def sigmoid_focal_loss(
     inputs: torch.Tensor,
     targets: torch.Tensor,
@@ -53,7 +38,6 @@ def sigmoid_focal_loss(
     """
     prob = inputs.sigmoid()
     ce_loss = nn.functional.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
-    # add modulating factor
     p_t = prob * targets + (1 - prob) * (1 - targets)
     loss = ce_loss * ((1 - p_t) ** gamma)
 
@@ -89,34 +73,25 @@ class GroundingDinoHungarianMatcher(HungarianMatcher):
         """
         batch_size, num_queries = outputs["logits"].shape[:2]
 
-        # We flatten to compute the cost matrices in a batch
         out_prob = outputs["logits"].flatten(0, 1).sigmoid()  # [batch_size * num_queries, hidden_dim]
         out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]
         label_maps = outputs["label_maps"]
 
-        # First take the label map for each class in each batch and then concatenate them
         label_maps = torch.cat([label_map[target["class_labels"]] for label_map, target in zip(label_maps, targets)])
-        # Normalize label maps based on number of tokens per class
         label_maps = label_maps / label_maps.sum(dim=-1, keepdim=True)
 
-        # Also concat the target labels and boxes
         target_bbox = torch.cat([v["boxes"] for v in targets])
 
-        # Compute the classification cost.
         alpha = 0.25
         gamma = 2.0
         neg_cost_class = (1 - alpha) * (out_prob**gamma) * (-(1 - out_prob + 1e-8).log())
         pos_cost_class = alpha * ((1 - out_prob) ** gamma) * (-(out_prob + 1e-8).log())
-        # Compute the classification cost by taking pos and neg cost in the appropriate index
         class_cost = (pos_cost_class - neg_cost_class) @ label_maps.t()
 
-        # Compute the L1 cost between boxes
         bbox_cost = torch.cdist(out_bbox, target_bbox, p=1)
 
-        # Compute the giou cost between boxes
         giou_cost = -generalized_box_iou(center_to_corners_format(out_bbox), center_to_corners_format(target_bbox))
 
-        # Final cost matrix
         cost_matrix = self.bbox_cost * bbox_cost + self.class_cost * class_cost + self.giou_cost * giou_cost
         cost_matrix = cost_matrix.view(batch_size, num_queries, -1).cpu()
 
@@ -126,19 +101,6 @@ class GroundingDinoHungarianMatcher(HungarianMatcher):
 
 
 class GroundingDinoImageLoss(ImageLoss):
-    """
-    This class computes the losses for `GroundingDinoForObjectDetection`. The process happens in two steps: 1) we
-    compute hungarian assignment between ground truth boxes and the outputs of the model 2) we supervise each pair of
-    matched ground-truth / prediction (supervise class and box).
-
-    Args:
-        matcher (`GroundingDinoHungarianMatcher`):
-            Module able to compute a matching between targets and proposals.
-        focal_alpha (`float`):
-            Alpha parameter in focal loss.
-        losses (`list[str]`):
-            List of all the losses to be applied. See `get_loss` for a list of all available losses.
-    """
 
     def __init__(self, matcher, focal_alpha, losses):
         nn.Module.__init__(self)
@@ -148,26 +110,13 @@ class GroundingDinoImageLoss(ImageLoss):
 
     @torch.no_grad()
     def loss_cardinality(self, outputs, targets, indices, num_boxes):
-        """
-        Compute the cardinality error, i.e. the absolute error in the number of predicted non-empty boxes.
-
-        This is not really a loss, it is intended for logging purposes only. It doesn't propagate gradients.
-        """
-        logits = outputs["logits"]
-        device = logits.device
-        target_lengths = torch.as_tensor([len(v["class_labels"]) for v in targets], device=device)
-        # Count the number of predictions that are NOT "no-object" (sigmoid > 0.5 threshold)
-        card_pred = (logits.sigmoid().max(-1).values > 0.5).sum(1)
-        card_err = nn.functional.l1_loss(card_pred.float(), target_lengths.float())
-        losses = {"cardinality_error": card_err}
-        return losses
+        pass
 
     def _get_target_classes_one_hot(self, outputs, targets, indices):
         """
         Create one_hot based on the matching indices
         """
         logits = outputs["logits"]
-        # Add offsets to class_labels to select the correct label map
         class_labels = torch.cat(
             [
                 target["class_labels"][J] + len(outputs["label_maps"][i]) if i > 0 else target["class_labels"][J]
@@ -196,7 +145,6 @@ class GroundingDinoImageLoss(ImageLoss):
         source_logits = outputs["logits"]
         text_mask = outputs["text_mask"]
 
-        # Select only valid logits
         source_logits = torch.masked_select(source_logits, text_mask)
         target_classes_onehot = torch.masked_select(target_classes_onehot, text_mask)
 
@@ -227,61 +175,4 @@ def GroundingDinoForObjectDetectionLoss(
     encoder_logits=None,
     encoder_pred_boxes=None,
 ):
-    # First: create the matcher
-    matcher = GroundingDinoHungarianMatcher(
-        class_cost=config.class_cost, bbox_cost=config.bbox_cost, giou_cost=config.giou_cost
-    )
-    # Second: create the criterion
-    losses = ["labels", "boxes", "cardinality"]
-    criterion = GroundingDinoImageLoss(
-        matcher=matcher,
-        focal_alpha=config.focal_alpha,
-        losses=losses,
-    )
-    criterion.to(device)
-    # Third: compute the losses, based on outputs and labels
-    outputs_loss = {}
-    outputs_loss["logits"] = logits
-    outputs_loss["pred_boxes"] = pred_boxes
-    outputs_loss["label_maps"] = label_maps
-    outputs_loss["text_mask"] = text_mask
-
-    auxiliary_outputs = None
-    if config.auxiliary_loss:
-        auxiliary_outputs = _set_aux_loss(outputs_class, outputs_coord)
-        for aux_output in auxiliary_outputs:
-            aux_output["label_maps"] = label_maps
-            aux_output["text_mask"] = text_mask
-        outputs_loss["auxiliary_outputs"] = auxiliary_outputs
-
-    loss_dict = criterion(outputs_loss, labels)
-
-    if config.two_stage:
-        encoder_outputs_loss = {
-            "logits": encoder_logits,
-            "pred_boxes": encoder_pred_boxes,
-            "label_maps": label_maps,
-            "text_mask": text_mask,
-        }
-        encoder_loss_dict = criterion(encoder_outputs_loss, labels)
-        encoder_loss_dict = {k + "_enc": v for k, v in encoder_loss_dict.items()}
-        loss_dict.update(encoder_loss_dict)
-    # Fourth: compute total loss, as a weighted sum of the various losses
-    weight_dict = {
-        "loss_ce": 2.0,
-        "loss_bbox": config.bbox_loss_coefficient,
-        "loss_giou": config.giou_loss_coefficient,
-    }
-
-    if config.two_stage:
-        enc_weight_dict = {k + "_enc": v for k, v in weight_dict.items()}
-        weight_dict.update(enc_weight_dict)
-
-    if config.auxiliary_loss:
-        aux_weight_dict = {}
-        for i in range(config.decoder_layers - 1):
-            aux_weight_dict.update({k + f"_{i}": v for k, v in weight_dict.items()})
-        weight_dict.update(aux_weight_dict)
-
-    loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict if k in weight_dict)
-    return loss, loss_dict, auxiliary_outputs
+    pass

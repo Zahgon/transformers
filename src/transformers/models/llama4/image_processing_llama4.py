@@ -1,17 +1,3 @@
-# Copyright 2025 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Llama4."""
 
 import math
 from collections import defaultdict
@@ -132,7 +118,6 @@ def find_supported_resolutions(max_num_chunks: int, patch_size: SizeDict) -> tor
             ratio_float = height / width
             asp_dict[ratio_float].append((height, width))
 
-    # get the resolutions multiplied by the patch_size
     possible_resolutions = []
     for value in asp_dict.values():
         for height, depth in value:
@@ -234,20 +219,16 @@ def get_best_fit(
 
     original_height, original_width = image_size
 
-    # get all possible resolutions heights/widths
     target_heights, target_widths = (
         possible_resolutions[:, 0],
         possible_resolutions[:, 1],
     )
 
-    # get scaling factors to resize the image without distortion
     scale_w = target_widths / original_width
     scale_h = target_heights / original_height
 
-    # get the min scale between width and height (limiting side -> no distortion)
     scales = torch.where(scale_h > scale_w, scale_w, scale_h)
 
-    # filter only scales that allow upscaling
     upscaling_options = scales[scales >= 1]
     if len(upscaling_options) > 0:
         if resize_to_max_canvas:
@@ -255,17 +236,11 @@ def get_best_fit(
         else:
             selected_scale = torch.min(upscaling_options)
     else:
-        # no upscaling possible,
-        # get the minimum downscaling (max scale for scales<1)
         downscaling_options = scales[scales < 1]
         selected_scale = torch.max(downscaling_options)
 
-    # get all resolutions that support this scaling factor,
-    # e.g. you can upscale to 224x224, 224x448, 224x672 without distortion
     chosen_canvas = possible_resolutions[scales == selected_scale]
 
-    # if there are multiple resolutions,
-    # get the one with minimum area to reduce padding
     if len(chosen_canvas) > 1:
         areas = chosen_canvas[:, 0] * chosen_canvas[:, 1]
         optimal_idx = torch.argmin(areas)
@@ -277,16 +252,6 @@ def get_best_fit(
 
 
 class Llama4ImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    max_patches (`int`, *optional*, defaults to 16):
-        The maximum number of patches to be extracted from the image.
-        Can be overridden by the `max_patches` parameter in the `preprocess` method.
-    resize_to_max_canvas (`bool`, *optional*, defaults to False):
-        Whether to resize the image to the maximum canvas size.
-        If True, picks the canvas the allows the largest resizing without distortion.
-        If False, downsample as little as possible, including no resizing at all,
-        but never upsample, unless the image is smaller than the patch size.
-    """
 
     max_patches: int
     resize_to_max_canvas: bool
@@ -313,7 +278,6 @@ class Llama4ImageProcessor(TorchvisionBackend):
     def preprocess(self, images: ImageInput, **kwargs: Unpack[Llama4ImageProcessorKwargs]) -> BatchFeature:
         return super().preprocess(images, **kwargs)
 
-    # Disable compilation here as conversion to bfloat16 causes differences in the output of the compiled and non-compiled versions
     @torch.compiler.disable
     def rescale_and_normalize(
         self,
@@ -363,14 +327,12 @@ class Llama4ImageProcessor(TorchvisionBackend):
             )
         possible_resolutions = find_supported_resolutions(max_num_chunks=max_patches, patch_size=size)
         possible_resolutions = torch.tensor(possible_resolutions, device=images[0].device)
-        # process images by batch, grouped by shape
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         grouped_processed_images = {}
         grouped_aspect_ratios = {}
         for shape, stacked_images in grouped_images.items():
             image_size = stacked_images.shape[-2:]
             target_size = get_best_fit(image_size, possible_resolutions, resize_to_max_canvas=resize_to_max_canvas)
-            # If target_size requires upscaling, we might want to limit the upscaling to max_upscaling_size
             max_upscaling_size = None if resize_to_max_canvas else size.height
             if max_upscaling_size is not None:
                 new_target_height = min(max(image_size[0], max_upscaling_size), target_size[0])
@@ -379,7 +341,6 @@ class Llama4ImageProcessor(TorchvisionBackend):
             else:
                 target_size_without_distortion = target_size
 
-            # resize to target_size while preserving aspect ratio
             new_size_without_distortion = get_max_res_without_distortion(image_size, target_size_without_distortion)
             new_size_without_distortion = SizeDict(
                 height=max(new_size_without_distortion[0], 1), width=max(new_size_without_distortion[1], 1)
@@ -391,7 +352,6 @@ class Llama4ImageProcessor(TorchvisionBackend):
                 resample=resample,
             )
 
-            # pad to target_size to be able to split into tiles
             processed_images = pad_to_best_fit(processed_images, target_size)
             processed_images = self.rescale_and_normalize(
                 processed_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
@@ -401,14 +361,12 @@ class Llama4ImageProcessor(TorchvisionBackend):
                 target_size[0] // size.height,
                 target_size[1] // size.width,
             )
-            # split into tiles
             processed_images = split_to_tiles(processed_images, ratio_h, ratio_w)
             grouped_processed_images[shape] = processed_images
             grouped_aspect_ratios[shape] = torch.tensor(
                 [[ratio_h, ratio_w]] * stacked_images.shape[0], device=images[0].device
             )
 
-            # add a global tile to the processed tile if there are more than one tile
             if ratio_h * ratio_w > 1:
                 global_tiles = self.resize(
                     stacked_images,

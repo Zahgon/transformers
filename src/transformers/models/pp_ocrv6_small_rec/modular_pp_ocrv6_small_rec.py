@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import torch
 import torch.nn as nn
@@ -47,10 +34,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="PaddlePaddle/PP-OCRv6_small_rec_safetensors")
 @strict
 class PPOCRV6SmallRecConfig(PPOCRV5ServerRecConfig):
-    r"""
-    head_out_channels (`int`, *optional*, defaults to 18714):
-        The number of output channels from the PPOCRV6SmallRecHead, responsible for final classification.
-    """
 
     head_out_channels: int = 18714
 
@@ -85,33 +68,26 @@ class PPOCRV6SmallRecImageProcessor(PPOCRV5ServerRecImageProcessor):
         return_tensors: str | TensorType | None,
         **kwargs,
     ) -> BatchFeature:
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
 
-        # [Key Change] Use get_target_size to calculate target_size for resizing.
         shape_list = list(grouped_images.keys())
         target_size = self.get_target_size(shape_list)
 
         for shape, stacked_images in grouped_images.items():
             if do_resize:
-                # [Key Change] Use antialias=False to align with cv2.resize
                 stacked_images = self.resize(
                     image=stacked_images, size=target_size, resample=resample, antialias=False
                 )
-            # [Key Change] RGB to BGR conversion
             stacked_images = stacked_images[:, [2, 1, 0], :, :]
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_center_crop:
                 stacked_images = self.center_crop(stacked_images, crop_size)
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -156,15 +132,12 @@ class PPOCRV6SmallRecEncoderWithSVTR(PPOCRV5ServerRecEncoderWithSVTR):
         hidden_size = config.hidden_size
         self.conv_block = nn.ModuleList(
             [
-                # skip_conv
                 PPOCRV6SmallRecConvLayer(
                     in_channels=in_channels, out_channels=hidden_size, kernel_size=(1, 1), activation=config.hidden_act
                 ),
-                # conv_reduce
                 PPOCRV6SmallRecConvLayer(
                     in_channels=in_channels, out_channels=hidden_size, kernel_size=(1, 1), activation=config.hidden_act
                 ),
-                # local_conv
                 PPOCRV6SmallRecConvLayer(
                     in_channels=hidden_size,
                     out_channels=hidden_size,
@@ -176,7 +149,6 @@ class PPOCRV6SmallRecEncoderWithSVTR(PPOCRV5ServerRecEncoderWithSVTR):
         )
 
     def forward(self, hidden_states: torch.FloatTensor, **kwargs: Unpack[TransformersKwargs]):
-        # PP-OCRv6_small_rec uses the output of the first conv block as the residual.
         residual = self.conv_block[0](hidden_states)
 
         hidden_states = self.conv_block[1](hidden_states)
@@ -189,7 +161,6 @@ class PPOCRV6SmallRecEncoderWithSVTR(PPOCRV5ServerRecEncoderWithSVTR):
 
         hidden_states = self.norm(hidden_states)
         hidden_states = hidden_states.view(batch_size, height, width, channels).permute(0, 3, 1, 2)
-        # PP-OCRv6_small_rec uses fewer conv blocks and residual fusion instead of concat fusion.
         hidden_states = hidden_states + residual
         hidden_states = hidden_states.squeeze(2).transpose(1, 2)
 

@@ -1,17 +1,3 @@
-# Copyright 2025 the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Lfm2-VL model."""
 
 import torch
 from torch import nn
@@ -124,17 +110,13 @@ class Lfm2VlModel(LlavaModel):
 
         for img_idx in range(last_hidden_state.size(0)):
             feature = last_hidden_state[img_idx]
-            # unpad the image representation
             feature = feature[: img_feature_lengths[img_idx], :].unsqueeze(0)
 
-            # reshape to original height and width
             feature_org_h, feature_org_w = spatial_shapes[img_idx]
             feature = feature.reshape(1, feature_org_h, feature_org_w, -1)
 
-            # project the image representation
             img_embedding = self.multi_modal_projector(feature)
 
-            # flatten here to handle variable length in naflex
             img_embedding = img_embedding.reshape(-1, img_embedding.size(-1))
             image_features.append(img_embedding)
 
@@ -334,7 +316,6 @@ class Lfm2VlForConditionalGeneration(LlavaForConditionalGeneration):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

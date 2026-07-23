@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from typing import TYPE_CHECKING
 
 from .base import HfQuantizer
@@ -40,9 +27,6 @@ triton_kernels_hub = None
 
 
 class Mxfp4HfQuantizer(HfQuantizer):
-    """
-    FP4 quantization using fbgemm kernels
-    """
 
     requires_calibration = False
     quantization_config: "Mxfp4Config"
@@ -169,7 +153,6 @@ class Mxfp4HfQuantizer(HfQuantizer):
         return False
 
     def _process_model_after_weight_loading(self, model: "PreTrainedModel", **kwargs):
-        # clean cache due to triton ops
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         elif torch.xpu.is_available():
@@ -183,8 +166,6 @@ class Mxfp4HfQuantizer(HfQuantizer):
     ):
         from ..integrations import replace_with_mxfp4_linear
 
-        # if we are using kernels, we can't use the quantized model, since the forward pass is different and needs special handling
-        # only CPU kernels can work with pre-quantized models
         device = torch.accelerator.current_accelerator() or torch.device("cpu")
         if use_kernels and device.type not in ["cpu"]:
             logger.warning_once(
@@ -274,10 +255,7 @@ class Mxfp4HfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self) -> bool:
-        logger.warning_once(
-            "MXFP4 quantization don't support training, please consider dequantizing the model first by passing quantization_config=Mxfp4Config(dequantize=True) to .from_pretrained()"
-        )
-        return False
+        pass
 
     def get_quantize_ops(self):
         from ..integrations.mxfp4 import Mxfp4Quantize

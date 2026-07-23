@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -131,15 +118,12 @@ class ColQwen2Processor(ColPaliProcessor):
 
             return_data = BatchFeature(data={**text_inputs, **image_inputs})
 
-            # NOTE: The following adjustment ensures correct behavior with DDP on multiple GPUs.
             offsets = return_data["image_grid_thw"][:, 1] * return_data["image_grid_thw"][:, 2]  # (batch_size,)
 
-            # Split the pixel_values tensor into a list of tensors, one per image
             pixel_values = list(
                 torch.split(return_data["pixel_values"], offsets.tolist())
             )  # [(num_patches_image_0, pixel_values), ..., (num_patches_image_n, pixel_values)]
 
-            # Pad the list of pixel_value tensors to the same length along the sequence dimension
             return_data["pixel_values"] = torch.nn.utils.rnn.pad_sequence(
                 pixel_values, batch_first=True
             )  # (batch_size, max_num_patches, pixel_values)
@@ -174,42 +158,11 @@ class ColQwen2Processor(ColPaliProcessor):
             return batch_query
 
     def _get_num_multimodal_tokens(self, image_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-        Args:
-            image_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (height, width) per each image.
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-
-        vision_data = {}
-        if image_sizes is not None:
-            images_kwargs = ColQwen2ProcessorKwargs._defaults.get("images_kwargs", {})
-            images_kwargs.update(kwargs)
-            merge_size = images_kwargs.get("merge_size", None) or self.image_processor.merge_size
-
-            num_image_patches = [
-                self.image_processor.get_number_of_image_patches(*image_size, images_kwargs)
-                for image_size in image_sizes
-            ]
-            num_image_tokens = [(num_patches // merge_size**2) for num_patches in num_image_patches]
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-
-        return MultiModalData(**vision_data)
+        pass
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        image_processor_input_names = self.image_processor.model_input_names
-
-        # ColQwen doesn't process videos. Make a copy of list when removing
-        # otherwise `self.feature_extractor.model_input_names` is also modified
-        image_processor_input_names = [
-            name for name in image_processor_input_names if name not in ["pixel_values_videos", "video_grid_thw"]
-        ]
-        return tokenizer_input_names + image_processor_input_names
+        pass
 
 
 class ColQwen2PreTrainedModel(ColPaliPreTrainedModel):
@@ -223,17 +176,6 @@ class ColQwen2PreTrainedModel(ColPaliPreTrainedModel):
 )
 @dataclass
 class ColQwen2ForRetrievalOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    embeddings (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        The embeddings of the model.
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    """
 
     loss: torch.FloatTensor | None = None
     embeddings: torch.Tensor | None = None
@@ -283,9 +225,7 @@ class ColQwen2ForRetrieval(ColPaliForRetrieval):
         image_grid_thw (`torch.LongTensor` of shape `(num_images, 3)`, *optional*):
             The temporal, height and width of feature shape of each image in LLM.
         """
-        # Handle the custom "pixel_values" input obtained with `ColQwen2Processor` through unpadding
         if pixel_values is not None and image_grid_thw is not None:
-            # NOTE: image_grid_thw: (batch_size, 3) where image_grid_thw[i] = (num_patches_h, num_patches_w, temporal_patch_size)
             offsets = image_grid_thw[:, 1] * image_grid_thw[:, 2]  # (batch_size,)
             arange = torch.arange(pixel_values.shape[1], device=offsets.device)  # (max_len,)
             mask = arange.unsqueeze(0) < offsets.unsqueeze(1)  # (batch_size, max_len)
@@ -298,7 +238,6 @@ class ColQwen2ForRetrieval(ColPaliForRetrieval):
         )
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # Custom data preparation to fix an issue with the gradient flow when training with multiple GPUs.
         if inputs_embeds is None:
             inputs_embeds = self.vlm.get_input_embeddings()(input_ids)
 
@@ -326,7 +265,6 @@ class ColQwen2ForRetrieval(ColPaliForRetrieval):
         proj_dtype = self.embedding_proj_layer.weight.dtype
         embeddings = self.embedding_proj_layer(last_hidden_states.to(proj_dtype))  # (batch_size, sequence_length, dim)
 
-        # L2 normalization
         embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)  # (batch_size, sequence_length, dim)
         if attention_mask is not None:
             embeddings = embeddings * attention_mask.unsqueeze(-1)  # (batch_size, sequence_length, dim)

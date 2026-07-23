@@ -1,19 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Audio/Text processor class for SeamlessM4T
-"""
 
 from ...audio_utils import AudioInput
 from ...processing_utils import ProcessingKwargs, ProcessorMixin, TextKwargs, Unpack
@@ -25,15 +9,6 @@ logger = logging.get_logger(__name__)
 
 
 class SeamlessM4TTextKwargs(TextKwargs):
-    """
-    src_lang (`str`, *optional*):
-        The source language code for the input text (e.g., "eng" for English, "fra" for French). This is used
-        to set the language token at the beginning of the input sequence, which helps the model understand the
-        input language for translation or transcription tasks.
-    tgt_lang (`str`, *optional*):
-        The target language code for the output (e.g., "eng" for English, "fra" for French). This is used to
-        specify the desired output language for translation tasks. The model will generate text in this language.
-    """
 
     src_lang: str | None
     tgt_lang: str | None

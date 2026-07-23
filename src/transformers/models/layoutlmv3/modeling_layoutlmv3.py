@@ -1,17 +1,3 @@
-# Copyright 2022 Microsoft Research and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch LayoutLMv3 model."""
 
 import collections
 import math
@@ -49,8 +35,6 @@ logger = logging.get_logger(__name__)
 
 
 class LayoutLMv3PatchEmbeddings(nn.Module):
-    """LayoutLMv3 image (patch) embeddings. This class also automatically interpolates the position embeddings for varying
-    image sizes."""
 
     def __init__(self, config):
         super().__init__()
@@ -72,7 +56,6 @@ class LayoutLMv3PatchEmbeddings(nn.Module):
         embeddings = self.proj(pixel_values)
 
         if position_embedding is not None:
-            # interpolate the position embedding to the corresponding size
             position_embedding = position_embedding.view(1, self.patch_shape[0], self.patch_shape[1], -1)
             position_embedding = position_embedding.permute(0, 3, 1, 2)
             patch_height, patch_width = embeddings.shape[2], embeddings.shape[3]
@@ -84,9 +67,6 @@ class LayoutLMv3PatchEmbeddings(nn.Module):
 
 
 class LayoutLMv3TextEmbeddings(nn.Module):
-    """
-    LayoutLMv3 text embeddings. Same as `RobertaEmbeddings` but with added spatial (layout) embeddings.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -96,7 +76,6 @@ class LayoutLMv3TextEmbeddings(nn.Module):
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -123,7 +102,6 @@ class LayoutLMv3TextEmbeddings(nn.Module):
         h_position_embeddings = self.h_position_embeddings(torch.clip(bbox[:, :, 3] - bbox[:, :, 1], 0, 1023))
         w_position_embeddings = self.w_position_embeddings(torch.clip(bbox[:, :, 2] - bbox[:, :, 0], 0, 1023))
 
-        # below is the difference between LayoutLMEmbeddingsV2 (torch.cat) and LayoutLMEmbeddingsV1 (add)
         spatial_position_embeddings = torch.cat(
             [
                 left_position_embeddings,
@@ -142,7 +120,6 @@ class LayoutLMv3TextEmbeddings(nn.Module):
         Replace non-padding symbols with their position numbers. Position numbers begin at padding_idx+1. Padding
         symbols are ignored. This is modified from fairseq's `utils.make_positions`.
         """
-        # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
         mask = input_ids.ne(padding_idx).int()
         incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask)) * mask
         return incremental_indices.long() + padding_idx
@@ -169,7 +146,6 @@ class LayoutLMv3TextEmbeddings(nn.Module):
     ):
         if position_ids is None:
             if input_ids is not None:
-                # Create the position ids from the input token ids. Any padded tokens remain padded.
                 position_ids = self.create_position_ids_from_input_ids(input_ids, self.padding_idx).to(
                     input_ids.device
                 )
@@ -259,9 +235,6 @@ class LayoutLMv3SelfAttention(nn.Module):
             .transpose(1, 2)
         )
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
-        # The attention scores QT K/√d could be significantly larger than input elements, and result in overflow.
-        # Changing the computational order into QT(K/√d) alleviates the problem. (https://huggingface.co/papers/2105.13290)
         attention_scores = torch.matmul(query_layer / math.sqrt(self.attention_head_size), key_layer.transpose(-1, -2))
 
         if self.has_relative_attention_bias and self.has_spatial_attention_bias:
@@ -270,15 +243,10 @@ class LayoutLMv3SelfAttention(nn.Module):
             attention_scores += rel_pos / math.sqrt(self.attention_head_size)
 
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in RobertaModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
-        # Use the trick of the CogView paper to stabilize training
         attention_probs = self.cogview_attention(attention_scores)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -290,7 +258,6 @@ class LayoutLMv3SelfAttention(nn.Module):
         return context_layer, attention_probs
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaSelfOutput
 class LayoutLMv3SelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -305,7 +272,6 @@ class LayoutLMv3SelfOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.layoutlmv2.modeling_layoutlmv2.LayoutLMv2Attention with LayoutLMv2->LayoutLMv3
 class LayoutLMv3Attention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -332,7 +298,6 @@ class LayoutLMv3Attention(nn.Module):
         return attention_output
 
 
-# Copied from transformers.models.layoutlmv2.modeling_layoutlmv2.LayoutLMv2Layer with LayoutLMv2->LayoutLMv3
 class LayoutLMv3Layer(GradientCheckpointingLayer):
     def __init__(self, config):
         super().__init__()
@@ -399,13 +364,10 @@ class LayoutLMv3Encoder(nn.Module):
             n = torch.abs(relative_position)
         else:
             n = torch.max(-relative_position, torch.zeros_like(relative_position))
-        # now n is in the range [0, inf)
 
-        # half of the buckets are for exact increments in positions
         max_exact = num_buckets // 2
         is_small = n < max_exact
 
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
         val_if_large = max_exact + (
             torch.log(n.float() / max_exact) / math.log(max_distance / max_exact) * (num_buckets - max_exact)
         ).to(torch.long)
@@ -422,10 +384,6 @@ class LayoutLMv3Encoder(nn.Module):
             num_buckets=self.rel_pos_bins,
             max_distance=self.max_rel_pos,
         )
-        # Since this is a simple indexing operation that is independent of the input,
-        # no need to track gradients for this operation
-        #
-        # Without this no_grad context, training speed slows down significantly
         with torch.no_grad():
             rel_pos = self.rel_pos_bias.weight.t()[rel_pos].permute(0, 3, 1, 2)
         rel_pos = rel_pos.contiguous()
@@ -446,10 +404,6 @@ class LayoutLMv3Encoder(nn.Module):
             num_buckets=self.rel_2d_pos_bins,
             max_distance=self.max_rel_2d_pos,
         )
-        # Since this is a simple indexing operation that is independent of the input,
-        # no need to track gradients for this operation
-        #
-        # Without this no_grad context, training speed slows down significantly
         with torch.no_grad():
             rel_pos_x = self.rel_pos_x_bias.weight.t()[rel_pos_x].permute(0, 3, 1, 2)
             rel_pos_y = self.rel_pos_y_bias.weight.t()[rel_pos_y].permute(0, 3, 1, 2)
@@ -483,7 +437,6 @@ class LayoutLMv3Encoder(nn.Module):
         return BaseModelOutput(last_hidden_state=hidden_states)
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaIntermediate
 class LayoutLMv3Intermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -499,7 +452,6 @@ class LayoutLMv3Intermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaOutput
 class LayoutLMv3Output(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -545,8 +497,6 @@ class LayoutLMv3Model(LayoutLMv3PreTrainedModel):
             self.embeddings = LayoutLMv3TextEmbeddings(config)
 
         if config.visual_embed:
-            # use the default pre-training parameters for fine-tuning (e.g., input_size)
-            # when the input_size is larger in fine-tuning, we will interpolate the position embeddings in forward
             self.patch_embed = LayoutLMv3PatchEmbeddings(config)
 
             self.size = int(config.input_size / config.patch_size)
@@ -605,12 +555,10 @@ class LayoutLMv3Model(LayoutLMv3PreTrainedModel):
     def forward_image(self, pixel_values):
         embeddings = self.patch_embed(pixel_values)
 
-        # add [CLS] token
         batch_size, seq_len, _ = embeddings.size()
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         embeddings = torch.cat((cls_tokens, embeddings), dim=1)
 
-        # add position embeddings
         if self.pos_embed is not None:
             embeddings = embeddings + self.pos_embed
 
@@ -799,9 +747,6 @@ class LayoutLMv3Model(LayoutLMv3PreTrainedModel):
 
 
 class LayoutLMv3ClassificationHead(nn.Module):
-    """
-    Head for sentence-level classification tasks. Reference: RobertaClassificationHead
-    """
 
     def __init__(self, config, pool_feature=False):
         super().__init__()
@@ -914,7 +859,6 @@ class LayoutLMv3ForTokenClassification(LayoutLMv3PreTrainedModel):
             input_shape = inputs_embeds.size()[:-1]
 
         seq_length = input_shape[1]
-        # only take the text part of the output representations
         sequence_output = outputs[0][:, :seq_length]
         sequence_output = self.dropout(sequence_output)
         logits = self.classifier(sequence_output)
@@ -1017,12 +961,10 @@ class LayoutLMv3ForQuestionAnswering(LayoutLMv3PreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

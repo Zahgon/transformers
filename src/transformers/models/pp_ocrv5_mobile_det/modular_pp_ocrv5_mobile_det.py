@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -44,23 +31,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="PaddlePaddle/PP-OCRv5_mobile_det_safetensors")
 @strict
 class PPOCRV5MobileDetConfig(PreTrainedConfig):
-    r"""
-    reduction (`int`, *optional*, defaults to 4):
-        The reduction factor for feature channel dimensions, used to reduce the number of model parameters and
-        computational complexity while maintaining feature representability.
-    neck_out_channels (`int`, *optional*, defaults to 96):
-        The number of output channels from the neck network, which is responsible for feature fusion and
-        refinement before passing features to the head network.
-    interpolate_mode (`str`, *optional*, defaults to `"nearest"`):
-        The interpolation mode used for upsampling or downsampling feature maps in the neck network. Supported
-        modes include `"nearest"` (nearest neighbor interpolation) and `"bilinear"`.
-    kernel_list (`List[int]`, *optional*, defaults to `[3, 2, 2]`):
-        The list of kernel sizes for convolutional layers in the head network, used for multi-scale feature
-        extraction to detect text regions of different sizes.
-    layer_list_out_channels (`List[int]`, *optional*, defaults to `[12, 18, 42, 360]`):
-        The list of output channels for each backbone stage, used to configure the input channels of the RSE layers
-        in the neck network for multi-scale feature fusion.
-    """
 
     model_type = "pp_ocrv5_mobile_det"
     sub_configs = {"backbone_config": AutoConfig}
@@ -85,7 +55,6 @@ class PPOCRV5MobileDetConfig(PreTrainedConfig):
             **kwargs,
         )
 
-        # For object detection pipeline compatibility: single class "text"
         self.id2label = {0: "text"} if self.id2label is None else self.id2label
         super().__post_init__(**kwargs)
 
@@ -96,10 +65,6 @@ class PPOCRV5MobileDetPreTrainedModel(PPOCRV5ServerDetPreTrainedModel):
 
 
 class PPOCRV5MobileDetSqueezeExcitationModule(nn.Module):
-    """
-    Simplified Squeeze-and-Excitation (SE) Module for the neck network.
-    Applies channel-wise recalibration with a clamped activation to stabilize training.
-    """
 
     def __init__(self, in_channels, reduction, activation="relu"):
         super().__init__()
@@ -130,10 +95,6 @@ class PPOCRV5MobileDetSqueezeExcitationModule(nn.Module):
 
 
 class PPOCRV5MobileDetResidualSqueezeExcitationLayer(nn.Module):
-    """
-    Residual Squeeze-and-Excitation (RSE) Layer for the neck network.
-    Combines a 1x1/3x3 convolution with an SE Module.
-    """
 
     def __init__(self, in_channels, out_channels, kernel_size, reduction):
         super().__init__()
@@ -154,11 +115,6 @@ class PPOCRV5MobileDetResidualSqueezeExcitationLayer(nn.Module):
 
 
 class PPOCRV5MobileDetNeck(nn.Module):
-    """
-    Neck network for PPOCRV5 Mobile Det, responsible for multi-scale feature fusion.
-    Uses Residual Squeeze-and-Excitation layers to process backbone features and upsampling to fuse features at the same spatial scale,
-    then concatenates the fused features for input to the head network.
-    """
 
     def __init__(self, config: PPOCRV5MobileDetConfig):
         super().__init__()
@@ -208,7 +164,6 @@ class PPOCRV5MobileDetNeck(nn.Module):
 
 
 class PPOCRV5MobileDetHead(PPOCRV5ServerDetSegmentationHead):
-    # MobileDet does not return residual features
     def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         hidden_states = self.conv_down(hidden_states)
         hidden_states = self.conv_up(hidden_states)

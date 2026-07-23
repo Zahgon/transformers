@@ -1,17 +1,3 @@
-# Copyright 2020 Google Research and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization class for TAPAS model."""
 
 import collections
 import datetime
@@ -49,9 +35,6 @@ VOCAB_FILES_NAMES = {"vocab_file": "vocab.txt"}
 
 
 class TapasTruncationStrategy(ExplicitEnum):
-    """
-    Possible values for the `truncation` argument in [`~TapasTokenizer.__call__`]. Useful for tab-completion in an IDE.
-    """
 
     DROP_ROWS_TO_FIT = "drop_rows_to_fit"
     DO_NOT_TRUNCATE = "do_not_truncate"
@@ -147,87 +130,6 @@ TAPAS_ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING = r"""
 
 
 class TapasTokenizer(PreTrainedTokenizer):
-    r"""
-    Construct a TAPAS tokenizer. Based on WordPiece. Flattens a table and one or more related sentences to be used by
-    TAPAS models.
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods. [`TapasTokenizer`] creates several token type ids to
-    encode tabular structure. To be more precise, it adds 7 token type ids, in the following order: `segment_ids`,
-    `column_ids`, `row_ids`, `prev_labels`, `column_ranks`, `inv_column_ranks` and `numeric_relations`:
-
-    - segment_ids: indicate whether a token belongs to the question (0) or the table (1). 0 for special tokens and
-      padding.
-    - column_ids: indicate to which column of the table a token belongs (starting from 1). Is 0 for all question
-      tokens, special tokens and padding.
-    - row_ids: indicate to which row of the table a token belongs (starting from 1). Is 0 for all question tokens,
-      special tokens and padding. Tokens of column headers are also 0.
-    - prev_labels: indicate whether a token was (part of) an answer to the previous question (1) or not (0). Useful in
-      a conversational setup (such as SQA).
-    - column_ranks: indicate the rank of a table token relative to a column, if applicable. For example, if you have a
-      column "number of movies" with values 87, 53 and 69, then the column ranks of these tokens are 3, 1 and 2
-      respectively. 0 for all question tokens, special tokens and padding.
-    - inv_column_ranks: indicate the inverse rank of a table token relative to a column, if applicable. For example, if
-      you have a column "number of movies" with values 87, 53 and 69, then the inverse column ranks of these tokens are
-      1, 3 and 2 respectively. 0 for all question tokens, special tokens and padding.
-    - numeric_relations: indicate numeric relations between the question and the tokens of the table. 0 for all
-      question tokens, special tokens and padding.
-
-    [`TapasTokenizer`] runs end-to-end tokenization on a table and associated sentences: punctuation splitting and
-    wordpiece.
-
-    Args:
-        vocab_file (`str`):
-            File containing the vocabulary.
-        do_lower_case (`bool`, *optional*, defaults to `True`):
-            Whether or not to lowercase the input when tokenizing.
-        do_basic_tokenize (`bool`, *optional*, defaults to `True`):
-            Whether or not to do basic tokenization before WordPiece.
-        never_split (`Iterable`, *optional*):
-            Collection of tokens which will never be split during tokenization. Only has an effect when
-            `do_basic_tokenize=True`
-        unk_token (`str`, *optional*, defaults to `"[UNK]"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        sep_token (`str`, *optional*, defaults to `"[SEP]"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        pad_token (`str`, *optional*, defaults to `"[PAD]"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        cls_token (`str`, *optional*, defaults to `"[CLS]"`):
-            The classifier token which is used when doing sequence classification (classification of the whole sequence
-            instead of per-token classification). It is the first token of the sequence when built with special tokens.
-        mask_token (`str`, *optional*, defaults to `"[MASK]"`):
-            The token used for masking values. This is the token used when training this model with masked language
-            modeling. This is the token which the model will try to predict.
-        empty_token (`str`, *optional*, defaults to `"[EMPTY]"`):
-            The token used for empty cell values in a table. Empty cell values include "", "n/a", "nan" and "?".
-        tokenize_chinese_chars (`bool`, *optional*, defaults to `True`):
-            Whether or not to tokenize Chinese characters. This should likely be deactivated for Japanese (see this
-            [issue](https://github.com/huggingface/transformers/issues/328)).
-        strip_accents (`bool`, *optional*):
-            Whether or not to strip all accents. If this option is not specified, then it will be determined by the
-            value for `lowercase` (as in the original BERT).
-        cell_trim_length (`int`, *optional*, defaults to -1):
-            If > 0: Trim cells so that the length is <= this value. Also disables further cell trimming, should thus be
-            used with `truncation` set to `True`.
-        max_column_id (`int`, *optional*):
-            Max column id to extract.
-        max_row_id (`int`, *optional*):
-            Max row id to extract.
-        strip_column_names (`bool`, *optional*, defaults to `False`):
-            Whether to add empty strings instead of column names.
-        update_answer_coordinates (`bool`, *optional*, defaults to `False`):
-            Whether to recompute the answer coordinates from the answer text.
-        min_question_length (`int`, *optional*):
-            Minimum length of each question in terms of tokens (will be skipped otherwise).
-        max_question_length (`int`, *optional*):
-            Maximum length of each question in terms of tokens (will be skipped otherwise).
-        clean_up_tokenization_spaces (`bool`, *optional*, defaults to `True`):
-            Whether or not to cleanup spaces after decoding, cleanup consists in removing potential artifacts like
-            extra spaces.
-    """
 
     model_input_names = ["input_ids", "attention_mask", "token_type_ids"]
     vocab_files_names = VOCAB_FILES_NAMES
@@ -284,7 +186,6 @@ class TapasTokenizer(PreTrainedTokenizer):
             )
         self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab, unk_token=str(unk_token))
 
-        # Additional properties
         self.cell_trim_length = cell_trim_length
         self.max_column_id = (
             max_column_id
@@ -330,10 +231,6 @@ class TapasTokenizer(PreTrainedTokenizer):
             **kwargs,
         )
 
-        # Tests override the vocab while reusing a tokenizer_config.json coming from a pretrained model.
-        # This can register base vocab tokens (like [UNK]) as added tokens with mismatched ids (e.g. 100)
-        # and breaks assumptions on token ordering. Drop any added-token entry that overlaps with the vocab
-        # so these tokens rely on the vocab-provided ids.
         removed_overlap = False
         for token, added_id in list(self._added_tokens_encoder.items()):
             if token in self.vocab:
@@ -346,11 +243,11 @@ class TapasTokenizer(PreTrainedTokenizer):
 
     @property
     def do_lower_case(self):
-        return self.basic_tokenizer.do_lower_case
+        pass
 
     @property
     def vocab_size(self):
-        return len(self.vocab)
+        pass
 
     def get_vocab(self):
         return dict(self.vocab, **self.added_tokens_encoder)
@@ -361,7 +258,6 @@ class TapasTokenizer(PreTrainedTokenizer):
         split_tokens = []
         if self.do_basic_tokenize:
             for token in self.basic_tokenizer.tokenize(text, never_split=self.all_special_tokens):
-                # If the token is part of the never_split set
                 if token in self.basic_tokenizer.never_split:
                     split_tokens.append(token)
                 else:
@@ -576,10 +472,8 @@ class TapasTokenizer(PreTrainedTokenizer):
             table = pd.DataFrame.from_dict({})
             queries = inferred_queries
 
-        # Input type checking for clearer error
         valid_query = False
 
-        # Check that query has a valid type
         if queries is None or isinstance(queries, str):
             valid_query = True
         elif isinstance(queries, (list, tuple)):
@@ -661,75 +555,7 @@ class TapasTokenizer(PreTrainedTokenizer):
         verbose: bool = True,
         **kwargs,
     ) -> BatchEncoding:
-        """
-        Prepare a table and a list of strings for the model.
-
-        <Tip warning={true}>
-
-        This method is deprecated, `__call__` should be used instead.
-
-        </Tip>
-
-        Args:
-            table (`pd.DataFrame`):
-                Table containing tabular data. Note that all cell values must be text. Use *.astype(str)* on a Pandas
-                dataframe to convert it to string.
-            queries (`list[str]`):
-                Batch of questions related to a table to be encoded. Note that all questions must refer to the **same**
-                table.
-            answer_coordinates (`list[Tuple]` or `list[list[Tuple]]`, *optional*):
-                Answer coordinates of each table-question pair in the batch. Each tuple must be a (row_index,
-                column_index) pair. The first data row (not the column header row) has index 0. The first column has
-                index 0. The answer_coordinates must be a list of lists of tuples (each list corresponding to a single
-                table-question pair).
-            answer_text (`list[str]` or `list[list[str]]`, *optional*):
-                Answer text of each table-question pair in the batch. In case a batch of table-question pairs is
-                provided, then the answer_coordinates must be a list of lists of strings (each list corresponding to a
-                single table-question pair). Each string must be the answer text of a corresponding answer coordinate.
-        """
-        if return_token_type_ids is not None and not add_special_tokens:
-            raise ValueError(
-                "Asking to return token_type_ids while setting add_special_tokens to False "
-                "results in an undefined behavior. Please set add_special_tokens to True or "
-                "set return_token_type_ids to None."
-            )
-
-        if (answer_coordinates and not answer_text) or (not answer_coordinates and answer_text):
-            raise ValueError("In case you provide answers, both answer_coordinates and answer_text should be provided")
-        elif answer_coordinates is None and answer_text is None:
-            answer_coordinates = answer_text = [None] * len(queries)
-
-        if "is_split_into_words" in kwargs:
-            raise NotImplementedError("Currently TapasTokenizer only supports questions as strings.")
-
-        if return_offsets_mapping:
-            raise NotImplementedError(
-                "return_offset_mapping is not available when using Python tokenizers. "
-                "To use this feature, change your tokenizer to one deriving from "
-                "transformers.PreTrainedTokenizerFast."
-            )
-
-        return self._batch_encode_plus(
-            table=table,
-            queries=queries,
-            answer_coordinates=answer_coordinates,
-            answer_text=answer_text,
-            add_special_tokens=add_special_tokens,
-            padding=padding,
-            truncation=truncation,
-            max_length=max_length,
-            pad_to_multiple_of=pad_to_multiple_of,
-            padding_side=padding_side,
-            return_tensors=return_tensors,
-            return_token_type_ids=return_token_type_ids,
-            return_attention_mask=return_attention_mask,
-            return_overflowing_tokens=return_overflowing_tokens,
-            return_special_tokens_mask=return_special_tokens_mask,
-            return_offsets_mapping=return_offsets_mapping,
-            return_length=return_length,
-            verbose=verbose,
-            **kwargs,
-        )
+        pass
 
     def _get_question_tokens(self, query):
         """Tokenizes the query, taking into account the max and min question length."""
@@ -1158,24 +984,20 @@ class TapasTokenizer(PreTrainedTokenizer):
         column_ids = self.create_column_token_type_ids_from_sequences(query_ids, table_data)
         row_ids = self.create_row_token_type_ids_from_sequences(query_ids, table_data)
         if not is_part_of_batch or (prev_answer_coordinates is None and prev_answer_text is None):
-            # simply set the prev_labels to zeros
             prev_labels = [0] * len(row_ids)
         else:
             prev_labels = self.get_answer_ids(
                 column_ids, row_ids, table_data, prev_answer_text, prev_answer_coordinates
             )
 
-        # FIRST: parse both the table and question in terms of numeric values
 
         raw_table = add_numeric_table_values(raw_table)
         raw_query = add_numeric_values_to_question(raw_query)
 
-        # SECOND: add numeric-related features (and not parse them in these functions):
 
         column_ranks, inv_column_ranks = self._get_numeric_column_ranks(column_ids, row_ids, raw_table)
         numeric_relations = self._get_numeric_relations(raw_query, column_ids, row_ids, raw_table)
 
-        # Load from model defaults
         if return_token_type_ids is None:
             return_token_type_ids = "token_type_ids" in self.model_input_names
         if return_attention_mask is None:
@@ -1214,7 +1036,6 @@ class TapasTokenizer(PreTrainedTokenizer):
             else:
                 encoded_inputs["special_tokens_mask"] = [0] * len(input_ids)
 
-        # Check lengths
         if max_length is None and len(encoded_inputs["input_ids"]) > self.model_max_length and verbose:
             if not self.deprecation_warnings.get("sequence-length-is-longer-than-the-specified-maximum", False):
                 logger.warning(
@@ -1224,7 +1045,6 @@ class TapasTokenizer(PreTrainedTokenizer):
                 )
             self.deprecation_warnings["sequence-length-is-longer-than-the-specified-maximum"] = True
 
-        # Padding
         if padding != PaddingStrategy.DO_NOT_PAD or return_attention_mask:
             encoded_inputs = self.pad(
                 encoded_inputs,
@@ -1288,10 +1108,8 @@ class TapasTokenizer(PreTrainedTokenizer):
                 )
 
                 if num_tokens is not None:
-                    # We could fit the table.
                     break
 
-                # Try to drop a row to fit the table.
                 num_rows -= 1
 
                 if num_rows < 1:
@@ -1314,7 +1132,6 @@ class TapasTokenizer(PreTrainedTokenizer):
         """
         tokenized_rows = []
         tokenized_row = []
-        # tokenize column headers
         for column in table:
             if self.strip_column_names:
                 tokenized_row.append(self.tokenize(""))
@@ -1322,7 +1139,6 @@ class TapasTokenizer(PreTrainedTokenizer):
                 tokenized_row.append(self.tokenize(column))
         tokenized_rows.append(tokenized_row)
 
-        # tokenize cell values
         for idx, row in table.iterrows():
             tokenized_row = []
             for cell in row:
@@ -1347,7 +1163,6 @@ class TapasTokenizer(PreTrainedTokenizer):
         )
 
     def _question_encoding_cost(self, question_tokens):
-        # Two extra spots of SEP and CLS.
         return len(question_tokens) + 2
 
     def _get_token_budget(self, question_tokens, max_length=None):
@@ -1367,7 +1182,6 @@ class TapasTokenizer(PreTrainedTokenizer):
     def _get_table_values(self, table, num_columns, num_rows, num_tokens) -> Generator[TableValue, None, None]:
         """Iterates over partial table and returns token, column and row indexes."""
         for tc in table.selected_tokens:
-            # First row is header row.
             if tc.row_index >= num_rows + 1:
                 continue
             if tc.column_index >= num_columns:
@@ -1375,8 +1189,6 @@ class TapasTokenizer(PreTrainedTokenizer):
             cell = table.rows[tc.row_index][tc.column_index]
             token = cell[tc.token_index]
             word_begin_index = tc.token_index
-            # Don't add partial words. Find the starting word piece and check if it
-            # fits in the token budget.
             while word_begin_index >= 0 and _is_inner_wordpiece(cell[word_begin_index]):
                 word_begin_index -= 1
             if word_begin_index >= num_tokens:
@@ -1412,7 +1224,6 @@ class TapasTokenizer(PreTrainedTokenizer):
                 break
         if num_tokens < max_num_tokens:
             if self.cell_trim_length >= 0:
-                # We don't allow dynamic trimming if a cell_trim_length is set.
                 return None
             if num_tokens == 0:
                 return None
@@ -1434,25 +1245,7 @@ class TapasTokenizer(PreTrainedTokenizer):
         return num_rows
 
     def _serialize_text(self, question_tokens):
-        """Serializes texts in index arrays."""
-        tokens = []
-        segment_ids = []
-        column_ids = []
-        row_ids = []
-
-        # add [CLS] token at the beginning
-        tokens.append(self.cls_token)
-        segment_ids.append(0)
-        column_ids.append(0)
-        row_ids.append(0)
-
-        for token in question_tokens:
-            tokens.append(token)
-            segment_ids.append(0)
-            column_ids.append(0)
-            row_ids.append(0)
-
-        return tokens, segment_ids, column_ids, row_ids
+        pass
 
     def _serialize(
         self,
@@ -1462,27 +1255,7 @@ class TapasTokenizer(PreTrainedTokenizer):
         num_rows,
         num_tokens,
     ):
-        """Serializes table and text."""
-        tokens, segment_ids, column_ids, row_ids = self._serialize_text(question_tokens)
-
-        # add [SEP] token between question and table tokens
-        tokens.append(self.sep_token)
-        segment_ids.append(0)
-        column_ids.append(0)
-        row_ids.append(0)
-
-        for token, column_id, row_id in self._get_table_values(table, num_columns, num_rows, num_tokens):
-            tokens.append(token)
-            segment_ids.append(1)
-            column_ids.append(column_id)
-            row_ids.append(row_id)
-
-        return SerializedExample(
-            tokens=tokens,
-            segment_ids=segment_ids,
-            column_ids=column_ids,
-            row_ids=row_ids,
-        )
+        pass
 
     def _get_column_values(self, table, col_index):
         table_numeric_values = {}
@@ -1503,7 +1276,6 @@ class TapasTokenizer(PreTrainedTokenizer):
         ranks = [0] * len(column_ids)
         inv_ranks = [0] * len(column_ids)
 
-        # original code from tf_example_utils.py of the original implementation
         if table is not None:
             for col_index in range(len(table.columns)):
                 table_numeric_values = self._get_column_values(table, col_index)
@@ -1566,9 +1338,6 @@ class TapasTokenizer(PreTrainedTokenizer):
 
         numeric_relations = [0] * len(column_ids)
 
-        # first, we add any numeric value spans to the question:
-        # Create a dictionary that maps a table cell to the set of all relations
-        # this cell has with any value in the question.
         cell_indices_to_relations = collections.defaultdict(set)
         if question is not None and table is not None:
             for numeric_value_span in question.numeric_spans:
@@ -1583,7 +1352,6 @@ class TapasTokenizer(PreTrainedTokenizer):
                             if relation is not None:
                                 cell_indices_to_relations[column_index, row_index].add(relation)
 
-        # For each cell add a special feature for all its word pieces.
         for (column_index, row_index), relations in cell_indices_to_relations.items():
             relation_set_index = 0
             for relation in relations:
@@ -1639,10 +1407,7 @@ class TapasTokenizer(PreTrainedTokenizer):
         return numeric_values_scale
 
     def _pad_to_seq_length(self, inputs):
-        while len(inputs) > self.model_max_length:
-            inputs.pop()
-        while len(inputs) < self.model_max_length:
-            inputs.append(0)
+        pass
 
     def _get_all_answer_ids_from_coordinates(
         self,
@@ -1699,7 +1464,6 @@ class TapasTokenizer(PreTrainedTokenizer):
         logging.info(f"answer text: {answer_text}")
         for row_index, row in enumerate(tokenized_table.rows):
             if row_index == 0:
-                # We don't search for answers in the header.
                 continue
             for col_index, cell in enumerate(row):
                 token_index = self._find_tokens(cell, answer_text)
@@ -1724,8 +1488,6 @@ class TapasTokenizer(PreTrainedTokenizer):
                 tokenized_table,
                 answer_text,
             ):
-                # Maps answer coordinates to indexes this can fail if tokens / rows have
-                # been pruned.
                 indexes = list(
                     self._get_cell_token_indexes(
                         column_ids,
@@ -1801,7 +1563,6 @@ class TapasTokenizer(PreTrainedTokenizer):
             return_attention_mask:
                 (optional) Set to False to avoid returning attention mask (default: set to model specifics)
         """
-        # Load from model defaults
         if return_attention_mask is None:
             return_attention_mask = "attention_mask" in self.model_input_names
 
@@ -1815,7 +1576,6 @@ class TapasTokenizer(PreTrainedTokenizer):
             padding_strategy != PaddingStrategy.DO_NOT_PAD and len(encoded_inputs["input_ids"]) != max_length
         )
 
-        # Initialize attention mask if not present.
         if return_attention_mask and "attention_mask" not in encoded_inputs:
             encoded_inputs["attention_mask"] = [1] * len(encoded_inputs["input_ids"])
 
@@ -1863,7 +1623,6 @@ class TapasTokenizer(PreTrainedTokenizer):
 
         return encoded_inputs
 
-    # Everything related to converting logits to predictions
 
     def _get_cell_token_probs(self, probabilities, segment_ids, row_ids, column_ids):
         for i, p in enumerate(probabilities):
@@ -1914,13 +1673,8 @@ class TapasTokenizer(PreTrainedTokenizer):
         if logits_agg is not None:
             logits_agg = logits_agg.numpy()
         data = {key: value.numpy() for key, value in data.items() if key != "training"}
-        # input data is of type float32
-        # np.log(np.finfo(np.float32).max) = 88.72284
-        # Any value over 88.72284 will overflow when passed through the exponential, sending a warning
-        # We disable this warning by truncating the logits.
         logits[logits < -88.7] = -88.7
 
-        # Compute probabilities from token logits
         probabilities = 1 / (1 + np.exp(-logits)) * data["attention_mask"]
         token_types = [
             "segment_ids",
@@ -1932,13 +1686,11 @@ class TapasTokenizer(PreTrainedTokenizer):
             "numeric_relations",
         ]
 
-        # collect input_ids, segment ids, row ids and column ids of batch. Shape (batch_size, seq_len)
         input_ids = data["input_ids"]
         segment_ids = data["token_type_ids"][:, :, token_types.index("segment_ids")]
         row_ids = data["token_type_ids"][:, :, token_types.index("row_ids")]
         column_ids = data["token_type_ids"][:, :, token_types.index("column_ids")]
 
-        # next, get answer coordinates for every example in the batch
         num_batch = input_ids.shape[0]
         predicted_answer_coordinates = []
         for i in range(num_batch):
@@ -1960,7 +1712,6 @@ class TapasTokenizer(PreTrainedTokenizer):
                 column_ids_example.tolist(),
             )
 
-            # Select the answers above the classification threshold.
             answer_coordinates = []
             for col in range(max_width):
                 for row in range(max_height):
@@ -1979,31 +1730,9 @@ class TapasTokenizer(PreTrainedTokenizer):
 
         return output
 
-    # End of everything related to converting logits to predictions
 
 
 class BasicTokenizer:
-    """
-    Constructs a BasicTokenizer that will run basic tokenization (punctuation splitting, lower casing, etc.).
-
-    Args:
-        do_lower_case (`bool`, *optional*, defaults to `True`):
-            Whether or not to lowercase the input when tokenizing.
-        never_split (`Iterable`, *optional*):
-            Collection of tokens which will never be split during tokenization. Only has an effect when
-            `do_basic_tokenize=True`
-        tokenize_chinese_chars (`bool`, *optional*, defaults to `True`):
-            Whether or not to tokenize Chinese characters.
-
-            This should likely be deactivated for Japanese (see this
-            [issue](https://github.com/huggingface/transformers/issues/328)).
-        strip_accents (`bool`, *optional*):
-            Whether or not to strip all accents. If this option is not specified, then it will be determined by the
-            value for `lowercase` (as in the original BERT).
-        do_split_on_punc (`bool`, *optional*, defaults to `True`):
-            In some instances we want to skip the basic punctuation splitting so that later tokenization can capture
-            the full context of the words, such as contractions.
-    """
 
     def __init__(
         self,
@@ -2030,19 +1759,11 @@ class BasicTokenizer:
                 Kept for backward compatibility purposes. Now implemented directly at the base class level (see
                 [`PreTrainedTokenizer.tokenize`]) List of token not to split.
         """
-        # union() returns a new set by concatenating the two sets.
         never_split = self.never_split.union(set(never_split)) if never_split else self.never_split
         text = self._clean_text(text)
 
-        # This was added on November 1st, 2018 for the multilingual and Chinese
-        # models. This is also applied to the English models now, but it doesn't
-        # matter since the English models were not trained on any Chinese data
-        # and generally don't have any Chinese data in them (there are Chinese
-        # characters in the vocabulary because Wikipedia does have some Chinese
-        # words in the English Wikipedia.).
         if self.tokenize_chinese_chars:
             text = self._tokenize_chinese_chars(text)
-        # prevents treating the same character with different unicode codepoints as different characters
         unicode_normalized_text = unicodedata.normalize("NFC", text)
         orig_tokens = whitespace_tokenize(unicode_normalized_text)
         split_tokens = []
@@ -2107,14 +1828,6 @@ class BasicTokenizer:
 
     def _is_chinese_char(self, cp):
         """Checks whether CP is the codepoint of a CJK character."""
-        # This defines a "chinese character" as anything in the CJK Unicode block:
-        #   https://en.wikipedia.org/wiki/CJK_Unified_Ideographs_(Unicode_block)
-        #
-        # Note that the CJK Unicode block is NOT all Japanese and Korean characters,
-        # despite its name. The modern Korean Hangul alphabet is a different block,
-        # as is Japanese Hiragana and Katakana. Those alphabets are used to write
-        # space-separated words, so they are not treated specially and handled
-        # like the all of the other languages.
         if (
             (cp >= 0x4E00 and cp <= 0x9FFF)
             or (cp >= 0x3400 and cp <= 0x4DBF)
@@ -2144,7 +1857,6 @@ class BasicTokenizer:
 
 
 class WordpieceTokenizer:
-    """Runs WordPiece tokenization."""
 
     def __init__(self, vocab, unk_token, max_input_chars_per_word=100):
         self.vocab = vocab
@@ -2200,15 +1912,8 @@ class WordpieceTokenizer:
         return output_tokens
 
 
-# Below: utilities for TAPAS tokenizer
-# This includes functions to parse numeric values (dates and numbers) from both the table and questions in order
-# to create the column_ranks, inv_column_ranks, numeric_values, numeric values_scale and numeric_relations in
-# prepare_for_model of TapasTokenizer.
-# These are meant to be used in an academic setup, for production use cases Gold mine or Aqua should be used.
 
 
-# taken from constants.py of the original implementation
-# URL: https://github.com/google-research/tapas/blob/master/tapas/utils/constants.py
 class Relation(enum.Enum):
     HEADER_TO_CELL = 1  # Connects header to cell.
     CELL_TO_HEADER = 2  # Connects cell to header.
@@ -2254,14 +1959,8 @@ class Question:
     numeric_spans: list[NumericValueSpan] | None = None
 
 
-# Below: all functions from number_utils.py as well as 2 functions (namely get_all_spans and normalize_for_match)
-# from text_utils.py of the original implementation. URL's:
-# - https://github.com/google-research/tapas/blob/master/tapas/utils/number_utils.py
-# - https://github.com/google-research/tapas/blob/master/tapas/utils/text_utils.py
 
 
-# Constants for parsing date expressions.
-# Masks that specify (by a bool) which of (year, month, day) will be populated.
 _DateMask = collections.namedtuple("_DateMask", ["year", "month", "day"])
 
 _YEAR = _DateMask(True, False, False)
@@ -2270,8 +1969,6 @@ _YEAR_MONTH_DAY = _DateMask(True, True, True)
 _MONTH = _DateMask(False, True, False)
 _MONTH_DAY = _DateMask(False, True, True)
 
-# Pairs of patterns to pass to 'datetime.strptime' and masks specifying which
-# fields will be set by the corresponding pattern.
 _DATE_PATTERNS = (
     ("%B", _MONTH),
     ("%Y", _YEAR),
@@ -2296,7 +1993,6 @@ _DATE_PATTERNS = (
     ("%A, %B %d", _MONTH_DAY),
 )
 
-# This mapping is used to convert date patterns to regex patterns.
 _FIELD_TO_REGEX = (
     ("%A", r"\w+"),  # Weekday as locale’s full name.
     ("%B", r"\w+"),  # Month as locale’s full name.
@@ -2316,7 +2012,6 @@ def _process_date_pattern(dp):
     regex = regex.replace(" ", r"\s+")
     for field, field_regex in _FIELD_TO_REGEX:
         regex = regex.replace(field, field_regex)
-    # Make sure we didn't miss any of the fields.
     assert "%" not in regex, regex
     return pattern, mask, re.compile("^" + regex + "$")
 
@@ -2329,8 +2024,6 @@ _PROCESSED_DATE_PATTERNS = _process_date_patterns()
 
 _MAX_DATE_NGRAM_SIZE = 5
 
-# Following DynSp:
-# https://github.com/Microsoft/DynSP/blob/master/util.py#L414.
 _NUMBER_WORDS = [
     "zero",
     "one",
@@ -2367,8 +2060,6 @@ _ORDINAL_SUFFIXES = ["st", "nd", "rd", "th"]
 
 _NUMBER_PATTERN = re.compile(r"((^|\s)[+-])?((\.\d+)|(\d+(,\d\d\d)*(\.\d*)?))")
 
-# Following DynSp:
-# https://github.com/Microsoft/DynSP/blob/master/util.py#L293.
 _MIN_YEAR = 1700
 _MAX_YEAR = 2016
 
@@ -2400,7 +2091,6 @@ def _get_numeric_value_from_float(value):
     return NumericValue(float_value=value)
 
 
-# Doesn't parse ordinal expressions such as '18th of february 1655'.
 def _parse_date(text):
     """Attempts to format a text as a standard date string (yyyy-mm-dd)."""
     text = re.sub(r"Sept\b", "Sep", text)
@@ -2532,10 +2222,6 @@ def parse_text(text):
     return numeric_value_spans
 
 
-# Below: all functions from number_annotation_utils.py and 2 functions (namely filter_invalid_unicode
-# and filter_invalid_unicode_from_table) from text_utils.py of the original implementation. URL's:
-# - https://github.com/google-research/tapas/blob/master/tapas/utils/number_annotation_utils.py
-# - https://github.com/google-research/tapas/blob/master/tapas/utils/text_utils.py
 
 
 _PrimitiveNumericValue = float | tuple[float | None]
@@ -2564,7 +2250,6 @@ def _get_value_as_primitive_value(numeric_value):
     if numeric_value.date is not None:
         date = numeric_value.date
         value_tuple = [None, None, None]
-        # All dates fields are cased to float to produce a simple primitive value.
         if date.year is not None:
             value_tuple[0] = float(date.year)
         if date.month is not None:
@@ -2602,11 +2287,8 @@ def get_numeric_sort_key_fn(numeric_values):
 
     value_type = next(iter(value_types))
     if value_type == NUMBER_TYPE:
-        # Primitive values are simple floats, nothing to do here.
         return _get_value_as_primitive_value
 
-    # The type can only be Date at this point which means the primitive type
-    # is a float triple.
     valid_indexes = set(range(_DATE_TUPLE_SIZE))
 
     for numeric_value in numeric_values:
@@ -2620,8 +2302,7 @@ def get_numeric_sort_key_fn(numeric_values):
         raise ValueError(f"No common value in {numeric_values}")
 
     def _sort_key_fn(numeric_value):
-        value = _get_value_as_primitive_value(numeric_value)
-        return tuple(value[index] for index in valid_indexes)
+        pass
 
     return _sort_key_fn
 
@@ -2649,7 +2330,6 @@ def _consolidate_numeric_values(row_index_to_values, min_consolidation_fraction,
         return {}
     max_count = max(type_counts.values())
     if max_count < len(row_index_to_values) * min_consolidation_fraction:
-        # logging.log_every_n(logging.INFO, f'Can\'t consolidate types: {debug_info} {row_index_to_values} {max_count}', 100)
         return {}
 
     valid_types = set()
@@ -2664,7 +2344,6 @@ def _consolidate_numeric_values(row_index_to_values, min_consolidation_fraction,
 
     new_row_index_to_value = {}
     for index, values in row_index_to_values.items():
-        # Extract the first matching value.
         for value in values:
             if _get_value_type(value) == max_type:
                 new_row_index_to_value[index] = value
@@ -2729,7 +2408,6 @@ def filter_invalid_unicode_from_table(table):
     Args:
         table: table to clean.
     """
-    # to do: add table id support
     if not hasattr(table, "table_id"):
         table.table_id = 0
 
@@ -2761,18 +2439,13 @@ def add_numeric_table_values(table, min_consolidation_fraction=0.7, debug_info=N
             Additional information used for logging.
     """
     table = table.copy()
-    # First, filter table on invalid unicode
     filter_invalid_unicode_from_table(table)
 
-    # Second, replace cell values by Cell objects. Cast to object dtype first: in pandas 3.x string
-    # columns default to the pyarrow-backed StringDtype, which rejects writes of arbitrary Python
-    # objects (it calls len(value) on the assignee, raising TypeError on the Cell dataclass).
     table = table.astype(object)
     for row_index, row in table.iterrows():
         for col_index, cell in enumerate(row):
             table.iloc[row_index, col_index] = Cell(text=cell)
 
-    # Third, add numeric_value attributes to these Cell objects
     for col_index, column in enumerate(table.columns):
         column_values = _consolidate_numeric_values(
             _get_column_values(table, col_index),

@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import json
 import os
@@ -25,26 +12,6 @@ if is_torch_available():
 
 @dataclass
 class DistributedConfig:
-    """
-    Configuration for native distributed training (FSDP2 + TP).
-
-    Args:
-        tp_size (`int`, *optional*):
-            Number of devices for tensor parallelism. If `None` and `fsdp_size` is set, defaults to 1.
-        tp_plan (`dict`, *optional*):
-            Tensor parallel sharding plan. Leave as `None` to use the model's `base_model_tp_plan`.
-            Set explicitly to override.
-        enable_sequence_parallel (`bool`, *optional*, defaults to `False`):
-            Reserved for sequence parallelism. Not wired up yet.
-        enable_expert_parallel (`bool`, *optional*, defaults to `False`):
-            Route MoE models through the expert-parallel path (``base_model_ep_plan``).
-        fsdp_size (`int`, *optional*):
-            Number of devices for FSDP (data parallelism). If `None` and `tp_size` is set, defaults to 1.
-        fsdp_cpu_offload (`bool`, *optional*, defaults to `False`):
-            Whether to enable CPU offloading for FSDP2.
-        fsdp_mixed_precision (`bool`, *optional*, defaults to `False`):
-            Whether to enable mixed precision for FSDP2.
-    """
 
     tp_size: int | None = None
     tp_plan: dict[str, str] | None = None

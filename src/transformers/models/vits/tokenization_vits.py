@@ -1,17 +1,3 @@
-# Copyright 2023 The Kakao Enterprise Authors, the MMS-TTS Authors and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization class for VITS."""
 
 import json
 import os
@@ -34,36 +20,14 @@ VOCAB_FILES_NAMES = {"vocab_file": "vocab.json"}
 
 
 def has_non_roman_characters(input_string):
-    # Find any character outside the ASCII range
     non_roman_pattern = re.compile(r"[^\x00-\x7F]")
 
-    # Search the input string for non-Roman characters
     match = non_roman_pattern.search(input_string)
     has_non_roman = match is not None
     return has_non_roman
 
 
 class VitsTokenizer(PreTrainedTokenizer):
-    """
-    Construct a VITS tokenizer. Also supports MMS-TTS.
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            Path to the vocabulary file.
-        language (`str`, *optional*):
-            Language identifier.
-        add_blank (`bool`, *optional*, defaults to `True`):
-            Whether to insert token id 0 in between the other tokens.
-        normalize (`bool`, *optional*, defaults to `True`):
-            Whether to normalize the input text by removing all casing and punctuation.
-        phonemize (`bool`, *optional*, defaults to `True`):
-            Whether to convert the input text into phonemes.
-        is_uroman (`bool`, *optional*, defaults to `False`):
-            Whether the `uroman` Romanizer needs to be applied to the input text prior to tokenizing.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -105,7 +69,7 @@ class VitsTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        return len(self.encoder)
+        pass
 
     def get_vocab(self):
         vocab = {self.convert_ids_to_tokens(i): i for i in range(self.vocab_size)}
@@ -168,7 +132,6 @@ class VitsTokenizer(PreTrainedTokenizer):
         normalize = normalize if normalize is not None else self.normalize
 
         if normalize:
-            # normalise for casing
             text = self.normalize_text(text)
 
         filtered_text = self._preprocess_char(text)
@@ -199,7 +162,6 @@ class VitsTokenizer(PreTrainedTokenizer):
             )
             filtered_text = re.sub(r"\s+", " ", filtered_text)
         elif normalize:
-            # strip any chars outside of the vocab (punctuation)
             filtered_text = "".join(list(filter(lambda char: char in self.encoder, filtered_text))).strip()
 
         return filtered_text, kwargs

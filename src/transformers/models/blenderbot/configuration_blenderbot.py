@@ -1,17 +1,3 @@
-# Copyright 2021 The Facebook, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Blenderbot model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,24 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="facebook/blenderbot-3B")
 @strict
 class BlenderbotConfig(PreTrainedConfig):
-    r"""
-    encoder_no_repeat_ngram_size (`int`, *optional*, defaults to 3):
-        Number of ngrams to not be repeated in the encoder.
-
-    Example:
-
-    ```python
-    >>> from transformers import BlenderbotConfig, BlenderbotModel
-
-    >>> # Initializing a Blenderbot facebook/blenderbot-3B style configuration
-    >>> configuration = BlenderbotConfig()
-
-    >>> # Initializing a model (with random weights) from the facebook/blenderbot-3B style configuration
-    >>> model = BlenderbotModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "blenderbot"
     keys_to_ignore_at_inference = ["past_key_values"]

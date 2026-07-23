@@ -1,19 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Speech processor class for Wav2Vec2
-"""
 
 import os
 from collections.abc import Iterable
@@ -44,20 +28,6 @@ ListOfDict = list[dict[str, int | str]]
 
 @dataclass
 class Wav2Vec2DecoderWithLMOutput(ModelOutput):
-    """
-    Output type of [`Wav2Vec2DecoderWithLM`], with transcription.
-
-    Args:
-        text (list of `str` or `str`):
-            Decoded logits in text from. Usually the speech transcription.
-        logit_score (list of `float` or `float`):
-            Total logit score of the beams associated with produced text.
-        lm_score (list of `float`):
-            Fused lm_score of the beams associated with produced text.
-        word_offsets (list of `list[dict[str, Union[int, str]]]` or `list[dict[str, Union[int, str]]]`):
-            Offsets of the decoded words. In combination with sampling rate and model downsampling rate word offsets
-            can be used to compute time stamps for each word.
-    """
 
     text: list[list[str]] | list[str] | str
     logit_score: list[list[float]] | list[float] | float = None
@@ -88,7 +58,6 @@ class Wav2Vec2ProcessorWithLM(ProcessorMixin):
                 f"`feature_extractor` has to be of type `Wav2Vec2FeatureExtractor` or `SeamlessM4TFeatureExtractor`, but is {type(feature_extractor)}"
             )
 
-        # make sure that decoder's alphabet and tokenizer's vocab match in content
         missing_decoder_tokens = self.get_missing_alphabet_tokens(decoder, tokenizer)
         if len(missing_decoder_tokens) > 0:
             raise ValueError(
@@ -142,12 +111,9 @@ class Wav2Vec2ProcessorWithLM(ProcessorMixin):
             unigram_encoding = kwargs.get("unigram_encoding", "utf-8")
             decoder = BeamSearchDecoderCTC.load_from_dir(pretrained_model_name_or_path, unigram_encoding)
         else:
-            # BeamSearchDecoderCTC has no auto class
             kwargs.pop("_from_auto", None)
-            # snapshot_download has no `trust_remote_code` flag
             kwargs.pop("trust_remote_code", None)
 
-            # make sure that only relevant filenames are downloaded
             language_model_filenames = os.path.join(BeamSearchDecoderCTC._LANGUAGE_MODEL_SERIALIZED_DIRECTORY, "*")
             alphabet_filename = BeamSearchDecoderCTC._ALPHABET_SERIALIZED_FILENAME
             allow_patterns = [language_model_filenames, alphabet_filename]
@@ -156,14 +122,12 @@ class Wav2Vec2ProcessorWithLM(ProcessorMixin):
                 pretrained_model_name_or_path, allow_patterns=allow_patterns, **kwargs
             )
 
-        # set language model attributes
         for attribute in ["alpha", "beta", "unk_score_offset", "score_boundary"]:
             value = kwargs.pop(attribute, None)
 
             if value is not None:
                 cls._set_language_model_attribute(decoder, attribute, value)
 
-        # make sure that decoder's alphabet and tokenizer's vocab match in content
         missing_decoder_tokens = cls.get_missing_alphabet_tokens(decoder, tokenizer)
         if len(missing_decoder_tokens) > 0:
             raise ValueError(
@@ -186,12 +150,8 @@ class Wav2Vec2ProcessorWithLM(ProcessorMixin):
     def get_missing_alphabet_tokens(decoder, tokenizer):
         from pyctcdecode.alphabet import BLANK_TOKEN_PTN, UNK_TOKEN, UNK_TOKEN_PTN
 
-        # we need to make sure that all of the tokenizer's except the special tokens
-        # are present in the decoder's alphabet. Retrieve missing alphabet token
-        # from decoder
         tokenizer_vocab_list = list(tokenizer.get_vocab().keys())
 
-        # replace special tokens
         for i, token in enumerate(tokenizer_vocab_list):
             if BLANK_TOKEN_PTN.match(token):
                 tokenizer_vocab_list[i] = ""
@@ -200,7 +160,6 @@ class Wav2Vec2ProcessorWithLM(ProcessorMixin):
             if UNK_TOKEN_PTN.match(token):
                 tokenizer_vocab_list[i] = UNK_TOKEN
 
-        # are any of the extra tokens no special tokenizer tokens?
         missing_tokens = set(tokenizer_vocab_list) - set(decoder._alphabet.labels)
 
         return missing_tokens
@@ -355,25 +314,18 @@ class Wav2Vec2ProcessorWithLM(ProcessorMixin):
             DEFAULT_PRUNE_LOGP,
         )
 
-        # set defaults
         beam_width = beam_width if beam_width is not None else DEFAULT_BEAM_WIDTH
         beam_prune_logp = beam_prune_logp if beam_prune_logp is not None else DEFAULT_PRUNE_LOGP
         token_min_logp = token_min_logp if token_min_logp is not None else DEFAULT_MIN_TOKEN_LOGP
         hotword_weight = hotword_weight if hotword_weight is not None else DEFAULT_HOTWORD_WEIGHT
 
-        # reset params at every forward call. It's just a `set` method in pyctcdecode
         self.decoder.reset_params(
             alpha=alpha, beta=beta, unk_score_offset=unk_score_offset, lm_score_boundary=lm_score_boundary
         )
 
-        # create multiprocessing pool and list numpy arrays
-        # filter out logits padding
         logits_list = [array[(array != -100.0).all(axis=-1)] for array in logits]
 
-        # create a pool if necessary while also using it as a context manager to close itself
         if pool is None:
-            # fork is safe to use only on Unix, see "Contexts and start methods" section on
-            # multiprocessing's docs (https://docs.python.org/3/library/multiprocessing.html#contexts-and-start-methods)
             default_context = get_start_method()
 
             if default_context == "fork":
@@ -385,7 +337,6 @@ class Wav2Vec2ProcessorWithLM(ProcessorMixin):
                 )
                 cm = nullcontext()
         else:
-            # pool is managed by the user, so we don't need to close it
             cm = nullcontext()
 
             if num_processes is not None:
@@ -393,7 +344,6 @@ class Wav2Vec2ProcessorWithLM(ProcessorMixin):
                     "Parameter `num_process` was passed, but it will be ignored since `pool` was also specified."
                 )
 
-        # pyctcdecode
         with cm:
             decoded_beams = self.decoder.decode_beams_batch(
                 pool=pool,
@@ -405,7 +355,6 @@ class Wav2Vec2ProcessorWithLM(ProcessorMixin):
                 hotword_weight=hotword_weight,
             )
 
-        # extract text and scores
         batch_texts, logit_scores, lm_scores, word_offsets = [], [], [], []
 
         for d in decoded_beams:
@@ -413,7 +362,6 @@ class Wav2Vec2ProcessorWithLM(ProcessorMixin):
             logit_scores.append([beam[-2] for beam in d])
             lm_scores.append([beam[-1] for beam in d])
 
-            # word_offsets.append([{"word": t[0], "start_offset": t[1][0], "end_offset": t[1][1]} for t in d[0][1]])
 
             word_offsets.append(
                 [
@@ -550,18 +498,15 @@ class Wav2Vec2ProcessorWithLM(ProcessorMixin):
             DEFAULT_PRUNE_LOGP,
         )
 
-        # set defaults
         beam_width = beam_width if beam_width is not None else DEFAULT_BEAM_WIDTH
         beam_prune_logp = beam_prune_logp if beam_prune_logp is not None else DEFAULT_PRUNE_LOGP
         token_min_logp = token_min_logp if token_min_logp is not None else DEFAULT_MIN_TOKEN_LOGP
         hotword_weight = hotword_weight if hotword_weight is not None else DEFAULT_HOTWORD_WEIGHT
 
-        # reset params at every forward call. It's just a `set` method in pyctcdecode
         self.decoder.reset_params(
             alpha=alpha, beta=beta, unk_score_offset=unk_score_offset, lm_score_boundary=lm_score_boundary
         )
 
-        # pyctcdecode
         decoded_beams = self.decoder.decode_beams(
             logits,
             beam_width=beam_width,

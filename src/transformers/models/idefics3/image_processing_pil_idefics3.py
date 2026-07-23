@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PIL Image processor class for Idefics3."""
 
 import math
 from typing import TYPE_CHECKING
@@ -45,28 +31,16 @@ def _make_pixel_mask(image: np.ndarray, output_size: tuple[int, int]) -> np.ndar
     return mask
 
 
-# Adapted from transformers.models.idefics3.image_processing_idefics3.MAX_IMAGE_SIZE
 MAX_IMAGE_SIZE = 4096  # 4k resolution as absolute maximum
 
 
-# Adapted from transformers.models.idefics3.image_processing_idefics3.Idefics3ImageProcessorKwargs
 class Idefics3ImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    do_image_splitting (`bool`, *optional*, defaults to `True`):
-        Whether to split the image into sub-images concatenated with the original image. They are split into patches
-        such that each patch has a size of `max_image_size["height"]` x `max_image_size["width"]`.
-    max_image_size (`Dict`, *optional*, defaults to `{"longest_edge": 364}`):
-        Maximum resolution of the patches of images accepted by the model. This is a dictionary containing the key "longest_edge".
-    return_row_col_info (`bool`, *optional*, defaults to `False`):
-        Whether to return the row and column information of the images.
-    """
 
     do_image_splitting: bool
     max_image_size: dict[str, int]
     return_row_col_info: bool
 
 
-# Adapted from transformers.models.idefics3.image_processing_idefics3._resize_output_size_rescale_to_max_len
 def _resize_output_size_rescale_to_max_len(
     height: int, width: int, min_len: int | None = 1, max_len: int | None = None
 ) -> tuple[int, int]:
@@ -98,13 +72,11 @@ def _resize_output_size_rescale_to_max_len(
         if width % 2 != 0:
             width += 1
 
-    # Avoid resizing to a size smaller than min_len
     height = max(height, min_len)
     width = max(width, min_len)
     return height, width
 
 
-# Adapted from transformers.models.idefics3.image_processing_idefics3._resize_output_size_scale_below_upper_bound
 def _resize_output_size_scale_below_upper_bound(
     height: int, width: int, max_len: dict[str, int] | None = None
 ) -> tuple[int, int]:
@@ -130,7 +102,6 @@ def _resize_output_size_scale_below_upper_bound(
         height = max_len
         width = int(height * aspect_ratio)
 
-    # Avoid resizing to a size smaller than 1
     height = max(height, 1)
     width = max(width, 1)
     return height, width
@@ -178,9 +149,7 @@ def get_resize_output_image_size(
     """
     height, width = image.shape[-2:]
 
-    # Find the output size, when rescaling the longest edge to max_len and preserving the aspect ratio
     height, width = _resize_output_size_rescale_to_max_len(height, width, max_len=resolution_max_side)
-    # Find the output size when scaling the image to be below the MAX_IMAGE_SIZE
     height, width = _resize_output_size_scale_below_upper_bound(height, width, max_len=MAX_IMAGE_SIZE)
     return height, width
 
@@ -335,14 +304,12 @@ class Idefics3ImageProcessorPil(PilBackend):
         **kwargs,
     ) -> BatchFeature:
         """Process a batch of images. Mirrors TorchvisionBackend._preprocess with per-image loops instead of batching."""
-        # Resize
         if do_resize:
             images = [
                 [self.resize(image=img, size=size, resample=resample) for img in batch_images]
                 for batch_images in images
             ]
 
-        # Image splitting
         if do_image_splitting:
             images = [
                 [
@@ -386,13 +353,11 @@ class Idefics3ImageProcessorPil(PilBackend):
             rows = [[0] * len(batch_images) for batch_images in images]
             cols = [[0] * len(batch_images) for batch_images in images]
 
-        # Rescale and normalize
         if do_rescale:
             images = [[self.rescale(img, rescale_factor) for img in batch_images] for batch_images in images]
         if do_normalize:
             images = [[self.normalize(img, image_mean, image_std) for img in batch_images] for batch_images in images]
 
-        # Pad
         if do_pad:
             max_num_images = max(len(images_) for images_ in images)
             max_height, max_width = get_max_height_width(images)
@@ -436,45 +401,7 @@ class Idefics3ImageProcessorPil(PilBackend):
         return encoder_dict
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs: dict):
-        """
-        A utility that returns number of image patches for a given image size.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`)
-                Any kwargs to override defaults of the image processor.
-        Returns:
-            `int`: Number of patches per image.
-        """
-        do_image_splitting = images_kwargs.get("do_image_splitting", self.do_image_splitting)
-        max_image_size = images_kwargs.get("max_image_size", self.max_image_size)
-        size = images_kwargs.get("size", self.size)
-
-        num_patches = num_rows = num_cols = 0
-        if do_image_splitting:
-            height, width = _resize_output_size_rescale_to_max_len(height, width, max_len=size["longest_edge"])
-            height, width = _resize_output_size_scale_below_upper_bound(height, width, max_len=MAX_IMAGE_SIZE)
-            aspect_ratio = width / height
-
-            if width >= height:
-                resized_width = math.ceil(width / max_image_size["longest_edge"]) * max_image_size["longest_edge"]
-                resized_height = int(width / aspect_ratio)
-                resized_height = math.ceil(height / max_image_size["longest_edge"]) * max_image_size["longest_edge"]
-            elif height > width:
-                resized_height = math.ceil(height / max_image_size["longest_edge"]) * max_image_size["longest_edge"]
-                resized_width = int(height * aspect_ratio)
-                resized_width = math.ceil(width / max_image_size["longest_edge"]) * max_image_size["longest_edge"]
-
-            max_height = max_width = max_image_size["longest_edge"]
-            if resized_height > max_height or resized_width > max_width:
-                num_rows = math.ceil(resized_height / max_height)
-                num_cols = math.ceil(resized_width / max_width)
-                num_patches = num_rows * num_cols + 1
-
-        return num_patches, num_rows, num_cols
+        pass
 
 
 __all__ = ["Idefics3ImageProcessorPil"]

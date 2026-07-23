@@ -1,20 +1,4 @@
-# Copyright 2023 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""
-Weights conversion script for CLVP
-"""
 
 import argparse
 import os
@@ -79,104 +63,11 @@ def update_index(present_index):
 
 
 def convert_encoder_weights(original_weights):
-    converted_weights = {}
-    original_weights_keys = sorted(original_weights.keys())
-    for original_key in original_weights_keys:
-        updated_key = original_key
-        # for input_rmsnorm.weight and post_attention_rmsnorm.weight
-        if "0.0.g" in updated_key:
-            present_index = updated_key.split(".")[4]
-            if int(present_index) % 2 == 0:
-                updated_key = updated_key.replace("0.0.g", "input_rmsnorm.weight")
-            else:
-                updated_key = updated_key.replace("0.0.g", "post_attention_rmsnorm.weight")
-
-        if "transformer.attn_layers.layers" in updated_key:
-            present_index = updated_key.split(".")[4]
-            updated_index = update_index(int(present_index))
-            updated_key = updated_key.replace(
-                f"transformer.attn_layers.layers.{present_index}", f"transformer.attn_layers.layers.{updated_index}"
-            )
-
-        for k, v in CLVP_ENCODERS_MAPPING.items():
-            if k in updated_key:
-                updated_key = updated_key.replace(k, v)
-
-        converted_weights[updated_key] = original_weights.pop(original_key)
-
-    return converted_weights
+    pass
 
 
 def convert_decoder_weights(original_weights):
-    converted_weights = {}
-    original_weights_keys = sorted(original_weights.keys())
-    for original_key in original_weights_keys:
-        updated_key = original_key
-        if len(updated_key.split(".")) > 3:
-            index, attr = updated_key.split(".")[2], updated_key.split(".")[-1]
-
-        # for decoder attention
-        if "attn.c_attn" in updated_key:
-            if attr == "weight":
-                slice1, slice2, slice3 = original_weights[updated_key].squeeze(-1).T.split(split_size=dim, dim=0)
-            else:
-                slice1, slice2, slice3 = original_weights[updated_key].split(split_size=dim, dim=0)
-            converted_weights[f"speech_decoder_model.model.decoder.layers.{index}.attn.q_proj.{attr}"] = slice1
-            converted_weights[f"speech_decoder_model.model.decoder.layers.{index}.attn.k_proj.{attr}"] = slice2
-            converted_weights[f"speech_decoder_model.model.decoder.layers.{index}.attn.v_proj.{attr}"] = slice3
-            continue
-
-        if "attn.c_proj" in updated_key:
-            converted_weights[f"speech_decoder_model.model.decoder.layers.{index}.attn.out_proj.{attr}"] = (
-                original_weights[updated_key].squeeze(-1).T
-            )
-            continue
-
-        if "attn.bias" in updated_key or "attn.masked_bias" in updated_key or "text_head" in updated_key:
-            original_weights.pop(updated_key)
-            continue
-
-        # conditional encoder attention
-        if "qkv" in updated_key:
-            if attr == "weight":
-                slice1, slice2, slice3 = original_weights[updated_key].squeeze(-1).split(split_size=dim, dim=0)
-            else:
-                slice1, slice2, slice3 = original_weights[updated_key].split(split_size=dim, dim=0)
-
-            indices = torch.arange(dim)
-            index1, index2, index3 = (
-                indices.unfold(0, sub_dim, sub_dim * 3).flatten(),
-                indices[sub_dim:].unfold(0, sub_dim, sub_dim * 3).flatten(),
-                indices[2 * sub_dim :].unfold(0, sub_dim, sub_dim * 3).flatten(),
-            )
-
-            converted_weights[f"conditioning_encoder.mel_attn_blocks.{index}.q_proj.{attr}"] = torch.concatenate(
-                [slice1[index1], slice2[index3], slice3[index2]],
-                axis=0,
-            )
-            converted_weights[f"conditioning_encoder.mel_attn_blocks.{index}.k_proj.{attr}"] = torch.concatenate(
-                [slice1[index2], slice2[index1], slice3[index3]],
-                axis=0,
-            )
-            converted_weights[f"conditioning_encoder.mel_attn_blocks.{index}.v_proj.{attr}"] = torch.concatenate(
-                [slice1[index3], slice2[index2], slice3[index1]],
-                axis=0,
-            )
-            continue
-
-        if "proj_out" in updated_key:
-            converted_weights[f"conditioning_encoder.mel_attn_blocks.{index}.out_proj.{attr}"] = original_weights[
-                updated_key
-            ].squeeze(-1)
-            continue
-
-        for k, v in CLVP_DECODER_MAPPING.items():
-            if k in updated_key:
-                updated_key = updated_key.replace(k, v)
-
-        converted_weights[updated_key] = original_weights.pop(original_key)
-
-    return converted_weights
+    pass
 
 
 def _download(url: str, root: str):
@@ -191,34 +82,11 @@ def _download(url: str, root: str):
 
 
 def convert_clvp_weights(checkpoint_path, pytorch_dump_folder_path):
-    converted_checkpoint = {}
-
-    for each_model_name, each_model_url in _MODELS.items():
-        each_model_path = os.path.join(checkpoint_path, each_model_url.split("/")[-1])
-        if not os.path.exists(each_model_path):
-            print(f"\n{each_model_name} was not found! Downloading it to {each_model_path}")
-            _download(url=each_model_url, root=each_model_path)
-
-        if each_model_name == "clvp":
-            clvp_checkpoint = torch.load(each_model_path, map_location="cpu", weights_only=True)
-        else:
-            decoder_checkpoint = torch.load(each_model_path, map_location="cpu", weights_only=True)
-
-    # Converting the weights
-    converted_checkpoint.update(**convert_encoder_weights(clvp_checkpoint))
-    converted_checkpoint.update(**convert_decoder_weights(decoder_checkpoint))
-
-    config = ClvpConfig.from_pretrained("susnato/clvp_dev")
-    model = ClvpModelForConditionalGeneration(config)
-
-    model.load_state_dict(converted_checkpoint, strict=True)
-    model.save_pretrained(pytorch_dump_folder_path)
-    print(f"Model saved at {pytorch_dump_folder_path}!")
+    pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # # Required parameters
     parser.add_argument(
         "--checkpoint_path", type=str, help="Path to the folder of downloaded checkpoints. (Please enter full path)"
     )

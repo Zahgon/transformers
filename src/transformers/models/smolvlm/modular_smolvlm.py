@@ -1,17 +1,3 @@
-# Copyright 2025 the HuggingFace Inc. team. All rights reserved.
-# Written by Orr Zohar
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -43,22 +29,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="HuggingFaceTB/SmolVLM2-2.2B-Instruct")
 @strict
 class SmolVLMVisionConfig(Idefics3VisionConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers.models.smolvlm.modeling_smolvlm import SmolVLMVisionTransformer
-    >>> from transformers.models.smolvlm.configuration_smolvlm import SmolVLMVisionConfig
-
-    >>> # Initializing a SmolVLMVisionConfig with google/siglip-so400m-patch14-384 style configuration
-    >>> configuration = SmolVLMVisionConfig()
-
-    >>> # Initializing a SmolVLMVisionTransformer (with random weights) from the google/siglip-so400m-patch14-384 style configuration
-    >>> model = SmolVLMVisionTransformer(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "smolvlm_vision"
 
@@ -74,20 +44,6 @@ class SmolVLMVisionTransformer(Idefics3VisionTransformer):
 @auto_docstring(checkpoint="HuggingFaceTB/SmolVLM2-2.2B-Instruct")
 @strict
 class SmolVLMConfig(Idefics3Config):
-    r"""
-    scale_factor (`int`, *optional*, defaults to 2):
-        The scale factor for the image encoder.
-
-    Example:
-    ```python
-    >>> from transformers import SmolVLMModel, SmolVLMConfig
-    >>> # Initializing configuration
-    >>> configuration = SmolVLMConfig()
-    >>> # Initializing a model from the configuration
-    >>> model = SmolVLMModel(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "smolvlm"
 
@@ -105,10 +61,6 @@ class SmolVLMBaseModelOutputWithPast(Idefics3BaseModelOutputWithPast):
 
 
 class SmolVLMModel(Idefics3Model):
-    """
-    A subclass of Idefics3Model. We do *not* remove or block the call to inputs_merger
-    in forward. Instead, we override inputs_merger here with custom logic.
-    """
 
     def inputs_merger(
         self, input_ids: torch.LongTensor, inputs_embeds: torch.Tensor, image_hidden_states: torch.Tensor
@@ -163,15 +115,12 @@ class SmolVLMModel(Idefics3Model):
         pixel_values = pixel_values.to(dtype=self.dtype)  # fp16 compatibility
         pixel_values = pixel_values.view(batch_size * num_images, *pixel_values.shape[2:])
 
-        # Remove padding images - padding images are full 0.
         nb_values_per_image = pixel_values.shape[1:].numel()
         real_images_inds = (pixel_values == 0.0).sum(dim=(-1, -2, -3)) != nb_values_per_image
 
-        # If no images, leave one empty image.
         real_images_inds[0] |= ~torch.any(real_images_inds)
 
         pixel_values = pixel_values[real_images_inds].contiguous()
-        # Handle the vision attention mask
         if pixel_attention_mask is None:
             pixel_attention_mask = torch.ones(
                 size=[pixel_values.shape[i] for i in (0, 2, 3)],
@@ -179,7 +128,6 @@ class SmolVLMModel(Idefics3Model):
                 device=pixel_values.device,
             )
         else:
-            # Remove padding images from the mask
             pixel_attention_mask = pixel_attention_mask.view(batch_size * num_images, *pixel_attention_mask.shape[2:])
             pixel_attention_mask = pixel_attention_mask[real_images_inds].contiguous()
         patch_size = self.config.vision_config.patch_size
@@ -187,13 +135,11 @@ class SmolVLMModel(Idefics3Model):
         patches_subgrid = patches_subgrid.unfold(dimension=2, size=patch_size, step=patch_size)
         patch_attention_mask = (patches_subgrid.sum(dim=(-1, -2)) > 0).bool()
 
-        # Get sequence from the vision encoder
         image_outputs = self.vision_model(
             pixel_values=pixel_values, patch_attention_mask=patch_attention_mask, return_dict=True, **kwargs
         )
         image_hidden_states = image_outputs.last_hidden_state
 
-        # Modality projection & resampling
         image_features = self.connector(image_hidden_states)
         image_outputs.pooler_output = image_features
 

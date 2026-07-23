@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Blip model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -25,26 +11,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="Salesforce/blip-vqa-base")
 @strict
 class BlipTextConfig(PreTrainedConfig):
-    r"""
-    label_smoothing (float, *optional*):
-        A float in [0.0, 1.0]. Specifies the amount of smoothing when computing the loss, where 0.0 means no smoothing. The targets
-        become a mixture of the original ground truth and a uniform distribution as described in
-        `Rethinking the Inception Architecture for Computer Vision <https://huggingface.co/papers/1512.00567>`__. Default: :math:`0.0`.
-
-    Example:
-
-    ```python
-    >>> from transformers import BlipTextConfig, BlipTextModel
-
-    >>> # Initializing a BlipTextConfig with Salesforce/blip-vqa-base style configuration
-    >>> configuration = BlipTextConfig()
-
-    >>> # Initializing a BlipTextModel (with random weights) from the Salesforce/blip-vqa-base style configuration
-    >>> model = BlipTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "blip_text_model"
     base_config_key = "text_config"
@@ -75,21 +41,6 @@ class BlipTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Salesforce/blip-vqa-base")
 @strict
 class BlipVisionConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import BlipVisionConfig, BlipVisionModel
-
-    >>> # Initializing a BlipVisionConfig with Salesforce/blip-vqa-base style configuration
-    >>> configuration = BlipVisionConfig()
-
-    >>> # Initializing a BlipVisionModel (with random weights) from the Salesforce/blip-vqa-base style configuration
-    >>> model = BlipVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "blip_vision_model"
     base_config_key = "vision_config"
@@ -110,36 +61,6 @@ class BlipVisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Salesforce/blip-vqa-base")
 @strict
 class BlipConfig(PreTrainedConfig):
-    r"""
-    image_text_hidden_size (`int`, *optional*, defaults to 256):
-        Dimensionality of the hidden state of the image-text fusion layer.
-    label_smoothing (float, *optional*):
-        A float in [0.0, 1.0]. Specifies the amount of smoothing when computing the loss, where 0.0 means no smoothing. The targets
-        become a mixture of the original ground truth and a uniform distribution as described in
-        `Rethinking the Inception Architecture for Computer Vision <https://huggingface.co/papers/1512.00567>`__. Default: :math:`0.0`.
-
-    Example:
-
-    ```python
-    >>> from transformers import BlipConfig, BlipModel
-
-    >>> # Initializing a BlipConfig with Salesforce/blip-vqa-base style configuration
-    >>> configuration = BlipConfig()
-
-    >>> # Initializing a BlipPModel (with random weights) from the Salesforce/blip-vqa-base style configuration
-    >>> model = BlipModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-
-    >>> # We can also initialize a BlipConfig from a BlipTextConfig and a BlipVisionConfig
-
-    >>> # Initializing a BLIPText and BLIPVision configuration
-    >>> config_text = BlipTextConfig()
-    >>> config_vision = BlipVisionConfig()
-
-    >>> config = BlipConfig(text_config=config_text, vision_config=config_vision)
-    ```"""
 
     model_type = "blip"
     sub_configs = {"text_config": BlipTextConfig, "vision_config": BlipVisionConfig}

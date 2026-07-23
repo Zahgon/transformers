@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -23,33 +10,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="LiquidAI/LFM2-1.2B")
 @strict
 class Lfm2Config(PreTrainedConfig):
-    r"""
-    conv_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use bias in the conv layers.
-    conv_L_cache (`int`, *optional*, defaults to 3):
-        L_cache dim in the conv layers.
-    block_multiple_of (`int`, *optional*, defaults to 256):
-        Multiple for the `intermediate_size`.
-    block_ffn_dim_multiplier (`float`, *optional*, defaults to 1.0):
-        Multiplier for the `intermediate_size`.
-    block_auto_adjust_ff_dim (`bool`, *optional*, defaults to `True`):
-        Whether to adjust the dim of the `intermediate_size`.
-    full_attn_idxs (`Optional`, *optional*):
-        Index of the layers which use attention.
-
-    ```python
-    >>> from transformers import Lfm2Model, Lfm2Config
-
-    >>> # Initializing a LFM2 model
-    >>> configuration = Lfm2Config()
-
-    >>> # Initializing a model from the LFM2-1.2B style configuration
-    >>> model = Lfm2Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "lfm2"
     keys_to_ignore_at_inference = ["past_key_values"]

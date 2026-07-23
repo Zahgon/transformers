@@ -1,16 +1,3 @@
-# Copyright 2020 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import argparse
 import json
@@ -31,9 +18,7 @@ from transformers import MarianConfig, MarianMTModel, MarianTokenizer
 
 
 def remove_suffix(text: str, suffix: str):
-    if text.endswith(suffix):
-        return text[: -len(suffix)]
-    return text  # or whatever
+    pass
 
 
 def remove_prefix(text: str, prefix: str):
@@ -61,15 +46,7 @@ def load_layers_(layer_lst: nn.ModuleList, opus_state: dict, converter, is_decod
 
 
 def find_pretrained_model(src_lang: str, tgt_lang: str) -> list[str]:
-    """Find models that can accept src_lang as input and return tgt_lang as output."""
-    prefix = "Helsinki-NLP/opus-mt-"
-    model_list = list_models()
-    model_ids = [x.id for x in model_list if x.id.startswith("Helsinki-NLP")]
-    src_and_targ = [
-        remove_prefix(m, prefix).lower().split("-") for m in model_ids if "+" not in m
-    ]  # + can't be loaded.
-    matching = [f"{prefix}{a}-{b}" for (a, b) in src_and_targ if src_lang in a and tgt_lang in b]
-    return matching
+    pass
 
 
 def add_emb_entries(wemb, final_bias, n_special_tokens=1):
@@ -116,7 +93,6 @@ def find_model_file(dest_dir):  # this one better
     return model_file
 
 
-# Group Names Logic: change long opus model names to something shorter, like opus-mt-en-ROMANCE
 ROM_GROUP = (
     "fr+fr_BE+fr_CA+fr_FR+wa+frp+oc+ca+rm+lld+fur+lij+lmo+es+es_AR+es_CL+es_CO+es_CR+es_DO+es_EC+es_ES+es_GT"
     "+es_HN+es_MX+es_NI+es_PA+es_PE+es_PR+es_SV+es_UY+es_VE+pt+pt_br+pt_BR+pt_PT+gl+lad+an+mwl+it+it_IT+co"
@@ -170,15 +146,7 @@ def convert_opus_name_to_hf_name(x):
 
 
 def convert_hf_name_to_opus_name(hf_model_name):
-    """
-    Relies on the assumption that there are no language codes like pt_br in models that are not in GROUP_TO_OPUS_NAME.
-    """
-    hf_model_name = remove_prefix(hf_model_name, ORG_NAME)
-    if hf_model_name in GROUP_TO_OPUS_NAME:
-        opus_w_prefix = GROUP_TO_OPUS_NAME[hf_model_name]
-    else:
-        opus_w_prefix = hf_model_name.replace("_", "+")
-    return remove_prefix(opus_w_prefix, "opus-mt-")
+    pass
 
 
 def get_system_metadata(repo_root):
@@ -192,7 +160,6 @@ def get_system_metadata(repo_root):
     }
 
 
-# docstyle-ignore
 FRONT_MATTER_TEMPLATE = """---
 language:
 {}
@@ -213,154 +180,31 @@ def write_model_card(
     dry_run=False,
     extra_metadata={},
 ) -> str:
-    """
-    Copy the most recent model's readme section from opus, and add metadata. upload command: aws s3 sync model_card_dir
-    s3://models.huggingface.co/bert/Helsinki-NLP/ --dryrun
-    """
-    import pandas as pd
-
-    hf_model_name = remove_prefix(hf_model_name, ORG_NAME)
-    opus_name: str = convert_hf_name_to_opus_name(hf_model_name)
-    if repo_root not in ("OPUS-MT-train", "Tatoeba-Challenge"):
-        raise ValueError(f"Repos root is {repo_root}. Expected either OPUS-MT-train or Tatoeba-Challenge")
-    opus_readme_path = Path(repo_root).joinpath("models", opus_name, "README.md")
-    if not (opus_readme_path.exists()):
-        raise ValueError(f"Readme file {opus_readme_path} not found")
-
-    opus_src, opus_tgt = [x.split("+") for x in opus_name.split("-")]
-
-    readme_url = f"https://github.com/Helsinki-NLP/{repo_root}/tree/master/models/{opus_name}/README.md"
-
-    s, t = ",".join(opus_src), ",".join(opus_tgt)
-    metadata = {
-        "hf_name": hf_model_name,
-        "source_languages": s,
-        "target_languages": t,
-        "opus_readme_url": readme_url,
-        "original_repo": repo_root,
-        "tags": ["translation"],
-    }
-    metadata.update(extra_metadata)
-    metadata.update(get_system_metadata(repo_root))
-
-    # combine with opus markdown
-
-    extra_markdown = (
-        f"### {hf_model_name}\n\n* source group: {metadata['src_name']} \n* target group: "
-        f"{metadata['tgt_name']} \n*  OPUS readme: [{opus_name}]({readme_url})\n"
-    )
-
-    content = opus_readme_path.open().read()
-    content = content.split("\n# ")[-1]  # Get the lowest level 1 header in the README -- the most recent model.
-    splat = content.split("*")[2:]
-    print(splat[3])
-    content = "*".join(splat)
-    content = (
-        FRONT_MATTER_TEMPLATE.format(metadata["src_alpha2"])
-        + extra_markdown
-        + "\n* "
-        + content.replace("download", "download original weights")
-    )
-
-    items = "\n\n".join([f"- {k}: {v}" for k, v in metadata.items()])
-    sec3 = "\n### System Info: \n" + items
-    content += sec3
-    if dry_run:
-        return content, metadata
-    sub_dir = save_dir / f"opus-mt-{hf_model_name}"
-    sub_dir.mkdir(exist_ok=True)
-    dest = sub_dir / "README.md"
-    dest.open("w").write(content)
-    pd.Series(metadata).to_json(sub_dir / "metadata.json")
-
-    # if dry_run:
-    return content, metadata
+    pass
 
 
 def make_registry(repo_path="Opus-MT-train/models"):
-    if not (Path(repo_path) / "fr-en" / "README.md").exists():
-        raise ValueError(
-            f"repo_path:{repo_path} does not exist: "
-            "You must run: git clone git@github.com:Helsinki-NLP/Opus-MT-train.git before calling."
-        )
-    results = {}
-    for p in Path(repo_path).iterdir():
-        n_dash = p.name.count("-")
-        if n_dash == 0:
-            continue
-        else:
-            lns = list(open(p / "README.md").readlines())
-            results[p.name] = _parse_readme(lns)
-    return [(k, v["pre-processing"], v["download"], v["download"][:-4] + ".test.txt") for k, v in results.items()]
+    pass
 
 
 def convert_all_sentencepiece_models(model_list=None, repo_path=None, dest_dir=Path("marian_converted")):
-    """Requires 300GB"""
-    save_dir = Path("marian_ckpt")
-    dest_dir = Path(dest_dir)
-    dest_dir.mkdir(exist_ok=True)
-    save_paths = []
-    if model_list is None:
-        model_list: list = make_registry(repo_path=repo_path)
-    for k, prepro, download, test_set_url in tqdm(model_list):
-        if "SentencePiece" not in prepro:  # dont convert BPE models.
-            continue
-        if not os.path.exists(save_dir / k):
-            download_and_unzip(download, save_dir / k)
-        pair_name = convert_opus_name_to_hf_name(k)
-        convert(save_dir / k, dest_dir / f"opus-mt-{pair_name}")
-
-        save_paths.append(dest_dir / f"opus-mt-{pair_name}")
-    return save_paths
+    pass
 
 
 def lmap(f, x) -> list:
-    return list(map(f, x))
+    pass
 
 
 def fetch_test_set(test_set_url):
-    import wget
-
-    fname = wget.download(test_set_url, "opus_test.txt")
-    lns = Path(fname).open().readlines()
-    src = lmap(str.strip, lns[::4])
-    gold = lmap(str.strip, lns[1::4])
-    mar_model = lmap(str.strip, lns[2::4])
-    if not (len(gold) == len(mar_model) == len(src)):
-        raise ValueError(f"Gold, marian and source lengths {len(gold)}, {len(mar_model)}, {len(src)} mismatched")
-    os.remove(fname)
-    return src, mar_model, gold
+    pass
 
 
 def convert_whole_dir(path=Path("marian_ckpt/")):
-    for subdir in tqdm(list(path.ls())):
-        dest_dir = f"marian_converted/{subdir.name}"
-        if (dest_dir / "pytorch_model.bin").exists():
-            continue
-        convert(source_dir, dest_dir)
+    pass
 
 
 def _parse_readme(lns):
-    """Get link and metadata from opus model card equivalent."""
-    subres = {}
-    for ln in [x.strip() for x in lns]:
-        if not ln.startswith("*"):
-            continue
-        ln = ln[1:].strip()
-
-        for k in ["download", "dataset", "models", "model", "pre-processing"]:
-            if ln.startswith(k):
-                break
-        else:
-            continue
-        if k in ["dataset", "model", "pre-processing"]:
-            splat = ln.split(":")
-            _, v = splat
-            subres[k] = v
-        elif k == "download":
-            v = ln.split("(")[-1][:-1]
-            subres[k] = v
-    return subres
+    pass
 
 
 def save_tokenizer_config(dest_dir: Path, separate_vocabs=False):
@@ -414,9 +258,7 @@ def add_special_tokens_to_vocab(model_dir: Path, separate_vocab=False) -> None:
 
 
 def check_equal(marian_cfg, k1, k2):
-    v1, v2 = marian_cfg[k1], marian_cfg[k2]
-    if v1 != v2:
-        raise ValueError(f"hparams {k1},{k2} differ: {v1} != {v2}")
+    pass
 
 
 def check_marian_cfg_assumptions(marian_cfg):
@@ -459,7 +301,6 @@ BART_CONVERTER = {  # for each encoder and decoder layer
     "ffn_b2": "fc2.bias",
     "ffn_ffn_ln_scale": "final_layer_norm.weight",
     "ffn_ffn_ln_bias": "final_layer_norm.bias",
-    # Decoder Cross Attention
     "context_Wk": "encoder_attn.k_proj.weight",
     "context_Wo": "encoder_attn.out_proj.weight",
     "context_Wq": "encoder_attn.q_proj.weight",
@@ -488,10 +329,8 @@ class OpusState:
             cfg["tied-embeddings"] = True
         self.share_encoder_decoder_embeddings = cfg["tied-embeddings-src"]
 
-        # create the tokenizer here because we need to know the eos_token_id
         self.source_dir = source_dir
         self.tokenizer = self.load_tokenizer()
-        # retrieve EOS token and set correctly
         tokenizer_has_eos_token_id = (
             hasattr(self.tokenizer, "eos_token_id") and self.tokenizer.eos_token_id is not None
         )
@@ -506,7 +345,6 @@ class OpusState:
             self.dec_wemb, self.final_bias = add_emb_entries(
                 self.state_dict["decoder_Wemb"], self.state_dict[BIAS_KEY], 1
             )
-            # still assuming that vocab size is same for encoder and decoder
             self.pad_token_id = self.wemb.shape[0] - 1
             cfg["vocab_size"] = self.pad_token_id + 1
             cfg["decoder_vocab_size"] = self.pad_token_id + 1
@@ -516,7 +354,6 @@ class OpusState:
                 f"Original vocab size {cfg['vocab_size']} and new vocab size {len(self.tokenizer.encoder)} mismatched."
             )
 
-        # self.state_dict['Wemb'].sha
         self.state_keys = list(self.state_dict.keys())
         if "Wtype" in self.state_dict:
             raise ValueError("Wtype key in state dictionary")
@@ -526,7 +363,6 @@ class OpusState:
         if hidden_size != cfg["dim-emb"]:
             raise ValueError(f"Hidden size {hidden_size} and configured size {cfg['dim_emb']} mismatched")
 
-        # Process decoder.yml
         decoder_yml = cast_marian_config(load_yaml(source_dir / "decoder.yml"))
         check_marian_cfg_assumptions(cfg)
         self.hf_config = MarianConfig(
@@ -551,7 +387,6 @@ class OpusState:
             static_position_embeddings=not cfg["transformer-train-position-embeddings"],
             tie_word_embeddings=cfg["tied-embeddings"],
             dropout=0.1,  # see opus-mt-train repo/transformer-dropout param.
-            # default: add_final_layer_norm=False,
             num_beams=decoder_yml["beam-size"],
             decoder_start_token_id=self.pad_token_id,
             bad_words_ids=[[self.pad_token_id]],
@@ -571,23 +406,12 @@ class OpusState:
 
     @property
     def extra_keys(self):
-        extra = []
-        for k in self.state_keys:
-            if (
-                k.startswith("encoder_l")
-                or k.startswith("decoder_l")
-                or k in [CONFIG_KEY, "Wemb", "encoder_Wemb", "decoder_Wemb", "Wpos", "decoder_ff_logit_out_b"]
-            ):
-                continue
-            else:
-                extra.append(k)
-        return extra
+        pass
 
     def sub_keys(self, layer_prefix):
         return [remove_prefix(k, layer_prefix) for k in self.state_dict if k.startswith(layer_prefix)]
 
     def load_tokenizer(self):
-        # save tokenizer
         add_special_tokens_to_vocab(self.source_dir, not self.share_encoder_decoder_embeddings)
         return MarianTokenizer.from_pretrained(str(self.source_dir))
 
@@ -607,7 +431,6 @@ class OpusState:
         )
         load_layers_(model.model.decoder.layers, state_dict, BART_CONVERTER, is_decoder=True)
 
-        # handle tensors not associated with layers
         if self.cfg["tied-embeddings-src"]:
             wemb_tensor = nn.Parameter(torch.FloatTensor(self.wemb))
             bias_tensor = nn.Parameter(torch.FloatTensor(self.final_bias))
@@ -621,7 +444,6 @@ class OpusState:
             bias_tensor = nn.Parameter(torch.FloatTensor(self.final_bias))
             model.model.decoder.embed_tokens.weight = decoder_wemb_tensor
 
-        # handle tied embeddings, otherwise "from_pretrained" loads them incorrectly
         if self.cfg["tied-embeddings"]:
             model.lm_head.weight.data = model.model.decoder.embed_tokens.weight.data.clone()
 
@@ -665,11 +487,8 @@ def convert(source_dir: Path, dest_dir):
 
     opus_state = OpusState(source_dir)
 
-    # save tokenizer
     opus_state.tokenizer.save_pretrained(dest_dir)
 
-    # save_json(opus_state.cfg, dest_dir / "marian_original_config.json")
-    # ^^ Uncomment to save human readable marian config for debugging
 
     model = opus_state.load_marian_model()
     model = model.half()
@@ -699,7 +518,6 @@ if __name__ == "__main__":
     Tatoeba conversion instructions in scripts/tatoeba/README.md
     """
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--src",
         type=str,

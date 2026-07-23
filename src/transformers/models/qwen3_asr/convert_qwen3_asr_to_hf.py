@@ -1,54 +1,4 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""
-Convert Qwen3 ASR or Qwen3 Forced Aligner checkpoints to Hugging Face format.
-
-The script auto-detects the model type from the source checkpoint's config.json
-(by looking for a ``classify_num`` field inside ``thinker_config``).  You can
-also force the type with ``--model_type asr`` or ``--model_type forced_aligner``.
-
-Reproducible Usage
-==================
-
-1) Convert a Qwen3 ASR model:
-
-```
-python src/transformers/models/qwen3_asr/convert_qwen3_asr_to_hf.py \
-  --model_id Qwen/Qwen3-ASR-0.6B \
-  --dst_dir qwen3-asr-hf \
-  --push_to_hub <username-or-org>/Qwen3-ASR-0.6B
-```
-
-2) Convert a Qwen3 Forced Aligner model:
-
-```
-python src/transformers/models/qwen3_asr/convert_qwen3_asr_to_hf.py \
-  --model_id Qwen/Qwen3-ForcedAligner-0.6B \
-  --dst_dir qwen3-forced-aligner-hf \
-  --push_to_hub <username-or-org>/Qwen3-ForcedAligner-0.6B
-```
-
-3) Convert from a local directory with explicit model type:
-
-```
-python src/transformers/models/qwen3_asr/convert_qwen3_asr_to_hf.py \
-  --src_dir /path/to/local/model \
-  --dst_dir output-hf \
-  --model_type forced_aligner
-```
-"""
 
 import argparse
 import json
@@ -75,7 +25,6 @@ from transformers import (
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-# fmt: off
 STATE_DICT_MAPPING_ASR = {
     "thinker.model.": "model.language_model.",
     "thinker.lm_head.": "lm_head.",
@@ -91,7 +40,6 @@ STATE_DICT_MAPPING_FORCED_ALIGNER = {
     "model.audio_tower.proj1.": "model.multi_modal_projector.linear_1.",
     "model.audio_tower.proj2.": "model.multi_modal_projector.linear_2.",
 }
-# fmt: on
 
 
 def convert_state_dict(original_state_dict: dict[str, Any], mapping: dict[str, str]) -> dict[str, Any]:
@@ -127,12 +75,9 @@ def clean_config(src_root: Path, model_type: str) -> dict:
 
     config_dict = model_config.copy()
 
-    # fmt: off
-    # Remove unused top-level keys
     for key in ["support_languages"]:
         config_dict.pop(key, None)
 
-    # Flatten thinker_config structure
     if "thinker_config" in config_dict:
         thinker_config = config_dict.pop("thinker_config")
         if "audio_config" in thinker_config:
@@ -143,26 +88,20 @@ def clean_config(src_root: Path, model_type: str) -> dict:
             config_dict["audio_token_id"] = thinker_config["audio_token_id"]
         if "initializer_range" in thinker_config:
             config_dict["initializer_range"] = thinker_config["initializer_range"]
-        # Forced aligner specific
         if model_type == "forced_aligner" and "classify_num" in thinker_config:
             config_dict["num_labels"] = thinker_config["classify_num"]
 
-    # Audio config: rename Whisper-style field names
     if "audio_config" in config_dict:
         audio_renames = {"encoder_attention_heads": "num_attention_heads"}
         for old_name, new_name in audio_renames.items():
             if old_name in config_dict["audio_config"]:
                 config_dict["audio_config"][new_name] = config_dict["audio_config"].pop(old_name)
 
-        # Also set num_key_value_heads = num_attention_heads (MHA, no GQA in the encoder)
         if "num_key_value_heads" not in config_dict["audio_config"] and "num_attention_heads" in config_dict["audio_config"]:
             config_dict["audio_config"]["num_key_value_heads"] = config_dict["audio_config"]["num_attention_heads"]
 
-        # Override max_source_positions: the original checkpoint uses 1500 (inherited from Whisper/OmniMoe),
-        # but Qwen3ASR chunks are fixed at n_window*2=100 mel frames → 13 post-CNN positions.
         config_dict["audio_config"]["max_position_embeddings"] = 13
 
-    # Audio config: strip non-standard fields
     if "audio_config" in config_dict:
         audio_unused = [
             "_name_or_path", "architectures", "dtype", "model_type", "use_bfloat16", "add_cross_attention",
@@ -175,7 +114,6 @@ def clean_config(src_root: Path, model_type: str) -> dict:
         for key in audio_unused:
             config_dict["audio_config"].pop(key, None)
 
-    # Text config: strip non-standard fields + MoE fields + M-RoPE fields
     if "text_config" in config_dict:
         text_unused = [
             "_name_or_path", "architectures", "dtype", "model_type", "use_bfloat16", "add_cross_attention",
@@ -184,30 +122,20 @@ def clean_config(src_root: Path, model_type: str) -> dict:
             "output_attentions", "output_hidden_states", "prefix", "problem_type", "pruned_heads",
             "return_dict", "sep_token_id", "task_specific_params", "tf_legacy_loss", "tie_encoder_decoder",
             "tokenizer_class", "torchscript",
-            # MoE-specific fields
             "decoder_sparse_step", "moe_intermediate_size", "num_experts_per_tok", "num_experts",
             "norm_topk_prob", "output_router_logits", "router_aux_loss_coef", "mlp_only_layers",
         ]
         for key in text_unused:
             config_dict["text_config"].pop(key, None)
 
-        # Strip M-RoPE fields from rope_scaling
         rope_cfg = config_dict["text_config"].get("rope_scaling")
         if isinstance(rope_cfg, dict):
             for mrope_key in ["mrope_interleaved", "interleaved", "mrope_section", "type"]:
                 rope_cfg.pop(mrope_key, None)
-    # fmt: on
 
     return config_dict
 
 
-# fmt: off
-# Extends the original repo's chat template with assistant-turn rendering:
-# - system turn: concatenated text of all system messages (context/hotwords)
-# - user turn: one audio placeholder per audio input
-# - assistant turns: rendered verbatim, wrapped in `{% generation %}` for assistant token masking.
-#   Used to prefill the forced language ("language <NAME><asr_text>") via
-#   `apply_chat_template(..., continue_final_message=True)` and for training targets.
 ASR_CHAT_TEMPLATE = (
     "{%- set ns = namespace(system_text='') -%}"
     "{%- for m in messages -%}"
@@ -274,7 +202,6 @@ FORCED_ALIGNER_CHAT_TEMPLATE = (
     "{%- endfor -%}"
     "{{- ns.audio_tokens + ns.words | join('<timestamp><timestamp>') + '<timestamp><timestamp>' -}}"
 )
-# fmt: on
 
 
 def write_processor(src_root: Path, dst_root: Path, model_type: str):
@@ -284,7 +211,6 @@ def write_processor(src_root: Path, dst_root: Path, model_type: str):
     if model_type == "forced_aligner":
         chat_template = FORCED_ALIGNER_CHAT_TEMPLATE
     else:
-        # Extended version of the original repo's chat_template.json (see comment on the constant)
         chat_template = ASR_CHAT_TEMPLATE
 
     processor = Qwen3ASRProcessor(
@@ -336,8 +262,6 @@ def write_asr_model(src_root: Path, dst_root: Path):
         raise ValueError(f"Unexpected keys: {load_res.unexpected_keys}")
 
     model.to(torch.bfloat16)
-    # max_new_tokens=512 matches the default in the original Qwen3-ASR library:
-    # https://github.com/QwenLM/Qwen3-ASR/blob/c17a131fe028b2e428b6e80a33d30bb4fa57b8df/qwen_asr/inference/qwen3_asr.py#L153
     model.generation_config = GenerationConfig(
         eos_token_id=(151643, 151645),
         pad_token_id=151645,
@@ -386,7 +310,6 @@ def main() -> None:
     ap.add_argument("--push_to_hub", default=None, type=str, help="Push to Hub repo ID")
     args = ap.parse_args()
 
-    # Determine source directory
     if args.model_id:
         logger.info("Downloading model from Hugging Face Hub: %s", args.model_id)
         src_root = Path(snapshot_download(args.model_id))
@@ -399,7 +322,6 @@ def main() -> None:
     if not src_root.is_dir():
         raise FileNotFoundError(f"Source directory not found: {src_root}")
 
-    # Auto-detect or use provided model type
     model_type = args.model_type or detect_model_type(src_root)
     logger.info("Converting model type: %s", model_type)
 
@@ -408,23 +330,19 @@ def main() -> None:
         logger.info("Removing existing destination directory: %s", dst_root)
         shutil.rmtree(dst_root)
 
-    # Write processor (shared class, model-type-specific chat template)
     processor = write_processor(src_root, dst_root, model_type)
 
-    # Write model
     if model_type == "asr":
         model = write_asr_model(src_root, dst_root)
     else:
         model = write_forced_aligner_model(src_root, dst_root)
 
-    # Optionally push to Hub
     if args.push_to_hub:
         logger.info("Pushing processor to the Hub ...")
         processor.push_to_hub(args.push_to_hub)
         logger.info("Pushing model to the Hub ...")
         model.push_to_hub(args.push_to_hub)
 
-        # Verify upload
         logger.info("Verifying upload by loading from Hub: %s", args.push_to_hub)
         _ = Qwen3ASRProcessor.from_pretrained(args.push_to_hub)
         if model_type == "asr":

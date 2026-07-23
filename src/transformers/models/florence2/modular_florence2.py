@@ -1,16 +1,3 @@
-# Copyright 2025 Microsoft and the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import math
 import re
 from collections.abc import Callable
@@ -51,36 +38,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="florence-community/Florence-2-base")
 @strict
 class Florence2VisionConfig(PreTrainedConfig):
-    r"""
-    depths (`Tuple[int]`, *optional*, defaults to `(1, 1, 9, 1)`):
-        The depth of the model.
-    patch_stride (`Tuple[int]`, *optional*, defaults to `(4, 2, 2, 2)`):
-        The patch stride of the image.
-    patch_padding (`Tuple[int]`, *optional*, defaults to `(3, 1, 1, 1)`):
-        The patch padding of the image.
-    patch_prenorm (`Tuple[bool]`, *optional*, defaults to `(False, True, True, True)`):
-        Whether to apply layer normalization before the patch embedding layer.
-    num_groups (`Tuple[int]`, *optional*, defaults to `(4, 8, 16, 32)`):
-        The number of groups.
-    window_size (`int`, *optional*, defaults to 12):
-        The window size of the model.
-    max_temporal_embeddings (`int`, *optional*, defaults to 100):
-        The configuration of the visual temporal embedding.
-
-    Example:
-
-    ```python
-    >>> from transformers import Florence2VisionConfig, Florence2VisionModel
-
-    >>> # Initializing a Florence2 Vision style configuration
-    >>> configuration = Florence2VisionConfig()
-
-    >>> # Initializing a model (with random weights)
-    >>> model = Florence2VisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "florence_vision"
 
@@ -107,27 +64,6 @@ class Florence2VisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="florence-community/Florence-2-base")
 @strict
 class Florence2Config(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Florence2ForConditionalGeneration, Florence2Config, CLIPVisionConfig, BartConfig
-
-    >>> # Initializing a clip-like vision config
-    >>> vision_config = CLIPVisionConfig()
-
-    >>> # Initializing a Bart config
-    >>> text_config = BartConfig()
-
-    >>> # Initializing a Florence-2 configuration
-    >>> configuration = Florence2Config(vision_config, text_config)
-
-    >>> # Initializing a model from the florence-2 configuration
-    >>> model = Florence2ForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "florence2"
     sub_configs = {
@@ -228,29 +164,7 @@ class Florence2Processor(ProcessorMixin):
         super().__init__(image_processor, tokenizer, **kwargs)
 
     def _construct_prompts(self, text: str | list[str]) -> list[str]:
-        """
-        Construct prompts by replacing task tokens with corresponding prompt strings.
-        """
-        if isinstance(text, str):
-            text = [text]
-
-        prompts = []
-        for prompt in text:
-            # Check for tasks without inputs
-            for task_token, task_prompt in self.task_prompts_without_inputs.items():
-                if task_token in prompt:
-                    if prompt != task_token:
-                        raise ValueError(f"Task token {task_token} should be the only content in the prompt.")
-                    prompt = task_prompt
-                    break
-            # Check for tasks with inputs
-            for task_token, task_prompt in self.task_prompts_with_input.items():
-                if task_token in prompt:
-                    input_text = prompt.replace(task_token, "").strip()
-                    prompt = task_prompt.format(input=input_text)
-                    break
-            prompts.append(prompt)
-        return prompts
+        pass
 
     @auto_docstring
     def __call__(
@@ -296,9 +210,7 @@ class Florence2Processor(ProcessorMixin):
 
         prompt_strings = self._construct_prompts(text)
 
-        # Add image tokens and special tokens if images are provided
         if image_inputs.get("pixel_values") is not None:
-            # Replace the image token with the expanded image token sequence
             expanded_image_prompts = []
             for sample in prompt_strings:
                 sample = (
@@ -310,7 +222,6 @@ class Florence2Processor(ProcessorMixin):
                 expanded_image_prompts.append(sample)
             prompt_strings = expanded_image_prompts
 
-        # Construct and tokenize prompts
         output_kwargs["text_kwargs"].pop("add_special_tokens", None)
         return_tensors = output_kwargs["text_kwargs"].pop("return_tensors", None)
         return_mm_token_type_ids = output_kwargs["text_kwargs"].pop("return_mm_token_type_ids", False)
@@ -339,31 +250,10 @@ class Florence2Processor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        image_processor_input_names = self.image_processor.model_input_names
-        return list(dict.fromkeys(tokenizer_input_names + image_processor_input_names))
+        pass
 
     def _get_num_multimodal_tokens(self, image_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-
-        Args:
-            image_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (height, width) per each image.
-
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-
-        vision_data = {}
-        if image_sizes is not None:
-            num_image_tokens = [self.num_image_tokens] * len(image_sizes)
-            num_image_patches = [1] * len(image_sizes)
-
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-
-        return MultiModalData(**vision_data)
+        pass
 
     def post_process_image_text_to_text(self, generated_outputs, skip_special_tokens=False, **kwargs):
         """
@@ -461,14 +351,6 @@ class Florence2Processor(ProcessorMixin):
 
 
 class Florence2PostProcessor:
-    """
-    Post-processor for Florence-2 model outputs. Parses generated text into structured results for various tasks
-    like object detection, OCR, phrase grounding, etc.
-
-    Args:
-        tokenizer (`PreTrainedTokenizer`):
-            The tokenizer used for decoding model outputs.
-    """
 
     def __init__(self, config, tokenizer):
         self.tokenizer = tokenizer
@@ -532,7 +414,6 @@ class Florence2PostProcessor:
         per_bin_w = size_w / bins_w
         per_bin_h = size_h / bins_h
 
-        # Add 0.5 to use the center position of the bin as the coordinate.
         if locations.shape[-1] == 4:  # Bounding boxes
             xmin, ymin, xmax, ymax = locations.split(1, dim=-1)
             dq_xmin = (xmin + 0.5) * per_bin_w
@@ -551,117 +432,20 @@ class Florence2PostProcessor:
             raise ValueError(f"Unsupported location shape: last dim must be 2 or 4, got {locations.shape[-1]}.")
 
     def decode_with_spans(self, token_ids: list[int]) -> tuple[str, list[tuple[int, int]]]:
-        """
-        Decode token IDs to text and compute character spans.
-
-        Args:
-            token_ids (`list[int]`):
-                list of token IDs to decode.
-
-        Returns:
-            `tuple[str, list[tuple[int, int]]]`: Decoded text and list of spans (start, end) for each token.
-        """
-        filtered_tokens = self.tokenizer.convert_ids_to_tokens(token_ids, skip_special_tokens=False)
-        text = ""
-        spans = []
-        for token in filtered_tokens:
-            if token in self.all_special_tokens:
-                sub_text = token
-            else:
-                sub_text = self.tokenizer.convert_tokens_to_string([token])
-            span = (len(text), len(text) + len(sub_text))
-            text += sub_text
-            spans.append(span)
-        return text, spans
+        pass
 
     def parse_ocr_from_text_and_spans(
         self, text: str, pattern: str | None, image_size: tuple[int, int], area_threshold: float = 0.0
     ) -> list[dict[str, Any]]:
-        """
-        Parse OCR results with quadrilateral boxes.
-
-        Args:
-            text (`str`):
-                The generated text.
-            pattern (`str`):
-                Regex pattern for matching.
-            image_size (`tuple[int, int]`):
-                Image size (width, height).
-            area_threshold (`float`, *optional*, defaults to 0.0):
-                Minimum area threshold for filtering boxes.
-
-        Returns:
-            `list[dict[str, Any]]`: list of instances with 'quad_box' and 'text'.
-        """
-        text = text.replace("<s>", "").replace("</s>", "").replace("<pad>", "")
-        if pattern is None:
-            pattern = r"(.+?)<loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)>"
-
-        matches = re.findall(pattern, text)
-        instances = []
-        width, height = image_size
-
-        for content, *quad_str in matches:
-            quad_bins = [int(i) for i in quad_str]
-            quad_box = self.dequantize(torch.tensor(quad_bins).reshape(-1, 2), size=image_size).flatten().tolist()
-
-            if area_threshold > 0:
-                x_coords = quad_box[0::2]
-                y_coords = quad_box[1::2]
-                # Apply the Shoelace formula
-                area = 0.5 * abs(
-                    sum(x_coords[i] * y_coords[i + 1] - x_coords[i + 1] * y_coords[i] for i in range(4 - 1))
-                )
-
-                if area < (width * height) * area_threshold:
-                    continue
-
-            instances.append({"quad_box": quad_box, "text": content.strip()})
-        return instances
+        pass
 
     def parse_phrase_grounding_from_text_and_spans(
         self, text: str, image_size: tuple[int, int]
     ) -> list[dict[str, Any]]:
-        """
-        Parse phrase grounding results.
-
-        Args:
-            text (`str`):
-                The generated text.
-            image_size (`tuple[int, int]`):
-                Image size (width, height).
-
-        Returns:
-            `list[dict[str, Any]]`: list of instances with 'bbox' and 'cat_name'.
-        """
-        text = text.replace("<s>", "").replace("</s>", "").replace("<pad>", "")
-        phrase_pattern = r"([^<]+(?:<loc_\d+>){4,})"
-        phrases = re.findall(phrase_pattern, text)
-        text_pattern = r"^\s*(.*?)(?=<od>|</od>|<box>|</box>|<bbox>|</bbox>|<loc_)"
-        box_pattern = r"<loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)>"
-
-        instances = []
-        for phrase_text in phrases:
-            phrase_text = phrase_text.replace("<ground>", "", 1).replace("<obj>", "", 1)
-            if not phrase_text:
-                continue
-            match = re.search(text_pattern, phrase_text)
-            if not match:
-                continue
-            phrase = match.group().strip()
-            if phrase in self.banned_grounding_tokens:
-                continue
-            boxes_matches = list(re.finditer(box_pattern, phrase_text))
-            if not boxes_matches:
-                continue
-            bbox_bins = [[int(m.group(j)) for j in range(1, 5)] for m in boxes_matches]
-            bboxes = self.dequantize(torch.tensor(bbox_bins), size=image_size).tolist()
-            phrase = phrase.encode("ascii", "ignore").decode("ascii")
-            instances.append({"bbox": bboxes, "cat_name": phrase})
-        return instances
+        pass
 
     def _find_matched_token_indices(self, cur_span: tuple[int, int], token_spans: list[tuple[int, int]]) -> list[int]:
-        return [i for i, span in enumerate(token_spans) if not (span[1] <= cur_span[0] or span[0] >= cur_span[1])]
+        pass
 
     def parse_description_with_bboxes_from_text_and_spans(
         self,
@@ -669,52 +453,7 @@ class Florence2PostProcessor:
         image_size: tuple[int, int],
         allow_empty_phrase: bool = False,
     ) -> list[dict[str, Any]]:
-        """
-        Parse descriptions with bounding boxes.
-
-        Args:
-            text (`str`):
-                The generated text.
-            image_size (`tuple[int, int]`):
-                Image size (width, height).
-            allow_empty_phrase (`bool`, *optional*, defaults to `False`):
-                Allow phrases without text.
-
-        Returns:
-            `list[dict[str, Any]]`: list of instances with 'bbox', 'cat_name', and optional 'score'.
-        """
-        text = text.replace("<s>", "").replace("</s>", "").replace("<pad>", "")
-
-        if allow_empty_phrase:
-            pattern = r"(?:(?:<loc_\d+>){4,})"
-        else:
-            pattern = r"([^<]+(?:<loc_\d+>){4,})"
-        phrases = re.findall(pattern, text)
-
-        text_pattern = r"^\s*(.*?)(?=<od>|</od>|<box>|</box>|<bbox>|</bbox>|<loc_)"
-        box_pattern = r"<loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)>"
-
-        instances = []
-        for phrase_text in phrases:
-            phrase_text = phrase_text.replace("<ground>", "", 1).replace("<obj>", "", 1)
-            if not phrase_text and not allow_empty_phrase:
-                continue
-            match = re.search(text_pattern, phrase_text)
-            if not match:
-                continue
-            phrase = match.group().strip()
-            boxes_matches = list(re.finditer(box_pattern, phrase_text))
-            if not boxes_matches:
-                continue
-            bbox_bins = [[int(m.group(j)) for j in range(1, 5)] for m in boxes_matches]
-            bboxes = self.dequantize(torch.tensor(bbox_bins), size=image_size).tolist()
-
-            phrase = phrase.encode("ascii", "ignore").decode("ascii")
-            for bbox in bboxes:
-                instance = {"bbox": bbox, "cat_name": phrase}
-                instances.append(instance)
-
-        return instances
+        pass
 
     def parse_description_with_polygons_from_text_and_spans(
         self,
@@ -726,81 +465,7 @@ class Florence2PostProcessor:
         polygon_end_token: str = "</poly>",
         with_box_at_start: bool = False,
     ) -> list[dict[str, Any]]:
-        """
-        Parse descriptions with polygons.
-
-        Args:
-            text (`str`):
-                The generated text.
-            image_size (`tuple[int, int]`):
-                Image size (width, height).
-            allow_empty_phrase (`bool`, *optional*, defaults to `False`):
-                Allow phrases without text.
-            polygon_sep_token (`str`, *optional*, defaults to "<sep>"):
-                Token separating polygons.
-            polygon_start_token (`str`, *optional*, defaults to "<poly>"):
-                Start token for polygons.
-            polygon_end_token (`str`, *optional*, defaults to "</poly>"):
-                End token for polygons.
-            with_box_at_start (`bool`, *optional*, defaults to `False`):
-                Whether a bounding box is at the start of polygons.
-
-        Returns:
-            `list[dict[str, Any]]`: list of instances with 'polygons', 'cat_name', and optional 'bbox'.
-        """
-        text = text.replace("<s>", "").replace("</s>", "").replace("<pad>", "")
-
-        if allow_empty_phrase:
-            pattern = rf"(?:(?:<loc_\d+>|{re.escape(polygon_sep_token)}|{re.escape(polygon_start_token)}|{re.escape(polygon_end_token)}){{4,}})"
-        else:
-            pattern = rf"([^<]+(?:<loc_\d+>|{re.escape(polygon_sep_token)}|{re.escape(polygon_start_token)}|{re.escape(polygon_end_token)}){{4,}})"
-        phrases = re.findall(pattern, text)
-        phrase_pattern = r"^\s*(.*?)(?=<od>|</od>|<box>|</box>|<bbox>|</bbox>|<loc_|<poly>)"
-        poly_instance_pattern = rf"{re.escape(polygon_start_token)}(.*?){re.escape(polygon_end_token)}"
-        box_pattern = rf"((?:<loc_\d+>)+)(?:{re.escape(polygon_sep_token)}|$)"
-
-        instances = []
-        for phrase_text in phrases:
-            phrase_text_strip = re.sub(r"^<loc_\d+>", "", phrase_text, count=1)
-            if not phrase_text_strip and not allow_empty_phrase:
-                continue
-            match = re.search(phrase_pattern, phrase_text_strip)
-            if not match:
-                continue
-            phrase = match.group().strip()
-
-            if polygon_start_token in phrase_text and polygon_end_token in phrase_text:
-                poly_instances = [m.group(1) for m in re.finditer(poly_instance_pattern, phrase_text)]
-            else:
-                poly_instances = [phrase_text]
-
-            for poly_inst in poly_instances:
-                poly_matches = list(re.finditer(box_pattern, poly_inst))
-                if len(poly_matches) == 0:
-                    continue
-                bbox = []
-                polygons = []
-                for poly_match in poly_matches:
-                    poly_str = poly_match.group(1)
-                    poly_bins = [int(m.group(1)) for m in re.finditer(r"<loc_(\d+)>", poly_str)]
-                    if with_box_at_start and not bbox:
-                        if len(poly_bins) > 4:
-                            bbox = poly_bins[:4]
-                            poly_bins = poly_bins[4:]
-                        else:
-                            bbox = [0, 0, 0, 0]
-                    if len(poly_bins) % 2 == 1:
-                        poly_bins = poly_bins[:-1]
-                    poly_coords = (
-                        self.dequantize(torch.tensor(poly_bins).reshape(-1, 2), size=image_size).flatten().tolist()
-                    )
-                    polygons.append(poly_coords)
-
-                instance = {"cat_name": phrase, "polygons": polygons}
-                if bbox:
-                    instance["bbox"] = self.dequantize(torch.tensor([bbox]), size=image_size)[0].tolist()
-                instances.append(instance)
-        return instances
+        pass
 
     def __call__(self, text=None, sequence=None, image_size=None, parse_tasks=None) -> dict[str, Any]:
         """
@@ -880,9 +545,6 @@ class Florence2PostProcessor:
 
 
 class Florence2VisionLearnedAbsolutePositionEmbedding2D(nn.Module):
-    """
-    This module learns positional embeddings up to a fixed maximum size.
-    """
 
     def __init__(self, config: Florence2Config):
         super().__init__()
@@ -905,9 +567,6 @@ class Florence2VisionLearnedAbsolutePositionEmbedding2D(nn.Module):
 
 
 class Florence2VisionPositionalEmbeddingCosine1D(nn.Module):
-    """
-    This module generates 1D cosine positional embeddings using precomputed sinusoidal functions.
-    """
 
     def __init__(self, config: Florence2Config):
         super().__init__()
@@ -920,7 +579,6 @@ class Florence2VisionPositionalEmbeddingCosine1D(nn.Module):
         )
         pos_idx_to_embed[:, 0::2] = sine
         pos_idx_to_embed[:, 1::2] = cosine
-        # Save the positional embeddings in a constant buffer.
         self.register_buffer("pos_idx_to_embed", pos_idx_to_embed)
 
     @staticmethod
@@ -948,7 +606,6 @@ class Florence2VisionMLP(Llama4VisionMLP):
 
 
 class Florence2VisionConvEmbed(nn.Module):
-    """Image to Patch Embedding"""
 
     def __init__(self, config: Florence2VisionConfig, stage_idx: int):
         super().__init__()
@@ -1004,13 +661,11 @@ class Florence2VisionChannelAttention(nn.Module):
     def forward(self, hidden_states: torch.Tensor):
         batch_size, num_tokens, hidden_size = hidden_states.shape
 
-        # Reshape for grouped channel attention
         qkv = self.qkv(hidden_states).reshape(batch_size, num_tokens, 3, self.groups, hidden_size // self.groups)
         qkv = qkv.permute(2, 0, 3, 4, 1)
         query, key, value = qkv.unbind(0)
 
         scale = num_tokens**-0.5
-        # Channel-to-channel attention within groups:
         attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
             self.config._attn_implementation, eager_attention_forward
         )
@@ -1025,7 +680,6 @@ class Florence2VisionChannelAttention(nn.Module):
         hidden_states = hidden_states.permute(0, 3, 2, 1)
         hidden_states = hidden_states.reshape(batch_size, num_tokens, hidden_size)
 
-        # Final projection
         hidden_states = self.proj(hidden_states)
         return hidden_states
 
@@ -1067,23 +721,19 @@ class Florence2VisionChannelBlock(nn.Module):
     def forward(self, hidden_states: torch.Tensor):
         batch_size, embed_dim, height, width = hidden_states.shape
 
-        # First channel block: Depthwise Conv + Channel Attention
         hidden_states = self.conv1(hidden_states) + hidden_states
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
         residual = hidden_states
 
-        # Channel group attention self-attention mechanism
         hidden_states = self.norm1(hidden_states)
         hidden_states = self.channel_attn(hidden_states)
         hidden_states = residual + self.drop_path1(hidden_states)
         hidden_states = hidden_states.transpose(1, 2).view(batch_size, embed_dim, height, width)
 
-        # Second channel block: Depthwise Conv + FFN
         hidden_states = self.conv2(hidden_states) + hidden_states
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
         residual = hidden_states
 
-        # FFN
         hidden_states = self.norm2(hidden_states)
         hidden_states = self.ffn(hidden_states)
         hidden_states = residual + self.drop_path2(hidden_states)
@@ -1109,14 +759,12 @@ class Florence2VisionWindowAttention(nn.Module):
     def forward(self, hidden_states: torch.Tensor):
         batch_size, height, width, embed_dim = hidden_states.shape
 
-        # Pad the input if necessary
         pad_left = pad_top = 0
         pad_right = (self.window_size - width % self.window_size) % self.window_size
         pad_bottom = (self.window_size - height % self.window_size) % self.window_size
         hidden_states = F.pad(hidden_states, (0, 0, pad_left, pad_right, pad_top, pad_bottom))
         _, padded_height, padded_width, _ = hidden_states.shape
 
-        # Partition input into non-overlapping windows (for local spatial attention in DaViT)
         hidden_states = hidden_states.view(
             batch_size,
             padded_height // self.window_size,
@@ -1128,7 +776,6 @@ class Florence2VisionWindowAttention(nn.Module):
         windowed_hidden_states = hidden_states.permute(0, 1, 3, 2, 4, 5).contiguous()
         windowed_hidden_states = windowed_hidden_states.view(-1, self.window_size * self.window_size, embed_dim)
 
-        # Generate Q, K, V for each window
         num_windows_per_batch, num_tokens_per_window, embed_dim = windowed_hidden_states.shape
         qkv = self.qkv(windowed_hidden_states).reshape(
             num_windows_per_batch, num_tokens_per_window, 3, self.num_heads, embed_dim // self.num_heads
@@ -1151,7 +798,6 @@ class Florence2VisionWindowAttention(nn.Module):
         windowed_hidden_states = windowed_hidden_states.view(num_windows_per_batch, num_tokens_per_window, embed_dim)
         windowed_hidden_states = self.proj(windowed_hidden_states)
 
-        # Merge windows back to original spatial layout
         windowed_hidden_states = windowed_hidden_states.view(-1, self.window_size, self.window_size, embed_dim)
         hidden_states = windowed_hidden_states.view(
             -1,
@@ -1203,24 +849,20 @@ class Florence2VisionSpatialBlock(nn.Module):
     def forward(self, hidden_states: torch.Tensor):
         batch_size, embed_dim, height, width = hidden_states.shape
 
-        # First spatial mixing block: Conv + Window Attention
         hidden_states = self.conv1(hidden_states) + hidden_states
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
         residual = hidden_states
 
-        # Spatial Window-based self-attention mechanism
         hidden_states = self.norm1(hidden_states)
         hidden_states = hidden_states.view(batch_size, height, width, embed_dim)
         hidden_states = self.window_attn(hidden_states)
         hidden_states = residual + self.drop_path1(hidden_states)
         hidden_states = hidden_states.transpose(1, 2).view(batch_size, embed_dim, height, width)
 
-        # Second spatial mixing block: Conv + FFN
         hidden_states = self.conv2(hidden_states) + hidden_states
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
         residual = hidden_states
 
-        # FFN
         hidden_states = self.norm2(hidden_states)
         hidden_states = self.ffn(hidden_states)
         hidden_states = residual + self.drop_path2(hidden_states)
@@ -1316,7 +958,6 @@ class Florence2VisionBackbone(Florence2VisionPreTrainedModel):
         self.convs = nn.ModuleList(convs)
         self.blocks = nn.ModuleList(blocks)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -1369,11 +1010,6 @@ class Florence2MultiModalProjector(nn.Module):
 )
 @dataclass
 class Florence2Seq2SeqModelOutput(Seq2SeqModelOutput):
-    r"""
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size `(batch_size, num_image_tokens, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
 
     image_hidden_states: torch.FloatTensor | None = None
 
@@ -1386,15 +1022,6 @@ class Florence2Seq2SeqModelOutput(Seq2SeqModelOutput):
 )
 @dataclass
 class Florence2Seq2SeqLMOutput(Seq2SeqLMOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size `(batch_size, num_image_tokens, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
 
     image_hidden_states: tuple[torch.FloatTensor, ...] | None = None
 
@@ -1604,7 +1231,6 @@ class Florence2ForConditionalGeneration(LlavaForConditionalGeneration):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -1645,7 +1271,6 @@ class Florence2ForConditionalGeneration(LlavaForConditionalGeneration):
         model_input_name: str | None,
         generation_config,
     ) -> dict[str, Any]:
-        # override to handle merging image and text embeddings before passing to language encoder
         inputs_embeds = model_kwargs.pop("inputs_embeds", None)
         pixel_values = model_kwargs.pop("pixel_values", None)
 

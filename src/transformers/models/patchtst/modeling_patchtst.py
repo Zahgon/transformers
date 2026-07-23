@@ -1,17 +1,3 @@
-# Copyright 2023 IBM & Hugging Face. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch PatchTST model."""
 
 import math
 from collections.abc import Callable
@@ -35,7 +21,6 @@ from .configuration_patchtst import PatchTSTConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -49,7 +34,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -64,9 +48,7 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.wav2vec2.modeling_wav2vec2.Wav2Vec2Attention with Wav2Vec2->PatchTST
 class PatchTSTAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -105,22 +87,16 @@ class PatchTSTAttention(nn.Module):
         key_value_states: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
         output_attentions: bool | None = False,
-        # TODO: we need a refactor so that the different attention modules can get their specific kwargs
-        # ATM, we have mixed things encoder, decoder, and encoder-decoder attn
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        # get query proj
         query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         current_states = key_value_states if is_cross_attention else hidden_states
@@ -151,9 +127,6 @@ class PatchTSTAttention(nn.Module):
 
 
 class PatchTSTBatchNorm(nn.Module):
-    """
-    Compute batch normalization over the sequence length (time) dimension.
-    """
 
     def __init__(self, config: PatchTSTConfig):
         super().__init__()
@@ -210,14 +183,11 @@ def random_masking(
         noise = torch.rand(batch_size, 1, sequence_length, device=device)  # noise in [0, 1], bs x 1 x  L
         noise = noise.repeat(1, num_channels, 1)  # bs x num_channels x time
     else:
-        # noise in [0, 1], bs x num_channels x L
         noise = torch.rand(batch_size, num_channels, sequence_length, device=device)
 
-    # mask: [bs x num_channels x num_patch]
     mask = torch.ones(batch_size, num_channels, sequence_length, device=device)
     mask[:, :, :len_keep] = 0
 
-    # sort noise for each sample
     ids_shuffle = torch.argsort(noise, dim=-1)  # ascend: small is keep, large is remove
     ids_restore = torch.argsort(ids_shuffle, dim=-1)  # ids_restore: [bs x num_channels x L]
 
@@ -299,12 +269,6 @@ def forecast_masking(
 
 
 class PatchTSTPatchify(nn.Module):
-    """
-    A class to patchify the time series sequence into different patches
-
-    Returns:
-        `torch.Tensor` of shape `(batch_size, num_channels, num_patches, patch_length)`
-    """
 
     def __init__(self, config: PatchTSTConfig):
         super().__init__()
@@ -318,7 +282,6 @@ class PatchTSTPatchify(nn.Module):
                 f"Sequence length ({self.sequence_length}) has to be greater than the patch length ({self.patch_length})"
             )
 
-        # get the number of patches
         self.num_patches = (max(self.sequence_length, self.patch_length) - self.patch_length) // self.patch_stride + 1
         new_sequence_length = self.patch_length + self.patch_stride * (self.num_patches - 1)
         self.sequence_start = self.sequence_length - new_sequence_length
@@ -337,27 +300,13 @@ class PatchTSTPatchify(nn.Module):
             raise ValueError(
                 f"Input sequence length ({sequence_length}) doesn't match model configuration ({self.sequence_length})."
             )
-        # output: [bs x new_sequence_length x num_channels]
         output = past_values[:, self.sequence_start :, :]
-        # output: [bs x num_patches x num_input_channels x patch_length]
         output = output.unfold(dimension=-2, size=self.patch_length, step=self.patch_stride)
-        # output: [bs x num_input_channels x num_patches x patch_length]
         output = output.transpose(-2, -3).contiguous()
         return output
 
 
 class PatchTSTMasking(nn.Module):
-    """
-    Class to perform random or forecast masking.
-
-    Parameters:
-        config (`PatchTSTConfig`): model config
-    Returns:
-        x_mask (`torch.Tensor` of shape `(batch_size, num_channels, num_patches, patch_length)`)
-            Masked patched input
-        mask (`torch.Tensor` of shape `(batch_size, num_channels, num_patches)`)
-            Bool tensor indicating True on masked points
-    """
 
     def __init__(self, config: PatchTSTConfig):
         super().__init__()
@@ -401,15 +350,11 @@ class PatchTSTMasking(nn.Module):
         else:
             raise ValueError(f"Invalid mask type {self.mask_type}.")
 
-        # mask: [bs x num_input_channels x num_patch]
         mask = mask.bool()
         return masked_input, mask
 
 
 class PatchTSTEncoderLayer(nn.Module):
-    """
-    PatchTST encoder layer
-    """
 
     def __init__(self, config: PatchTSTConfig):
         super().__init__()
@@ -423,7 +368,6 @@ class PatchTSTEncoderLayer(nn.Module):
             config=config,
         )
 
-        # Add & Norm of the sublayer 1
         self.dropout_path1 = nn.Dropout(config.path_dropout) if config.path_dropout > 0 else nn.Identity()
         if config.norm_type == "batchnorm":
             self.norm_sublayer1 = PatchTSTBatchNorm(config)
@@ -432,7 +376,6 @@ class PatchTSTEncoderLayer(nn.Module):
         else:
             raise ValueError(f"{config.norm_type} is not a supported norm layer type.")
 
-        # Add & Norm of the sublayer 2
         if self.channel_attention:
             self.dropout_path2 = nn.Dropout(config.path_dropout) if config.path_dropout > 0 else nn.Identity()
             if config.norm_type == "batchnorm":
@@ -442,7 +385,6 @@ class PatchTSTEncoderLayer(nn.Module):
             else:
                 raise ValueError(f"{config.norm_type} is not a supported norm layer type.")
 
-        # Position-wise Feed-Forward
         self.ff = nn.Sequential(
             nn.Linear(config.d_model, config.ffn_dim, bias=config.bias),
             ACT2CLS[config.activation_function](),
@@ -450,7 +392,6 @@ class PatchTSTEncoderLayer(nn.Module):
             nn.Linear(config.ffn_dim, config.d_model, bias=config.bias),
         )
 
-        # Add & Norm of sublayer 3
         self.dropout_path3 = nn.Dropout(config.path_dropout) if config.path_dropout > 0 else nn.Identity()
         if config.norm_type == "batchnorm":
             self.norm_sublayer3 = PatchTSTBatchNorm(config)
@@ -474,68 +415,44 @@ class PatchTSTEncoderLayer(nn.Module):
         """
         batch_size, num_input_channels, sequence_length, d_model = hidden_state.shape
 
-        # First sublayer: attention across time
-        # hidden_states: [(bs*num_channels) x sequence_length x d_model]
         hidden_state = hidden_state.view(batch_size * num_input_channels, sequence_length, d_model)
 
         if self.pre_norm:
-            ## Norm and Multi-Head attention and Add residual connection
             attn_output, attn_weights, _ = self.self_attn(
                 hidden_states=self.norm_sublayer1(hidden_state), output_attentions=output_attentions
             )
-            # Add: residual connection with residual dropout
             hidden_state = hidden_state + self.dropout_path1(attn_output)
         else:
-            ## Multi-Head attention and Add residual connection and Norm - Standard Transformer from BERT
             attn_output, attn_weights, _ = self.self_attn(
                 hidden_states=hidden_state, output_attentions=output_attentions
             )
-            # hidden_states: [(bs*num_channels) x sequence_length x d_model]
             hidden_state = self.norm_sublayer1(hidden_state + self.dropout_path1(attn_output))
 
-        # hidden_state: [bs x num_channels x sequence_length x d_model]
         hidden_state = hidden_state.reshape(batch_size, num_input_channels, sequence_length, d_model)
 
-        # second sublayer: attention across variable at any given time
         if self.channel_attention:
-            # hidden_state: [bs x sequence_length x num_channels x d_model]
             hidden_state = hidden_state.transpose(2, 1).contiguous()
-            # hidden_state: [(bs*sequence_length) x num_channels x d_model]
             hidden_state = hidden_state.view(batch_size * sequence_length, num_input_channels, d_model)
             if self.pre_norm:
-                ## Norm and Multi-Head attention and Add residual connection
                 attn_output, channel_attn_weights, _ = self.self_attn(
                     hidden_states=self.norm_sublayer2(hidden_state), output_attentions=output_attentions
                 )
-                # Add: residual connection with residual dropout
                 hidden_state = hidden_state + self.dropout_path2(attn_output)
             else:
-                ## Multi-Head attention and Add residual connection and Norm
                 attn_output, channel_attn_weights, _ = self.self_attn(
                     hidden_states=hidden_state, output_attentions=output_attentions
                 )
-                # hidden_states: [(bs*sequence_length) x num_channels x d_model]
                 hidden_state = self.norm_sublayer2(hidden_state + self.dropout_path2(attn_output))
 
-            # Reshape hidden state
-            # hidden_state: [bs x sequence_length x num_channels x d_model]
             hidden_state = hidden_state.reshape(batch_size, sequence_length, num_input_channels, d_model)
-            # hidden_state: [bs x num_channels x sequence_length x d_model]
             hidden_state = hidden_state.transpose(1, 2).contiguous()
 
-        # Third sublayer: mixing across hidden
-        # hidden_state: [(batch_size*num_channels) x sequence_length x d_model]
         hidden_state = hidden_state.view(batch_size * num_input_channels, sequence_length, d_model)
         if self.pre_norm:
-            ## Norm and Position-wise Feed-Forward and Add residual connection
-            # Add: residual connection with residual dropout
             hidden_state = hidden_state + self.dropout_path3(self.ff(self.norm_sublayer3(hidden_state)))
         else:
-            ## Position-wise Feed-Forward and Add residual connection and Norm
-            # Add: residual connection with residual dropout
             hidden_state = self.norm_sublayer3(hidden_state + self.dropout_path3(self.ff(hidden_state)))
 
-        # [bs x num_channels x sequence_length x d_model]
         hidden_state = hidden_state.reshape(batch_size, num_input_channels, sequence_length, d_model)
 
         outputs = (hidden_state,)
@@ -563,15 +480,12 @@ class PatchTSTPreTrainedModel(PreTrainedModel):
         """
         super()._init_weights(module)
         if isinstance(module, PatchTSTPositionalEncoding):
-            # get the number of patches
             num_patches = (
                 max(self.config.context_length, self.config.patch_length) - self.config.patch_length
             ) // self.config.patch_stride + 1
-            # initialize cls_token
             if self.config.use_cls_token:
                 init.normal_(module.cls_token, std=0.02)
                 num_patches += 1
-            # initialize positional encoding
             position_enc = module._init_pe(self.config, num_patches)
             if is_deepspeed_zero3_enabled():
                 import deepspeed
@@ -624,21 +538,16 @@ class PatchTSTEmbedding(nn.Module):
 
 
 class PatchTSTPositionalEncoding(nn.Module):
-    """
-    Class for positional encoding
-    """
 
     def __init__(self, config: PatchTSTConfig, num_patches: int):
         super().__init__()
         self.use_cls_token = config.use_cls_token
         self.num_input_channels = config.num_input_channels
         if config.use_cls_token:
-            # cls_token: [1 x num_input_channels x 1 x d_model]
             self.cls_token = nn.Parameter(torch.zeros(1, 1, 1, config.d_model))
             num_patches += 1
         # positional encoding: [num_patches x d_model]
         self.position_enc = self._init_pe(config, num_patches)
-        # Positional dropout
         self.positional_dropout = (
             nn.Dropout(config.positional_dropout) if config.positional_dropout > 0 else nn.Identity()
         )
@@ -665,37 +574,26 @@ class PatchTSTPositionalEncoding(nn.Module):
 
     def forward(self, patch_input: torch.Tensor):
         if self.use_cls_token:
-            # patch_input: [bs x num_channels x num_patches x d_model]
             patch_input = self.positional_dropout(patch_input + self.position_enc[1:, :])
-            # append cls token where cls_token: [1 x num_channels x 1 x d_model]
             cls_token = self.cls_token + self.position_enc[:1, :]
-            # get the same copy of cls_token for all the samples in batch: [bs x num_channels x 1 x d_model]
             cls_tokens = cls_token.expand(patch_input.shape[0], self.num_input_channels, -1, -1)
-            # hidden_state: [bs x num_channels x (num_patches+1) x d_model]
             hidden_state = torch.cat((cls_tokens, patch_input), dim=2)
         else:
-            # hidden_state: [bs x num_channels x num_patches x d_model]
             hidden_state = self.positional_dropout(patch_input + self.position_enc)
         return hidden_state
 
 
 class PatchTSTEncoder(PatchTSTPreTrainedModel):
-    """
-    PatchTST Encoder
-    """
 
     def __init__(self, config: PatchTSTConfig, num_patches: int):
         super().__init__(config)
         self.gradient_checkpointing = False
 
-        # Input embedding: projection of feature vectors onto a d-dim vector space
         self.embedder = PatchTSTEmbedding(config)
         # Positional encoding
         self.positional_encoder = PatchTSTPositionalEncoding(config, num_patches)
-        # Encoder
         self.layers = nn.ModuleList([PatchTSTEncoderLayer(config) for i in range(config.num_hidden_layers)])
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -720,7 +618,6 @@ class PatchTSTEncoder(PatchTSTPreTrainedModel):
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
 
-        # Input embedding
         patch_input = self.embedder(patch_input)
         # Positional encoding
         hidden_state = self.positional_encoder(patch_input)
@@ -732,13 +629,9 @@ class PatchTSTEncoder(PatchTSTPreTrainedModel):
                 encoder_states = encoder_states + (hidden_state,)
 
             layer_outputs = encoder_layer(hidden_state=hidden_state, output_attentions=output_attentions)
-            # get hidden state. hidden_state shape is [bs x num_channels x num_patches x d_model]
-            # or [bs x num_channels x (num_patches+1) x d_model] if use cls_token
             hidden_state = layer_outputs[0]
-            # append attention matrix at each layer
             if output_attentions:
                 all_attentions = all_attentions + (layer_outputs[1],)
-        # return past_values, hidden_states
         return BaseModelOutput(last_hidden_state=hidden_state, hidden_states=encoder_states, attentions=all_attentions)
 
 
@@ -749,22 +642,6 @@ class PatchTSTEncoder(PatchTSTPreTrainedModel):
 )
 @dataclass
 class PatchTSTModelOutput(ModelOutput):
-    r"""
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_channels, num_patches, patch_length)`):
-        Sequence of hidden-states at the output of the last layer of the model.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
-        one for the output of each layer) of shape `(batch_size, num_channels, height, width)`. Hidden-states of
-        the model at the output of each layer plus the optional initial embedding outputs.
-    mask (`torch.FloatTensor` of shape `(batch_size, num_channels, num_patches)`, *optional*):
-        Bool masked tensor indicating which patches are masked
-    loc (`torch.FloatTensor` of shape `(batch_size, 1, num_channels)`, *optional*):
-        Mean of the input data (batch_size, sequence_length, num_channels) over the sequence_length
-    scale (`torch.FloatTensor` of shape `(batch_size, 1, num_channels)`, *optional*):
-        Std of the input data (batch_size, sequence_length, num_channels) over the sequence_length
-    patch_input (`torch.FloatTensor` of shape `(batch_size, num_channels, num_patches, patch_length)`):
-        Patched input to the Transformer
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     hidden_states: tuple[torch.FloatTensor] | None = None
@@ -782,12 +659,6 @@ class PatchTSTModelOutput(ModelOutput):
 )
 @dataclass
 class PatchTSTForPretrainingOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when `labels` is provided, `torch.FloatTensor` of shape `(1,)`):
-        MSE loss.
-    prediction_output (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction outputs of the time series modeling heads.
-    """
 
     loss: torch.FloatTensor | None = None
     prediction_output: torch.FloatTensor | None = None
@@ -802,12 +673,6 @@ class PatchTSTForPretrainingOutput(ModelOutput):
 )
 @dataclass
 class PatchTSTForRegressionOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when `labels` is provided, `torch.FloatTensor` of shape `(1,)`):
-        MSE loss.
-    regression_outputs (`torch.FloatTensor` of shape `(batch_size, num_targets)`):
-        Regression outputs of the time series modeling heads.
-    """
 
     loss: torch.FloatTensor | None = None
     regression_outputs: torch.FloatTensor | None = None
@@ -822,22 +687,6 @@ class PatchTSTForRegressionOutput(ModelOutput):
 )
 @dataclass
 class PatchTSTForPredictionOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when `labels` is provided, `torch.FloatTensor` of shape `(1,)`):
-        MSE loss.
-    prediction_outputs (`torch.FloatTensor` of shape `(batch_size, prediction_length, -1)`):
-        Prediction outputs of the time series modeling heads.
-    attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`.
-
-        Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
-        heads.
-    loc: (`torch.FloatTensor` of shape `(batch_size, 1, num_channels)`, *optional*)
-        Mean of the input data (batch_size, sequence_length, num_channels) over the sequence_length
-    scale: (`torch.FloatTensor` of shape `(batch_size, 1, num_channels)`, *optional*)
-        Std of the input data (batch_size, sequence_length, num_channels) over the sequence_length
-    """
 
     loss: torch.FloatTensor | None = None
     prediction_outputs: torch.FloatTensor | None = None
@@ -854,13 +703,6 @@ class PatchTSTForPredictionOutput(ModelOutput):
 )
 @dataclass
 class PatchTSTForClassificationOutput(ModelOutput):
-    r"""
-    loss (*optional*, returned when `labels` is provided, `torch.FloatTensor` of shape `(1,)`):
-        Total loss as the sum of the masked language modeling loss and the next sequence prediction
-        (classification) loss.
-    prediction_logits (`torch.FloatTensor` of shape `(batch_size, num_targets)`):
-        Prediction scores of the PatchTST modeling head (scores before SoftMax).
-    """
 
     loss: torch.FloatTensor | None = None
     prediction_logits: torch.FloatTensor | None = None
@@ -876,15 +718,10 @@ class PatchTSTForClassificationOutput(ModelOutput):
 )
 @dataclass
 class SamplePatchTSTOutput(ModelOutput):
-    r"""
-    sequences (`torch.FloatTensor` of shape `(batch_size, num_samples, prediction_length, num_targets)`):
-        Sampled values from the chosen distribution.
-    """
 
     sequences: torch.FloatTensor | None = None
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.nll
 def nll(input: torch.distributions.Distribution, target: torch.Tensor) -> torch.Tensor:
     """
     Computes the negative log likelihood loss from input distribution with respect to target.
@@ -892,7 +729,6 @@ def nll(input: torch.distributions.Distribution, target: torch.Tensor) -> torch.
     return -input.log_prob(target)
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.weighted_average
 def weighted_average(input_tensor: torch.Tensor, weights: torch.Tensor | None = None, dim=None) -> torch.Tensor:
     """
     Computes the weighted average of a given tensor across a given `dim`, masking values associated with weight zero,
@@ -917,12 +753,7 @@ def weighted_average(input_tensor: torch.Tensor, weights: torch.Tensor | None = 
         return input_tensor.mean(dim=dim)
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.TimeSeriesStdScaler with TimeSeriesTransformer->PatchTST,TimeSeries->PatchTST
 class PatchTSTStdScaler(nn.Module):
-    """
-    Standardize features by calculating the mean and scaling along the first dimension, and then normalizes it by
-    subtracting from the mean and dividing by the standard deviation.
-    """
 
     def __init__(self, config: PatchTSTConfig):
         super().__init__()
@@ -953,12 +784,7 @@ class PatchTSTStdScaler(nn.Module):
         return (data - loc) / scale, loc, scale
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.TimeSeriesMeanScaler with TimeSeriesTransformer->PatchTST,TimeSeries->PatchTST
 class PatchTSTMeanScaler(nn.Module):
-    """
-    Computes a scaling factor as the weighted average absolute value along the first dimension, and scales the data
-    accordingly.
-    """
 
     def __init__(self, config: PatchTSTConfig):
         super().__init__()
@@ -986,8 +812,6 @@ class PatchTSTMeanScaler(nn.Module):
 
         scale = ts_sum / torch.clamp(num_observed, min=1)
 
-        # If `default_scale` is provided, we use it, otherwise we use the scale
-        # of the batch.
         if self.default_scale is None:
             batch_sum = ts_sum.sum(dim=0)
             batch_observations = torch.clamp(num_observed.sum(0), min=1)
@@ -995,10 +819,8 @@ class PatchTSTMeanScaler(nn.Module):
         else:
             default_scale = self.default_scale * torch.ones_like(scale)
 
-        # apply default scale where there are no observations
         scale = torch.where(num_observed > 0, scale, default_scale)
 
-        # ensure the scale is at least `self.minimum_scale`
         scale = torch.clamp(scale, min=self.minimum_scale)
         scaled_data = data / scale
 
@@ -1008,11 +830,7 @@ class PatchTSTMeanScaler(nn.Module):
         return scaled_data, torch.zeros_like(scale), scale
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.TimeSeriesNOPScaler with TimeSeriesTransformer->PatchTST,TimeSeries->PatchTST
 class PatchTSTNOPScaler(nn.Module):
-    """
-    Assigns a scaling factor equal to 1 along the first dimension, and therefore applies no scaling to the input data.
-    """
 
     def __init__(self, config: PatchTSTConfig):
         super().__init__()
@@ -1072,7 +890,6 @@ class PatchTSTModel(PatchTSTPreTrainedModel):
         self.scaler = PatchTSTScaler(config)
         self.patchifier = PatchTSTPatchify(config)
         self.do_mask_input = config.do_mask_input
-        # get num_patches information from PatchTSTPatchify
         num_patches = self.patchifier.num_patches
 
         if self.do_mask_input:
@@ -1081,7 +898,6 @@ class PatchTSTModel(PatchTSTPreTrainedModel):
             self.masking = nn.Identity()
         self.encoder = PatchTSTEncoder(config, num_patches=num_patches)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -1148,10 +964,8 @@ class PatchTSTModel(PatchTSTPreTrainedModel):
         if past_observed_mask is None:
             past_observed_mask = torch.ones_like(past_values)
 
-        # x: tensor [bs x sequence_length x num_input_channels]
         scaled_past_values, loc, scale = self.scaler(past_values, past_observed_mask)
 
-        # patched_values: [bs x num_input_channels x num_patches x patch_length] for pretrain
         patched_values = self.patchifier(scaled_past_values)
         if self.do_mask_input:
             masked_values, mask = self.masking(patched_values)
@@ -1179,9 +993,6 @@ class PatchTSTModel(PatchTSTPreTrainedModel):
 
 
 class PatchTSTMaskPretrainHead(nn.Module):
-    """
-    Pretraining head for mask modelling
-    """
 
     def __init__(self, config: PatchTSTConfig):
         super().__init__()
@@ -1219,7 +1030,6 @@ class PatchTSTForPretraining(PatchTSTPreTrainedModel):
         self.model = PatchTSTModel(config=config)
         self.head = PatchTSTMaskPretrainHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -1294,8 +1104,6 @@ class PatchTSTForPretraining(PatchTSTPreTrainedModel):
 
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # past_values: [bs x num_channels x num_patches x d_model] or
-        # [bs x num_channels x (num_patches+1) x d_model] if use cls_token
         model_output = self.model(
             past_values=past_values,
             past_observed_mask=past_observed_mask,
@@ -1304,11 +1112,8 @@ class PatchTSTForPretraining(PatchTSTPreTrainedModel):
             return_dict=True,
         )
 
-        # last_hidden_state: [bs x num_channels x num_patches x patch_length] or
-        # [bs x num_channels x (num_patches+1) x patch_length] if use cls_token
         x_hat = self.head(model_output.last_hidden_state)
 
-        # calculate masked_loss
         loss = nn.MSELoss(reduction="none")
         loss_val = loss(x_hat, model_output.patch_input)
         masked_loss = (loss_val.mean(dim=-1) * model_output.mask).sum() / (model_output.mask.sum() + 1e-10)
@@ -1343,19 +1148,14 @@ class PatchTSTClassificationHead(nn.Module):
 
         """
         if self.use_cls_token:
-            # use the first output token, pooled_embedding: bs x num_channels x d_model
             pooled_embedding = embedding[:, :, 0, :]
         elif self.pooling_type == "mean":
-            # pooled_embedding: [bs x num_channels x d_model]
             pooled_embedding = embedding.mean(dim=2)
         elif self.pooling_type == "max":
-            # pooled_embedding: [bs x num_channels x d_model]
             pooled_embedding = embedding.max(dim=2).values
         else:
             raise ValueError(f"pooling operator {self.pooling_type} is not implemented yet")
-        # pooled_embedding: bs x num_channels * d_model
         pooled_embedding = self.flatten(pooled_embedding)
-        # output: bs x n_classes
         output = self.linear(self.dropout(pooled_embedding))
         return output
 
@@ -1369,7 +1169,6 @@ class PatchTSTForClassification(PatchTSTPreTrainedModel):
     def __init__(self, config: PatchTSTConfig):
         super().__init__(config)
 
-        # Turn off masking
         if config.do_mask_input:
             logger.warning("Setting `do_mask_input` parameter to False.")
             config.do_mask_input = False
@@ -1377,7 +1176,6 @@ class PatchTSTForClassification(PatchTSTPreTrainedModel):
         self.model = PatchTSTModel(config)
         self.head = PatchTSTClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1478,27 +1276,21 @@ class PatchTSTPredictionHead(nn.Module):
             head_dim = config.d_model * num_patches
 
         if not self.share_projection:
-            # if each channel has its own head
             self.projections = nn.ModuleList()
             self.dropouts = nn.ModuleList()
             self.flattens = nn.ModuleList()
             for i in range(self.num_input_channels):
                 self.flattens.append(nn.Flatten(start_dim=2))
                 if distribution_output is None:
-                    # use linear head
                     self.projections.append(nn.Linear(head_dim, config.prediction_length))
                 else:
-                    # use distribution head
                     self.projections.append(distribution_output.get_parameter_projection(head_dim))
                 self.dropouts.append(nn.Dropout(config.head_dropout) if config.head_dropout > 0 else nn.Identity())
         else:
-            # all the channels share the same head
             self.flatten = nn.Flatten(start_dim=2)
             if distribution_output is None:
-                # use linear head
                 self.projection = nn.Linear(head_dim, config.prediction_length)
             else:
-                # use distribution head
                 self.projection = distribution_output.get_parameter_projection(head_dim)
             self.dropout = nn.Dropout(config.head_dropout) if config.head_dropout > 0 else nn.Identity()
 
@@ -1513,41 +1305,29 @@ class PatchTSTPredictionHead(nn.Module):
 
         """
         if self.use_cls_token:
-            # pooled_embedding: [bs x num_channels x d_model]
             pooled_embedding = embedding[:, :, 0, :]
         else:
             if self.pooling_type == "mean":
-                # pooled_embedding: [bs x num_channels x d_model]
                 pooled_embedding = embedding.mean(dim=2)
             elif self.pooling_type == "max":
-                # pooled_embedding: [bs x num_channels x d_model]
                 pooled_embedding = embedding.max(dim=2).values
             else:
-                # pooled_embedding: [bs x num_channels x num_patches x d_model]
                 pooled_embedding = embedding
 
         if not self.share_projection:
             output = []
             for i in range(self.num_input_channels):
-                # pooled_embedding: [bs x (d_model * num_patches)] or [bs x d_model)]
                 pooled_embedding = self.flattens[i](pooled_embedding[:, i, :])
                 pooled_embedding = self.dropouts[i](pooled_embedding)
-                # pooled_embedding: [bs x forecast_len]
-                #  or tuple ([bs x forecast_len], [bs x forecast_len]) if using distribution head
                 pooled_embedding = self.projections[i](pooled_embedding)
                 output.append(pooled_embedding)
-            # output: [bs x num_channels x forecast_len]
             output = torch.stack(output, dim=1)
         else:
-            # pooled_embedding: [bs x num_channels x (d_model * num_patches)] or [bs x num_channels x d_model)]
             pooled_embedding = self.flatten(pooled_embedding)
             pooled_embedding = self.dropout(pooled_embedding)
-            # output: [bs x num_channels x forecast_len] or
-            # tuple ([bs x num_channels x forecast_len], [bs x num_channels x forecast_len]) if using distribution head
             output = self.projection(pooled_embedding)
 
         if isinstance(output, tuple):
-            # output: ([bs x forecast_len x num_channels], [bs x forecast_len x num_channels])
             output = tuple(z.transpose(2, 1) for z in output)
         else:
             output = output.transpose(2, 1)  # [bs x forecast_len x num_channels]
@@ -1563,7 +1343,6 @@ class PatchTSTForPrediction(PatchTSTPreTrainedModel):
     def __init__(self, config: PatchTSTConfig):
         super().__init__(config)
 
-        # Turn off masking
         if config.do_mask_input:
             logger.warning("Setting `do_mask_input` parameter to False.")
             config.do_mask_input = False
@@ -1586,7 +1365,6 @@ class PatchTSTForPrediction(PatchTSTPreTrainedModel):
             config, self.model.patchifier.num_patches, distribution_output=self.distribution_output
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -1653,7 +1431,6 @@ class PatchTSTForPrediction(PatchTSTPreTrainedModel):
 
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # get model output
         model_output = self.model(
             past_values=past_values,
             past_observed_mask=past_observed_mask,
@@ -1661,7 +1438,6 @@ class PatchTSTForPrediction(PatchTSTPreTrainedModel):
             output_attentions=output_attentions,
             return_dict=True,
         )
-        # get output head
         y_hat = self.head(model_output.last_hidden_state)
 
         loss_val = None
@@ -1677,7 +1453,6 @@ class PatchTSTForPrediction(PatchTSTPreTrainedModel):
                     y_hat, loc=model_output.loc, scale=model_output.scale
                 )
                 loss_val = nll(distribution, future_values)
-                # take average of the loss
                 loss_val = weighted_average(loss_val)
             else:
                 loss = nn.MSELoss(reduction="mean")
@@ -1723,10 +1498,8 @@ class PatchTSTForPrediction(PatchTSTPreTrainedModel):
             samples, prediction_length, 1)` or `(batch_size, number of samples, prediction_length, num_input_channels)`
             for multivariate predictions.
         """
-        # get number of samples
         num_parallel_samples = self.config.num_parallel_samples
 
-        # get model output
         outputs = self(
             past_values=past_values,
             future_values=None,
@@ -1734,13 +1507,10 @@ class PatchTSTForPrediction(PatchTSTPreTrainedModel):
             output_hidden_states=False,
         )
         if self.distribution_output:
-            # get distribution
             distribution = self.distribution_output.distribution(
                 outputs.prediction_outputs, loc=outputs.loc, scale=outputs.scale
             )
-            # get samples: list of [bs x forecast_len x num_channels]
             samples = [distribution.sample() for _ in range(num_parallel_samples)]
-            # samples: [bs x num_samples x forecast_len x num_channels]
             samples = torch.stack(samples, dim=1)
         else:
             samples = outputs.prediction_outputs.unsqueeze(1)
@@ -1749,9 +1519,6 @@ class PatchTSTForPrediction(PatchTSTPreTrainedModel):
 
 
 class PatchTSTRegressionHead(nn.Module):
-    """
-    Regression head
-    """
 
     def __init__(self, config: PatchTSTConfig, distribution_output=None):
         super().__init__()
@@ -1781,23 +1548,15 @@ class PatchTSTRegressionHead(nn.Module):
 
         """
         if self.use_cls_token:
-            # use the first output token, pooled_embedding: [bs x num_channels x d_model]
             pooled_embedding = embedding[:, :, 0, :]
         elif self.pooling_type == "mean":
-            # pooled_embedding: [bs x num_channels x d_model]
             pooled_embedding = embedding.mean(dim=2)
         elif self.pooling_type == "max":
-            # pooled_embedding: [bs x num_channels x d_model]
             pooled_embedding = embedding.max(dim=2).values
         else:
             raise ValueError(f"pooling operator {self.pooling_type} is not implemented yet")
-        # flatten the input
-        # pooled_embedding: bs x (num_channels * d_model)
         pooled_embedding = self.dropout(self.flatten(pooled_embedding))
-        # projection
-        # output: bs x output_dim or a tuple of this shape for distribution head
         output = self.projection(pooled_embedding)
-        # apply sigmoid to bound the output if required
         if (self.distribution_output is None) & (self.y_range is not None):  # linear head
             output = torch.sigmoid(output) * (self.y_range[1] - self.y_range[0]) + self.y_range[0]
         return output
@@ -1812,7 +1571,6 @@ class PatchTSTForRegression(PatchTSTPreTrainedModel):
     def __init__(self, config: PatchTSTConfig):
         super().__init__(config)
 
-        # Turn off masking
         if config.do_mask_input:
             logger.warning("Setting `do_mask_input` parameter to False.")
             config.do_mask_input = False
@@ -1832,7 +1590,6 @@ class PatchTSTForRegression(PatchTSTPreTrainedModel):
 
         self.head = PatchTSTRegressionHead(config, self.distribution_output)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1882,24 +1639,20 @@ class PatchTSTForRegression(PatchTSTPreTrainedModel):
             output_attentions=output_attentions,
             return_dict=True,
         )
-        # get output head. y_hat is of shape [bs x num_targets] or tuple of this shape
         y_hat = self.head(model_output.last_hidden_state)
 
         loss = None
         if target_values is not None:
             if self.distribution_output:
                 distribution = self.distribution_output.distribution(y_hat)
-                # y_hat should be a 2-tuple, each with dimension [bs, num_targets]
                 y_hat = tuple(item.view(-1, self.config.num_targets) for item in y_hat)
                 loss = nll(distribution, target_values)
-                # take average of the loss
                 loss = weighted_average(loss)
             else:
                 loss = nn.MSELoss(reduction="mean")
                 loss = loss(y_hat, target_values)
 
         if not return_dict:
-            # hidden_states, attentions, mask
             outputs = (y_hat,) + model_output[1:-3]
             outputs = (loss,) + outputs if loss is not None else outputs
             return outputs
@@ -1933,10 +1686,8 @@ class PatchTSTForRegression(PatchTSTPreTrainedModel):
             [`SamplePatchTSTOutput`] where the outputs `sequences` tensor will have shape `(batch_size, number of
             samples, num_targets)`.
         """
-        # get number of samples
         num_parallel_samples = self.config.num_parallel_samples
 
-        # get model output
         outputs = self(
             past_values=past_values,
             target_values=None,
@@ -1944,11 +1695,8 @@ class PatchTSTForRegression(PatchTSTPreTrainedModel):
             output_hidden_states=False,
         )
 
-        # get distribution
         distribution = self.distribution_output.distribution(outputs.regression_outputs)
-        # get samples: list of [bs x num_targets]
         samples = [distribution.sample() for _ in range(num_parallel_samples)]
-        # samples: [bs x num_samples x num_targets]
         samples = torch.stack(samples, dim=1).view(-1, num_parallel_samples, self.config.num_targets)
         return SamplePatchTSTOutput(sequences=samples)
 

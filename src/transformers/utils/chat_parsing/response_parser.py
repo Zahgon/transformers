@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from __future__ import annotations
 
@@ -32,30 +19,6 @@ def parse_response(text: str, response_template: dict | ResponseTemplate, *, pre
 
 
 class ResponseParser:
-    """This class implements a streaming parser with a `response_template`. If you don't need streaming and
-    just want to parse a complete message, use the `parse_response` function above. Streaming parsing emits
-    events indicating when regions (message fields) are opened and closed, with the model writing to the region
-    that is currently open.
-
-    Usage:
-        parser = ResponseParser(response_template, prefix=chat_prompt)
-        for event in parser.initial_events:
-            handle(event)
-        for chunk in model_text_stream:
-            for event in parser.feed(chunk):
-                handle(event)
-        message, final_events = parser.finalize()
-        for event in final_events:
-            handle(event)
-
-    Events can be either "region_open", "region_chunk", or "region_close".
-
-    ResponseParser requires the chat `prefix` (i.e. the chat history, the prefill before the current generation).
-    This is because chat templates or assistant prefills can sometimes write part of the message, and if we
-    only see the model output, and not the template, then we can't reliably parse the message in those cases.
-    Any events produced while consuming the prefix are exposed as `initial_events`, so renderers can show
-    prefill regions before the model writes anything; closed prefill regions also land in the output dict.
-    """
 
     def __init__(self, response_template: dict | ResponseTemplate, prefix: str | None = None):
         self._spec = load_response_template(response_template)
@@ -70,10 +33,6 @@ class ResponseParser:
         self._pos: int = 0
         self._output: dict[str, Any] = dict(self._spec.defaults)
         self._implicit_name: str | None = self._spec.implicit
-        # Unified current-region state: starts in the implicit region (or a
-        # null sink if none was declared), and returns there after every close.
-        # For explicit regions `_opened` flips to True eagerly on the open
-        # match; for the implicit region it flips lazily on the first byte.
         self._current: str | None = self._implicit_name
         self._captures: dict[str, str] = {}
         self._body: str = ""
@@ -143,26 +102,18 @@ class ResponseParser:
                     self._close_current(events)
                     self._open_explicit(events, field, m)
                 else:  # "close" (always the implicit region's close here,
-                    #   since explicit regions only expose their own close)
                     had_content = self._opened
                     self._close_current(events)
-                    # Zero-width close on an already-empty region would just
-                    # re-fire next iteration -- bail out to make progress.
                     if not had_content and m.start() == m.end():
                         break
                 continue
 
-            # No committable match in the current buffer.
             if eos:
                 if self._pos < len(self._buffer):
                     self._accumulate(events, self._buffer[self._pos :])
                     self._pos = len(self._buffer)
                 self._close_current(events)
                 break
-            # Stream everything up to the earliest still-pending delimiter. When
-            # nothing is pending `hold_start == len(self._buffer)`, so this flushes
-            # the whole buffer; otherwise we hold the (possibly partial) delimiter
-            # bytes back until more input resolves them.
             if hold_start > self._pos:
                 self._accumulate(events, self._buffer[self._pos : hold_start])
                 self._pos = hold_start
@@ -214,7 +165,6 @@ class ResponseParser:
         best: tuple[str, ResponseTemplateField, Any] | None = None
         hold_start = len(self._buffer)
         for kind, field in watch:
-            # The watchlist only includes fields whose delimiter regex is set, so pattern is never None here.
             pattern = field.open_re if kind == "open" else field.close_re
             if eos:
                 m = pattern.search(self._buffer, self._pos)
@@ -223,14 +173,11 @@ class ResponseParser:
             if m is None:
                 continue
             if not eos and (m.partial or self._can_grow(kind, field, m)):
-                # Pending: can't commit, and blocks emitting from its start onward.
                 hold_start = min(hold_start, m.start())
                 continue
             key = (m.start(), -(m.end() - m.start()), 0 if kind == "open" else 1, field.name)
             if best_key is None or key < best_key:
                 best_key, best = key, (kind, field, m)
-        # A committable match co-located with or after a pending one must wait too:
-        # the pending delimiter starts no later and might be the one that fires.
         if best is not None and best[2].start() >= hold_start:
             best = None
         return best, hold_start

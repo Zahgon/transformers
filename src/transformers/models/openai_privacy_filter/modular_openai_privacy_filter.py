@@ -1,17 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Privacy Filter model."""
 
 from collections.abc import Callable
 
@@ -124,7 +110,6 @@ def _apply_rotary_emb(
     cos: torch.Tensor,
     sin: torch.Tensor,
 ) -> torch.Tensor:
-    # Interleaving layout instead of concatenated
     first_half, second_half = x[..., ::2], x[..., 1::2]
     first_ = first_half * cos - second_half * sin
     second_ = second_half * cos + first_half * sin
@@ -150,8 +135,6 @@ def eager_attention_forward(
     sinks = module.sinks.reshape(1, -1, 1, 1).expand(query.shape[0], -1, query.shape[-2], -1)
     combined_logits = torch.cat([attn_weights, sinks], dim=-1)
 
-    # This was not in the original implementation and slightly affect results; it prevents overflow in BF16/FP16
-    # when training with bsz>1 we clamp max values.
 
     combined_logits = combined_logits - combined_logits.max(dim=-1, keepdim=True).values
     probs = nn.functional.softmax(combined_logits, dim=-1, dtype=torch.float32)  # Softmax in fp32
@@ -188,7 +171,6 @@ class OpenAIPrivacyFilterAttention(GptOssAttention):
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
-        # Unique: applying scale individually to each Q and K
         query_states = query_states * self.scaling
         key_states = key_states * self.scaling
 
@@ -217,7 +199,6 @@ class OpenAIPrivacyFilterAttention(GptOssAttention):
 @use_experts_implementation(is_transposed=True, has_bias=True)
 class OpenAIPrivacyFilterExperts(GptOssExperts):
     def _apply_gate(self, gate_up: torch.Tensor) -> torch.Tensor:
-        # Concatenated layout instead of interleaving
         gate, up = gate_up.chunk(2, dim=-1)
         gate = gate.clamp(min=None, max=self.limit)
         up = up.clamp(min=-self.limit, max=self.limit)
@@ -228,22 +209,16 @@ class OpenAIPrivacyFilterExperts(GptOssExperts):
     def forward(self, hidden_states: torch.Tensor, router_indices=None, routing_weights=None) -> torch.Tensor:
         original_dtype = hidden_states.dtype
 
-        # Accumulate over fp32
         next_states = torch.zeros_like(hidden_states, dtype=torch.float32, device=hidden_states.device)
         with torch.no_grad():
             expert_mask = torch.nn.functional.one_hot(
                 router_indices, num_classes=self.num_experts
             )  # masking is also a class
             expert_mask = expert_mask.permute(2, 1, 0)
-            # we sum on the top_k and on the sequence length to get which experts
-            # are hit this time around
             expert_hit = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
 
-        # Key change to original gpt oss is to stay in fp32 precision for all linear projections / muls
         for expert_idx in expert_hit:
-            # expert_idx only have 1 element, so we can use scale for fast indexing
             expert_idx = expert_idx[0]
-            # skip masking index
             if expert_idx == self.num_experts:
                 continue
             top_k_pos, token_idx = torch.where(expert_mask[expert_idx])
@@ -262,19 +237,16 @@ class OpenAIPrivacyFilterExperts(GptOssExperts):
 
 class OpenAIPrivacyFilterTopKRouter(GptOssTopKRouter):
     def forward(self, hidden_states):
-        # Force fp32
         router_logits = F.linear(
             hidden_states.float(), self.weight.float(), self.bias.float()
         )  # (num_tokens, num_experts)
         router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=-1)  # (num_tokens, top_k)
         router_scores = torch.nn.functional.softmax(router_top_value, dim=1, dtype=router_top_value.dtype)
-        # Additional scaling
         router_scores = router_scores / self.top_k
         return router_logits, router_scores, router_indices
 
 
 class OpenAIPrivacyFilterMLP(nn.Module):
-    """Similar to GPT Oss but with FP32 focus + added experts scaling"""
 
     def __init__(self, config):
         super().__init__()
@@ -287,7 +259,6 @@ class OpenAIPrivacyFilterMLP(nn.Module):
         hidden_states = hidden_states.reshape(-1, hidden_dim)
         _, router_scores, router_indices = self.router(hidden_states)
         hidden_states = self.experts(hidden_states, router_indices, router_scores)
-        # Additional scaling
         hidden_states = hidden_states * self.num_experts
         hidden_states = hidden_states.reshape(batch_size, sequence_length, hidden_dim)
         return hidden_states, router_scores
@@ -307,7 +278,6 @@ class OpenAIPrivacyFilterEncoderLayer(GptOssDecoderLayer):
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             position_embeddings=position_embeddings,
@@ -316,7 +286,6 @@ class OpenAIPrivacyFilterEncoderLayer(GptOssDecoderLayer):
         )
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states, _ = self.mlp(hidden_states)

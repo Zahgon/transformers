@@ -1,17 +1,3 @@
-# Copyright 2026 Upstage and HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SolarOpen model."""
 
 from huggingface_hub.dataclasses import strict
 from torch import nn
@@ -34,15 +20,10 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="upstage/Solar-Open-100B")
 @strict
 class SolarOpenConfig(Glm4MoeConfig):
-    r"""
-    n_group (`int`, *optional*, defaults to 1):
-        Number of groups for routed experts.
-    """
 
     model_type = "solar_open"
     default_theta = 1_000_000.0
 
-    # Default tensor parallel plan for base model `SolarOpenModel`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",

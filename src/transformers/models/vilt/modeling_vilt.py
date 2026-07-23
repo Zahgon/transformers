@@ -1,17 +1,3 @@
-# Copyright 2022 NAVER AI Labs and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ViLT model."""
 
 import collections.abc
 import math
@@ -48,16 +34,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class ViltForImagesAndTextClassificationOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Classification (or regression if config.num_labels==1) loss.
-    logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Classification (or regression if config.num_labels==1) scores (before SoftMax).
-    hidden_states (`list[tuple(torch.FloatTensor)]`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        List of tuples of `torch.FloatTensor` (one for each image-text pair, each tuple containing the output of
-        the embeddings + one for the output of each layer) of shape `(batch_size, sequence_length, hidden_size)`.
-        Hidden-states of the model at the output of each layer plus the initial embedding outputs.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -66,25 +42,15 @@ class ViltForImagesAndTextClassificationOutput(ModelOutput):
 
 
 class ViltEmbeddings(nn.Module):
-    """
-    Construct the text and patch embeddings.
-
-    Text embeddings are equivalent to BERT embeddings.
-
-    Patch embeddings are equivalent to ViT embeddings.
-    """
 
     def __init__(self, config):
         super().__init__()
 
-        # text embeddings
         self.text_embeddings = TextEmbeddings(config)
-        # patch embeddings
         self.cls_token = nn.Parameter(torch.zeros(1, 1, config.hidden_size))
         self.patch_embeddings = ViltPatchEmbeddings(config)
         num_patches = self.patch_embeddings.num_patches
         self.position_embeddings = nn.Parameter(torch.zeros(1, num_patches + 1, config.hidden_size))
-        # modality type (text/patch) embeddings
         self.token_type_embeddings = nn.Embedding(config.modality_type_vocab_size, config.hidden_size)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.config = config
@@ -119,7 +85,6 @@ class ViltEmbeddings(nn.Module):
 
         pos_embed = pos_embed.flatten(2).transpose(1, 2)
         x = x.flatten(2).transpose(1, 2)
-        # Set `device` here, otherwise `patch_index` will always be on `CPU` and will fail near the end for torch>=1.13
         patch_index = torch.stack(
             torch.meshgrid(torch.arange(x_mask.shape[-2]), torch.arange(x_mask.shape[-1]), indexing="ij"), dim=-1
         ).to(device=x_mask.device)
@@ -129,10 +94,6 @@ class ViltEmbeddings(nn.Module):
         x_mask = x_mask.flatten(1)
 
         if max_image_length < 0 or max_image_length is None or not isinstance(max_image_length, int):
-            # suppose aug is 800 x 1333, then, maximum effective res is 800 x 1333 (if one side gets bigger, the other will be constrained and be shrunk)
-            # (800 // self.patch_size) * (1333 // self.patch_size) is the maximum number of patches that single image can get.
-            # if self.patch_size = 32, 25 * 41 = 1025
-            # if res is 384 x 640, 12 * 20 = 240
             effective_resolution = x_h * x_w
             max_image_length = effective_resolution.max()
         else:
@@ -161,7 +122,6 @@ class ViltEmbeddings(nn.Module):
         select = torch.cat(select, dim=0)
         x = x[select[:, 0], select[:, 1]].view(batch_size, -1, num_channels)
         x_mask = x_mask[select[:, 0], select[:, 1]].view(batch_size, -1)
-        # `patch_index` should be on the same device as `select`, which is ensured at definition time.
         patch_index = patch_index[select[:, 0], select[:, 1]].view(batch_size, -1, 2)
         pos_embed = pos_embed[select[:, 0], select[:, 1]].view(batch_size, -1, num_channels)
 
@@ -188,12 +148,10 @@ class ViltEmbeddings(nn.Module):
         image_embeds,
         image_token_type_idx=1,
     ):
-        # PART 1: text embeddings
         text_embeds = self.text_embeddings(
             input_ids=input_ids, token_type_ids=token_type_ids, inputs_embeds=inputs_embeds
         )
 
-        # PART 2: patch embeddings (with interpolated position encodings)
         if image_embeds is None:
             image_embeds, image_masks, patch_index = self.visual_embed(
                 pixel_values, pixel_mask, max_image_length=self.config.max_image_length
@@ -201,8 +159,6 @@ class ViltEmbeddings(nn.Module):
         else:
             image_masks = pixel_mask.flatten(1)
 
-        # PART 3: add modality type embeddings
-        # 0 indicates text, 1 indicates image, 2 is optionally used when a second image is provided (NLVR2)
         if image_token_type_idx is None:
             image_token_type_idx = 1
         text_embeds = text_embeds + self.token_type_embeddings(
@@ -212,7 +168,6 @@ class ViltEmbeddings(nn.Module):
             torch.full_like(image_masks, image_token_type_idx, dtype=torch.long, device=text_embeds.device)
         )
 
-        # PART 4: concatenate
         embeddings = torch.cat([text_embeds, image_embeds], dim=1)
         masks = torch.cat([attention_mask, image_masks], dim=1)
 
@@ -220,7 +175,6 @@ class ViltEmbeddings(nn.Module):
 
 
 class TextEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -230,7 +184,6 @@ class TextEmbeddings(nn.Module):
 
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -249,9 +202,6 @@ class TextEmbeddings(nn.Module):
         if position_ids is None:
             position_ids = self.position_ids[:, :seq_length]
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
                 buffered_token_type_ids = self.token_type_ids[:, :seq_length]
@@ -274,9 +224,6 @@ class TextEmbeddings(nn.Module):
 
 
 class ViltPatchEmbeddings(nn.Module):
-    """
-    Image to Patch Embedding.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -330,18 +277,13 @@ class ViltSelfAttention(nn.Module):
         key_layer = self.key(hidden_states).view(hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -355,12 +297,7 @@ class ViltSelfAttention(nn.Module):
         return outputs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->Vilt
 class ViltSelfOutput(nn.Module):
-    """
-    The residual connection is defined in ViltLayer instead of here (as is the case with other models), due to the
-    layernorm applied before each block.
-    """
 
     def __init__(self, config: ViltConfig):
         super().__init__()
@@ -388,7 +325,6 @@ class ViltAttention(nn.Module):
         return outputs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTMLP with ViT->Vilt
 class ViltIntermediate(nn.Module):
     def __init__(self, config: ViltConfig):
         super().__init__()
@@ -404,7 +340,6 @@ class ViltIntermediate(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTMLP with ViT->Vilt
 class ViltOutput(nn.Module):
     def __init__(self, config: ViltConfig):
         super().__init__()
@@ -419,7 +354,6 @@ class ViltOutput(nn.Module):
 
 
 class ViltLayer(GradientCheckpointingLayer):
-    """This corresponds to the Block class in the timm implementation."""
 
     def __init__(self, config):
         super().__init__()
@@ -440,14 +374,11 @@ class ViltLayer(GradientCheckpointingLayer):
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
 
-        # first residual connection
         hidden_states = attention_output + hidden_states.to(attention_output.device)
 
-        # in ViLT, layernorm is also applied after self-attention
         layer_output = self.layernorm_after(hidden_states)
         layer_output = self.intermediate(layer_output)
 
-        # second residual connection is done here
         layer_output = self.output(layer_output, hidden_states)
 
         outputs = (layer_output,) + outputs
@@ -527,7 +458,6 @@ class ViltModel(ViltPreTrainedModel):
         self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.pooler = ViltPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -659,8 +589,6 @@ class ViltPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -683,7 +611,6 @@ class ViltForMaskedLM(ViltPreTrainedModel):
         self.vilt = ViltModel(config)
         self.mlm_score = ViltMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -784,7 +711,6 @@ class ViltForMaskedLM(ViltPreTrainedModel):
         )
 
         sequence_output, pooled_output = outputs[:2]
-        # split up final hidden states into text and image features
         text_seq_len = input_ids.shape[1] if input_ids is not None else inputs_embeds.shape[1]
         text_features, _ = (sequence_output[:, :text_seq_len], sequence_output[:, text_seq_len:])
 
@@ -793,7 +719,6 @@ class ViltForMaskedLM(ViltPreTrainedModel):
         masked_lm_loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()  # -100 index = padding token
-            # move labels to correct device to enable PP
             labels = labels.to(mlm_logits.device)
             masked_lm_loss = loss_fct(mlm_logits.view(-1, self.config.vocab_size), labels.view(-1))
 
@@ -852,7 +777,6 @@ class ViltForQuestionAnswering(ViltPreTrainedModel):
         self.num_labels = config.num_labels
         self.vilt = ViltModel(config)
 
-        # Classifier head
         self.classifier = nn.Sequential(
             nn.Linear(config.hidden_size, config.hidden_size * 2),
             nn.LayerNorm(config.hidden_size * 2),
@@ -860,7 +784,6 @@ class ViltForQuestionAnswering(ViltPreTrainedModel):
             nn.Linear(config.hidden_size * 2, config.num_labels),
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -935,10 +858,8 @@ class ViltForQuestionAnswering(ViltPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # move labels to correct device to enable PP
             labels = labels.to(logits.device)
             loss = nn.functional.binary_cross_entropy_with_logits(logits, labels) * labels.shape[1]
-            # see https://github.com/jnhwkim/ban-vqa/blob/master/train.py#L19
 
         if not return_dict:
             output = (logits,) + outputs[2:]
@@ -964,10 +885,8 @@ class ViltForImageAndTextRetrieval(ViltPreTrainedModel):
 
         self.vilt = ViltModel(config)
 
-        # Classifier head
         self.rank_output = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1064,7 +983,6 @@ class ViltForImagesAndTextClassification(ViltPreTrainedModel):
         self.num_labels = config.num_labels
         self.vilt = ViltModel(config)
 
-        # Classifier head
         num_images = config.num_images
         self.classifier = nn.Sequential(
             nn.Linear(config.hidden_size * num_images, config.hidden_size * num_images),
@@ -1073,7 +991,6 @@ class ViltForImagesAndTextClassification(ViltPreTrainedModel):
             nn.Linear(config.hidden_size * num_images, config.num_labels),
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1137,11 +1054,9 @@ class ViltForImagesAndTextClassification(ViltPreTrainedModel):
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
         if pixel_values is not None and pixel_values.ndim == 4:
-            # add dummy num_images dimension
             pixel_values = pixel_values.unsqueeze(1)
 
         if image_embeds is not None and image_embeds.ndim == 3:
-            # add dummy num_images dimension
             image_embeds = image_embeds.unsqueeze(1)
 
         num_images = pixel_values.shape[1] if pixel_values is not None else None
@@ -1155,7 +1070,6 @@ class ViltForImagesAndTextClassification(ViltPreTrainedModel):
         hidden_states = [] if output_hidden_states else None
         attentions = [] if output_attentions else None
         for i in range(num_images):
-            # forward every image through the model
             outputs = self.vilt(
                 input_ids,
                 attention_mask=attention_mask,
@@ -1182,7 +1096,6 @@ class ViltForImagesAndTextClassification(ViltPreTrainedModel):
         loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
-            # move labels to correct device to enable PP
             labels = labels.to(logits.device)
             loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
 
@@ -1209,7 +1122,6 @@ class ViltForTokenClassification(ViltPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1261,7 +1173,6 @@ class ViltForTokenClassification(ViltPreTrainedModel):
         loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
-            # move labels to correct device to enable PP
             labels = labels.to(logits.device)
             loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
 

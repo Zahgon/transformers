@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Vivit."""
 
 import numpy as np
 
@@ -61,45 +47,6 @@ def make_batched(videos) -> list[list[ImageInput]]:
 
 
 class VivitImageProcessor(BaseImageProcessor):
-    r"""
-    Constructs a Vivit image processor.
-
-    Args:
-        do_resize (`bool`, *optional*, defaults to `True`):
-            Whether to resize the image's (height, width) dimensions to the specified `size`. Can be overridden by the
-            `do_resize` parameter in the `preprocess` method.
-        size (`dict[str, int]` *optional*, defaults to `{"shortest_edge": 256}`):
-            Size of the output image after resizing. The shortest edge of the image will be resized to
-            `size["shortest_edge"]` while maintaining the aspect ratio of the original image. Can be overridden by
-            `size` in the `preprocess` method.
-        resample (`PILImageResampling`, *optional*, defaults to `Resampling.BILINEAR`):
-            Resampling filter to use if resizing the image. Can be overridden by the `resample` parameter in the
-            `preprocess` method.
-        do_center_crop (`bool`, *optional*, defaults to `True`):
-            Whether to center crop the image to the specified `crop_size`. Can be overridden by the `do_center_crop`
-            parameter in the `preprocess` method.
-        crop_size (`dict[str, int]`, *optional*, defaults to `{"height": 224, "width": 224}`):
-            Size of the image after applying the center crop. Can be overridden by the `crop_size` parameter in the
-            `preprocess` method.
-        do_rescale (`bool`, *optional*, defaults to `True`):
-            Whether to rescale the image by the specified scale `rescale_factor`. Can be overridden by the `do_rescale`
-            parameter in the `preprocess` method.
-        rescale_factor (`int` or `float`, *optional*, defaults to `1/127.5`):
-            Defines the scale factor to use if rescaling the image. Can be overridden by the `rescale_factor` parameter
-            in the `preprocess` method.
-        offset (`bool`, *optional*, defaults to `True`):
-            Whether to scale the image in both negative and positive directions. Can be overridden by the `offset` in
-            the `preprocess` method.
-        do_normalize (`bool`, *optional*, defaults to `True`):
-            Whether to normalize the image. Can be overridden by the `do_normalize` parameter in the `preprocess`
-            method.
-        image_mean (`float` or `list[float]`, *optional*, defaults to `IMAGENET_STANDARD_MEAN`):
-            Mean to use if normalizing the image. This is a float or list of floats the length of the number of
-            channels in the image. Can be overridden by the `image_mean` parameter in the `preprocess` method.
-        image_std (`float` or `list[float]`, *optional*, defaults to `IMAGENET_STANDARD_STD`):
-            Standard deviation to use if normalizing the image. This is a float or list of floats the length of the
-            number of channels in the image. Can be overridden by the `image_std` parameter in the `preprocess` method.
-    """
 
     model_input_names = ["pixel_values"]
 
@@ -255,7 +202,6 @@ class VivitImageProcessor(BaseImageProcessor):
         if offset and not do_rescale:
             raise ValueError("For offset, do_rescale must also be set to True.")
 
-        # All transformations expect numpy arrays.
         image = to_numpy_array(image)
 
         if do_rescale and is_scaled_image(image):

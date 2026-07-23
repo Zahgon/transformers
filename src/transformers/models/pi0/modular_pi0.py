@@ -1,17 +1,3 @@
-# Copyright 2025 Physical Intelligence and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PI0 model: PaliGemma + Action Expert with flow matching for robot action prediction."""
 
 import math
 from collections.abc import Callable
@@ -136,7 +122,6 @@ class PI0Processor(PaligemmaProcessor):
 
         text_inputs = self.tokenizer(prompt_strings, **output_kwargs["text_kwargs"])
 
-        # Here is the diff from PaliGemma. Ideally we'd create a new ImageProcessor if it were a VLM
         max_num_cameras = max(len(sample_images) for sample_images in batched_images)
         pixel_attention_mask = torch.zeros((len(batched_images), max_num_cameras), dtype=torch.bool)
         padded_pixel_values = torch.zeros(len(batched_images), max_num_cameras, 3, self.height, self.width)
@@ -170,48 +155,12 @@ class PI0Processor(PaligemmaProcessor):
 
     @property
     def model_input_names(self):
-        return super().model_input_names + ["pixel_attention_mask"]
+        pass
 
 
 @auto_docstring(checkpoint="lerobot/pi0_base")
 @strict
 class PI0Config(PreTrainedConfig):
-    r"""
-    vlm_config (`dict`, *optional*):
-        Configuration for the vlm backbone (PaliGemmaModel).
-    dit_config (`dict`, *optional*):
-        Configuration for the DiT backbone. Defaults to a Gemma 300M variant.
-    chunk_size (`int`, *optional*, defaults to 50):
-        Number of action steps to predict per chunk.
-    max_state_dim (`int`, *optional*, defaults to 32):
-        Maximum state vector dimension (shorter vectors are zero-padded).
-    max_action_dim (`int`, *optional*, defaults to 32):
-        Maximum action vector dimension (shorter vectors are zero-padded).
-    num_inference_steps (`int`, *optional*, defaults to 10):
-        Number of denoising steps during inference.
-    time_sampling_beta_alpha (`float`, *optional*, defaults to 1.5):
-        Alpha parameter for Beta distribution used to sample diffusion time during training.
-    time_sampling_beta_beta (`float`, *optional*, defaults to 1.0):
-        Beta parameter for Beta distribution used to sample diffusion time during training.
-    time_sampling_scale (`float`, *optional*, defaults to 0.999):
-        Scale factor for sampled time values.
-    time_sampling_offset (`float`, *optional*, defaults to 0.001):
-        Offset added to sampled time values.
-    min_period (`float`, *optional*, defaults to 0.004):
-        Minimum period for sinusoidal time embedding.
-    max_period (`float`, *optional*, defaults to 4.0):
-        Maximum period for sinusoidal time embedding.
-    loss_reduction (`str`, *optional*, defaults to `"mean"`):
-        The reduction to use on MSE loss.
-
-    Example:
-    ```python
-    >>> from transformers import PI0ForConditionalGeneration, PI0Config
-
-    >>> config = PI0Config()
-    >>> model = PI0ForConditionalGeneration(config)
-    ```
-    """
 
     model_type = "pi0"
     sub_configs = {"vlm_config": AutoConfig, "dit_config": AutoConfig}
@@ -274,25 +223,17 @@ class PI0Config(PreTrainedConfig):
                 vocab_size=self.vlm_config.text_config.vocab_size,
             )
 
-        # Force bidirectional attention for images in Paligemma
         self.dit_config.is_causal = True
         self.dit_config.use_bidirectional_attention = True
         self.vlm_config.text_config.use_bidirectional_attention = True
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.dit_config.hidden_size % 2 != 0:
-            raise ValueError(f"DiT hidden dim=({self.config.dit_config.hidden_size}) must be divisible by 2")
+        pass
 
 
 def blockwise_bidirectional_mask(block_boundaries: torch.Tensor) -> Callable:
-    def inner_mask(batch_idx: int, head_idx: int, q_idx: int, kv_idx: int) -> bool:
-        q_block = torch.bucketize(q_idx, block_boundaries)
-        kv_block = torch.bucketize(kv_idx, block_boundaries)
-        return kv_block <= q_block
-
-    return inner_mask
+    pass
 
 
 class PI0TimestepEmbeddings(nn.Module):
@@ -423,7 +364,6 @@ class PI0Model(PI0PreTrainedModel):
             if inputs_embeds is None:
                 inputs_embeds = self.embed_prefix(input_ids, pixel_values, pixel_attention_mask)
 
-            # PI0 always passes a prefix and we need to hardcode it to correctly build a mask
             token_type_ids = torch.zeros_like(inputs_embeds)[:, :, 0]
             past_key_values = self.vlm(
                 inputs_embeds=inputs_embeds,
@@ -436,7 +376,6 @@ class PI0Model(PI0PreTrainedModel):
         if attention_mask is not None and attention_mask.ndim != 2:
             raise ValueError("Only two-dimensional attention masks are accepted for now!")
 
-        # Merge masks if needed, same for position ids
         dit_position_ids = dit_attention_mask = None
         if attention_mask is not None:
             noise_mask = torch.ones(
@@ -448,8 +387,6 @@ class PI0Model(PI0PreTrainedModel):
             dit_attention_mask = torch.cat([attention_mask, noise_mask], dim=1)
             dit_position_ids = (torch.cumsum(dit_attention_mask, dim=1) - 1)[:, -action_embeds.shape[1] :]
 
-        # We have three blocks: vlm-inputss, state and actions from which only 1 token is `state`
-        # The mask should be bidirectional within each block and to prev blocks, but not to next blocks
         vlm_input_length = past_key_values.get_seq_length()
         block_sequence_ids = torch.cat(
             [
@@ -477,7 +414,6 @@ class PI0Model(PI0PreTrainedModel):
 
 
 class PI0ForConditionalGeneration(PI0PreTrainedModel):
-    """PI0 model with action projection heads and flow matching."""
 
     _tp_plan = {"action_out_proj": "colwise_gather_output"}
 
@@ -520,7 +456,6 @@ class PI0ForConditionalGeneration(PI0PreTrainedModel):
         """
         batch_size = state.shape[0]
 
-        # 1.Sample the timestep
         if timestep is None:
             alpha_t = torch.tensor(self.config.time_sampling_beta_alpha, dtype=torch.float32)
             beta_t = torch.tensor(self.config.time_sampling_beta_beta, dtype=torch.float32)
@@ -528,7 +463,6 @@ class PI0ForConditionalGeneration(PI0PreTrainedModel):
             time_beta = dist.sample((batch_size,)).to(state.device)
             timestep = (time_beta * self.config.time_sampling_scale + self.config.time_sampling_offset).float()
 
-        # 2. Create random noise if not provided
         if noise is None:
             noise = torch.randn(
                 batch_size,
@@ -538,8 +472,6 @@ class PI0ForConditionalGeneration(PI0PreTrainedModel):
                 dtype=state.dtype,
             )
 
-        # 3. If training: merge noise with the ground truth actions (aka labels)
-        # Target velocity is the label we want to predict and will compute loss upon
         if actions is not None:
             time_expanded = timestep[:, None, None]
             noisy_actions = (time_expanded * noise + (1 - time_expanded) * actions).to(actions.dtype)
@@ -547,7 +479,6 @@ class PI0ForConditionalGeneration(PI0PreTrainedModel):
         else:
             noisy_actions = noise
 
-        # 4. Embed 'state + noise + actions' for DiT blocks
         action_time_embeds = self.embed_action_time(state, noisy_actions, timestep)
 
         outputs = self.model(
@@ -566,7 +497,6 @@ class PI0ForConditionalGeneration(PI0PreTrainedModel):
 
         loss = None
         if actions is not None:
-            # Let the users reduce loss themselves and return fine-grained per sample loss
             loss = F.mse_loss(target_velocity, predicted_velocity, reduction=self.config.loss_reduction)
 
         return CausalLMOutputWithPast(
@@ -589,61 +519,7 @@ class PI0ForConditionalGeneration(PI0PreTrainedModel):
         num_steps: int | None = None,
         **kwargs,
     ) -> torch.FloatTensor:
-        """Run flow matching inference to generate actions."""
-
-        num_steps = num_steps or self.config.num_inference_steps
-        batch_size = input_ids.shape[0]
-        device = input_ids.device
-
-        # 1. Sample random noise
-        if noise is None:
-            noise = torch.normal(
-                mean=0.0,
-                std=1.0,
-                size=(
-                    batch_size,
-                    self.config.chunk_size,
-                    self.config.max_action_dim,
-                ),
-                dtype=pixel_values.dtype,
-                device=device,
-            )
-
-        # 2. Run VLM once and obtain prefix cache. Must infer positions here!
-        position_ids = None
-        if attention_mask is not None:
-            position_ids = attention_mask.cumsum(-1) - 1
-        inputs_embeds = self.model.embed_prefix(input_ids, pixel_values, pixel_attention_mask)
-        token_type_ids = torch.zeros_like(inputs_embeds)[:, :, 0]
-        past_key_values = self.model.vlm(
-            inputs_embeds=inputs_embeds,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            token_type_ids=token_type_ids,
-            use_cache=True,
-            return_dict=True,
-        ).past_key_values
-        prefix_length = past_key_values.get_seq_length()
-
-        # 3. Denoise `num_steps` times
-        dt = -1.0 / num_steps
-        for step in range(num_steps):
-            time = 1.0 + step * dt
-            time_tensor = torch.tensor(time, dtype=torch.float32, device=device).expand(batch_size)
-            output = self(
-                state=state,
-                noise=noise,
-                timestep=time_tensor,
-                pixel_attention_mask=pixel_attention_mask,
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-                **kwargs,
-            )
-
-            # We need to keep only the "vlm-prefix", no attention to past denoising steps!
-            past_key_values.crop(prefix_length)
-            noise = noise + dt * output.logits
-        return noise
+        pass
 
 
 __all__ = [

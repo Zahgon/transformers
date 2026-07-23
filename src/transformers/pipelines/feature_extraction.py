@@ -13,29 +13,6 @@ from .base import GenericTensor, Pipeline, build_pipeline_init_args
             If `True`, returns a tensor according to the specified framework, otherwise returns a list.""",
 )
 class FeatureExtractionPipeline(Pipeline):
-    """
-    Feature extraction pipeline uses no model head. This pipeline extracts the hidden states from the base
-    transformer, which can be used as features in downstream tasks.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> extractor = pipeline(model="google-bert/bert-base-uncased", task="feature-extraction")
-    >>> result = extractor("This is a simple test.", return_tensors=True)
-    >>> result.shape  # This is a tensor of shape [1, sequence_length, hidden_dimension] representing the input string.
-    torch.Size([1, 8, 768])
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This feature extraction pipeline can currently be loaded from [`pipeline`] using the task identifier:
-    `"feature-extraction"`.
-
-    All models may be used for this pipeline. See a list of all models, including community-contributed models on
-    [huggingface.co/models](https://huggingface.co/models).
-    """
 
     _load_processor = False
     _load_image_processor = False
@@ -70,7 +47,6 @@ class FeatureExtractionPipeline(Pipeline):
         return model_outputs
 
     def postprocess(self, model_outputs, return_tensors=False):
-        # [0] is the first available tensor, logits or last_hidden_state.
         if return_tensors:
             return model_outputs[0]
         return model_outputs[0].tolist()

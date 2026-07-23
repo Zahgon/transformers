@@ -1,17 +1,3 @@
-# Copyright 2022 The Fairseq Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch OPT model."""
 
 from collections.abc import Callable
 
@@ -43,13 +29,8 @@ logger = logging.get_logger(__name__)
 
 
 class OPTLearnedPositionalEmbedding(nn.Embedding):
-    """
-    This module learns positional embeddings up to a fixed maximum size.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int):
-        # OPT is set up so that if padding_idx is specified then offset the embedding ids by 2
-        # and adjust num_embeddings appropriately. Other models don't have this hack
         self.offset = 2
         super().__init__(num_embeddings + self.offset, embedding_dim)
 
@@ -64,13 +45,11 @@ class OPTLearnedPositionalEmbedding(nn.Embedding):
         if position_ids is None:
             position_ids = torch.cumsum(attention_mask, dim=1)
             position_ids = (position_ids * attention_mask - 1).long()
-            # cut positions if `past_key_values_length` is > 0
             position_ids = position_ids[:, past_key_values_length:]
 
         return super().forward(position_ids + self.offset)
 
 
-# Copied from transformers.models.siglip.modeling_siglip.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -95,7 +74,6 @@ def eager_attention_forward(
 
 
 class OPTAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -143,11 +121,6 @@ class OPTAttention(nn.Module):
         """Input shape: Batch x Time x Channel"""
         bsz, tgt_len, _ = hidden_states.size()
 
-        # Scaling is susceptible to floating point arithmetics' inprecisions
-        # which can lead to different results (this is dependent from model
-        # to model, e.g. whisper is one such case). We therefore keep the
-        # original order of scaling to follow the original implementation
-        # and enforce no scaling (1.0) in the attention call below.
         query_states = self.q_proj(hidden_states) * self.scaling
         query_states = query_states.view(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2)
 
@@ -157,7 +130,6 @@ class OPTAttention(nn.Module):
         value_states = value_states.view(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2)
 
         if past_key_values is not None:
-            # save all key/value_states to cache to be re-used for fast auto-regressive generation
             key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx)
 
         attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
@@ -210,11 +182,9 @@ class OPTDecoderLayer(GradientCheckpointingLayer):
     ) -> torch.Tensor:
         residual = hidden_states
 
-        # 125m, 1.7B, ..., 175B applies layer norm BEFORE attention
         if self.do_layer_norm_before:
             hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             past_key_values=past_key_values,
@@ -225,16 +195,13 @@ class OPTDecoderLayer(GradientCheckpointingLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
 
-        # 350m applies layer norm AFTER attention
         if not self.do_layer_norm_before:
             hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Fully Connected
         hidden_states_shape = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, hidden_states.size(-1))
         residual = hidden_states
 
-        # 125m, 1.7B, ..., 175B applies layer norm BEFORE attention
         if self.do_layer_norm_before:
             hidden_states = self.final_layer_norm(hidden_states)
 
@@ -246,7 +213,6 @@ class OPTDecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = (residual + hidden_states).view(hidden_states_shape)
 
-        # 350m applies layer norm AFTER attention
         if not self.do_layer_norm_before:
             hidden_states = self.final_layer_norm(hidden_states)
 
@@ -271,12 +237,6 @@ class OPTPreTrainedModel(PreTrainedModel):
 
 
 class OPTDecoder(OPTPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`OPTDecoderLayer`]
-
-    Args:
-        config: OPTConfig
-    """
 
     def __init__(self, config: OPTConfig):
         super().__init__(config)
@@ -299,9 +259,6 @@ class OPTDecoder(OPTPreTrainedModel):
         else:
             self.project_in = None
 
-        # Note that the only purpose of `config._remove_final_layer_norm` is to keep backward compatibility
-        # with checkpoints that have been fine-tuned before transformers v4.20.1
-        # see https://github.com/facebookresearch/metaseq/pull/164
         if config.do_layer_norm_before and not config._remove_final_layer_norm:
             self.final_layer_norm = nn.LayerNorm(
                 config.hidden_size, elementwise_affine=config.layer_norm_elementwise_affine
@@ -312,7 +269,6 @@ class OPTDecoder(OPTPreTrainedModel):
         self.layers = nn.ModuleList([OPTDecoderLayer(config, layer_idx=i) for i in range(config.num_hidden_layers)])
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -346,11 +302,9 @@ class OPTDecoder(OPTPreTrainedModel):
             seq_length = past_seen_tokens + inputs_embeds.shape[1]
             attention_mask = torch.ones(inputs_embeds.shape[0], seq_length, device=inputs_embeds.device)
 
-        # embed positions
         if position_ids is None:
             position_ids = torch.cumsum(attention_mask, dim=1)
             position_ids = (position_ids * attention_mask - 1).long()
-            # cut positions if `past_seen_tokens` is > 0
             position_ids = position_ids[:, past_seen_tokens:]
 
         causal_mask = create_causal_mask(
@@ -367,9 +321,7 @@ class OPTDecoder(OPTPreTrainedModel):
 
         hidden_states = inputs_embeds + pos_embeds.to(inputs_embeds.device)
 
-        # decoder layers
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if self.training:
                 dropout_probability = torch.rand([])
                 if dropout_probability < self.layerdrop:
@@ -401,7 +353,6 @@ class OPTModel(OPTPreTrainedModel):
     def __init__(self, config: OPTConfig):
         super().__init__(config)
         self.decoder = OPTDecoder(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -447,10 +398,8 @@ class OPTForCausalLM(OPTPreTrainedModel, GenerationMixin):
         super().__init__(config)
         self.model = OPTModel(config)
 
-        # the lm_head weight is automatically tied to the embed tokens weight
         self.lm_head = nn.Linear(config.word_embed_proj_dim, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -507,7 +456,6 @@ class OPTForCausalLM(OPTPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :]).contiguous()
 
@@ -545,7 +493,6 @@ class OPTForSequenceClassification(OPTPreTrainedModel):
         self.model = OPTModel(config)
         self.score = nn.Linear(config.word_embed_proj_dim, self.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -589,7 +536,6 @@ class OPTForSequenceClassification(OPTPreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)
@@ -647,7 +593,6 @@ class OPTForQuestionAnswering(OPTPreTrainedModel):
         self.model = OPTModel(config)
         self.qa_outputs = nn.Linear(config.word_embed_proj_dim, 2)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

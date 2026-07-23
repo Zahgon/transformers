@@ -1,16 +1,3 @@
-# Copyright 2025 the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -42,30 +29,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="bosonai/higgs-audio-v2-generation-3B-base")
 @strict
 class HiggsAudioV2Config(LlamaConfig):
-    r"""
-    audio_bos_token_id (`int`, *optional*, defaults to 128013):
-        The token ID for the beginning-of-sequence token for audio output.
-    audio_delay_token_id (`int`, *optional*, defaults to 128014):
-        The token ID used for audio delay pattern in multi-codebook generation.
-    audio_stream_bos_id (`int`, *optional*, defaults to 1024):
-        The ID for the beginning-of-stream token in audio sequences.
-    audio_stream_eos_id (`int`, *optional*, defaults to 1025):
-        The ID for the end-of-stream token in audio sequences.
-
-    Example:
-
-    ```python
-    >>> from transformers import HiggsAudioV2Model, HiggsAudioV2Config
-
-    >>> # Initializing a HiggsAudioV2 style configuration
-    >>> configuration = HiggsAudioV2Config()
-
-    >>> # Initializing a model from the configuration
-    >>> model = HiggsAudioV2Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     vocab_size: int = 128256
     rms_norm_eps: float = 1e-5
@@ -140,7 +103,6 @@ class HiggsAudioV2DecoderLayer(LlamaDecoderLayer):
                 self.input_layernorm(hidden_states[~audio_token_mask]).to(hidden_states.device),
             )
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -406,8 +368,6 @@ class HiggsAudioV2ForConditionalGeneration(HiggsAudioV2PreTrainedModel, HiggsAud
             )
             in_cache_num_audio_input_ids = audio_token_mask[:, :current_cache_length].sum(dim=-1)
 
-            # already cached audio_input_ids should be masked
-            # this surmise that audio_input_ids are right padded!
             valid_audio_input_ids = audio_input_ids_mask.cumsum(dim=-1) > in_cache_num_audio_input_ids[:, None]
             audio_input_ids_mask = audio_input_ids_mask & valid_audio_input_ids
 
@@ -528,7 +488,6 @@ class HiggsAudioV2ForConditionalGeneration(HiggsAudioV2PreTrainedModel, HiggsAud
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.audio_lm_head(hidden_states[:, slice_indices, :])
 

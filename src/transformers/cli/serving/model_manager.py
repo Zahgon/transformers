@@ -1,19 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Model loading, caching, and lifecycle management.
-"""
 
 import asyncio
 import gc
@@ -41,14 +25,6 @@ logger = logging.get_logger(__name__)
 
 
 class TimedModel:
-    """Wraps a model + processor and auto-unloads them after a period of inactivity.
-
-    Args:
-        model: The loaded model.
-        timeout_seconds: Seconds of inactivity before auto-unload. Use -1 to disable.
-        processor: The associated processor or tokenizer.
-        on_unload: Optional callback invoked after the model is unloaded from memory.
-    """
 
     def __init__(
         self,
@@ -85,26 +61,10 @@ class TimedModel:
                 self._on_unload()
 
     def _timeout_reached(self) -> None:
-        if self.timeout_seconds > 0:
-            self.delete_model()
-            logger.info(f"{self._name_or_path} was removed from memory after {self.timeout_seconds}s of inactivity")
+        pass
 
 
 class ModelManager:
-    """Loads, caches, and manages the lifecycle of models.
-
-    Handlers receive a reference to this and call `load_model_and_processor()`
-    to get a model ready for inference.
-
-    Args:
-        device: Device to place models on (e.g. "auto", "cuda", "cpu").
-        dtype: Torch dtype override. "auto" derives from model weights.
-        trust_remote_code: Whether to trust remote code when loading models.
-        attn_implementation: Attention implementation override (e.g. "flash_attention_2").
-        quantization: Quantization method ("bnb-4bit" or "bnb-8bit").
-        model_timeout: Seconds before an idle model is unloaded. -1 disables.
-        force_model: If set, preload this model at init time.
-    """
 
     def __init__(
         self,
@@ -118,15 +78,12 @@ class ModelManager:
     ):
         self.loaded_models: dict[str, TimedModel] = {}
 
-        # Thread-safety for concurrent load_model_and_processor calls
         self._model_locks: dict[str, threading.Lock] = {}
         self._model_locks_guard = threading.Lock()
 
-        # Tracks in-flight loads for fan-out to multiple SSE subscribers (used by load_model_streaming)
         self._loading_subscribers: dict[str, list[asyncio.Queue[str | None]]] = {}
         self._loading_tasks: dict[str, asyncio.Task] = {}
 
-        # Convert numeric device strings (e.g. "0") to int so device_map works correctly
         self.device = int(device) if device.isdigit() else device
         self.dtype = self._resolve_dtype(dtype)
         self.trust_remote_code = trust_remote_code
@@ -137,11 +94,9 @@ class ModelManager:
 
         self._validate_args()
 
-        # Preloaded models should never be auto-unloaded
         if force_model is not None:
             self.model_timeout = -1
 
-        # Preload the forced model after all state is initialized
         if force_model is not None:
             self.load_model_and_processor(self.process_model_name(force_model))
 
@@ -290,7 +245,6 @@ class ModelManager:
                 ``{"status": "loading", "model": ..., "stage": ...}`` during loading.
             tqdm_class: Optional tqdm subclass for progress bars during ``from_pretrained``.
         """
-        # Per-model lock prevents duplicate loads when concurrent requests arrive
         with self._model_locks_guard:
             lock = self._model_locks.setdefault(model_id_and_revision, threading.Lock())
 
@@ -336,13 +290,11 @@ class ModelManager:
         mid = model_id_and_revision
         queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-        # Case 1: already cached
         if mid in self.loaded_models:
             self.loaded_models[mid].reset_timer()
             yield f"data: {json.dumps({'status': 'ready', 'model': mid, 'cached': True})}\n\n"
             return
 
-        # Case 2: load in progress -- join existing subscribers
         if mid in self._loading_tasks:
             self._loading_subscribers[mid].append(queue)
             while True:
@@ -352,7 +304,6 @@ class ModelManager:
                 yield item
             return
 
-        # Case 3: first request -- start the load
         self._loading_subscribers[mid] = [queue]
         loop = asyncio.get_running_loop()
 
@@ -368,13 +319,10 @@ class ModelManager:
         tqdm_class = make_progress_tqdm_class(enqueue, mid)
 
         def _tqdm_hook(factory, args, kwargs):
-            return tqdm_class(*args, **kwargs)
+            pass
 
         async def run_load():
             try:
-                # Install a global tqdm hook so the "Loading weights" bar in
-                # core_model_loading.py (which uses logging.tqdm) routes through
-                # our ProgressTqdm. The tqdm_class kwarg only covers download bars.
                 previous_hook = logging.set_tqdm_hook(_tqdm_hook)
                 try:
                     await asyncio.to_thread(
@@ -391,9 +339,7 @@ class ModelManager:
             finally:
 
                 def _send_sentinel():
-                    for q in self._loading_subscribers.pop(mid, []):
-                        q.put_nowait(None)
-                    self._loading_tasks.pop(mid, None)
+                    pass
 
                 loop.call_soon_threadsafe(_send_sentinel)
 

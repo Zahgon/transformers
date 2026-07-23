@@ -1,27 +1,8 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert WavLM checkpoint."""
 
 import argparse
 
 import torch
 
-# Step 1. clone https://github.com/microsoft/unilm
-# Step 2. git checkout to https://github.com/microsoft/unilm/commit/b94ec76c36f02fb2b0bf0dcb0b8554a2185173cd
-# Step 3. cd unilm
-# Step 4. ln -s $(realpath wavlm/modules.py) ./  # create simlink
-# import classes
 from unilm.wavlm.WavLM import WavLM as WavLMOrig
 from unilm.wavlm.WavLM import WavLMConfig as WavLMConfigOrig
 
@@ -122,7 +103,6 @@ def recursively_load_weights(fairseq_model, hf_model):
                     elif "bias" in name and "relative_attention_bias" not in name:
                         weight_type = "bias"
                     elif "weight" in name:
-                        # TODO: don't match quantizer.weight_proj
                         weight_type = "weight"
                     else:
                         weight_type = None
@@ -177,23 +157,7 @@ def load_conv_layer(full_name, value, feature_extractor, unused_weights, use_gro
 
 @torch.no_grad()
 def convert_wavlm_checkpoint(checkpoint_path, pytorch_dump_folder_path, config_path=None):
-    # load the pre-trained checkpoints
-    checkpoint = torch.load(checkpoint_path, weights_only=True)
-    cfg = WavLMConfigOrig(checkpoint["cfg"])
-    model = WavLMOrig(cfg)
-    model.load_state_dict(checkpoint["model"])
-    model.eval()
-
-    if config_path is not None:
-        config = WavLMConfig.from_pretrained(config_path)
-    else:
-        config = WavLMConfig()
-
-    hf_wavlm = WavLMModel(config)
-
-    recursively_load_weights(model, hf_wavlm)
-
-    hf_wavlm.save_pretrained(pytorch_dump_folder_path)
+    pass
 
 
 if __name__ == "__main__":

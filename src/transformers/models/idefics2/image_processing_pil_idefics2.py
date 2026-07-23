@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PIL Image processor class for Idefics2."""
 
 from typing import TYPE_CHECKING
 
@@ -45,17 +31,11 @@ def _make_pixel_mask(image: np.ndarray, output_size: tuple[int, int]) -> np.ndar
     return mask
 
 
-# Adapted from transformers.models.idefics2.image_processing_idefics2.Idefics2ImageProcessorKwargs
 class Idefics2ImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    do_image_splitting (`bool`, *optional*, defaults to `self.do_image_splitting`):
-        Whether to split the image into a sequence 4 equal sub-images concatenated with the original image.
-    """
 
     do_image_splitting: bool
 
 
-# Adapted from transformers.models.idefics2.image_processing_idefics2.convert_to_rgb
 def convert_to_rgb(image: ImageInput) -> ImageInput:
     """
     Converts an image to RGB format. Only converts if the image is of type PIL.Image.Image, otherwise returns the image
@@ -74,7 +54,6 @@ def convert_to_rgb(image: ImageInput) -> ImageInput:
     return alpha_composite
 
 
-# Adapted from transformers.models.idefics2.image_processing_idefics2.get_max_height_width
 def get_max_height_width(images_list: list[list["torch.Tensor|np.ndarray"]]) -> tuple[int, int]:
     """
     Get the maximum height and width across all images in a batch.
@@ -89,7 +68,6 @@ def get_max_height_width(images_list: list[list["torch.Tensor|np.ndarray"]]) -> 
     return (max_height, max_width)
 
 
-# Adapted from transformers.models.idefics2.image_processing_idefics2.get_resize_output_image_size
 def get_resize_output_image_size(image, size: SizeDict) -> tuple[int, int]:
     """
     Get the output size of the image after resizing given a dictionary specifying the max and min sizes.

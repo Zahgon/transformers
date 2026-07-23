@@ -1,17 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Template loading and validation for response_template dicts."""
 
 from __future__ import annotations
 
@@ -105,7 +91,6 @@ def _compile_anchor(scope: str, field: dict, literal_key: str, pattern_key: str)
             raise ValueError(f"{scope}: '{literal_key}' must be a string or list of strings, got {type(raw).__name__}")
         if any(s == "" for s in literals):
             raise ValueError(f"{scope}: '{literal_key}' literals cannot be empty strings")
-        # Sort longest-first so alternation prefers the longer alternative when both could match.
         ordered = sorted(literals, key=len, reverse=True)
         can_extend = any(a != b and a.startswith(b) for a in literals for b in literals)
         pattern = "|".join(re.escape(s) for s in ordered)
@@ -170,7 +155,6 @@ def _build_field(name: str, field: dict) -> ResponseTemplateField:
     if transform is not None:
         validate_transform_strings(scope, transform)
     else:
-        # Named captures only reach the output through a transform, so flag any that would be silently dropped.
         captured_names = set()
         if open_re is not None:
             captured_names |= set(open_re.groupindex)
@@ -207,7 +191,6 @@ def load_response_template(spec: dict | ResponseTemplate) -> ResponseTemplate:
     _validate_template_shape(spec)
 
     fields = {name: _build_field(name, raw) for name, raw in spec["fields"].items()}
-    # A field without an open anchor is the implicit-open / leftover sink; at most one is allowed.
     implicit_fields = [name for name, field in fields.items() if field.open_re is None]
     if len(implicit_fields) > 1:
         raise ValueError(

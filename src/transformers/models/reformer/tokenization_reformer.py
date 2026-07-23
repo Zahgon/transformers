@@ -1,17 +1,3 @@
-# Copyright 2020 The Trax Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization class for model Reformer."""
 
 from tokenizers import Regex, Tokenizer, decoders, normalizers, pre_tokenizers
 from tokenizers.models import BPE
@@ -29,39 +15,6 @@ VOCAB_FILES_NAMES = {"vocab_file": "spiece.model"}
 
 
 class ReformerTokenizer(TokenizersBackend):
-    """
-    Construct a Reformer tokenizer (backed by HuggingFace's tokenizers library). Based on
-    [BPE](https://huggingface.co/docs/tokenizers/python/latest/components.html?highlight=bpe#models).
-
-    This tokenizer inherits from [`TokenizersBackend`] which contains most of the main methods. Users should
-    refer to this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            [SentencePiece](https://github.com/google/sentencepiece) file (generally has a *.spm* extension) that
-            contains the vocabulary necessary to instantiate a tokenizer.
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the end of sequence.
-            The token used is the `sep_token`.
-
-            </Tip>
-
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        additional_special_tokens (`list[str]`, *optional*):
-            Additional special tokens used by the tokenizer.
-        vocab (`str` or `dict[str, int]`, *optional*):
-            Custom vocabulary dictionary. If not provided, vocabulary is loaded from `vocab_file`.
-        merges (`str` or `list[str]`, *optional*):
-            Custom merges list. If not provided, merges are loaded from `vocab_file`.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]

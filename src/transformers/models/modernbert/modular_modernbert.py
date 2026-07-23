@@ -1,17 +1,3 @@
-# Copyright 2024 Answer.AI, LightOn, and contributors, and the HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from collections.abc import Callable
@@ -52,47 +38,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="answerdotai/ModernBERT-base")
 @strict
 class ModernBertConfig(PreTrainedConfig):
-    r"""
-    initializer_cutoff_factor (`float`, *optional*, defaults to 2.0):
-        The cutoff factor for the truncated_normal_initializer for initializing all weight matrices.
-    norm_eps (`float`, *optional*, defaults to 1e-05):
-        The epsilon used by the rms normalization layers.
-    norm_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use bias in the normalization layers.
-    local_attention (`int`, *optional*, defaults to 128):
-        The window size for local attention.
-    mlp_dropout (`float`, *optional*, defaults to 0.0):
-        The dropout ratio for the MLP layers.
-    decoder_bias (`bool`, *optional*, defaults to `True`):
-        Whether to use bias in the decoder layers.
-    classifier_pooling (`str`, *optional*, defaults to `"cls"`):
-        The pooling method for the classifier. Should be either `"cls"` or `"mean"`. In local attention layers, the
-        CLS token doesn't attend to all tokens on long sequences.
-    classifier_bias (`bool`, *optional*, defaults to `False`):
-        Whether to use bias in the classifier.
-    classifier_activation (`str`, *optional*, defaults to `"gelu"`):
-        The activation function for the classifier.
-    deterministic_flash_attn (`bool`, *optional*, defaults to `False`):
-        Whether to use deterministic flash attention. If `False`, inference will be faster but not deterministic.
-    sparse_prediction (`bool`, *optional*, defaults to `False`):
-        Whether to use sparse prediction for the masked language model instead of returning the full dense logits.
-    sparse_pred_ignore_index (`int`, *optional*, defaults to -100):
-        The index to ignore for the sparse prediction.
-
-    Examples:
-
-    ```python
-    >>> from transformers import ModernBertModel, ModernBertConfig
-
-    >>> # Initializing a ModernBert style configuration
-    >>> configuration = ModernBertConfig()
-
-    >>> # Initializing a model from the modernbert-base style configuration
-    >>> model = ModernBertModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "modernbert"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -133,7 +78,6 @@ class ModernBertConfig(PreTrainedConfig):
     tie_word_embeddings: bool = True
 
     def __post_init__(self, **kwargs):
-        # BC -> the pattern used to be a simple int, and it's still present in configs on the Hub
         global_attn_every_n_layers = kwargs.get("global_attn_every_n_layers", 3)
         if self.layer_types is None:
             self.layer_types = [
@@ -146,8 +90,6 @@ class ModernBertConfig(PreTrainedConfig):
     def convert_rope_params_to_dict(self, **kwargs):
         rope_scaling = kwargs.pop("rope_scaling", None)
 
-        # Try to set `rope_scaling` if available, otherwise use `rope_parameters`. If we find `rope_parameters`
-        # as arg in the inputs, we can safely assume that it is in the new format. New naming used -> new format
         default_rope_params = {
             "sliding_attention": {"rope_type": "default"},
             "full_attention": {"rope_type": "default"},
@@ -157,7 +99,6 @@ class ModernBertConfig(PreTrainedConfig):
             self.rope_parameters["full_attention"].update(rope_scaling)
             self.rope_parameters["sliding_attention"].update(rope_scaling)
 
-        # Set default values if not present
         if self.rope_parameters.get("full_attention") is None:
             self.rope_parameters["full_attention"] = {"rope_type": "default"}
         self.rope_parameters["full_attention"].setdefault(
@@ -169,7 +110,6 @@ class ModernBertConfig(PreTrainedConfig):
             "rope_theta", kwargs.pop("local_rope_theta", self.default_theta["local"])
         )
 
-        # Standardize and validate the correctness of rotary position embeddings parameters
         self.standardize_rope_params()
         return kwargs
 
@@ -180,19 +120,14 @@ class ModernBertConfig(PreTrainedConfig):
 
     @property
     def sliding_window(self):
-        """Half-window size: `local_attention` is the total window, so we divide by 2."""
-        return self.local_attention // 2
+        pass
 
     @sliding_window.setter
     def sliding_window(self, value):
-        """Set sliding_window by updating local_attention to 2 * value."""
-        self.local_attention = value * 2
+        pass
 
 
 class ModernBertEmbeddings(nn.Module):
-    """
-    Same as BertEmbeddings with a tiny tweak for positional embeddings indexing.
-    """
 
     def __init__(self, config: ModernBertConfig):
         super().__init__()
@@ -212,11 +147,6 @@ class ModernBertEmbeddings(nn.Module):
 
 
 class ModernBertMLP(nn.Module):
-    """Applies the GLU at the end of each ModernBERT layer.
-
-    Compared to the default BERT architecture, this block replaces :class:`~transformers.model.bert.modeling_bert.BertIntermediate`
-    and :class:`~transformers.model.bert.modeling_bert.SelfOutput` with a single module that has similar functionality.
-    """
 
     def __init__(self, config: ModernBertConfig):
         super().__init__()
@@ -274,14 +204,6 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
 
 @use_kernelized_func(apply_rotary_pos_emb)
 class ModernBertAttention(nn.Module):
-    """Performs multi-headed self attention on a batch of unpadded sequences.
-
-    If Flash Attention 2 is installed, this module uses Flash Attention to improve throughput.
-    If Flash Attention 2 is not installed, the implementation will use PyTorch's SDPA kernel,
-    which requires padding and unpadding inputs, adding some overhead.
-
-    See `forward` method for additional details.
-    """
 
     def __init__(self, config: ModernBertConfig, layer_idx: int | None = None):
         super().__init__()
@@ -301,8 +223,6 @@ class ModernBertAttention(nn.Module):
         )
 
         if config.layer_types[layer_idx] == "sliding_attention":
-            # config.sliding_window = local_attention // 2 (half-window size, e.g. 64 for local_attention=128)
-            # +1 is needed because flash attention sets inclusive boundaries (see modeling_flash_attention_utils.py)
             self.sliding_window = config.sliding_window + 1
         else:
             self.sliding_window = None
@@ -561,7 +481,6 @@ class ModernBertForMaskedLM(ModernBertPreTrainedModel):
         self.sparse_prediction = self.config.sparse_prediction
         self.sparse_pred_ignore_index = self.config.sparse_pred_ignore_index
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -591,11 +510,9 @@ class ModernBertForMaskedLM(ModernBertPreTrainedModel):
         last_hidden_state = outputs[0]
 
         if self.sparse_prediction and labels is not None:
-            # flatten labels and output first
             labels = labels.view(-1)
             last_hidden_state = last_hidden_state.view(labels.shape[0], -1)
 
-            # then filter out the non-masked tokens
             mask_tokens = labels != self.sparse_pred_ignore_index
             last_hidden_state = last_hidden_state[mask_tokens]
             labels = labels[mask_tokens]
@@ -630,7 +547,6 @@ class ModernBertForSequenceClassification(ModernBertPreTrainedModel):
         self.drop = torch.nn.Dropout(config.classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -720,7 +636,6 @@ class ModernBertForTokenClassification(ModernBertPreTrainedModel):
         self.drop = torch.nn.Dropout(config.classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -832,7 +747,6 @@ class ModernBertForMultipleChoice(ModernBertPreTrainedModel):
         self.drop = torch.nn.Dropout(config.classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -871,19 +785,14 @@ class ModernBertForMultipleChoice(ModernBertPreTrainedModel):
         )
         last_hidden_state = outputs[0]  # shape (num_choices, seq_len, hidden_size)
 
-        # If classifier_pooling is "cls", isolate the <cls> token
         if self.config.classifier_pooling == "cls":
             indices_0 = torch.arange(last_hidden_state.shape[0], device=last_hidden_state.device)
-            # for left or right padding, <cls> is the first non-pad token
             if attention_mask is not None:
                 cls_mask = attention_mask.argmax(dim=-1).to(last_hidden_state.device)
-            # if no pad, <cls> is the first token
             else:
                 cls_mask = torch.tensor(0, dtype=torch.long, device=last_hidden_state.device)
-            # extract the <cls> token for the logits
             last_hidden_state = last_hidden_state[indices_0, cls_mask]
 
-        # If classifier_pooling is "mean", pool the hidden states by averaging over the sequence length
         elif self.config.classifier_pooling == "mean":
             num_non_pad_tokens = attention_mask.sum(dim=1, keepdim=True)
             last_hidden_state = (last_hidden_state * attention_mask.unsqueeze(-1)).sum(dim=1) / num_non_pad_tokens

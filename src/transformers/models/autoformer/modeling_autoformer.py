@@ -1,19 +1,3 @@
-# Copyright (c) 2021 THUML @ Tsinghua University
-# Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Autoformer model."""
 
 import math
 from dataclasses import dataclass
@@ -47,15 +31,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class AutoFormerDecoderOutput(ModelOutput):
-    r"""
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the model.
-
-        If `past_key_values` is used only the last hidden-state of the sequences of shape `(batch_size, 1,
-        hidden_size)` is output.
-    trend (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Trend tensor for each time series.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     trend: torch.FloatTensor | None = None
@@ -72,28 +47,6 @@ class AutoFormerDecoderOutput(ModelOutput):
 )
 @dataclass
 class AutoformerModelOutput(ModelOutput):
-    r"""
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the decoder of the model.
-
-        If `past_key_values` is used only the last hidden-state of the sequences of shape `(batch_size, 1,
-        hidden_size)` is output.
-    trend (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Trend tensor for each time series.
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks and in the cross-attention
-        blocks) that can be used (see `past_key_values` input) to speed up sequential decoding.
-    loc (`torch.FloatTensor` of shape `(batch_size,)` or `(batch_size, input_size)`, *optional*):
-        Shift values of each time series' context window which is used to give the model inputs of the same
-        magnitude and then used to shift back to the original magnitude.
-    scale (`torch.FloatTensor` of shape `(batch_size,)` or `(batch_size, input_size)`, *optional*):
-        Scaling values of each time series' context window which is used to give the model inputs of the same
-        magnitude and then used to rescale back to the original magnitude.
-    static_features: (`torch.FloatTensor` of shape `(batch_size, feature size)`, *optional*):
-        Static features of each time series' in a batch which are copied to the covariates at inference time.
-    """
 
     last_hidden_state: torch.FloatTensor | None = None
     trend: torch.FloatTensor | None = None
@@ -109,17 +62,7 @@ class AutoformerModelOutput(ModelOutput):
     static_features: torch.FloatTensor | None = None
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.TimeSeriesFeatureEmbedder with TimeSeries->Autoformer
 class AutoformerFeatureEmbedder(nn.Module):
-    """
-    Embed a sequence of categorical features.
-
-    Args:
-        cardinalities (`list[int]`):
-            List of cardinalities of the categorical features.
-        embedding_dims (`list[int]`):
-            List of embedding dimensions of the categorical features.
-    """
 
     def __init__(self, cardinalities: list[int], embedding_dims: list[int]) -> None:
         super().__init__()
@@ -129,8 +72,6 @@ class AutoformerFeatureEmbedder(nn.Module):
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         if self.num_features > 1:
-            # we slice the last dimension, giving an array of length
-            # self.num_features with shape (N,T) or (N)
             cat_feature_slices = torch.chunk(features, self.num_features, dim=-1)
         else:
             cat_feature_slices = [features]
@@ -144,12 +85,7 @@ class AutoformerFeatureEmbedder(nn.Module):
         )
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.TimeSeriesStdScaler with TimeSeriesTransformer->Autoformer,TimeSeries->Autoformer
 class AutoformerStdScaler(nn.Module):
-    """
-    Standardize features by calculating the mean and scaling along the first dimension, and then normalizes it by
-    subtracting from the mean and dividing by the standard deviation.
-    """
 
     def __init__(self, config: AutoformerConfig):
         super().__init__()
@@ -180,12 +116,7 @@ class AutoformerStdScaler(nn.Module):
         return (data - loc) / scale, loc, scale
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.TimeSeriesMeanScaler with TimeSeriesTransformer->Autoformer,TimeSeries->Autoformer
 class AutoformerMeanScaler(nn.Module):
-    """
-    Computes a scaling factor as the weighted average absolute value along the first dimension, and scales the data
-    accordingly.
-    """
 
     def __init__(self, config: AutoformerConfig):
         super().__init__()
@@ -213,8 +144,6 @@ class AutoformerMeanScaler(nn.Module):
 
         scale = ts_sum / torch.clamp(num_observed, min=1)
 
-        # If `default_scale` is provided, we use it, otherwise we use the scale
-        # of the batch.
         if self.default_scale is None:
             batch_sum = ts_sum.sum(dim=0)
             batch_observations = torch.clamp(num_observed.sum(0), min=1)
@@ -222,10 +151,8 @@ class AutoformerMeanScaler(nn.Module):
         else:
             default_scale = self.default_scale * torch.ones_like(scale)
 
-        # apply default scale where there are no observations
         scale = torch.where(num_observed > 0, scale, default_scale)
 
-        # ensure the scale is at least `self.minimum_scale`
         scale = torch.clamp(scale, min=self.minimum_scale)
         scaled_data = data / scale
 
@@ -235,11 +162,7 @@ class AutoformerMeanScaler(nn.Module):
         return scaled_data, torch.zeros_like(scale), scale
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.TimeSeriesNOPScaler with TimeSeriesTransformer->Autoformer,TimeSeries->Autoformer
 class AutoformerNOPScaler(nn.Module):
-    """
-    Assigns a scaling factor equal to 1 along the first dimension, and therefore applies no scaling to the input data.
-    """
 
     def __init__(self, config: AutoformerConfig):
         super().__init__()
@@ -263,7 +186,6 @@ class AutoformerNOPScaler(nn.Module):
         return data, loc, scale
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.weighted_average
 def weighted_average(input_tensor: torch.Tensor, weights: torch.Tensor | None = None, dim=None) -> torch.Tensor:
     """
     Computes the weighted average of a given tensor across a given `dim`, masking values associated with weight zero,
@@ -288,7 +210,6 @@ def weighted_average(input_tensor: torch.Tensor, weights: torch.Tensor | None = 
         return input_tensor.mean(dim=dim)
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.nll
 def nll(input: torch.distributions.Distribution, target: torch.Tensor) -> torch.Tensor:
     """
     Computes the negative log likelihood loss from input distribution with respect to target.
@@ -296,9 +217,7 @@ def nll(input: torch.distributions.Distribution, target: torch.Tensor) -> torch.
     return -input.log_prob(target)
 
 
-# Copied from transformers.models.marian.modeling_marian.MarianSinusoidalPositionalEmbedding with Marian->Autoformer
 class AutoformerSinusoidalPositionalEmbedding(nn.Embedding):
-    """This module produces sinusoidal positional embeddings of any length."""
 
     def __init__(self, num_positions: int, embedding_dim: int, padding_idx: int | None = None) -> None:
         super().__init__(num_positions, embedding_dim, _freeze=True)
@@ -331,7 +250,6 @@ class AutoformerSinusoidalPositionalEmbedding(nn.Embedding):
         return super().forward(position_ids)
 
 
-# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.TimeSeriesValueEmbedding with TimeSeries->Autoformer
 class AutoformerValueEmbedding(nn.Module):
     def __init__(self, feature_size, d_model):
         super().__init__()
@@ -341,15 +259,7 @@ class AutoformerValueEmbedding(nn.Module):
         return self.value_projection(x)
 
 
-# Class based on
-# https://github.com/thuml/Autoformer/blob/c6a0694ff484753f2d986cc0bb1f99ee850fc1a8/layers/Autoformer_EncDec.py#L39
-# where AutoformerSeriesDecompositionLayer is series_decomp + moving_average
 class AutoformerSeriesDecompositionLayer(nn.Module):
-    """
-    Returns the trend and the seasonal parts of the time series. Calculated as:
-
-        x_trend = AvgPool(Padding(X)) and x_seasonal = X - x_trend
-    """
 
     def __init__(self, config: AutoformerConfig):
         super().__init__()
@@ -358,26 +268,17 @@ class AutoformerSeriesDecompositionLayer(nn.Module):
 
     def forward(self, x):
         """Input shape: Batch x Time x EMBED_DIM"""
-        # padding on the both ends of time series
         num_of_pads = (self.kernel_size - 1) // 2
         front = x[:, 0:1, :].repeat(1, num_of_pads, 1)
         end = x[:, -1:, :].repeat(1, num_of_pads, 1)
         x_padded = torch.cat([front, x, end], dim=1)
 
-        # calculate the trend and seasonal part of the series
         x_trend = self.avg(x_padded.permute(0, 2, 1)).permute(0, 2, 1)
         x_seasonal = x - x_trend
         return x_seasonal, x_trend
 
 
-# Class based on
-# https://github.com/thuml/Autoformer/blob/c6a0694ff484753f2d986cc0bb1f99ee850fc1a8/layers/Autoformer_EncDec.py#L6
-# where AutoformerLayernorm is my_Layernorm
 class AutoformerLayernorm(nn.Module):
-    """
-    Special designed layer normalization for the seasonal part, calculated as: AutoformerLayernorm(x) = nn.LayerNorm(x)
-    - torch.mean(nn.LayerNorm(x))
-    """
 
     def __init__(self, config: AutoformerConfig):
         super().__init__()
@@ -390,11 +291,6 @@ class AutoformerLayernorm(nn.Module):
 
 
 class AutoformerAttention(nn.Module):
-    """
-    AutoCorrelation Mechanism with the following two phases:
-        (1) period-based dependencies discovery (2) time delay aggregation
-    This block replace the canonical self-attention mechanism.
-    """
 
     def __init__(
         self,
@@ -438,12 +334,9 @@ class AutoformerAttention(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
         bsz, tgt_len, _ = hidden_states.size()
 
-        # get query proj
         query_states = self.q_proj(hidden_states)
 
         is_updated = False
@@ -451,7 +344,6 @@ class AutoformerAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_layer from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -460,7 +352,6 @@ class AutoformerAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -471,7 +362,6 @@ class AutoformerAttention(nn.Module):
 
             if past_key_values is not None:
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -481,8 +371,6 @@ class AutoformerAttention(nn.Module):
         key_states = key_states.reshape(*proj_shape)
         value_states = value_states.reshape(*proj_shape)
 
-        # (1) period-based dependencies discovery
-        # Resize (truncation or zero filling)
         queries_time_length = query_states.size(1)
         values_time_length = value_states.size(1)
         if queries_time_length > values_time_length:
@@ -516,18 +404,12 @@ class AutoformerAttention(nn.Module):
             attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + attention_mask
             attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
 
-        # this operation is a bit awkward, but it's required to
-        # make sure that attn_weights keeps its gradient.
-        # In order to do so, attn_weights have to be reshaped
-        # twice and have to be reused in the following
         attn_weights_reshaped = attn_weights.view(bsz, self.num_heads, tgt_len, channel)
         attn_weights = attn_weights_reshaped.view(bsz * self.num_heads, tgt_len, channel)
 
-        # time delay aggregation
         time_length = value_states.size(1)
         autocorrelations = attn_weights.view(bsz, self.num_heads, tgt_len, channel)
 
-        # find top k autocorrelations delays
         top_k = int(self.autocorrelation_factor * math.log(time_length))
         autocorrelations_mean_on_head_channel = torch.mean(autocorrelations, dim=(1, -1))  # bsz x tgt_len
         if self.training:
@@ -543,9 +425,7 @@ class AutoformerAttention(nn.Module):
 
         top_k_autocorrelations = torch.softmax(top_k_autocorrelations, dim=-1)  # bsz x top_k
 
-        # compute aggregation: value_states.roll(delay) * top_k_autocorrelations(delay)
         if not self.training:
-            # used for compute values_states.roll(delay) in inference
             tmp_values = value_states.repeat(1, 2, 1)
             init_index = (
                 torch.arange(time_length)
@@ -556,7 +436,6 @@ class AutoformerAttention(nn.Module):
 
         delays_agg = torch.zeros_like(value_states).float()  # bsz x time_length x channel
         for i in range(top_k):
-            # compute value_states roll delay
             if not self.training:
                 tmp_delay = init_index + top_k_delays_index[:, i].view(-1, 1, 1).repeat(
                     self.num_heads, tgt_len, channel
@@ -565,7 +444,6 @@ class AutoformerAttention(nn.Module):
             else:
                 value_states_roll_delay = value_states.roll(shifts=-int(top_k_delays_index[i]), dims=1)
 
-            # aggregation
             top_k_autocorrelations_at_delay = (
                 top_k_autocorrelations[:, i].view(-1, 1, 1).repeat(self.num_heads, tgt_len, channel)
             )
@@ -582,8 +460,6 @@ class AutoformerAttention(nn.Module):
         attn_output = attn_output.view(bsz, self.num_heads, tgt_len, self.head_dim)
         attn_output = attn_output.transpose(1, 2)
 
-        # Use the `embed_dim` from the config (stored in the class) rather than `hidden_state` because `attn_output` can be
-        # partitioned across GPUs when using tensor-parallelism.
         attn_output = attn_output.reshape(bsz, tgt_len, self.embed_dim)
 
         attn_output = self.out_proj(attn_output)
@@ -631,7 +507,6 @@ class AutoformerEncoderLayer(GradientCheckpointingLayer):
         )
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
-        # added layer norm here as an improvement
         hidden_states = self.self_attn_layer_norm(hidden_states)
         hidden_states, _ = self.decomp1(hidden_states)
 
@@ -686,7 +561,6 @@ class AutoformerDecoderLayer(GradientCheckpointingLayer):
         self.decomp2 = AutoformerSeriesDecompositionLayer(config)
         self.decomp3 = AutoformerSeriesDecompositionLayer(config)
 
-        # source: https://github.com/thuml/Autoformer/blob/e6371e24f2ae2dd53e472edefdd5814c5176f864/layers/Autoformer_EncDec.py#L128
         self.trend_projection = nn.Conv1d(
             in_channels=self.embed_dim,
             out_channels=config.feature_size,
@@ -723,7 +597,6 @@ class AutoformerDecoderLayer(GradientCheckpointingLayer):
         """
         residual = hidden_states
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states,
             past_key_values=past_key_values,
@@ -733,10 +606,8 @@ class AutoformerDecoderLayer(GradientCheckpointingLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
         hidden_states, trend1 = self.decomp1(hidden_states)
-        # added layer norm here as an improvement
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Cross-Attention Block
         if encoder_hidden_states is not None:
             residual = hidden_states
 
@@ -750,10 +621,8 @@ class AutoformerDecoderLayer(GradientCheckpointingLayer):
             hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
             hidden_states = residual + hidden_states
             hidden_states, trend2 = self.decomp2(hidden_states)
-            # added layer norm here as an improvement
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.activation_fn(self.fc1(hidden_states))
         hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
@@ -791,15 +660,7 @@ class AutoformerPreTrainedModel(PreTrainedModel):
             init.copy_(module.weight, module.create_weight())
 
 
-# copied from transformers.models.time_series_transformer.modeling_time_series_transformer.TimeSeriesTransformerEncoder with TimeSeriesTransformer->Autoformer,TimeSeries->Autoformer
 class AutoformerEncoder(AutoformerPreTrainedModel):
-    """
-    Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a
-    [`AutoformerEncoderLayer`].
-
-    Args:
-        config: AutoformerConfig
-    """
 
     def __init__(self, config: AutoformerConfig):
         super().__init__(config)
@@ -817,7 +678,6 @@ class AutoformerEncoder(AutoformerPreTrainedModel):
         self.layernorm_embedding = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -855,7 +715,6 @@ class AutoformerEncoder(AutoformerPreTrainedModel):
         )
 
         for idx, encoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -875,12 +734,6 @@ class AutoformerEncoder(AutoformerPreTrainedModel):
 
 
 class AutoformerDecoder(AutoformerPreTrainedModel):
-    """
-    Transformer decoder consisting of `config.decoder_layers` layers. Each layer is a [`AutoformerDecoderLayer`]
-
-    Args:
-        config: AutoformerConfig
-    """
 
     _can_record_outputs = {
         "hidden_states": AutoformerDecoderLayer,
@@ -904,11 +757,9 @@ class AutoformerDecoder(AutoformerPreTrainedModel):
         )
         self.layernorm_embedding = nn.LayerNorm(config.d_model)
 
-        # https://github.com/thuml/Autoformer/blob/e6371e24f2ae2dd53e472edefdd5814c5176f864/models/Autoformer.py#L74
         self.seasonality_projection = nn.Linear(config.d_model, config.feature_size)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -980,9 +831,7 @@ class AutoformerDecoder(AutoformerPreTrainedModel):
         hidden_states = self.layernorm_embedding(hidden_states + embed_pos)
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
-        # decoder layers
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if self.training:
                 dropout_probability = torch.rand([])
                 if dropout_probability < self.layerdrop:
@@ -999,7 +848,6 @@ class AutoformerDecoder(AutoformerPreTrainedModel):
             )
             trend = trend + residual_trend
 
-        # project seasonality representation
         hidden_states = self.seasonality_projection(hidden_states)
 
         return AutoFormerDecoderOutput(
@@ -1026,19 +874,16 @@ class AutoformerModel(AutoformerPreTrainedModel):
                 cardinalities=config.cardinality, embedding_dims=config.embedding_dimension
             )
 
-        # transformer encoder-decoder and mask initializer
         self.encoder = AutoformerEncoder(config)
         self.decoder = AutoformerDecoder(config)
 
-        # used for decoder seasonal and trend initialization
         self.decomposition_layer = AutoformerSeriesDecompositionLayer(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @property
     def _past_length(self) -> int:
-        return self.config.context_length + max(self.config.lags_sequence)
+        pass
 
     def get_lagged_subsequences(
         self, sequence: torch.Tensor, subsequences_length: int, shift: int = 0
@@ -1057,10 +902,8 @@ class AutoformerModel(AutoformerPreTrainedModel):
                 Shift the lags by this amount back in the time index.
         """
 
-        # calculates the indices of the lags by subtracting the shift value from the given lags_sequence
         indices = [lag - shift for lag in self.config.lags_sequence]
 
-        # checks if the maximum lag plus the length of the subsequences exceeds the length of the input sequence
         sequence_length = sequence.shape[1]
         if max(indices) + subsequences_length > sequence_length:
             raise ValueError(
@@ -1068,14 +911,12 @@ class AutoformerModel(AutoformerPreTrainedModel):
                 f"while history length is only {sequence_length}"
             )
 
-        # extracts the lagged subsequences from the input sequence using the calculated indices
         lagged_values = []
         for lag_index in indices:
             begin_index = -lag_index - subsequences_length
             end_index = -lag_index if lag_index > 0 else None
             lagged_values.append(sequence[:, begin_index:end_index, ...])
 
-        # return as stacked tensor in the feature dimension
         return torch.stack(lagged_values, dim=-1)
 
     def create_network_inputs(
@@ -1120,7 +961,6 @@ class AutoformerModel(AutoformerPreTrainedModel):
             - static_feat (`torch.Tensor`): A tensor of shape `(batch_size, num_static_features)` containing the
               concatenated static features.
         """
-        # time feature
         time_feat = (
             torch.cat(
                 (
@@ -1133,7 +973,6 @@ class AutoformerModel(AutoformerPreTrainedModel):
             else past_time_features[:, self._past_length - self.config.context_length :, ...]
         )
 
-        # target
         if past_observed_mask is None:
             past_observed_mask = torch.ones_like(past_values)
 
@@ -1147,7 +986,6 @@ class AutoformerModel(AutoformerPreTrainedModel):
             else (past_values - loc) / scale
         )
 
-        # static features
         log_abs_loc = loc.abs().log1p() if self.config.input_size == 1 else loc.squeeze(1).abs().log1p()
         log_scale = scale.log() if self.config.input_size == 1 else scale.squeeze(1).log()
         static_feat = torch.cat((log_abs_loc, log_scale), dim=1)
@@ -1159,10 +997,8 @@ class AutoformerModel(AutoformerPreTrainedModel):
             static_feat = torch.cat((embedded_cat, static_feat), dim=1)
         expanded_static_feat = static_feat.unsqueeze(1).expand(-1, time_feat.shape[1], -1)
 
-        # all features
         features = torch.cat((expanded_static_feat, time_feat), dim=-1)
 
-        # lagged features
         subsequences_length = (
             self.config.context_length + self.config.prediction_length
             if future_values is not None
@@ -1317,8 +1153,6 @@ class AutoformerModel(AutoformerPreTrainedModel):
             )
 
         if future_values is not None:
-            # Decoder inputs
-            # seasonality and trend from context length
             seasonal_input, trend_input = self.decomposition_layer(
                 transformer_inputs[:, : self.config.context_length, ...]
             )
@@ -1397,7 +1231,6 @@ class AutoformerForPrediction(AutoformerPreTrainedModel):
         else:
             raise ValueError(f"Unknown loss function {config.loss}")
 
-        # Initialize weights of distribution_output and apply final processing
         self.post_init()
 
     def output_params(self, decoder_output):

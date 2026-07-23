@@ -1,20 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert IJEPA checkpoints from the original repository.
-
-URL: https://github.com/facebookresearch/ijepa
-"""
 
 import argparse
 import gc
@@ -37,14 +20,11 @@ from transformers.utils import logging
 logging.set_verbosity_info()
 logger = logging.get_logger(__name__)
 
-# fmt: off
 ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
-    # Projection layer + position embeddings
     r"pos_embed":                               r"embeddings.position_embeddings",
     r"patch_embed.proj.weight":                 r"embeddings.patch_embeddings.projection.weight",
     r"patch_embed.proj.bias":                   r"embeddings.patch_embeddings.projection.bias",
 
-    # Encoder layers: Layernorms, Attention, Feedforward layers
     r"blocks.(\d+).norm1.weight":               r"encoder.layer.\1.layernorm_before.weight",
     r"blocks.(\d+).norm1.bias":                 r"encoder.layer.\1.layernorm_before.bias",
     r"blocks.(\d+).attn.proj.weight":           r"encoder.layer.\1.attention.output.dense.weight",
@@ -56,11 +36,9 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"blocks.(\d+).mlp.fc2.weight":             r"encoder.layer.\1.output.dense.weight",
     r"blocks.(\d+).mlp.fc2.bias":               r"encoder.layer.\1.output.dense.bias",
 
-    # Layernorm + pooler
     r"norm.weight":                             r"layernorm.weight",
     r"norm.bias":                               r"layernorm.bias",
 }
-# fmt: on
 
 
 def convert_old_keys_to_new_keys(state_dict_keys: dict | None = None):
@@ -78,7 +56,6 @@ def convert_old_keys_to_new_keys(state_dict_keys: dict | None = None):
         old_text = "\n".join(state_dict_keys)
         new_text = old_text
 
-        # Apply regex-based mapping
         for pattern, replacement in ORIGINAL_TO_CONVERTED_KEY_MAPPING.items():
             if replacement is None:
                 new_text = re.sub(pattern, "", new_text)  # Skip the key
@@ -90,13 +67,10 @@ def convert_old_keys_to_new_keys(state_dict_keys: dict | None = None):
     return output_dict
 
 
-# we split up the matrix of each encoder layer into queries, keys and values
 def read_in_q_k_v(state_dict, config):
     for i in range(config.num_hidden_layers):
-        # read in weights + bias of input projection layer (in timm, this is a single matrix + bias)
         in_proj_weight = state_dict.pop(f"blocks.{i}.attn.qkv.weight")
         in_proj_bias = state_dict.pop(f"blocks.{i}.attn.qkv.bias")
-        # next, add query, keys and values (in that order) to the state dict
         state_dict[f"encoder.layer.{i}.attention.attention.query.weight"] = in_proj_weight[: config.hidden_size, :]
         state_dict[f"encoder.layer.{i}.attention.attention.query.bias"] = in_proj_bias[: config.hidden_size]
         state_dict[f"encoder.layer.{i}.attention.attention.key.weight"] = in_proj_weight[
@@ -114,7 +88,6 @@ def rename_key(dct, old, new):
     dct[new] = val
 
 
-# We will verify our results on an image of cute cats
 def prepare_img():
     url = "http://images.cocodataset.org/val2017/000000039769.jpg"
     with httpx.stream("GET", url) as response:
@@ -152,7 +125,6 @@ def write_model(model_name, output_dir, push_to_hub, verify_logits):
     Copy/paste/tweak model's weights to our IJEPA structure.
     """
 
-    # define default IJEPA configuration
     config = get_ijepa_config(model_name)
 
     checkpoint_mapping = {
@@ -162,26 +134,22 @@ def write_model(model_name, output_dir, push_to_hub, verify_logits):
         "ijepa_vitg16_22k": "https://dl.fbaipublicfiles.com/ijepa/IN22K-vit.g.16-600e.pth.tar",
     }
 
-    # Load original checkpoint
     checkpoint_url = checkpoint_mapping[model_name]
     original_state_dict = torch.hub.load_state_dict_from_url(checkpoint_url, map_location="cpu")["encoder"]
     original_state_dict = {k.replace("module.", ""): v for k, v in original_state_dict.items()}
 
-    # Rename keys
     state_dict = original_state_dict.copy()
     new_keys = convert_old_keys_to_new_keys(state_dict.keys())
     for old_key, new_key in new_keys.items():
         rename_key(state_dict, old_key, new_key)
     read_in_q_k_v(state_dict, config)
 
-    # load HuggingFace model
     model = IJepaModel(config, add_pooling_layer=False).eval()
     model.load_state_dict(state_dict)
     size = {"height": config.image_size, "width": config.image_size}
     image_processor = ViTImageProcessor(size=size)
 
     if verify_logits:
-        # Check outputs on an image, prepared by ViTImageProcessor
         encoding = image_processor(images=prepare_img(), return_tensors="pt")
         pixel_values = encoding["pixel_values"]
         with torch.no_grad():
@@ -228,7 +196,6 @@ def write_model(model_name, output_dir, push_to_hub, verify_logits):
 
 def main():
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--model_name",
         default="ijepa_vith14_1k",

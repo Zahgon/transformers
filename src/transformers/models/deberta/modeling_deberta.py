@@ -1,17 +1,3 @@
-# Copyright 2020 Microsoft and the Hugging Face Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch DeBERTa model."""
 
 import torch
 from torch import nn
@@ -36,7 +22,6 @@ logger = logging.get_logger(__name__)
 
 
 class DebertaLayerNorm(nn.Module):
-    """LayerNorm module (epsilon inside the square root)."""
 
     def __init__(self, size, eps=1e-12):
         super().__init__()
@@ -113,9 +98,6 @@ def pos_dynamic_expand(pos_index, p2c_att, key_layer):
     return pos_index.expand(p2c_att.size()[:2] + (pos_index.size(-2), key_layer.size(-2)))
 
 
-###### To support a general trace, we have to define these operation as they use python objects (sizes) ##################
-# which are not supported by torch.jit.trace.
-# Full credits to @Szustarol
 @torch.jit.script
 def scaled_size_sqrt(query_layer: torch.Tensor, scale_factor: int):
     return torch.sqrt(torch.tensor(query_layer.size(-1), dtype=torch.float) * scale_factor)
@@ -143,19 +125,9 @@ def uneven_size_corrected(p2c_att, query_layer: torch.Tensor, key_layer: torch.T
         return p2c_att
 
 
-########################################################################################################################
 
 
 class DisentangledSelfAttention(nn.Module):
-    """
-    Disentangled self-attention module
-
-    Parameters:
-        config (`str`):
-            A model config class instance with the configuration to build a new model. The schema is similar to
-            *BertConfig*, for more details, please refer [`DebertaConfig`]
-
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -253,7 +225,6 @@ class DisentangledSelfAttention(nn.Module):
         value_layer = value_layer + self.transpose_for_scores(self.v_bias[None, None, :])
 
         rel_att: int = 0
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         scale_factor = 1 + len(self.pos_att_type)
         scale = scaled_size_sqrt(query_layer, scale_factor)
         query_layer = query_layer / scale.to(dtype=query_layer.dtype)
@@ -266,13 +237,11 @@ class DisentangledSelfAttention(nn.Module):
         if rel_att is not None:
             attention_scores = attention_scores + rel_att
 
-        # bxhxlxd
         if self.head_logits_proj is not None:
             attention_scores = self.head_logits_proj(attention_scores.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
 
         attention_mask = attention_mask.bool()
         attention_scores = attention_scores.masked_fill(~(attention_mask), torch.finfo(query_layer.dtype).min)
-        # bsz x height x length x dimension
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
         attention_probs = self.dropout(attention_probs)
@@ -301,7 +270,6 @@ class DisentangledSelfAttention(nn.Module):
             relative_pos = relative_pos.unsqueeze(0).unsqueeze(0)
         elif relative_pos.dim() == 3:
             relative_pos = relative_pos.unsqueeze(1)
-        # bxhxqxk
         elif relative_pos.dim() != 4:
             raise ValueError(f"Relative position ids must be of dim 2 or 3 or 4. {relative_pos.dim()}")
 
@@ -313,7 +281,6 @@ class DisentangledSelfAttention(nn.Module):
 
         score = 0
 
-        # content->position
         if "c2p" in self.pos_att_type:
             pos_key_layer = self.pos_proj(rel_embeddings)
             pos_key_layer = self.transpose_for_scores(pos_key_layer)
@@ -322,7 +289,6 @@ class DisentangledSelfAttention(nn.Module):
             c2p_att = torch.gather(c2p_att, dim=-1, index=c2p_dynamic_expand(c2p_pos, query_layer, relative_pos))
             score += c2p_att
 
-        # position->content
         if "p2c" in self.pos_att_type:
             pos_query_layer = self.pos_q_proj(rel_embeddings)
             pos_query_layer = self.transpose_for_scores(pos_query_layer)
@@ -345,7 +311,6 @@ class DisentangledSelfAttention(nn.Module):
 
 
 class DebertaEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -373,7 +338,6 @@ class DebertaEmbeddings(nn.Module):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.config = config
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -459,7 +423,6 @@ class DebertaAttention(nn.Module):
             return (attention_output, None)
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->Deberta
 class DebertaIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -524,7 +487,6 @@ class DebertaLayer(GradientCheckpointingLayer):
 
 
 class DebertaEncoder(nn.Module):
-    """Modified BertEncoder with relative position bias support"""
 
     def __init__(self, config):
         super().__init__()
@@ -634,7 +596,6 @@ class DebertaModel(DebertaPreTrainedModel):
         self.encoder = DebertaEncoder(config)
         self.z_steps = 0
         self.config = config
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -751,8 +712,6 @@ class LegacyDebertaLMPredictionHead(nn.Module):
         self.transform = LegacyDebertaPredictionHeadTransform(config)
 
         self.embedding_size = getattr(config, "embedding_size", config.hidden_size)
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder = nn.Linear(self.embedding_size, config.vocab_size, bias=True)
 
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
@@ -763,7 +722,6 @@ class LegacyDebertaLMPredictionHead(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOnlyMLMHead with Bert->LegacyDeberta
 class LegacyDebertaOnlyMLMHead(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -775,7 +733,6 @@ class LegacyDebertaOnlyMLMHead(nn.Module):
 
 
 class DebertaLMPredictionHead(nn.Module):
-    """https://github.com/microsoft/DeBERTa/blob/master/DeBERTa/deberta/bert.py#L270"""
 
     def __init__(self, config):
         super().__init__()
@@ -790,7 +747,6 @@ class DebertaLMPredictionHead(nn.Module):
 
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
-    # note that the input embeddings must be passed as an argument
     def forward(self, hidden_states, word_embeddings):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.transform_act_fn(hidden_states)
@@ -806,7 +762,6 @@ class DebertaOnlyMLMHead(nn.Module):
         super().__init__()
         self.lm_head = DebertaLMPredictionHead(config)
 
-    # note that the input embeddings must be passed as an argument
     def forward(self, sequence_output, word_embeddings):
         prediction_scores = self.lm_head(sequence_output, word_embeddings)
         return prediction_scores
@@ -831,7 +786,6 @@ class DebertaForMaskedLM(DebertaPreTrainedModel):
             }
             self.lm_predictions = DebertaOnlyMLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -913,8 +867,6 @@ class ContextPooler(nn.Module):
         self.config = config
 
     def forward(self, hidden_states):
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
 
         context_token = hidden_states[:, 0]
         context_token = self.dropout(context_token)
@@ -924,7 +876,7 @@ class ContextPooler(nn.Module):
 
     @property
     def output_dim(self):
-        return self.config.hidden_size
+        pass
 
 
 @auto_docstring(
@@ -949,7 +901,6 @@ class DebertaForSequenceClassification(DebertaPreTrainedModel):
         drop_out = self.config.hidden_dropout_prob if drop_out is None else drop_out
         self.dropout = nn.Dropout(drop_out)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1000,7 +951,6 @@ class DebertaForSequenceClassification(DebertaPreTrainedModel):
         if labels is not None:
             if self.config.problem_type is None:
                 if self.num_labels == 1:
-                    # regression task
                     loss_fn = nn.MSELoss()
                     logits = logits.view(-1).to(labels.dtype)
                     loss = loss_fn(logits, labels.view(-1))
@@ -1050,7 +1000,6 @@ class DebertaForTokenClassification(DebertaPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1112,7 +1061,6 @@ class DebertaForQuestionAnswering(DebertaPreTrainedModel):
         self.deberta = DebertaModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1152,12 +1100,10 @@ class DebertaForQuestionAnswering(DebertaPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

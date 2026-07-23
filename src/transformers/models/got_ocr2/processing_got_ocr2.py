@@ -1,16 +1,3 @@
-# Copyright 2024 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import numpy as np
@@ -29,41 +16,11 @@ logger = logging.get_logger(__name__)
 
 
 class GotOcr2TextKwargs(TextKwargs, total=False):
-    """
-    format (`bool`, *optional*, defaults to `False`):
-        Whether to request formatted output from the OCR model. When enabled, the model is instructed to return
-        structured and formatted text output rather than raw OCR results.
-    """
 
     format: bool | None
 
 
 class GotOcr2ImagesKwargs(ImagesKwargs, total=False):
-    """
-    crop_to_patches (`bool`, *optional*, defaults to `False`):
-        Whether to crop images into patches before processing. When enabled, large images are divided into
-        smaller patches for more efficient OCR processing.
-    min_patches (`int`, *optional*, defaults to `1`):
-        Minimum number of patches to generate when cropping images. This ensures that even small images are
-        processed with at least this many patches.
-    max_patches (`int`, *optional*, defaults to `12`):
-        Maximum number of patches to generate when cropping images. Large images will be divided into at most
-        this many patches to control computational complexity.
-    box (`list`, `tuple[float, float]`, or `tuple[float, float, float, float]`, *optional*):
-        Bounding box coordinates for OCR region of interest. Can be specified as a single box `[x1, y1, x2, y2]`
-        or a list of boxes. Coordinates are normalized to the range [0, 1000] based on the image dimensions.
-        If not provided, OCR is performed on the entire image.
-    color (`str`, *optional*):
-        Color filter specification for OCR. When provided, the OCR query is prefixed with the color information
-        to focus on text of a specific color (e.g., "red", "blue").
-    num_image_tokens (`int`, *optional*, defaults to `256`):
-        Number of image tokens (patches) to use per image. This controls the resolution of the image representation
-        passed to the model. Higher values provide more detail but increase computational cost.
-    multi_page (`bool`, *optional*, defaults to `False`):
-        Whether the input consists of multi-page documents. When enabled, images can be provided as nested lists
-        where each inner list represents a page, and OCR is performed across all pages with appropriate handling
-        of page boundaries.
-    """
 
     crop_to_patches: bool
     min_patches: int
@@ -93,19 +50,7 @@ class GotOcr2ProcessorKwargs(ProcessingKwargs, total=False):
 
 
 def preprocess_box_annotation(box: list | tuple, image_size: tuple[int, int]) -> list:
-    """
-    Convert box annotation to the format [x1, y1, x2, y2] in the range [0, 1000].
-    """
-    width, height = image_size
-    if len(box) == 4:
-        box[0] = int(box[0] / width * 1000)
-        box[1] = int(box[1] / height * 1000)
-        box[2] = int(box[2] / width * 1000)
-        box[3] = int(box[3] / height * 1000)
-    else:
-        raise ValueError("Box must be a list or tuple of lists in the form [x1, y1, x2, y2].")
-
-    return list(box)
+    pass
 
 
 @auto_docstring
@@ -123,26 +68,7 @@ class GotOcr2Processor(ProcessorMixin):
         self.system_query = "system\nYou should follow the instructions carefully and explain your answers in detail."
 
     def _make_list_of_inputs(self, images, text, box, color, multi_page):
-        if not isinstance(images, (list, tuple)):
-            images = [images]
-            if multi_page:
-                logger.warning("Multi-page inference is enabled but only one image is passed.")
-                images = [images]
-        elif isinstance(images[0], (list, tuple)) and not multi_page:
-            raise ValueError("Nested images are only supported with `multi_page` set to `True`.")
-        elif not isinstance(images[0], (list, tuple)) and multi_page:
-            images = [images]
-
-        if isinstance(text, str):
-            text = [text]
-
-        if not isinstance(box[0], (list, tuple)):
-            # Use the same box for all images
-            box = [box for _ in range(len(images))]
-        if not isinstance(color, (list, tuple)):
-            color = [color for _ in range(len(images))]
-
-        return images, text, box, color
+        pass
 
     @auto_docstring
     def __call__(
@@ -176,13 +102,10 @@ class GotOcr2Processor(ProcessorMixin):
         crop_to_patches = output_kwargs["images_kwargs"].get("crop_to_patches")
         images, text, box, color = self._make_list_of_inputs(images, text, box, color, multi_page)
         if multi_page:
-            # save the number of pages per batch
             num_pages_per_batch = [len(image_group) for image_group in images]
-            # flatten the list of images
             images = [image for image_group in images for image in image_group]
         else:
             num_pages_per_batch = [1 for _ in range(len(images))]
-        # Load images as we need to know the image size
         images = load_images(images)
         image_sizes = [image.size for image in images]
         image_inputs = self.image_processor(images=images, **output_kwargs["images_kwargs"])

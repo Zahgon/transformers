@@ -1,16 +1,3 @@
-# Copyright 2025 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable
 
@@ -82,12 +69,7 @@ class GlmAsrProcessor(AudioFlamingo3Processor):
         )
 
     def _get_audio_token_length(self, audio_lengths: "torch.Tensor") -> "torch.Tensor":
-        merge_factor = 4
-        for padding, kernel_size, stride in [(1, 3, 1), (1, 3, 2)]:
-            audio_lengths = (audio_lengths + 2 * padding - (kernel_size - 1) - 1) // stride + 1
-
-        num_tokens = (audio_lengths - merge_factor) // merge_factor + 1
-        return num_tokens
+        pass
 
     def apply_transcription_request(
         self,
@@ -95,74 +77,7 @@ class GlmAsrProcessor(AudioFlamingo3Processor):
         prompt: str | list[str] | None = None,
         **kwargs: Unpack[GlmAsrProcessorKwargs],
     ) -> BatchFeature:
-        """
-        Prepare inputs for automatic speech recognition without manually writing the default transcription prompt.
-
-        Args:
-            audio (`str`, `list[str]`, `np.ndarray`, `torch.Tensor`, `list[np.ndarray]`, `list[torch.Tensor]`):
-                Audio to transcribe. Strings are interpreted as local paths or URLs and will be loaded automatically by
-                the chat template loader; NumPy arrays and PyTorch tensors are forwarded directly.
-            prompt (`str` or `list[str]`, *optional*):
-                Custom prompt(s) to include in the user turn. A list must be the same length as the batch. When `None`,
-                each sample uses `"Transcribe the input speech."`.
-            **kwargs:
-                Additional keyword arguments forwarded to [`~GlmAsrProcessor.apply_chat_template`] (for example
-                `text_kwargs`, `audio_kwargs`, ...).
-
-        Returns:
-            [`BatchFeature`]: Processor outputs ready to be passed to [`GlmAsrForConditionalGeneration.generate`].
-
-        """
-
-        audio_items: list[str | np.ndarray] = list(make_list_of_audio_chat_template(audio))
-        audio_items = [el.detach().cpu().numpy() if isinstance(el, torch.Tensor) else el for el in audio_items]
-
-        batch_size = len(audio_items)
-        if batch_size == 0:
-            raise ValueError("`audio` must contain at least one sample.")
-
-        if prompt is None:
-            prompts = [self.default_transcription_prompt] * batch_size
-        elif isinstance(prompt, str):
-            prompts = [prompt] * batch_size
-        elif isinstance(prompt, (list, tuple)):
-            if len(prompt) != batch_size:
-                raise ValueError(
-                    f"Received {len(prompt)} prompt(s) for {batch_size} audio sample(s); counts must match."
-                )
-            prompts = []
-            for item in prompt:
-                if item is None:
-                    prompts.append(self.default_transcription_prompt)
-                elif isinstance(item, str):
-                    prompts.append(item)
-                else:
-                    raise TypeError("Each prompt must be a string or `None`.")
-        else:
-            raise TypeError("`prompt` must be a string, a sequence of strings, or `None`.")
-
-        conversations = [
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "audio", "path": audio_item}
-                        if isinstance(audio_item, str)
-                        else {"type": "audio", "audio": audio_item},
-                        {"type": "text", "text": prompt_text},
-                    ],
-                }
-            ]
-            for prompt_text, audio_item in zip(prompts, audio_items)
-        ]
-
-        return self.apply_chat_template(
-            conversations,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
-            **kwargs,
-        )
+        pass
 
 
 class GlmAsrRotaryEmbedding(GlmRotaryEmbedding): ...
@@ -176,11 +91,9 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     q_rot, q_pass = q[..., :rotary_dim], q[..., rotary_dim:]
     k_rot, k_pass = k[..., :rotary_dim], k[..., rotary_dim:]
 
-    # Apply rotary embeddings on the first half or full tensor
     q_embed = (q_rot * cos) + (rotate_half(q_rot) * sin)
     k_embed = (k_rot * cos) + (rotate_half(k_rot) * sin)
 
-    # Concatenate back to full shape
     q_embed = torch.cat([q_embed, q_pass], dim=-1)
     k_embed = torch.cat([k_embed, k_pass], dim=-1)
     return q_embed, k_embed
@@ -265,7 +178,6 @@ class GlmAsrEncoderLayer(GradientCheckpointingLayer):
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             position_embeddings=position_embeddings,
@@ -273,7 +185,6 @@ class GlmAsrEncoderLayer(GradientCheckpointingLayer):
         )
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -284,7 +195,6 @@ class GlmAsrEncoderLayer(GradientCheckpointingLayer):
 class GlmAsrPreTrainedModel(AudioFlamingo3PreTrainedModel): ...
 
 
-# TODO: @eustlb, this is what WhisperEncoder should look like
 class GlmAsrEncoder(GlmAsrPreTrainedModel):
     config: GlmAsrEncoderConfig
     main_input_name = "input_features"

@@ -1,22 +1,3 @@
-# Copyright 2023 EleutherAI and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Persimmon model."""
 
 from collections.abc import Callable
 from typing import Optional
@@ -53,7 +34,6 @@ from .configuration_persimmon import PersimmonConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->Persimmon
 class PersimmonRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
@@ -74,7 +54,6 @@ class PersimmonRotaryEmbedding(nn.Module):
         self.register_buffer("original_inv_freq", inv_freq.clone(), persistent=False)
 
     @staticmethod
-    # Ignore copy
     def compute_default_rope_parameters(
         config: PersimmonConfig | None = None,
         device: Optional["torch.device"] = None,
@@ -100,7 +79,6 @@ class PersimmonRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
@@ -122,7 +100,6 @@ class PersimmonRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-# Copied from transformers.models.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
@@ -130,7 +107,6 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-# Copied from transformers.models.llama.modeling_llama.apply_rotary_pos_emb
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
 
@@ -156,7 +132,6 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     return q_embed, k_embed
 
 
-# Copied from transformers.models.gpt_neox.modeling_gpt_neox.GPTNeoXMLP with GPTNeoX->Persimmon
 class PersimmonMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -194,7 +169,6 @@ def eager_attention_forward(
 
 
 class PersimmonAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: PersimmonConfig, layer_idx: int | None = None):
         super().__init__()
@@ -262,17 +236,14 @@ class PersimmonAttention(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         bsz, q_len, _ = hidden_states.size()
 
-        # [batch_size, seq_length, 3 x hidden_size]
         fused_qkv = self.query_key_value(hidden_states)
 
-        # 3 x [batch_size, seq_length, num_heads, head_dim]
         (query_states, key_states, value_states) = self._split_heads(fused_qkv)
 
         if self.qk_layernorm:
             query_states = self.q_layernorm(query_states)
             key_states = self.k_layernorm(key_states)
 
-        # [batch_size, num_heads, seq_length, head_dim] -> [batch_size, seq_length, num_heads, head_dim]
         query_states = query_states.transpose(1, 2)
         value_states = value_states.transpose(1, 2)
         key_states = key_states.transpose(1, 2)
@@ -286,10 +257,8 @@ class PersimmonAttention(nn.Module):
             key_states[..., : self.rotary_ndims],
             key_states[..., self.rotary_ndims :],
         )
-        # [batch_size, seq_length, num_heads, head_dim // config.partial_rotary_factor]
         query_rot, key_rot = apply_rotary_pos_emb(query_rot, key_rot, cos, sin)
 
-        # [batch_size, seq_length, num_heads, head_dim]
         query_states = torch.cat((query_rot, query_pass), dim=-1)
         key_states = torch.cat((key_rot, key_pass), dim=-1)
 
@@ -341,7 +310,6 @@ class PersimmonDecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -353,7 +321,6 @@ class PersimmonDecoderLayer(GradientCheckpointingLayer):
         )
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -383,12 +350,6 @@ class PersimmonPreTrainedModel(PreTrainedModel):
 
 @auto_docstring
 class PersimmonModel(PersimmonPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`PersimmonDecoderLayer`]
-
-    Args:
-        config: PersimmonConfig
-    """
 
     def __init__(self, config: PersimmonConfig):
         super().__init__(config)
@@ -402,7 +363,6 @@ class PersimmonModel(PersimmonPreTrainedModel):
         self.final_layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.rotary_emb = PersimmonRotaryEmbedding(config=self.config)
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -465,14 +425,12 @@ class PersimmonModel(PersimmonPreTrainedModel):
 class PersimmonForCausalLM(PersimmonPreTrainedModel, GenerationMixin):
     _tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}
 
-    # Copied from transformers.models.llama.modeling_llama.LlamaForCausalLM.__init__ with LLAMA->PERSIMMON,Llama->Persimmon
     def __init__(self, config):
         super().__init__(config)
         self.model = PersimmonModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

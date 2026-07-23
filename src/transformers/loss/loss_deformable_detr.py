@@ -26,28 +26,22 @@ class DeformableDetrHungarianMatcher(HungarianMatcher):
         """
         batch_size, num_queries = outputs["logits"].shape[:2]
 
-        # We flatten to compute the cost matrices in a batch
         out_prob = outputs["logits"].flatten(0, 1).sigmoid()  # [batch_size * num_queries, num_classes]
         out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]
 
-        # Also concat the target labels and boxes
         target_ids = torch.cat([v["class_labels"] for v in targets])
         target_bbox = torch.cat([v["boxes"] for v in targets])
 
-        # Compute the classification cost.
         alpha = 0.25
         gamma = 2.0
         neg_cost_class = (1 - alpha) * (out_prob**gamma) * (-(1 - out_prob + 1e-8).log())
         pos_cost_class = alpha * ((1 - out_prob) ** gamma) * (-(out_prob + 1e-8).log())
         class_cost = pos_cost_class[:, target_ids] - neg_cost_class[:, target_ids]
 
-        # Compute the L1 cost between boxes
         bbox_cost = torch.cdist(out_bbox, target_bbox, p=1)
 
-        # Compute the giou cost between boxes
         giou_cost = -generalized_box_iou(center_to_corners_format(out_bbox), center_to_corners_format(target_bbox))
 
-        # Final cost matrix
         cost_matrix = self.bbox_cost * bbox_cost + self.class_cost * class_cost + self.giou_cost * giou_cost
         cost_matrix = cost_matrix.view(batch_size, num_queries, -1).cpu()
 
@@ -66,21 +60,8 @@ class DeformableDetrImageLoss(ImageLoss):
 
     @torch.no_grad()
     def loss_cardinality(self, outputs, targets, indices, num_boxes):
-        """
-        Compute the cardinality error, i.e. the absolute error in the number of predicted non-empty boxes.
+        pass
 
-        This is not really a loss, it is intended for logging purposes only. It doesn't propagate gradients.
-        """
-        logits = outputs["logits"]
-        device = logits.device
-        target_lengths = torch.as_tensor([len(v["class_labels"]) for v in targets], device=device)
-        # Count the number of predictions that are NOT "no-object" (sigmoid > 0.5 threshold)
-        card_pred = (logits.sigmoid().max(-1).values > 0.5).sum(1)
-        card_err = nn.functional.l1_loss(card_pred.float(), target_lengths.float())
-        losses = {"cardinality_error": card_err}
-        return losses
-
-    # removed logging parameter, which was part of the original implementation
     def loss_labels(self, outputs, targets, indices, num_boxes):
         """
         Classification loss (Binary focal loss) targets dicts must contain the key "class_labels" containing a tensor
@@ -118,77 +99,10 @@ class DeformableDetrImageLoss(ImageLoss):
 def DeformableDetrForSegmentationLoss(
     logits, labels, device, pred_boxes, pred_masks, config, outputs_class=None, outputs_coord=None, **kwargs
 ):
-    # First: create the matcher
-    matcher = HungarianMatcher(class_cost=config.class_cost, bbox_cost=config.bbox_cost, giou_cost=config.giou_cost)
-    # Second: create the criterion
-    losses = ["labels", "boxes", "cardinality", "masks"]
-    criterion = DeformableDetrImageLoss(
-        matcher=matcher,
-        num_classes=config.num_labels,
-        focal_alpha=config.focal_alpha,
-        losses=losses,
-    )
-    criterion.to(device)
-    # Third: compute the losses, based on outputs and labels
-    outputs_loss = {}
-    outputs_loss["logits"] = logits
-    outputs_loss["pred_boxes"] = pred_boxes
-    outputs_loss["pred_masks"] = pred_masks
-
-    auxiliary_outputs = None
-    if config.auxiliary_loss:
-        auxiliary_outputs = _set_aux_loss(outputs_class, outputs_coord)
-        outputs_loss["auxiliary_outputs"] = auxiliary_outputs
-
-    loss_dict = criterion(outputs_loss, labels)
-    # Fourth: compute total loss, as a weighted sum of the various losses
-    weight_dict = {"loss_ce": 1, "loss_bbox": config.bbox_loss_coefficient}
-    weight_dict["loss_giou"] = config.giou_loss_coefficient
-    weight_dict["loss_mask"] = config.mask_loss_coefficient
-    weight_dict["loss_dice"] = config.dice_loss_coefficient
-    if config.auxiliary_loss:
-        aux_weight_dict = {}
-        for i in range(config.decoder_layers - 1):
-            aux_weight_dict.update({k + f"_{i}": v for k, v in weight_dict.items()})
-        weight_dict.update(aux_weight_dict)
-
-    loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict if k in weight_dict)
-    return loss, loss_dict, auxiliary_outputs
+    pass
 
 
 def DeformableDetrForObjectDetectionLoss(
     logits, labels, device, pred_boxes, config, outputs_class=None, outputs_coord=None, **kwargs
 ):
-    # First: create the matcher
-    matcher = DeformableDetrHungarianMatcher(
-        class_cost=config.class_cost, bbox_cost=config.bbox_cost, giou_cost=config.giou_cost
-    )
-    # Second: create the criterion
-    losses = ["labels", "boxes", "cardinality"]
-    criterion = DeformableDetrImageLoss(
-        matcher=matcher,
-        num_classes=config.num_labels,
-        focal_alpha=config.focal_alpha,
-        losses=losses,
-    )
-    criterion.to(device)
-    # Third: compute the losses, based on outputs and labels
-    outputs_loss = {}
-    auxiliary_outputs = None
-    outputs_loss["logits"] = logits
-    outputs_loss["pred_boxes"] = pred_boxes
-    if config.auxiliary_loss:
-        auxiliary_outputs = _set_aux_loss(outputs_class, outputs_coord)
-        outputs_loss["auxiliary_outputs"] = auxiliary_outputs
-
-    loss_dict = criterion(outputs_loss, labels)
-    # Fourth: compute total loss, as a weighted sum of the various losses
-    weight_dict = {"loss_ce": 1, "loss_bbox": config.bbox_loss_coefficient}
-    weight_dict["loss_giou"] = config.giou_loss_coefficient
-    if config.auxiliary_loss:
-        aux_weight_dict = {}
-        for i in range(config.decoder_layers - 1):
-            aux_weight_dict.update({k + f"_{i}": v for k, v in weight_dict.items()})
-        weight_dict.update(aux_weight_dict)
-    loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict if k in weight_dict)
-    return loss, loss_dict, auxiliary_outputs
+    pass

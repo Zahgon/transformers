@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert Conditional DETR checkpoints."""
 
 import argparse
 import json
@@ -36,10 +22,8 @@ from transformers.utils import logging
 logging.set_verbosity_info()
 logger = logging.get_logger(__name__)
 
-# here we list all keys to be renamed (original name on the left, our name on the right)
 rename_keys = []
 for i in range(6):
-    # encoder layers: output projection, 2 feedforward neural networks and 2 layernorms
     rename_keys.append(
         (f"transformer.encoder.layers.{i}.self_attn.out_proj.weight", f"encoder.layers.{i}.self_attn.out_proj.weight")
     )
@@ -56,7 +40,6 @@ for i in range(6):
     rename_keys.append((f"transformer.encoder.layers.{i}.norm1.bias", f"encoder.layers.{i}.self_attn_layer_norm.bias"))
     rename_keys.append((f"transformer.encoder.layers.{i}.norm2.weight", f"encoder.layers.{i}.final_layer_norm.weight"))
     rename_keys.append((f"transformer.encoder.layers.{i}.norm2.bias", f"encoder.layers.{i}.final_layer_norm.bias"))
-    # decoder layers: 2 times output projection, 2 feedforward neural networks and 3 layernorms
     rename_keys.append(
         (f"transformer.decoder.layers.{i}.self_attn.out_proj.weight", f"decoder.layers.{i}.self_attn.out_proj.weight")
     )
@@ -92,8 +75,6 @@ for i in range(6):
     rename_keys.append((f"transformer.decoder.layers.{i}.norm3.weight", f"decoder.layers.{i}.final_layer_norm.weight"))
     rename_keys.append((f"transformer.decoder.layers.{i}.norm3.bias", f"decoder.layers.{i}.final_layer_norm.bias"))
 
-    # q, k, v projections in self/cross-attention in decoder for conditional DETR
-    # Self-attention projections moved into self_attn module
     rename_keys.append(
         (
             f"transformer.decoder.layers.{i}.sa_qcontent_proj.weight",
@@ -115,14 +96,12 @@ for i in range(6):
     rename_keys.append(
         (f"transformer.decoder.layers.{i}.sa_v_proj.weight", f"decoder.layers.{i}.self_attn.v_proj.weight")
     )
-    # Cross-attention projections moved into encoder_attn module
     rename_keys.append(
         (
             f"transformer.decoder.layers.{i}.ca_qcontent_proj.weight",
             f"decoder.layers.{i}.encoder_attn.q_content_proj.weight",
         )
     )
-    # rename_keys.append((f"transformer.decoder.layers.{i}.ca_qpos_proj.weight", f"decoder.layers.{i}.encoder_attn.q_pos_proj.weight"))
     rename_keys.append(
         (
             f"transformer.decoder.layers.{i}.ca_kcontent_proj.weight",
@@ -161,7 +140,6 @@ for i in range(6):
             f"decoder.layers.{i}.encoder_attn.q_content_proj.bias",
         )
     )
-    # rename_keys.append((f"transformer.decoder.layers.{i}.ca_qpos_proj.bias", f"decoder.layers.{i}.encoder_attn.q_pos_proj.bias"))
     rename_keys.append(
         (
             f"transformer.decoder.layers.{i}.ca_kcontent_proj.bias",
@@ -181,8 +159,6 @@ for i in range(6):
         )
     )
 
-# convolutional projection + query embeddings + layernorm of decoder + class and bounding box heads
-# for conditional DETR, also convert reference point head and query scale MLP
 rename_keys.extend(
     [
         ("input_proj.weight", "input_projection.weight"),
@@ -218,15 +194,7 @@ def rename_key(state_dict, old, new):
 
 
 def rename_backbone_keys(state_dict):
-    new_state_dict = OrderedDict()
-    for key, value in state_dict.items():
-        if "backbone.0.body" in key:
-            new_key = key.replace("backbone.0.body", "backbone.conv_encoder.model")
-            new_state_dict[new_key] = value
-        else:
-            new_state_dict[key] = value
-
-    return new_state_dict
+    pass
 
 
 def read_in_q_k_v(state_dict, is_panoptic=False):
@@ -234,12 +202,9 @@ def read_in_q_k_v(state_dict, is_panoptic=False):
     if is_panoptic:
         prefix = "conditional_detr."
 
-    # first: transformer encoder
     for i in range(6):
-        # read in weights + bias of input projection layer (in PyTorch's MultiHeadAttention, this is a single matrix + bias)
         in_proj_weight = state_dict.pop(f"{prefix}transformer.encoder.layers.{i}.self_attn.in_proj_weight")
         in_proj_bias = state_dict.pop(f"{prefix}transformer.encoder.layers.{i}.self_attn.in_proj_bias")
-        # next, add query, keys and values (in that order) to the state dict
         state_dict[f"encoder.layers.{i}.self_attn.q_proj.weight"] = in_proj_weight[:256, :]
         state_dict[f"encoder.layers.{i}.self_attn.q_proj.bias"] = in_proj_bias[:256]
         state_dict[f"encoder.layers.{i}.self_attn.k_proj.weight"] = in_proj_weight[256:512, :]
@@ -248,7 +213,6 @@ def read_in_q_k_v(state_dict, is_panoptic=False):
         state_dict[f"encoder.layers.{i}.self_attn.v_proj.bias"] = in_proj_bias[-256:]
 
 
-# We will verify our results on an image of cute cats
 def prepare_img():
     url = "http://images.cocodataset.org/val2017/000000039769.jpg"
     with httpx.stream("GET", url) as response:
@@ -259,92 +223,7 @@ def prepare_img():
 
 @torch.no_grad()
 def convert_conditional_detr_checkpoint(model_name, pytorch_dump_folder_path):
-    """
-    Copy/paste/tweak model's weights to our CONDITIONAL_DETR structure.
-    """
-
-    # load default config
-    config = ConditionalDetrConfig()
-    # set backbone and dilation attributes
-    if "resnet101" in model_name:
-        config.backbone = "resnet101"
-    if "dc5" in model_name:
-        config.dilation = True
-    is_panoptic = "panoptic" in model_name
-    if is_panoptic:
-        config.num_labels = 250
-    else:
-        config.num_labels = 91
-        repo_id = "huggingface/label-files"
-        filename = "coco-detection-id2label.json"
-        id2label = json.load(open(hf_hub_download(repo_id, filename, repo_type="dataset"), "r"))
-        id2label = {int(k): v for k, v in id2label.items()}
-        config.id2label = id2label
-        config.label2id = {v: k for k, v in id2label.items()}
-
-    # load image processor
-    format = "coco_panoptic" if is_panoptic else "coco_detection"
-    image_processor = ConditionalDetrImageProcessor(format=format)
-
-    # prepare image
-    img = prepare_img()
-    encoding = image_processor(images=img, return_tensors="pt")
-    pixel_values = encoding["pixel_values"]
-
-    logger.info(f"Converting model {model_name}...")
-
-    # load original model from torch hub
-    conditional_detr = torch.hub.load("DeppMeng/ConditionalDETR", model_name, pretrained=True).eval()
-    state_dict = conditional_detr.state_dict()
-    # rename keys
-    for src, dest in rename_keys:
-        if is_panoptic:
-            src = "conditional_detr." + src
-        rename_key(state_dict, src, dest)
-    state_dict = rename_backbone_keys(state_dict)
-    # query, key and value matrices need special treatment
-    read_in_q_k_v(state_dict, is_panoptic=is_panoptic)
-    # important: we need to prepend a prefix to each of the base model keys as the head models use different attributes for them
-    prefix = "conditional_detr.model." if is_panoptic else "model."
-    for key in state_dict.copy():
-        if is_panoptic:
-            if (
-                key.startswith("conditional_detr")
-                and not key.startswith("class_labels_classifier")
-                and not key.startswith("bbox_predictor")
-            ):
-                val = state_dict.pop(key)
-                state_dict["conditional_detr.model" + key[4:]] = val
-            elif "class_labels_classifier" in key or "bbox_predictor" in key:
-                val = state_dict.pop(key)
-                state_dict["conditional_detr." + key] = val
-            elif key.startswith("bbox_attention") or key.startswith("mask_head"):
-                continue
-            else:
-                val = state_dict.pop(key)
-                state_dict[prefix + key] = val
-        else:
-            if not key.startswith("class_labels_classifier") and not key.startswith("bbox_predictor"):
-                val = state_dict.pop(key)
-                state_dict[prefix + key] = val
-    # finally, create HuggingFace model and load state dict
-    model = ConditionalDetrForSegmentation(config) if is_panoptic else ConditionalDetrForObjectDetection(config)
-    model.load_state_dict(state_dict)
-    model.eval()
-    model.push_to_hub(repo_id=f"DepuMeng/{model_name}", commit_message="Add model")
-    # verify our conversion
-    original_outputs = conditional_detr(pixel_values)
-    outputs = model(pixel_values)
-    assert torch.allclose(outputs.logits, original_outputs["pred_logits"], atol=1e-4)
-    assert torch.allclose(outputs.pred_boxes, original_outputs["pred_boxes"], atol=1e-4)
-    if is_panoptic:
-        assert torch.allclose(outputs.pred_masks, original_outputs["pred_masks"], atol=1e-4)
-
-    # Save model and image processor
-    logger.info(f"Saving PyTorch model and image processor to {pytorch_dump_folder_path}...")
-    Path(pytorch_dump_folder_path).mkdir(exist_ok=True)
-    model.save_pretrained(pytorch_dump_folder_path)
-    image_processor.save_pretrained(pytorch_dump_folder_path)
+    pass
 
 
 if __name__ == "__main__":

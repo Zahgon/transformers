@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from importlib import metadata
 from typing import TYPE_CHECKING
 
@@ -37,11 +24,6 @@ MIN_OPTIMUM_VERSION = "1.24.0"
 
 
 class GptqHfQuantizer(HfQuantizer):
-    """
-    Quantizer of the GPTQ method - for GPTQ the quantizer support calibration of the model through
-    the GPT-QModel package (Python import name `gptqmodel`). Quantization is done under the hood for users if they
-    load a non-prequantized model.
-    """
 
     requires_calibration = False
     quantization_config: "GPTQConfig"
@@ -87,7 +69,6 @@ class GptqHfQuantizer(HfQuantizer):
             raise RuntimeError("We can only quantize pure text model.")
 
         if self.pre_quantized:
-            # compat: latest optimum has gptqmodel refactor
             if version.parse(metadata.version("optimum")) < version.parse(MIN_OPTIMUM_VERSION):
                 model = self.optimum_quantizer.convert_model(model)
             else:
@@ -105,7 +86,7 @@ class GptqHfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self) -> bool:
-        return True
+        pass
 
     def is_serializable(self):
         return True

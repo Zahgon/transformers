@@ -1,16 +1,3 @@
-# Copyright 2026 The OpenBMB Team and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from collections.abc import Callable
@@ -47,39 +34,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="openbmb/MiniCPM3-4B")
 @strict
 class MiniCPM3Config(LlamaConfig):
-    r"""
-    kv_lora_rank (`int`, *optional*, defaults to 256):
-        Rank of the low-rank KV projection in multi-head latent attention.
-    q_lora_rank (`int`, *optional*, defaults to 768):
-        Rank of the low-rank query projection in multi-head latent attention. If `None`, the query projection
-        is a single dense projection rather than a low-rank one.
-    qk_nope_head_dim (`int`, *optional*, defaults to 64):
-        Dimension of the non-RoPE part of each query/key head.
-    qk_rope_head_dim (`int`, *optional*, defaults to 32):
-        Dimension of the RoPE part of each query/key head.
-    v_head_dim (`int`, *optional*):
-        Dimension of each value head. If `None`, defaults to `hidden_size // num_attention_heads`.
-    scale_emb (`int` or `float`, *optional*, defaults to 12):
-        Multiplier applied to input embeddings.
-    scale_depth (`int` or `float`, *optional*, defaults to 1.4):
-        Multiplier for residual connections; the effective scaling is `scale_depth / sqrt(num_hidden_layers)`.
-        If `None`, defaults to `sqrt(num_hidden_layers)` (no-op scaling).
-    dim_model_base (`int`, *optional*, defaults to 256):
-        Base model dimension used to scale logits before the language model head. If `None`,
-        defaults to `hidden_size` (no-op scaling).
-
-    Example:
-
-    ```python
-    >>> from transformers import MiniCPM3Model, MiniCPM3Config
-    >>> # Initializing a MiniCPM3 style configuration
-    >>> configuration = MiniCPM3Config()
-    >>> # Initializing a model from the configuration
-    >>> model = MiniCPM3Model(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
@@ -94,8 +48,6 @@ class MiniCPM3Config(LlamaConfig):
 
     model_type = "minicpm3"
 
-    # Only fields whose defaults differ from `LlamaConfig` are redeclared here; the rest are inherited.
-    # Defaults match the `openbmb/MiniCPM3-4B` checkpoint.
     vocab_size: int = 73448
     hidden_size: int = 2560
     intermediate_size: int = 6400
@@ -116,10 +68,7 @@ class MiniCPM3Config(LlamaConfig):
     dim_model_base: int | None = 256
 
     def __post_init__(self, **kwargs):
-        # In MLA the per-head dim used by RoPE is the rotary part, not `hidden_size / num_attention_heads`.
         self.head_dim = self.qk_rope_head_dim
-        # When explicitly set to `None`, these collapse to no-op scalings (e.g. for a randomly
-        # initialised tiny model); the class defaults otherwise match `openbmb/MiniCPM3-4B`.
         if self.v_head_dim is None:
             self.v_head_dim = self.hidden_size // self.num_attention_heads
         if self.scale_depth is None:
@@ -130,8 +79,7 @@ class MiniCPM3Config(LlamaConfig):
 
     @property
     def logits_scaling(self) -> float:
-        # Hidden states are divided by this factor before the LM head (`1` when `dim_model_base == hidden_size`).
-        return self.hidden_size / self.dim_model_base
+        pass
 
 
 class MiniCPM3ScaledWordEmbedding(Gemma3TextScaledWordEmbedding):
@@ -151,12 +99,6 @@ class MiniCPM3MLP(LlamaMLP):
 
 
 class MiniCPM3Attention(DeepseekV2Attention):
-    """
-    Multi-head Latent Attention (MLA), structurally identical to `DeepseekV2Attention`.
-    The only difference is the rotary convention: MiniCPM3 keeps the original cos/sin RoPE
-    (`apply_rotary_pos_emb`) instead of DeepSeek-V2's complex rotary, so we inherit the
-    module construction and override only `forward`.
-    """
 
     def forward(
         self,
@@ -186,8 +128,6 @@ class MiniCPM3Attention(DeepseekV2Attention):
         k_rot = k_rot.view(batch_size, 1, seq_length, self.qk_rope_head_dim)
 
         cos, sin = position_embeddings
-        # Same MLA forward as DeepSeek-V2/V3, except MiniCPM3 keeps the standard (non-interleaved)
-        # cos/sin rotary (`apply_rotary_pos_emb`) instead of DeepSeek's complex/interleaved variant.
         q_rot, k_rot = apply_rotary_pos_emb(q_rot, k_rot, cos, sin)
         k_rot = k_rot.expand(*k_pass.shape[:-1], -1)
 
@@ -220,8 +160,6 @@ class MiniCPM3Attention(DeepseekV2Attention):
 class MiniCPM3DecoderLayer(LlamaDecoderLayer):
     def __init__(self, config: MiniCPM3Config, layer_idx: int):
         super().__init__(config, layer_idx)
-        # MiniCPM3 multiplies each residual branch by `scale_depth / sqrt(num_hidden_layers)`
-        # (Llama adds the branch directly). Precompute the constant once instead of per forward.
         self.residual_scale = config.scale_depth / math.sqrt(config.num_hidden_layers)
 
     def forward(
@@ -266,7 +204,6 @@ class MiniCPM3PreTrainedModel(LlamaPreTrainedModel):
 class MiniCPM3Model(LlamaModel):
     def __init__(self, config: MiniCPM3Config):
         super().__init__(config)
-        # MiniCPM3 scales the input embeddings by `scale_emb` (not present in Llama).
         self.embed_tokens = MiniCPM3ScaledWordEmbedding(
             config.vocab_size, config.hidden_size, self.padding_idx, embed_scale=config.scale_emb
         )
@@ -315,7 +252,6 @@ class MiniCPM3ForCausalLM(LlamaForCausalLM):
         )
 
         hidden_states = outputs.last_hidden_state
-        # MiniCPM3 scales hidden states down before the LM head (not present in Llama).
         hidden_states = hidden_states / self.config.logits_scaling
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])

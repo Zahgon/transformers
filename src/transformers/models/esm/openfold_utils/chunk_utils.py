@@ -1,16 +1,3 @@
-# Copyright 2021 AlQuraishi Laboratory
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import logging
 import math
 from collections.abc import Callable, Iterable, Sequence
@@ -40,12 +27,7 @@ def _fetch_dims(tree: dict | list | tuple | torch.Tensor) -> list[tuple[int, ...
 
 @torch.jit.ignore
 def _flat_idx_to_idx(flat_idx: int, dims: tuple[int, ...]) -> tuple[int, ...]:
-    idx = []
-    for d in reversed(dims):
-        idx.append(flat_idx % d)
-        flat_idx = flat_idx // d
-
-    return tuple(reversed(idx))
+    pass
 
 
 @torch.jit.ignore
@@ -64,9 +46,6 @@ def _get_minimal_slice_set(
     end is INCLUSIVE.
     """
 
-    # start_edges and end_edges both indicate whether, starting from any given
-    # dimension, the start/end index is at the top/bottom edge of the
-    # corresponding tensor, modeled as a tree
     def reduce_edge_list(l: list[bool]) -> None:
         tally = True
         for i in range(len(l)):
@@ -81,8 +60,6 @@ def _get_minimal_slice_set(
         end_edges = [e == (d - 1) for e, d in zip(end, dims)]
         reduce_edge_list(end_edges)
 
-    # Base cases. Either start/end are empty and we're done, or the final,
-    # one-dimensional tensor can be simply sliced
     if len(start) == 0:
         return [()]
     elif len(start) == 1:
@@ -91,7 +68,6 @@ def _get_minimal_slice_set(
     slices: list[tuple[slice, ...]] = []
     path_list: list[slice] = []
 
-    # Dimensions common to start and end can be selected directly
     for s, e in zip(start, end):
         if s == e:
             path_list.append(slice(s, s + 1))
@@ -101,7 +77,6 @@ def _get_minimal_slice_set(
     path: tuple[slice, ...] = tuple(path_list)
     divergence_idx = len(path)
 
-    # start == end, and we're done
     if divergence_idx == len(dims):
         return [path]
 
@@ -137,22 +112,14 @@ def _get_minimal_slice_set(
             )
         )
 
-    # If both start and end are at the edges of the subtree rooted at
-    # divergence_idx, we can just select the whole subtree at once
     if start_edges[divergence_idx] and end_edges[divergence_idx]:
         slices.append(path + (slice(start[divergence_idx], end[divergence_idx] + 1),))
-    # If just start is at the edge, we can grab almost all of the subtree,
-    # treating only the ragged bottom edge as an edge case
     elif start_edges[divergence_idx]:
         slices.append(path + (slice(start[divergence_idx], end[divergence_idx]),))
         slices.extend(lower())
-    # Analogous to the previous case, but the top is ragged this time
     elif end_edges[divergence_idx]:
         slices.extend(upper())
         slices.append(path + (slice(start[divergence_idx] + 1, end[divergence_idx] + 1),))
-    # If both sides of the range are ragged, we need to handle both sides
-    # separately. If there's contiguous meat in between them, we can index it
-    # in one big chunk
     else:
         slices.extend(upper())
         middle_ground = end[divergence_idx] - start[divergence_idx]
@@ -165,31 +132,7 @@ def _get_minimal_slice_set(
 
 @torch.jit.ignore
 def _chunk_slice(t: torch.Tensor, flat_start: int, flat_end: int, no_batch_dims: int) -> torch.Tensor:
-    """
-    Equivalent to
-
-        t.reshape((-1,) + t.shape[no_batch_dims:])[flat_start:flat_end]
-
-    but without the need for the initial reshape call, which can be memory-intensive in certain situations. The only
-    reshape operations in this function are performed on sub-tensors that scale with (flat_end - flat_start), the chunk
-    size.
-    """
-
-    batch_dims = t.shape[:no_batch_dims]
-    start_idx = list(_flat_idx_to_idx(flat_start, batch_dims))
-    # _get_minimal_slice_set is inclusive
-    end_idx = list(_flat_idx_to_idx(flat_end - 1, batch_dims))
-
-    # Get an ordered list of slices to perform
-    slices = _get_minimal_slice_set(
-        start_idx,
-        end_idx,
-        batch_dims,
-    )
-
-    sliced_tensors = [t[s] for s in slices]
-
-    return torch.cat([s.view((-1,) + t.shape[no_batch_dims:]) for s in sliced_tensors])
+    pass
 
 
 def chunk_layer(
@@ -232,13 +175,7 @@ def chunk_layer(
     orig_batch_dims = tuple(max(s) for s in zip(*initial_dims))
 
     def _prep_inputs(t: torch.Tensor) -> torch.Tensor:
-        if not low_mem:
-            if sum(t.shape[:no_batch_dims]) != no_batch_dims:
-                t = t.expand(orig_batch_dims + t.shape[no_batch_dims:])
-            t = t.reshape(-1, *t.shape[no_batch_dims:])
-        else:
-            t = t.expand(orig_batch_dims + t.shape[no_batch_dims:])
-        return t
+        pass
 
     prepped_inputs: dict[str, Any] = tensor_tree_map(_prep_inputs, inputs)
     prepped_outputs = None
@@ -252,12 +189,11 @@ def chunk_layer(
     no_chunks = flat_batch_dim // chunk_size + (flat_batch_dim % chunk_size != 0)
 
     def _select_chunk(t: torch.Tensor) -> torch.Tensor:
-        return t[i : i + chunk_size] if t.shape[0] != 1 else t
+        pass
 
     i = 0
     out = prepped_outputs
     for _ in range(no_chunks):
-        # Chunk the input
         if not low_mem:
             select_chunk = _select_chunk
         else:
@@ -270,14 +206,11 @@ def chunk_layer(
 
         chunks: dict[str, Any] = tensor_tree_map(select_chunk, prepped_inputs)
 
-        # Run the layer on the chunk
         output_chunk = layer(**chunks)
 
-        # Allocate space for the output
         if out is None:
             out = tensor_tree_map(lambda t: t.new_zeros((flat_batch_dim,) + t.shape[1:]), output_chunk)
 
-        # Put the chunk in its pre-allocated space
         if isinstance(output_chunk, dict):
 
             def assign(d1: dict, d2: dict) -> None:
@@ -315,8 +248,6 @@ def chunk_layer(
 class ChunkSizeTuner:
     def __init__(
         self,
-        # Heuristically, runtimes for most of the modules in the network
-        # plateau earlier than this on all GPUs I've run the model on.
         max_chunk_size: int = 512,
     ):
         self.max_chunk_size = max_chunk_size
@@ -324,50 +255,10 @@ class ChunkSizeTuner:
         self.cached_arg_data: tuple | None = None
 
     def _determine_favorable_chunk_size(self, fn: Callable, args: tuple, min_chunk_size: int) -> int:
-        logging.info("Tuning chunk size...")
-
-        if min_chunk_size >= self.max_chunk_size:
-            return min_chunk_size
-
-        candidates: list[int] = [2**l for l in range(int(math.log2(self.max_chunk_size)) + 1)]
-        candidates = [c for c in candidates if c > min_chunk_size]
-        candidates = [min_chunk_size] + candidates
-        candidates[-1] += 4
-
-        def test_chunk_size(chunk_size: int) -> bool:
-            try:
-                with torch.no_grad():
-                    fn(*args, chunk_size=chunk_size)
-                return True
-            except RuntimeError:
-                return False
-
-        min_viable_chunk_size_index = 0
-        i = len(candidates) - 1
-        while i > min_viable_chunk_size_index:
-            viable = test_chunk_size(candidates[i])
-            if not viable:
-                i = (min_viable_chunk_size_index + i) // 2
-            else:
-                min_viable_chunk_size_index = i
-                i = (i + len(candidates) - 1) // 2
-
-        return candidates[min_viable_chunk_size_index]
+        pass
 
     def _compare_arg_caches(self, ac1: Iterable, ac2: Iterable) -> bool:
-        consistent = True
-        for a1, a2 in zip(ac1, ac2):
-            assert type(ac1) is type(ac2)
-            if isinstance(ac1, (list, tuple)):
-                consistent &= self._compare_arg_caches(a1, a2)
-            elif isinstance(ac1, dict):
-                a1_items = [v for _, v in sorted(a1.items(), key=lambda x: x[0])]
-                a2_items = [v for _, v in sorted(a2.items(), key=lambda x: x[0])]
-                consistent &= self._compare_arg_caches(a1_items, a2_items)
-            else:
-                consistent &= a1 == a2
-
-        return consistent
+        pass
 
     def tune_chunk_size(
         self,
@@ -375,24 +266,4 @@ class ChunkSizeTuner:
         args: tuple,
         min_chunk_size: int,
     ) -> int:
-        consistent = True
-        arg_data: tuple = tree_map(lambda a: a.shape if isinstance(a, torch.Tensor) else a, args, object)
-        if self.cached_arg_data is not None:
-            # If args have changed shape/value, we need to re-tune
-            assert len(self.cached_arg_data) == len(arg_data)
-            consistent = self._compare_arg_caches(self.cached_arg_data, arg_data)
-        else:
-            # Otherwise, we can reuse the precomputed value
-            consistent = False
-
-        if not consistent:
-            self.cached_chunk_size = self._determine_favorable_chunk_size(
-                representative_fn,
-                args,
-                min_chunk_size,
-            )
-            self.cached_arg_data = arg_data
-
-        assert self.cached_chunk_size is not None
-
-        return self.cached_chunk_size
+        pass

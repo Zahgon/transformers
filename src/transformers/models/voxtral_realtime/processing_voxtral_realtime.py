@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import numpy as np
 
@@ -90,48 +77,39 @@ class VoxtralRealtimeProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        return super().model_input_names + ["num_delay_tokens"]
+        pass
 
     @property
     def mistral_common_audio_config(self):
-        return self.tokenizer.tokenizer.instruct_tokenizer.audio_encoder.audio_config
+        pass
 
     @property
     def num_delay_tokens(self):
-        return self.mistral_common_audio_config.get_num_delay_tokens()
+        pass
 
     @property
     def num_right_pad_tokens(self):
-        return self.mistral_common_audio_config.n_right_pad_tokens()
+        pass
 
     @property
     def audio_length_per_tok(self):
-        return self.mistral_common_audio_config.audio_length_per_tok
+        pass
 
     @property
     def raw_audio_length_per_tok(self):
-        return self.mistral_common_audio_config.raw_audio_length_per_tok
+        pass
 
     @property
     def num_mel_frames_first_audio_chunk(self):
-        # it is actually num_left_pad_tokens + num_delay_tokens + 1
-        # but the call to `encode_transcription` will add the left pad token
-        num_prefill_tokens = self.num_delay_tokens + 1
-        num_prefill_mel_frames = num_prefill_tokens * self.audio_length_per_tok
-        return num_prefill_mel_frames
+        pass
 
     @property
     def num_samples_first_audio_chunk(self) -> int:
-        num_prefill_mel_frames = self.num_mel_frames_first_audio_chunk
-        num_prefill_audio_samples = (
-            num_prefill_mel_frames - 1
-        ) * self.feature_extractor.hop_length + self.feature_extractor.win_length // 2
-
-        return num_prefill_audio_samples
+        pass
 
     @property
     def num_samples_per_audio_chunk(self) -> int:
-        return self.audio_length_per_tok * self.feature_extractor.hop_length + self.feature_extractor.win_length
+        pass
 
     def __call__(
         self,
@@ -177,13 +155,10 @@ class VoxtralRealtimeProcessor(ProcessorMixin):
             audio_encoder = instruct_tokenizer.audio_encoder
             for audio_el in audio:
                 if is_streaming:
-                    # Online streaming: build the prefill prompt and left padding from the audio encoder
-                    # primitives instead of an audio-carrying `TranscriptionRequest`.
                     left_pad, _ = audio_encoder.get_padding_audio()
                     tokens = instruct_tokenizer.start() + audio_encoder.encode_streaming_tokens()
                     audio_arrays.append(np.concatenate((left_pad.audio_array, audio_el)))
                 else:
-                    # NOTE: format here is used only for serialization and therefore we can use wav for any audio array
                     audio_obj = Audio(
                         audio_array=audio_el,
                         sampling_rate=output_kwargs["audio_kwargs"]["sampling_rate"],
@@ -204,7 +179,6 @@ class VoxtralRealtimeProcessor(ProcessorMixin):
 
             text_encoding = self.tokenizer(input_ids, **output_kwargs["text_kwargs"])
         else:
-            # when not the first audio chunk, we only encode audio
             audio_arrays = audio
             text_encoding = {}
 

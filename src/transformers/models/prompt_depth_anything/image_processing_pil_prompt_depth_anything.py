@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for PromptDepthAnything."""
 
 import math
 from typing import TYPE_CHECKING
@@ -60,17 +46,13 @@ def _get_resize_output_image_size(
     input_height, input_width = get_image_size(input_image, channel_dim=ChannelDimension.FIRST)
     output_height, output_width = output_size
 
-    # determine new height and width
     scale_height = output_height / input_height
     scale_width = output_width / input_width
 
     if keep_aspect_ratio:
-        # scale as little as possible
         if abs(1 - scale_width) < abs(1 - scale_height):
-            # fit width
             scale_height = scale_width
         else:
-            # fit height
             scale_width = scale_height
 
     new_height = _constrain_to_multiple_of(scale_height * input_height, multiple=multiple)
@@ -79,18 +61,7 @@ def _get_resize_output_image_size(
     return (new_height, new_width)
 
 
-# Adapted from transformers.models.prompt_depth_anything.image_processing_prompt_depth_anything.PromptDepthAnythingImageProcessorKwargs
 class PromptDepthAnythingImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    keep_aspect_ratio (`bool`, *optional*):
-        If `True`, the image is resized to the largest possible size such that the aspect ratio is preserved.
-    ensure_multiple_of (`int`, *optional*):
-        If `do_resize` is `True`, the image is resized to a size that is a multiple of this value.
-    prompt_scale_to_meter (`float`, *optional*):
-        Scale factor to convert the prompt depth to meters.
-    size_divisor (`int`, *optional*):
-        If `do_pad` is `True`, pads the image dimensions to be divisible by this value.
-    """
 
     keep_aspect_ratio: bool
     ensure_multiple_of: int
@@ -146,7 +117,6 @@ class PromptDepthAnythingImageProcessorPil(PilBackend):
         if resample is None:
             resample = PILImageResampling.BICUBIC
 
-        # Custom resize with aspect ratio preservation and ensure_multiple_of constraint
         output_size = _get_resize_output_image_size(
             image,
             output_size=(size.height, size.width),
@@ -154,7 +124,6 @@ class PromptDepthAnythingImageProcessorPil(PilBackend):
             multiple=ensure_multiple_of,
         )
 
-        # Standard resize method with calculated output size
         return self.resize(image=image, size=SizeDict(height=output_size[0], width=output_size[1]), resample=resample)
 
     def pad_image(self, image: np.ndarray, size_divisor: int) -> np.ndarray:
@@ -171,11 +140,9 @@ class PromptDepthAnythingImageProcessorPil(PilBackend):
 
         height, width = get_image_size(image, channel_dim=ChannelDimension.FIRST)
 
-        # Match slow processor and PyTorch convention: width->left/right, height->top/bottom
         pad_size_left, pad_size_right = _get_pad(width, size_divisor)
         pad_size_top, pad_size_bottom = _get_pad(height, size_divisor)
 
-        # NumPy padding: ((pad_top, pad_bottom), (pad_left, pad_right))
         padding = ((pad_size_top, pad_size_bottom), (pad_size_left, pad_size_right))
         padded_image = np_pad(
             image,
@@ -206,12 +173,10 @@ class PromptDepthAnythingImageProcessorPil(PilBackend):
             images=images, do_convert_rgb=False, input_data_format=input_data_format, device=device
         )  # always use do_convert_rgb=False rather than defining it as a param to match slow processor
 
-        # Process images with the standard pipeline
         pixel_values = self._preprocess(images, return_tensors=return_tensors, **kwargs)
 
         data = {"pixel_values": pixel_values}
 
-        # Process prompt depth if provided
         if prompt_depth is not None:
             processed_prompt_depths = self._prepare_image_like_inputs(
                 images=prompt_depth,
@@ -221,7 +186,6 @@ class PromptDepthAnythingImageProcessorPil(PilBackend):
                 expected_ndims=2,
             )
 
-            # Validate prompt_depths has same length as images as in slow processor
             if len(processed_prompt_depths) != len(images):
                 raise ValueError(
                     f"Number of prompt depth images ({len(processed_prompt_depths)}) does not match number of input images ({len(images)})"
@@ -234,7 +198,6 @@ class PromptDepthAnythingImageProcessorPil(PilBackend):
             for depth in processed_prompt_depths:
                 depth = depth * prompt_scale_to_meter
 
-                # Handle case where depth is constant (min == max)
                 if depth.min() == depth.max():
                     depth[0, 0] = depth[0, 0] + 1e-6  # Add small variation to avoid numerical issues
 

@@ -1,16 +1,3 @@
-# Copyright 2025 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from transformers.processing_utils import ProcessingKwargs, ProcessorMixin, Unpack
@@ -92,31 +79,7 @@ class Llama4Processor(ProcessorMixin):
         self.tile_global_token = tile_y_separator_token
 
     def _prompt_split_image(self, aspect_ratio, num_patches_per_chunk):
-        """
-        Create a structured string representation of image tokens
-
-        Args:
-           num_patches: Number of patches in the image
-
-        Returns:
-            String with appropriate image tokens
-        """
-        img_string = "<|image_start|>"
-        ratio_h, ratio_w = aspect_ratio
-        if ratio_h * ratio_w > 1:
-            for yy in range(ratio_h):
-                for xx in range(ratio_w):
-                    img_string += "<|patch|>" * num_patches_per_chunk
-                    if xx < ratio_w - 1:
-                        img_string += "<|tile_x_separator|>"
-
-                img_string += "<|tile_y_separator|>"
-
-        img_string += "<|image|>"
-        img_string += "<|patch|>" * num_patches_per_chunk
-        img_string += "<|image_end|>"
-
-        return img_string
+        pass
 
     @auto_docstring
     def __call__(
@@ -147,7 +110,6 @@ class Llama4Processor(ProcessorMixin):
         if not isinstance(text, (list, tuple)):
             text = [text]
 
-        # Process images
         image_inputs = {}
         if images is not None:
             images = self.image_processor.fetch_images(images)
@@ -171,7 +133,6 @@ class Llama4Processor(ProcessorMixin):
             for prompt in text:
                 placeholder_count = prompt.count(self.fake_image_token)
                 if placeholder_count == 0:
-                    # do nothing if there is no image
                     processed_text.append(prompt)
                     continue
                 prompt_splits = prompt.split(self.fake_image_token)

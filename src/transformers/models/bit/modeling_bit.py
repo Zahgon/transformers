@@ -1,17 +1,3 @@
-# Copyright 2022 Google AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch BiT model. Also supports backbone for ViT hybrid."""
 
 import collections
 import math
@@ -59,32 +45,21 @@ def get_padding_value(padding=None, kernel_size=7, stride=1, dilation=1) -> tupl
         return padding, dynamic
 
     if isinstance(padding, str):
-        # for any string padding, the padding will be calculated for you, one of three ways
         padding = padding.lower()
         if padding == "same":
-            # TF compatible 'SAME' padding, has a performance and GPU memory allocation impact
             if stride == 1 and (dilation * (kernel_size - 1)) % 2 == 0:
-                # static case, no extra overhead
                 padding = ((stride - 1) + dilation * (kernel_size - 1)) // 2
             else:
-                # dynamic 'SAME' padding, has runtime/GPU memory overhead
                 padding = 0
                 dynamic = True
         elif padding == "valid":
-            # 'VALID' padding, same as padding=0
             padding = 0
         else:
-            # Default to PyTorch style 'same'-ish symmetric padding
             padding = ((stride - 1) + dilation * (kernel_size - 1)) // 2
     return padding, dynamic
 
 
 class WeightStandardizedConv2d(nn.Conv2d):
-    """Conv2d with Weight Standardization. Used for ViT Hybrid model.
-
-    Paper: [Micro-Batch Training with Batch-Channel Normalization and Weight
-    Standardization](https://huggingface.co/papers/1903.10520)
-    """
 
     def __init__(
         self,
@@ -128,9 +103,6 @@ class WeightStandardizedConv2d(nn.Conv2d):
 
 
 class BitGroupNormActivation(nn.GroupNorm):
-    r"""
-    A module that combines group normalization with an activation function.
-    """
 
     def __init__(self, config, num_channels, eps=1e-5, affine=True, apply_activation=True):
         super().__init__(config.num_groups, num_channels, eps=eps, affine=affine)
@@ -146,14 +118,9 @@ class BitGroupNormActivation(nn.GroupNorm):
 
 
 class DynamicPad2d(nn.Module):
-    r"""
-    A module that wraps dynamic padding of any input, given the parameters of the convolutional layer and the input
-    hidden states.
-    """
 
     def __init__(self, kernel_size, stride, dilation, value=0):
         super().__init__()
-        # Safety checkers
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size, kernel_size)
 
@@ -174,14 +141,11 @@ class DynamicPad2d(nn.Module):
         self.compute_padding = compute_padding
 
     def forward(self, input):
-        # Get width and height
         input_height, input_width = input.size()[-2:]
 
-        # Compute the padding values
         padding_height = self.compute_padding(input_height, self.kernel_size[0], self.stride[0], self.dilation[0])
         padding_width = self.compute_padding(input_width, self.kernel_size[1], self.stride[1], self.dilation[1])
 
-        # apply pad
         if padding_height > 0 or padding_width > 0:
             input = nn.functional.pad(
                 input,
@@ -224,9 +188,6 @@ class BitMaxPool2d(nn.MaxPool2d):
 
 
 class BitEmbeddings(nn.Module):
-    """
-    BiT Embeddings (stem) composed of a single aggressive convolution.
-    """
 
     def __init__(self, config: BitConfig):
         super().__init__()
@@ -242,7 +203,6 @@ class BitEmbeddings(nn.Module):
 
         self.pooler = BitMaxPool2d(kernel_size=3, stride=2, use_dynamic_padding=config.embedding_dynamic_padding)
 
-        # Use the same padding strategy as convolutional layers
         if config.global_padding is not None and config.global_padding.upper() == "SAME":
             self.pad = nn.Identity()
         else:
@@ -273,13 +233,7 @@ class BitEmbeddings(nn.Module):
         return embedding
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->BitDropPath
 class BitDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -295,7 +249,7 @@ class BitDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 def make_div(value, divisor=8):
@@ -307,12 +261,6 @@ def make_div(value, divisor=8):
 
 
 class BitPreActivationBottleneckLayer(nn.Module):
-    """Pre-activation (v2) bottleneck block.
-    Follows the implementation of "Identity Mappings in Deep Residual Networks":
-    https://github.com/KaimingHe/resnet-1k-layers/blob/master/resnet-pre-act.lua
-
-    Except it puts the stride on 3x3 conv when available.
-    """
 
     def __init__(
         self,
@@ -361,12 +309,10 @@ class BitPreActivationBottleneckLayer(nn.Module):
     def forward(self, hidden_states):
         hidden_states_preact = self.norm1(hidden_states)
 
-        # shortcut branch
         shortcut = hidden_states
         if self.downsample is not None:
             shortcut = self.downsample(hidden_states_preact)
 
-        # residual branch
         hidden_states = self.conv1(hidden_states_preact)
         hidden_states = self.conv2(self.norm2(hidden_states))
         hidden_states = self.conv3(self.norm3(hidden_states))
@@ -375,7 +321,6 @@ class BitPreActivationBottleneckLayer(nn.Module):
 
 
 class BitBottleneckLayer(nn.Module):
-    """Non Pre-activation bottleneck block, equivalent to V1.5/V1b bottleneck. Used for ViT Hybrid."""
 
     def __init__(
         self,
@@ -427,12 +372,10 @@ class BitBottleneckLayer(nn.Module):
         self.activation = ACT2FN[config.hidden_act]
 
     def forward(self, hidden_states):
-        # shortcut branch
         shortcut = hidden_states
         if self.downsample is not None:
             shortcut = self.downsample(hidden_states)
 
-        # residual
         hidden_states = self.conv1(hidden_states)
         hidden_states = self.norm1(hidden_states)
 
@@ -471,9 +414,6 @@ class BitDownsampleConv(nn.Module):
 
 
 class BitStage(nn.Module):
-    """
-    A ResNet v2 stage composed by stacked layers.
-    """
 
     def __init__(
         self,
@@ -490,7 +430,6 @@ class BitStage(nn.Module):
 
         first_dilation = 1 if dilation in (1, 2) else 2
 
-        # Get the layer type
         if config.layer_type == "bottleneck":
             layer_cls = BitBottleneckLayer
         else:
@@ -499,7 +438,6 @@ class BitStage(nn.Module):
         prev_chs = in_channels
         self.layers = nn.Sequential()
         for layer_idx in range(depth):
-            # Get the current hyper-parameters
             stride, drop_path_rate, is_first_layer = self._get_updated_hyperparameters(
                 layer_idx, stride, layer_dropout
             )
@@ -551,7 +489,6 @@ class BitEncoder(nn.Module):
 
         prev_chs = config.embedding_size
 
-        # These needs to stay hardcoded
         current_stride = 4
         dilation = 1
 
@@ -563,7 +500,6 @@ class BitEncoder(nn.Module):
         for stage_idx, (current_depth, current_hidden_size, layer_dropout) in enumerate(
             zip(config.depths, config.hidden_sizes, layer_dropouts)
         ):
-            # Get the updated hyper params
             out_channels, stride, dilation = self._get_updated_hyperparameters(
                 stage_idx, current_stride, current_hidden_size, dilation, config
             )
@@ -627,7 +563,6 @@ class BitPreTrainedModel(PreTrainedModel):
         super()._init_weights(module)
         if isinstance(module, nn.Conv2d):
             init.kaiming_normal_(module.weight, mode="fan_out", nonlinearity="relu")
-        # copied from the `reset_parameters` method of `class Linear(Module)` in `torch`.
         elif isinstance(module, nn.Linear):
             init.kaiming_uniform_(module.weight, a=math.sqrt(5))
             if module.bias is not None:
@@ -652,7 +587,6 @@ class BitModel(BitPreTrainedModel):
         )
 
         self.pooler = nn.AdaptiveAvgPool2d((1, 1))
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -701,12 +635,10 @@ class BitForImageClassification(BitPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.bit = BitModel(config)
-        # classification head
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.Linear(config.hidden_sizes[-1], config.num_labels) if config.num_labels > 0 else nn.Identity(),
         )
-        # initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -757,7 +689,6 @@ class BitBackbone(BackboneMixin, BitPreTrainedModel):
         self.bit = BitModel(config)
         self.num_features = [config.embedding_size] + config.hidden_sizes
 
-        # initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

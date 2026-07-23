@@ -1,17 +1,3 @@
-# Copyright 2021 ASAPP Inc. and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SEW model."""
 
 import math
 from collections.abc import Sequence
@@ -36,7 +22,6 @@ logger = logging.get_logger(__name__)
 _HIDDEN_STATES_START_POSITION = 1
 
 
-# Copied from transformers.models.wav2vec2.modeling_wav2vec2._compute_mask_indices
 def _compute_mask_indices(
     shape: tuple[int, int],
     mask_prob: float,
@@ -72,7 +57,6 @@ def _compute_mask_indices(
             f" and `sequence_length`: {sequence_length}`"
         )
 
-    # epsilon is used for probabilistic rounding
     epsilon = np.random.rand(1).item()
 
     def compute_num_masked_span(input_length):
@@ -80,24 +64,20 @@ def _compute_mask_indices(
         num_masked_span = int(mask_prob * input_length / mask_length + epsilon)
         num_masked_span = max(num_masked_span, min_masks)
 
-        # make sure num masked span <= sequence_length
         if num_masked_span * mask_length > sequence_length:
             num_masked_span = sequence_length // mask_length
 
-        # make sure num_masked span is also <= input_length - (mask_length - 1)
         if input_length - (mask_length - 1) < num_masked_span:
             num_masked_span = max(input_length - (mask_length - 1), 0)
 
         return num_masked_span
 
-    # compute number of masked spans in batch
     input_lengths = (
         attention_mask.detach().sum(-1).tolist()
         if attention_mask is not None
         else [sequence_length for _ in range(batch_size)]
     )
 
-    # SpecAugment mask to fill
     spec_aug_mask = np.zeros((batch_size, sequence_length), dtype=bool)
     spec_aug_mask_idxs = []
 
@@ -107,21 +87,13 @@ def _compute_mask_indices(
         return spec_aug_mask
 
     for input_length in input_lengths:
-        # compute num of masked spans for this input
         num_masked_span = compute_num_masked_span(input_length)
 
-        # get random indices to mask
         spec_aug_mask_idx = np.random.choice(
             np.arange(input_length - (mask_length - 1)), num_masked_span, replace=False
         )
 
-        # pick first sampled index that will serve as a dummy index to pad vector
-        # to ensure same dimension for all batches due to probabilistic rounding
-        # Picking first sample just pads those vectors twice.
         if len(spec_aug_mask_idx) == 0:
-            # this case can only happen if `input_length` is strictly smaller then
-            # `sequence_length` in which case the last token has to be a padding
-            # token which we can use as a dummy mask id
             dummy_mask_idx = sequence_length - 1
         else:
             dummy_mask_idx = spec_aug_mask_idx[0]
@@ -133,24 +105,20 @@ def _compute_mask_indices(
 
     spec_aug_mask_idxs = np.array(spec_aug_mask_idxs)
 
-    # expand masked indices to masked spans
     spec_aug_mask_idxs = np.broadcast_to(
         spec_aug_mask_idxs[:, :, None], (batch_size, max_num_masked_span, mask_length)
     )
     spec_aug_mask_idxs = spec_aug_mask_idxs.reshape(batch_size, max_num_masked_span * mask_length)
 
-    # add offset to the starting indexes so that indexes now create a span
     offsets = np.arange(mask_length)[None, None, :]
     offsets = np.broadcast_to(offsets, (batch_size, max_num_masked_span, mask_length)).reshape(
         batch_size, max_num_masked_span * mask_length
     )
     spec_aug_mask_idxs = spec_aug_mask_idxs + offsets
 
-    # ensure that we cannot have indices larger than sequence_length
     if spec_aug_mask_idxs.max() > sequence_length - 1:
         spec_aug_mask_idxs[spec_aug_mask_idxs > sequence_length - 1] = sequence_length - 1
 
-    # scatter indices to mask
     np.put_along_axis(spec_aug_mask, spec_aug_mask_idxs, 1, -1)
 
     return spec_aug_mask
@@ -235,7 +203,6 @@ def get_mask(input, local_context):
     return mask, dropout
 
 
-# Copied from transformers.models.wav2vec2.modeling_wav2vec2.Wav2Vec2NoLayerNormConvLayer with Wav2Vec2->SEWD
 class SEWDNoLayerNormConvLayer(GradientCheckpointingLayer):
     def __init__(self, config, layer_id=0):
         super().__init__()
@@ -257,7 +224,6 @@ class SEWDNoLayerNormConvLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-# Copied from transformers.models.wav2vec2.modeling_wav2vec2.Wav2Vec2LayerNormConvLayer with Wav2Vec2->SEWD
 class SEWDLayerNormConvLayer(GradientCheckpointingLayer):
     def __init__(self, config, layer_id=0):
         super().__init__()
@@ -285,7 +251,6 @@ class SEWDLayerNormConvLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-# Copied from transformers.models.wav2vec2.modeling_wav2vec2.Wav2Vec2GroupNormConvLayer with Wav2Vec2->SEWD
 class SEWDGroupNormConvLayer(GradientCheckpointingLayer):
     def __init__(self, config, layer_id=0):
         super().__init__()
@@ -310,7 +275,6 @@ class SEWDGroupNormConvLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-# Copied from transformers.models.sew.modeling_sew.SEWPositionalConvEmbedding with SEW->SEWD
 class SEWDPositionalConvEmbedding(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -354,7 +318,6 @@ class SEWDPositionalConvEmbedding(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.wav2vec2.modeling_wav2vec2.Wav2Vec2SamePadLayer with Wav2Vec2->SEW
 class SEWDSamePadLayer(nn.Module):
     def __init__(self, num_conv_pos_embeddings):
         super().__init__()
@@ -366,7 +329,6 @@ class SEWDSamePadLayer(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.sew.modeling_sew.SEWUpsampling with SEW->SEWD
 class SEWDUpsampling(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -379,7 +341,6 @@ class SEWDUpsampling(nn.Module):
         hidden_states = self.activation(hidden_states)
 
         if self.squeeze_factor > 1:
-            # transform embedding channels to sequence length
             bsz, src_len, src_embed_dim = hidden_states.size()
             tgt_len = src_len * self.squeeze_factor
             tgt_embed_dim = src_embed_dim // self.squeeze_factor
@@ -389,9 +350,7 @@ class SEWDUpsampling(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.wav2vec2.modeling_wav2vec2.Wav2Vec2FeatureEncoder with Wav2Vec2->SEWD
 class SEWDFeatureEncoder(nn.Module):
-    """Construct the features from raw audio waveform"""
 
     def __init__(self, config):
         super().__init__()
@@ -411,14 +370,11 @@ class SEWDFeatureEncoder(nn.Module):
         self._requires_grad = True
 
     def _freeze_parameters(self):
-        for param in self.parameters():
-            param.requires_grad = False
-        self._requires_grad = False
+        pass
 
     def forward(self, input_values):
         hidden_states = input_values[:, None]
 
-        # make sure hidden_states require grad for gradient_checkpointing
         if self._requires_grad and self.training:
             hidden_states.requires_grad = True
 
@@ -436,8 +392,6 @@ class ContextPooler(nn.Module):
         self.config = config
 
     def forward(self, hidden_states):
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
 
         context_token = hidden_states[:, 0]
         context_token = self.dropout(context_token)
@@ -447,36 +401,10 @@ class ContextPooler(nn.Module):
 
     @property
     def output_dim(self):
-        return self.config.hidden_size
+        pass
 
 
 class XSoftmax(torch.autograd.Function):
-    """
-    Masked Softmax which is optimized for saving memory
-
-    Args:
-        input (`torch.tensor`): The input tensor that will apply softmax.
-        mask (`torch.IntTensor`):
-            The mask matrix where 0 indicate that element will be ignored in the softmax calculation.
-        dim (int): The dimension that will apply softmax
-
-    Example:
-
-    ```python
-    >>> import torch
-    >>> from transformers.models.deberta_v2.modeling_deberta_v2 import XSoftmax
-
-    >>> # Make a tensor
-    >>> x = torch.randn([4, 20, 100])
-
-    >>> # Create a mask
-    >>> mask = (x > 0).int()
-
-    >>> # Specify the dimension to apply softmax
-    >>> dim = -1
-
-    >>> y = XSoftmax.apply(x, mask, dim)
-    ```"""
 
     @staticmethod
     def forward(ctx, input, mask, dim):
@@ -491,26 +419,11 @@ class XSoftmax(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        (output,) = ctx.saved_tensors
-        inputGrad = torch._softmax_backward_data(grad_output, output, ctx.dim, output.dtype)
-        return inputGrad, None, None
+        pass
 
     @staticmethod
     def symbolic(g, self, mask, dim):
-        import torch.onnx.symbolic_helper as sym_help
-        from torch.onnx.symbolic_opset9 import masked_fill, softmax
-
-        mask_cast_value = g.op("Cast", mask, to_i=sym_help.cast_pytorch_to_onnx["Long"])
-        r_mask = g.op(
-            "Cast",
-            g.op("Sub", g.op("Constant", value_t=torch.tensor(1, dtype=torch.int64)), mask_cast_value),
-            to_i=sym_help.cast_pytorch_to_onnx["Bool"],
-        )
-        output = masked_fill(
-            g, self, r_mask, g.op("Constant", value_t=torch.tensor(torch.finfo(self.type().dtype()).min))
-        )
-        output = softmax(g, output, dim)
-        return masked_fill(g, output, r_mask, g.op("Constant", value_t=torch.tensor(0, dtype=torch.bool)))
+        pass
 
 
 class DropoutContext:
@@ -522,7 +435,6 @@ class DropoutContext:
 
 
 class XDropout(torch.autograd.Function):
-    """Optimized dropout function to save computation and memory by using mask operation instead of multiplication."""
 
     @staticmethod
     def forward(ctx, input, local_ctx):
@@ -536,37 +448,14 @@ class XDropout(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        if ctx.scale > 1:
-            (mask,) = ctx.saved_tensors
-            return grad_output.masked_fill(mask, 0) * ctx.scale, None
-        else:
-            return grad_output, None
+        pass
 
     @staticmethod
     def symbolic(g: torch._C.Graph, input: torch._C.Value, local_ctx: float | DropoutContext) -> torch._C.Value:
-        from torch.onnx import symbolic_opset12
-
-        dropout_p = local_ctx
-        if isinstance(local_ctx, DropoutContext):
-            dropout_p = local_ctx.dropout
-        # StableDropout only calls this function when training.
-        train = True
-        # TODO: We should check if the opset_version being used to export
-        # is > 12 here, but there's no good way to do that. As-is, if the
-        # opset_version < 12, export will fail with a CheckerError.
-        # Once https://github.com/pytorch/pytorch/issues/78391 is fixed, do something like:
-        # if opset_version < 12:
-        #   return torch.onnx.symbolic_opset9.dropout(g, input, dropout_p, train)
-        return symbolic_opset12.dropout(g, input, dropout_p, train)
+        pass
 
 
 class StableDropout(nn.Module):
-    """
-    Optimized dropout module for stabilizing the training
-
-    Args:
-        drop_prob (float): the dropout probabilities
-    """
 
     def __init__(self, drop_prob):
         super().__init__()
@@ -586,16 +475,10 @@ class StableDropout(nn.Module):
         return x
 
     def clear_context(self):
-        self.count = 0
-        self.context_stack = None
+        pass
 
     def init_context(self, reuse_mask=True, scale=1):
-        if self.context_stack is None:
-            self.context_stack = []
-        self.count = 0
-        for c in self.context_stack:
-            c.reuse_mask = reuse_mask
-            c.scale = scale
+        pass
 
     def get_context(self):
         if self.context_stack is not None:
@@ -624,15 +507,6 @@ class SEWDSelfOutput(nn.Module):
 
 
 class DisentangledSelfAttention(nn.Module):
-    """
-    Disentangled self-attention module
-
-    Parameters:
-        config (`DebertaV2Config`):
-            A model config class instance with the configuration to build a new model. The schema is similar to
-            *BertConfig*, for more details, please refer [`DebertaV2Config`]
-
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -722,7 +596,6 @@ class DisentangledSelfAttention(nn.Module):
         value_layer = self.transpose_for_scores(self.value_proj(hidden_states), self.num_attention_heads)
 
         rel_att = None
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         scale_factor = 1
         if "c2p" in self.pos_att_type:
             scale_factor += 1
@@ -742,7 +615,6 @@ class DisentangledSelfAttention(nn.Module):
             -1, self.num_attention_heads, attention_scores.size(-2), attention_scores.size(-1)
         )
 
-        # bsz x height x length x dimension
         attention_probs = XSoftmax.apply(attention_scores, attention_mask, -1)
         attention_probs = self.dropout(attention_probs)
         context_layer = torch.bmm(
@@ -774,7 +646,6 @@ class DisentangledSelfAttention(nn.Module):
             relative_pos = relative_pos.unsqueeze(0).unsqueeze(0)
         elif relative_pos.dim() == 3:
             relative_pos = relative_pos.unsqueeze(1)
-        # bsz x height x query x key
         elif relative_pos.dim() != 4:
             raise ValueError(f"Relative position ids must be of dim 2 or 3 or 4. {relative_pos.dim()}")
 
@@ -800,7 +671,6 @@ class DisentangledSelfAttention(nn.Module):
                 ).repeat(query_layer.size(0) // self.num_attention_heads, 1, 1)  # .split(self.all_head_size, dim=-1)
 
         score = 0
-        # content->position
         if "c2p" in self.pos_att_type:
             scale = torch.sqrt(torch.tensor(pos_key_layer.size(-1), dtype=torch.float) * scale_factor)
             c2p_att = torch.bmm(query_layer, pos_key_layer.transpose(-1, -2))
@@ -812,7 +682,6 @@ class DisentangledSelfAttention(nn.Module):
             )
             score += c2p_att / scale.to(dtype=c2p_att.dtype)
 
-        # position->content
         if "p2c" in self.pos_att_type:
             scale = torch.sqrt(torch.tensor(pos_query_layer.size(-1), dtype=torch.float) * scale_factor)
             if key_layer.size(-2) != query_layer.size(-2):
@@ -875,7 +744,6 @@ class SEWDAttention(nn.Module):
             return attention_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->SEWD
 class SEWDIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -977,7 +845,6 @@ class ConvLayer(nn.Module):
 
 
 class SEWDTransformerEncoder(nn.Module):
-    """Modified BertEncoder with relative position bias support"""
 
     def __init__(self, config):
         super().__init__()
@@ -1014,9 +881,6 @@ class SEWDTransformerEncoder(nn.Module):
 
     def get_attention_mask(self, attention_mask):
         if attention_mask.dim() <= 2:
-            # Shape: {batch, 1, 1, seq} — broadcasts with attention scores {batch, heads, seq, seq}.
-            # Avoids building a full {batch, 1, seq, seq} outer product whose seq dimension gets baked
-            # as a constant during ONNX export and breaks inference with different sequence lengths.
             attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
         elif attention_mask.dim() == 3:
             attention_mask = attention_mask.unsqueeze(1)
@@ -1124,13 +988,9 @@ class SEWDEncoder(nn.Module):
                 (hidden_states.shape[0], max_encoder_length), dtype=torch.long, device=hidden_states.device
             )
         else:
-            # make sure padded tokens output 0
             expand_attention_mask = attention_mask.unsqueeze(-1).repeat(1, 1, hidden_states.shape[2])
             hidden_states[~expand_attention_mask.bool()] = 0.0
 
-            # Pool the attention mask to match the pooled hidden_states shape.
-            # max_pool1d avoids torch.arange(max_encoder_length) which bakes
-            # the sequence length as a constant during ONNX export.
             attention_mask = (
                 nn.functional.max_pool1d(
                     attention_mask.float().unsqueeze(1),
@@ -1146,8 +1006,6 @@ class SEWDEncoder(nn.Module):
         hidden_states = hidden_states.transpose(1, 2)
         position_embeddings = self.pos_conv_embed(hidden_states)
         pooled_hidden_states = self.pool(hidden_states)
-        # pos_conv_embed (stride=squeeze_factor, ceil padding) always produces >= pooled length;
-        # trim to the pooled length to align shapes without a data-dependent min() guard.
         hidden_states = pooled_hidden_states + position_embeddings[..., : pooled_hidden_states.size(-1)]
         hidden_states = hidden_states.transpose(1, 2)
 
@@ -1206,8 +1064,6 @@ class SEWDPreTrainedModel(PreTrainedModel):
         """
 
         def _conv_out_length(input_length, kernel_size, stride):
-            # 1D convolutional layer output length formula taken
-            # from https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html
             return torch.div(input_length - kernel_size, stride, rounding_mode="floor") + 1
 
         for kernel_size, stride in zip(self.config.conv_kernel, self.config.conv_stride):
@@ -1217,15 +1073,11 @@ class SEWDPreTrainedModel(PreTrainedModel):
 
     def _get_feature_vector_attention_mask(self, feature_vector_length: int, attention_mask: torch.LongTensor):
         output_lengths = self._get_feat_extract_output_lengths(attention_mask.sum(-1)).to(torch.long)
-        # Build the feature mask via arange broadcast comparison.  This keeps feature_vector_length
-        # as a symbolic SymInt in torch.export / torch.onnx.export (ONNX Range op), avoiding the
-        # data-dependent scatter + cumsum pattern that bakes the length as a constant.
         attention_ids = torch.arange(feature_vector_length, device=attention_mask.device)
         return attention_ids.unsqueeze(0) < output_lengths.unsqueeze(1)
 
 
 @auto_docstring
-# Copied from transformers.models.sew.modeling_sew.SEWModel with SEW->SEWD, layer_norm_eps->feature_layer_norm_eps
 class SEWDModel(SEWDPreTrainedModel):
     def __init__(self, config: SEWDConfig):
         super().__init__(config)
@@ -1243,10 +1095,8 @@ class SEWDModel(SEWDPreTrainedModel):
 
         self.encoder = SEWDEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.wav2vec2.modeling_wav2vec2.Wav2Vec2Model._mask_hidden_states
     def _mask_hidden_states(
         self,
         hidden_states: torch.FloatTensor,
@@ -1258,15 +1108,12 @@ class SEWDModel(SEWDPreTrainedModel):
         [SpecAugment](https://huggingface.co/papers/1904.08779).
         """
 
-        # `config.apply_spec_augment` can set masking to False
         if not getattr(self.config, "apply_spec_augment", True):
             return hidden_states
 
-        # generate indices & apply SpecAugment along time axis
         batch_size, sequence_length, hidden_size = hidden_states.size()
 
         if mask_time_indices is not None:
-            # apply SpecAugment along time axis with given mask_time_indices
             hidden_states[mask_time_indices] = self.masked_spec_embed.to(hidden_states.dtype)
         elif self.config.mask_time_prob > 0 and self.training:
             mask_time_indices = _compute_mask_indices(
@@ -1280,7 +1127,6 @@ class SEWDModel(SEWDPreTrainedModel):
             hidden_states[mask_time_indices] = self.masked_spec_embed.to(hidden_states.dtype)
 
         if self.config.mask_feature_prob > 0 and self.training:
-            # generate indices & apply SpecAugment along feature axis
             mask_feature_indices = _compute_mask_indices(
                 (batch_size, hidden_size),
                 mask_prob=self.config.mask_feature_prob,
@@ -1324,7 +1170,6 @@ class SEWDModel(SEWDPreTrainedModel):
         hidden_states = self.feature_dropout(extract_features)
 
         if attention_mask is not None:
-            # compute reduced attention_mask corresponding to feature vectors
             attention_mask = self._get_feature_vector_attention_mask(hidden_states.shape[1], attention_mask)
 
         hidden_states = self._mask_hidden_states(hidden_states, mask_time_indices=mask_time_indices)
@@ -1354,7 +1199,6 @@ class SEWDModel(SEWDPreTrainedModel):
     SEW-D Model with a `language modeling` head on top for Connectionist Temporal Classification (CTC).
     """
 )
-# Copied from transformers.models.wav2vec2.modeling_wav2vec2.Wav2Vec2ForCTC with Wav2Vec2->SEWD, wav2vec2->sew_d, WAV2VEC2->SEWD
 class SEWDForCTC(SEWDPreTrainedModel):
     def __init__(self, config, target_lang: str | None = None):
         r"""
@@ -1382,7 +1226,6 @@ class SEWDForCTC(SEWDPreTrainedModel):
         )
         self.lm_head = nn.Linear(output_hidden_size, config.vocab_size)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def tie_weights(self, **kwargs):
@@ -1396,10 +1239,6 @@ class SEWDForCTC(SEWDPreTrainedModel):
         if get_torch_context_manager_or_global_device() == torch.device("meta"):
             return
 
-        # Note that `tie_weights` is usually used to tie input and output embedding weights. The method is re-purposed to
-        # correctly load adapter layers for SEWD so that we do not have to introduce a new API to
-        # [`PreTrainedModel`]. While slightly hacky, SEWD never has to tie input and output embeddings, so that it is
-        # ok to repurpose this function here.
         target_lang = self.target_lang
 
         if target_lang is not None and getattr(self.config, "adapter_attn_dim", None) is None:
@@ -1410,19 +1249,10 @@ class SEWDForCTC(SEWDPreTrainedModel):
             self.load_adapter(target_lang, force_load=True)
 
     def freeze_feature_encoder(self):
-        """
-        Calling this function will disable the gradient computation for the feature encoder so that its parameter will
-        not be updated during training.
-        """
-        self.sew_d.feature_extractor._freeze_parameters()
+        pass
 
     def freeze_base_model(self):
-        """
-        Calling this function will disable the gradient computation for the base model so that its parameters will not
-        be updated during training. Only the classification head will be updated.
-        """
-        for param in self.sew_d.parameters():
-            param.requires_grad = False
+        pass
 
     @auto_docstring
     def forward(
@@ -1462,19 +1292,15 @@ class SEWDForCTC(SEWDPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # retrieve loss input_lengths from attention_mask
             attention_mask = (
                 attention_mask if attention_mask is not None else torch.ones_like(input_values, dtype=torch.long)
             )
             input_lengths = self._get_feat_extract_output_lengths(attention_mask.sum(-1)).to(torch.long)
 
-            # assuming that padded tokens are filled with -100
-            # when not being attended to
             labels_mask = labels >= 0
             target_lengths = labels_mask.sum(-1)
             flattened_targets = labels.masked_select(labels_mask)
 
-            # ctc_loss doesn't support fp16
             log_probs = nn.functional.log_softmax(logits, dim=-1, dtype=torch.float32).transpose(0, 1)
 
             with torch.backends.cudnn.flags(enabled=False):
@@ -1503,7 +1329,6 @@ class SEWDForCTC(SEWDPreTrainedModel):
     Keyword Spotting.
     """
 )
-# Copied from transformers.models.wav2vec2.modeling_wav2vec2.Wav2Vec2ForSequenceClassification with Wav2Vec2->SEWD, wav2vec2->sew_d, WAV2VEC2->SEWD
 class SEWDForSequenceClassification(SEWDPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -1519,23 +1344,13 @@ class SEWDForSequenceClassification(SEWDPreTrainedModel):
         self.projector = nn.Linear(config.hidden_size, config.classifier_proj_size)
         self.classifier = nn.Linear(config.classifier_proj_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def freeze_feature_encoder(self):
-        """
-        Calling this function will disable the gradient computation for the feature encoder so that its parameter will
-        not be updated during training.
-        """
-        self.sew_d.feature_extractor._freeze_parameters()
+        pass
 
     def freeze_base_model(self):
-        """
-        Calling this function will disable the gradient computation for the base model so that its parameters will not
-        be updated during training. Only the classification head will be updated.
-        """
-        for param in self.sew_d.parameters():
-            param.requires_grad = False
+        pass
 
     @auto_docstring
     def forward(

@@ -1,17 +1,3 @@
-# Copyright 2024 Databricks Mosaic Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Modular components for DBRX model."""
 
 from collections.abc import Callable
 from typing import Any
@@ -47,7 +33,6 @@ class DbrxRotaryEmbedding(LlamaRotaryEmbedding):
 
 
 class DbrxAttention(nn.Module):
-    """Modular DBRX attention component that can be reused across different model architectures."""
 
     def __init__(
         self,
@@ -213,7 +198,6 @@ class DbrxRouter(nn.Module):
 
 
 class DbrxFFN(nn.Module):
-    """Modular DBRX MLP/FFN component with MoE support."""
 
     def __init__(self, config, **kwargs):
         super().__init__()
@@ -341,13 +325,6 @@ class DbrxPreTrainedModel(PreTrainedModel):
 
 @auto_docstring
 class DbrxModel(DbrxPreTrainedModel):
-    """Transformer decoder consisting of *config.num_hidden_layers*. Each layer is a [`DbrxBlock`] layer.
-
-    Args:
-        config ([`DbrxConfig`]): Model configuration class with all parameters of the model.
-            Initializing with a config file does not load the weights associated with the model, only the
-            configuration. Check out the [`~PreTrainedModel.from_pretrained`] method to load the model weights.
-    """
 
     def __init__(self, config: DbrxConfig):
         super().__init__(config)
@@ -360,7 +337,6 @@ class DbrxModel(DbrxPreTrainedModel):
         self.norm_f = nn.LayerNorm(config.d_model, bias=False)
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> nn.Embedding:
@@ -406,7 +382,6 @@ class DbrxModel(DbrxPreTrainedModel):
 
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         for decoder_layer in self.blocks[: self.config.num_hidden_layers]:
@@ -456,7 +431,7 @@ class DbrxForCausalLM(DbrxPreTrainedModel, GenerationMixin):
         self.lm_head = new_embeddings
 
     def set_decoder(self, decoder: DbrxModel):
-        self.transformer = decoder
+        pass
 
     def get_decoder(self) -> DbrxModel:
         return self.transformer
@@ -503,7 +478,6 @@ class DbrxForCausalLM(DbrxPreTrainedModel, GenerationMixin):
             output_router_logits if output_router_logits is not None else self.config.output_router_logits
         )
 
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs: MoeModelOutputWithPast = self.transformer(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -516,7 +490,6 @@ class DbrxForCausalLM(DbrxPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

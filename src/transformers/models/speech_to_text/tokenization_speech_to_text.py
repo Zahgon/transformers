@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for Speech2Text."""
 
 import json
 import os
@@ -47,51 +33,6 @@ LANGUAGES = {"mustc": MUSTC_LANGS}
 
 @requires(backends=("sentencepiece",))
 class Speech2TextTokenizer(PreTrainedTokenizer):
-    """
-    Construct an Speech2Text tokenizer.
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains some of the main methods. Users should refer to
-    the superclass for more information regarding such methods.
-
-    Args:
-        vocab_file (`str`):
-            File containing the vocabulary.
-        spm_file (`str`):
-            Path to the [SentencePiece](https://github.com/google/sentencepiece) model file
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sentence token.
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sentence token.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        do_upper_case (`bool`, *optional*, defaults to `False`):
-           Whether or not to uppercase the output when decoding.
-        do_lower_case (`bool`, *optional*, defaults to `False`):
-            Whether or not to lowercase the input when tokenizing.
-        tgt_lang (`str`, *optional*):
-            A string representing the target language.
-        sp_model_kwargs (`dict`, *optional*):
-            Will be passed to the `SentencePieceProcessor.__init__()` method. The [Python wrapper for
-            SentencePiece](https://github.com/google/sentencepiece/tree/master/python) can be used, among other things,
-            to set:
-
-            - `enable_sampling`: Enable subword regularization.
-            - `nbest_size`: Sampling parameters for unigram. Invalid for BPE-Dropout.
-
-              - `nbest_size = {0,1}`: No sampling is performed.
-              - `nbest_size > 1`: samples from the nbest_size results.
-              - `nbest_size < 0`: assuming that nbest_size is infinite and samples from the all hypothesis (lattice)
-                using forward-filtering-and-backward-sampling algorithm.
-
-            - `alpha`: Smoothing parameter for unigram sampling, and dropout probability of merge operations for
-              BPE-dropout.
-
-        **kwargs
-            Additional keyword arguments passed along to [`PreTrainedTokenizer`]
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -155,7 +96,7 @@ class Speech2TextTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self) -> int:
-        return len(self.encoder)
+        pass
 
     def get_vocab(self) -> dict:
         vocab = self.encoder.copy()
@@ -164,12 +105,11 @@ class Speech2TextTokenizer(PreTrainedTokenizer):
 
     @property
     def tgt_lang(self) -> str | None:
-        return getattr(self, "_tgt_lang", None)
+        pass
 
     @tgt_lang.setter
     def tgt_lang(self, new_tgt_lang) -> None:
-        self._tgt_lang = new_tgt_lang
-        self.set_tgt_lang_special_tokens(new_tgt_lang)
+        pass
 
     def set_tgt_lang_special_tokens(self, tgt_lang: str) -> None:
         """Reset the special tokens to the target language setting. prefix=[eos, tgt_lang_code] and suffix=[eos]."""
@@ -192,7 +132,6 @@ class Speech2TextTokenizer(PreTrainedTokenizer):
         current_sub_tokens = []
         out_string = ""
         for token in tokens:
-            # make sure that special tokens are not decoded using sentencepiece model
             if token in all_special_tokens:
                 decoded = self.sp_model.decode(current_sub_tokens)
                 out_string += (decoded.upper() if self.do_upper_case else decoded) + token + " "
@@ -207,7 +146,6 @@ class Speech2TextTokenizer(PreTrainedTokenizer):
         """Build model inputs from a sequence by appending eos_token_id."""
         if token_ids_1 is None:
             return self.prefix_tokens + token_ids_0 + [self.eos_token_id]
-        # We don't expect to process pairs, but leave the pair logic for API consistency
         return self.prefix_tokens + token_ids_0 + token_ids_1 + [self.eos_token_id]
 
     def get_special_tokens_mask(
@@ -248,7 +186,6 @@ class Speech2TextTokenizer(PreTrainedTokenizer):
     def __setstate__(self, d: dict) -> None:
         self.__dict__ = d
 
-        # for backward compatibility
         if not hasattr(self, "sp_model_kwargs"):
             self.sp_model_kwargs = {}
 

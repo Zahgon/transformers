@@ -1,17 +1,3 @@
-# Copyright 2022 Google LLC., LongT5 Authors and HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch LongT5 model."""
 
 import copy
 import math
@@ -47,13 +33,11 @@ from .configuration_longt5 import LongT5Config
 logger = logging.get_logger(__name__)
 
 
-# TODO: Update before the merge
 
 
 def _pad_to_multiple(x: torch.Tensor, block_len: int, dim: int, pad_value: int = 0) -> torch.Tensor:
     """Pad a tensor so that a sequence length will be a multiple of `block_len`"""
     pad_len = -x.shape[dim] % block_len
-    # Handle cases when an empty input sequence is given
     if not all(x.shape):
         new_shape = list(x.shape)
         new_shape[dim] += pad_len
@@ -70,12 +54,10 @@ def _split_into_blocks(x: torch.Tensor, block_len: int, dim: int) -> torch.Tenso
     """Split an input tensor into blocks of a given `block_len` along the given `dim`. If the dimension length
     is not a multiple of `block_len`, it will be padded first with selected `pad_value`.
     """
-    # pad tensor to multiple of block_len
     if x.shape[dim] % block_len != 0:
         x = _pad_to_multiple(x, block_len, dim, pad_value=0)
     num_blocks = x.shape[dim] // block_len
     output_shape = x.shape[:dim] + (num_blocks, block_len) + x.shape[(dim + 1) :]
-    # If 0 is in output_shape, we cannot apply reshape because of incompatibility with ONNX conversion
     if 0 in output_shape:
         return torch.empty(output_shape, dtype=x.dtype, device=x.device)
     return x.reshape(output_shape)
@@ -91,18 +73,14 @@ def _concatenate_3_blocks(x: torch.Tensor, block_dim: int, sequence_dim: int, pa
     pad = [(0, 0)] * x.ndim
     pad[block_dim] = (1, 1)
     pad = sum(pad[::-1], ())
-    # [batch_size, num_blocks, block_len] -> [batch_size, num_blocks + 2, block_len]
     x = nn.functional.pad(x, pad=pad, mode="constant", value=pad_value)
 
     blocks_list: list[torch.Tensor] = []
     for i in range(3):
-        # We use indexing approach here:
-        # https://numpy.org/doc/stable/user/basics.indexing.html#dealing-with-variable-numbers-of-indices-within-programs
         indices = [slice(0, None)] * x.ndim
         indices[block_dim] = slice(i, i + num_blocks)
         indices = tuple(indices)
         blocks_list.append(x[indices])
-    # [batch_size, num_blocks, 3 * block_len, ...]
     return torch.cat(blocks_list, dim=sequence_dim)
 
 
@@ -110,7 +88,6 @@ def _make_3block_relative_position_ids(block_len: int) -> torch.Tensor:
     """Makes 3-blocked relative position ids for local attention."""
     position_ids = torch.arange(3 * block_len, dtype=torch.int32)
     center_position_ids = position_ids[block_len:-block_len]
-    # [block_len, 3 * block_len]
     relative_position_ids = position_ids.unsqueeze(0) - center_position_ids.unsqueeze(1)
     return relative_position_ids
 
@@ -126,17 +103,13 @@ def _mask_local_attention_mask(local_attention_mask: torch.Tensor, block_len: in
 
 def _get_local_attention_mask(attention_mask: torch.Tensor, block_len: int, device: torch.device) -> torch.Tensor:
     """Prepare attention mask to be applied for a local attention."""
-    # [batch_size, num_blocks, block_len]
     _blocked_attention_mask = _split_into_blocks(attention_mask, block_len, dim=1)
-    # [batch_size, num_block, 3 * block_len]
     _3blocked_attention_mask = _concatenate_3_blocks(_blocked_attention_mask, block_dim=1, sequence_dim=2)
 
     _blocked_attention_mask = _blocked_attention_mask.unsqueeze(-1)
     _3blocked_attention_mask = _3blocked_attention_mask.unsqueeze(-2)
-    # [batch_size, num_block, block_len, 3 * block_len]
     local_attention_mask = torch.logical_and(_blocked_attention_mask, _3blocked_attention_mask)
     local_attention_mask = _mask_local_attention_mask(local_attention_mask, block_len)
-    # [batch_size, 1, num_block, block_len, 3 * block_len]
     return local_attention_mask.unsqueeze(1).to(device)
 
 
@@ -171,12 +144,9 @@ def _make_global_fixed_block_ids(
     global_block_ids = torch.where(
         global_block_ids > _global_block_ids_lower_bound, global_block_ids, _global_block_ids_lower_bound
     )
-    # set padding tokens to -1
     global_block_ids = (global_block_ids * attention_mask) + (attention_mask - 1)
-    # [batch_size, seq_len]
     global_block_ids = handle_orphan_tokens(global_block_ids)
     num_globals = seq_len // global_block_size
-    # [batch_size, seq_len // global_block_size]
     if num_globals > 0:
         _sequence_block_ids_max = torch.max(global_block_ids, dim=-1).values.repeat(num_globals, 1).transpose(0, 1)
     else:
@@ -202,7 +172,6 @@ def _create_global_aggregates(
     hidden_states: torch.Tensor, block_ids: torch.Tensor, global_seq_len: int
 ) -> torch.Tensor:
     """Compute individual block aggregates by summing over individual blocks."""
-    # (batch..., seq_len, global_seq_len))
     block_ids = block_ids.where(
         block_ids >= 0, torch.tensor(global_seq_len, dtype=block_ids.dtype, device=block_ids.device)
     )
@@ -210,7 +179,6 @@ def _create_global_aggregates(
     return torch.einsum("...nd,...ng->...gd", hidden_states, one_hot_block_ids.type(hidden_states.dtype))
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerNorm with T5->LongT5
 class LongT5LayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-6):
         """
@@ -221,22 +189,16 @@ class LongT5LayerNorm(nn.Module):
         self.variance_epsilon = eps
 
     def forward(self, hidden_states):
-        # LongT5 uses a layer_norm which only scales and doesn't shift, which is also known as Root Mean
-        # Square Layer Normalization https://huggingface.co/papers/1910.07467 thus variance is calculated
-        # w/o mean and there is no bias. Additionally we want to make sure that the accumulation for
-        # half-precision inputs is done in fp32
 
         variance = hidden_states.to(torch.float32).pow(2).mean(-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
 
-        # convert into half-precision if necessary
         if self.weight.dtype in [torch.float16, torch.bfloat16]:
             hidden_states = hidden_states.to(self.weight.dtype)
 
         return self.weight * hidden_states
 
 
-# Copied from transformers.models.t5.modeling_t5.T5DenseActDense with T5->LongT5
 class LongT5DenseActDense(nn.Module):
     def __init__(self, config: LongT5Config):
         super().__init__()
@@ -277,7 +239,6 @@ class LongT5DenseGatedActDense(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerFF with T5->LongT5
 class LongT5LayerFF(nn.Module):
     def __init__(self, config: LongT5Config):
         super().__init__()
@@ -296,7 +257,6 @@ class LongT5LayerFF(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.t5.modeling_t5.T5Attention with T5->LongT5
 class LongT5Attention(nn.Module):
     def __init__(
         self,
@@ -361,13 +321,10 @@ class LongT5Attention(nn.Module):
             relative_position = torch.abs(relative_position)
         else:
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
-        # now relative_position is in the range [0, inf)
 
-        # half of the buckets are for exact increments in positions
         max_exact = num_buckets // 2
         is_small = relative_position < max_exact
 
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
         relative_position_if_large = max_exact + (
             torch.log(relative_position.float() / max_exact)
             / math.log(max_distance / max_exact)
@@ -410,25 +367,19 @@ class LongT5Attention(nn.Module):
         """
         Self-attention (if key_value_states is None) or attention over source sentence (provided by key_value_states).
         """
-        # Input is (batch_size, seq_length, dim)
-        # Mask is (batch_size, 1, 1, key_length) (non-causal encoder) or (batch_size, 1, seq_length, key_length) (causal decoder)
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.key_value_proj_dim)
         past_seen_tokens = past_key_values.get_seq_length(self.layer_idx) if past_key_values is not None else 0
-        # We clone here for StaticCache, as we get the value before updating it, but use it after and it's the same ref
         past_seen_tokens = past_seen_tokens.clone() if isinstance(past_seen_tokens, torch.Tensor) else past_seen_tokens
 
-        # if key_value_states are provided this layer is used as a cross-attention layer for the decoder
         is_cross_attention = key_value_states is not None
 
         query_states = self.q(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Check is encoder-decoder model is being used. Otherwise we'll get `DynamicCache`
         is_updated = False
         if isinstance(past_key_values, EncoderDecoderCache):
             is_updated = past_key_values.is_updated.get(self.layer_idx)
             if is_cross_attention:
-                # after the first generated id, we can subsequently re-use all key/value_states from cache
                 curr_past_key_values = past_key_values.cross_attention_cache
             else:
                 curr_past_key_values = past_key_values.self_attention_cache
@@ -437,7 +388,6 @@ class LongT5Attention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -447,11 +397,9 @@ class LongT5Attention(nn.Module):
 
             if past_key_values is not None:
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
-        # compute scores, equivalent of torch.einsum("bnqd,bnkd->bnqk", query_states, key_states), compatible with onnx op>9
         scores = torch.matmul(query_states, key_states.transpose(3, 2))
 
         if position_bias is None:
@@ -474,7 +422,6 @@ class LongT5Attention(nn.Module):
         position_bias_masked = position_bias
         scores += position_bias_masked
 
-        # (batch_size, n_heads, seq_length, key_length)
         attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(scores)
         attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
 
@@ -517,7 +464,6 @@ class LongT5LocalAttention(nn.Module):
         self.gradient_checkpointing = False
 
     @staticmethod
-    # Copied from transformers.models.t5.modeling_t5.T5Attention._relative_position_bucket
     def _relative_position_bucket(relative_position, bidirectional=True, num_buckets=32, max_distance=128):
         """
         Adapted from Mesh Tensorflow:
@@ -546,13 +492,10 @@ class LongT5LocalAttention(nn.Module):
             relative_position = torch.abs(relative_position)
         else:
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
-        # now relative_position is in the range [0, inf)
 
-        # half of the buckets are for exact increments in positions
         max_exact = num_buckets // 2
         is_small = relative_position < max_exact
 
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
         relative_position_if_large = max_exact + (
             torch.log(relative_position.float() / max_exact)
             / math.log(max_distance / max_exact)
@@ -575,7 +518,6 @@ class LongT5LocalAttention(nn.Module):
         memory_position = torch.arange(3 * block_length, dtype=torch.long, device=target_device)
         context_position = memory_position[block_length:-block_length]
 
-        # (block_length, 3 * block_length)
         relative_position = memory_position[None, :] - context_position[:, None]
         relative_position_bucket = self._relative_position_bucket(
             relative_position,  # (block_length, 3 * block_length)
@@ -583,9 +525,7 @@ class LongT5LocalAttention(nn.Module):
             num_buckets=self.relative_attention_num_buckets,
             max_distance=self.relative_attention_max_distance,
         )
-        # (block_length, 3 * block_length, num_heads)
         values = self.relative_attention_bias(relative_position_bucket)
-        # (1, 1, num_heads, block_length, 3 * block_length)
         values = values.permute([2, 0, 1]).unsqueeze(0).unsqueeze(0)
         return values
 
@@ -606,27 +546,22 @@ class LongT5LocalAttention(nn.Module):
             """reshape"""
             return states.contiguous().view(batch_size, -1, self.inner_dim)
 
-        # get query/key/value states -> (batch_size, seq_length, n_heads, dim_per_head)
         query_states = shape(self.q(hidden_states))
         key_states = shape(self.k(hidden_states))
         value_states = shape(self.v(hidden_states))
 
-        # Split into blocks -> (batch_size, num_blocks, block_len, n_heads, dim_per_head)
         query_states = _split_into_blocks(query_states, self.block_len, dim=1)
         key_states = _split_into_blocks(key_states, self.block_len, dim=1)
         value_states = _split_into_blocks(value_states, self.block_len, dim=1)
 
-        # Concatenate 3 blocks for keys and values -> (batch_size, num_blocks, 3 * block_len, n_heads, dim_per_head)
         key_states = _concatenate_3_blocks(key_states, block_dim=1, sequence_dim=2)
         value_states = _concatenate_3_blocks(value_states, block_dim=1, sequence_dim=2)
 
-        # Compute scores
         scores = torch.einsum(
             "...qhd,...khd->...hqk", query_states, key_states
         )  # (batch_size, num_block, n_heads, block_len, 3 * block_len)
 
         if position_bias is None:
-            # position_bias shape: # (1, 1, n_heads, block_len, 3 * block_len)
             if not self.has_relative_attention_bias:
                 position_bias = torch.zeros(
                     (1, 1, self.n_heads, self.block_len, 3 * self.block_len), device=scores.device, dtype=scores.dtype
@@ -637,15 +572,11 @@ class LongT5LocalAttention(nn.Module):
                 position_bias = self.compute_bias(self.block_len)
 
             if mask is not None:
-                # Replace masked positions with -1e10 (according to the original implementation)
                 mask = torch.where(mask > 0, 0.0, -1e10)
-                # We need to adjust position bias shape to be sum with mask
                 position_bias = position_bias + mask.transpose(1, 2)
 
         scores += position_bias
-        # (batch_size, num_blocks, n_heads, block_len, 3 * block_len)
         attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(scores)
-        # (batch_size, num_blocks, n_heads, block_len, 3 * block_len)
         attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
 
         attn_weights = attn_weights.type(value_states.dtype)
@@ -687,13 +618,11 @@ class LongT5TransientGlobalAttention(nn.Module):
         if self.has_relative_attention_bias:
             self.relative_attention_bias = nn.Embedding(self.relative_attention_num_buckets, self.n_heads)
 
-        # Relativen attention bias & Layer norm for global attention
         if self.has_relative_attention_bias:
             self.global_relative_attention_bias = nn.Embedding(self.relative_attention_num_buckets, self.n_heads)
         self.global_input_layer_norm = LongT5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
 
     @staticmethod
-    # Copied from transformers.models.t5.modeling_t5.T5Attention._relative_position_bucket
     def _relative_position_bucket(relative_position, bidirectional=True, num_buckets=32, max_distance=128):
         """
         Adapted from Mesh Tensorflow:
@@ -722,13 +651,10 @@ class LongT5TransientGlobalAttention(nn.Module):
             relative_position = torch.abs(relative_position)
         else:
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
-        # now relative_position is in the range [0, inf)
 
-        # half of the buckets are for exact increments in positions
         max_exact = num_buckets // 2
         is_small = relative_position < max_exact
 
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
         relative_position_if_large = max_exact + (
             torch.log(relative_position.float() / max_exact)
             / math.log(max_distance / max_exact)
@@ -751,7 +677,6 @@ class LongT5TransientGlobalAttention(nn.Module):
         memory_position = torch.arange(3 * block_length, dtype=torch.long, device=target_device)
         context_position = memory_position[block_length:-block_length]
 
-        # (block_length, 3 * block_length)
         relative_position = memory_position[None, :] - context_position[:, None]
         relative_position_bucket = self._relative_position_bucket(
             relative_position,  # (block_length, 3 * block_length)
@@ -759,17 +684,13 @@ class LongT5TransientGlobalAttention(nn.Module):
             num_buckets=self.relative_attention_num_buckets,
             max_distance=self.relative_attention_max_distance,
         )
-        # (block_length, 3 * block_length, num_heads)
         values = self.relative_attention_bias(relative_position_bucket)
-        # (1, 1, num_heads, block_length, 3 * block_length)
         values = values.permute([2, 0, 1]).unsqueeze(0).unsqueeze(0)
         return values
 
     def compute_side_bias(self, mask: torch.Tensor, global_segment_ids: torch.Tensor) -> torch.Tensor:
-        # (batch_size, 1, seq_len, global_seq_len)
         side_attention_mask = torch.eq(mask[..., None], global_segment_ids[:, None, :])[:, None, ...]
         attention_side_bias = torch.where(side_attention_mask > 0, 0.0, -1e10)
-        # (batch_size, seq_len, global_seq_len)
         side_relative_position = _make_side_relative_position_ids(mask, self.global_block_size)
         side_relative_position_bucket = self._relative_position_bucket(
             side_relative_position,
@@ -777,12 +698,9 @@ class LongT5TransientGlobalAttention(nn.Module):
             num_buckets=self.relative_attention_num_buckets,
             max_distance=self.relative_attention_max_distance,
         )
-        # (batch_size, seq_len, global_seq_len, num_heads)
         side_bias = self.global_relative_attention_bias(side_relative_position_bucket)
 
-        # (batch_size, num_heads, seq_len, global_seq_len)
         side_bias = side_bias.permute([0, 3, 1, 2])
-        # (batch_size, num_heads, seq_len, global_seq_len)
         attention_side_bias = attention_side_bias + side_bias
         return attention_side_bias
 
@@ -803,61 +721,44 @@ class LongT5TransientGlobalAttention(nn.Module):
             """reshape"""
             return states.contiguous().view(batch_size, -1, self.inner_dim)
 
-        # Prepare components for transient-global attention
-        # Obtain block_ids and global_segment_ids
-        # global_seq_len := seq_len // self.global_block_size
-        # shapes: (batch_size, seq_len) & (batch_size, global_seq_len)
         block_ids, global_segment_ids = _make_global_fixed_block_ids(
             mask if mask is not None else torch.ones(hidden_states.shape[:-1]),
             self.global_block_size,
         )
-        # Create global inputs
         _global_seq_len = global_segment_ids.shape[-1]
         global_inputs = _create_global_aggregates(hidden_states, block_ids, _global_seq_len)
         global_inputs = self.global_input_layer_norm(global_inputs)
 
-        # get query states -> (batch_size, seq_length, n_heads, dim_per_head)
         query_states = shape(self.q(hidden_states))
         key_states = shape(self.k(hidden_states))
         value_states = shape(self.v(hidden_states))
-        # Get global/side key/value states  shape: (batch_size, global_seq_len, n_heads, dim_per_head)
         side_key_states = shape(self.k(global_inputs))
         side_value_states = shape(self.v(global_inputs))
 
-        # Split into blocks -> (batch_size, num_blocks, block_len, n_heads, dim_per_head)
         query_states = _split_into_blocks(query_states, self.block_len, dim=1)
         key_states = _split_into_blocks(key_states, self.block_len, dim=1)
         value_states = _split_into_blocks(value_states, self.block_len, dim=1)
 
-        # Concatenate 3 blocks for keys and values -> (batch_size, num_blocks, 3 * block_len, n_heads, dim_per_head)
         key_states = _concatenate_3_blocks(key_states, block_dim=1, sequence_dim=2)
         value_states = _concatenate_3_blocks(value_states, block_dim=1, sequence_dim=2)
 
-        # Tile side inputs across local key/value blocks
-        # New shape: (batch_size, num_blocks, global_seq_len, n_heads, dim_per_head)
         reps = [1] * (side_key_states.ndim + 1)
         reps[1] = key_states.shape[1]
         side_key_states = side_key_states.unsqueeze(1).repeat(reps)
         side_value_states = side_value_states.unsqueeze(1).repeat(reps)
 
-        # Concatenate "local" and "side"/"global" key/value states to allow each token to attend global aggregated ones
-        # New shape: (batch_size, num_blocks, 3 * block_len + global_seq_len, n_heads, dim_per_head)
         key_states = torch.cat([key_states, side_key_states], dim=2)
         value_states = torch.cat([value_states, side_value_states], dim=2)
 
-        # Compute scores -> (batch_size, num_block, n_heads, block_len, 3 * block_len + global_seq_len)
         scores = torch.einsum("...qhd,...khd->...hqk", query_states, key_states)
 
         if mask is not None:
-            # We need to adjust position bias shape to be sum with mask
             local_attention_mask = _get_local_attention_mask(mask, self.block_len, hidden_states.device)
-            # Replace masked positions with -10_000 (according to the original implementation)
             local_attention_mask = torch.where(local_attention_mask > 0, 0.0, -1e10)
         else:
             local_attention_mask = None
 
         if position_bias is None:
-            # position_bias shape: # (1, 1, n_heads, block_len, 3 * block_len)
             if not self.has_relative_attention_bias:
                 position_bias = torch.zeros(
                     (1, 1, self.n_heads, self.block_len, 3 * self.block_len),
@@ -870,23 +771,17 @@ class LongT5TransientGlobalAttention(nn.Module):
                 position_bias = self.compute_bias(self.block_len)
 
             if local_attention_mask is not None:
-                # (batch_size, 1, n_heads, block_len, 3 * block_len)
                 position_bias = position_bias + local_attention_mask.transpose(1, 2)
             position_bias = position_bias.type(scores.dtype)
 
-            # Calculate global/side bias - shape: # (batch_size, num_heads, seq_len, global_seq_len)
             if mask is None:
                 mask = torch.ones(batch_size, seq_length)
-            # (batch_size, num_heads, seq_len, global_seq_len)
             side_position_bias = self.compute_side_bias(mask, global_segment_ids)
-            # (batch_size, num_blocks, num_heads, block_len, global_seq_len)
             side_position_bias = _split_into_blocks(side_position_bias, self.block_len, dim=-2).transpose(1, 2)
             side_position_bias = side_position_bias.type(scores.dtype).to(scores.device)
-            # (batch_size, num_blocks, num_heads, block_len, 3 * block_len + global_seq_len)
             position_bias = torch.cat([position_bias, side_position_bias], dim=-1)
 
         scores += position_bias
-        # (batch_size, num_blocks, n_heads, block_len, 3 * block_len + global_seq_len)
         attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(scores)
         attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
 
@@ -902,7 +797,6 @@ class LongT5TransientGlobalAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerSelfAttention with T5->LongT5
 class LongT5LayerSelfAttention(nn.Module):
     def __init__(self, config, has_relative_attention_bias=False, layer_idx: int | None = None):
         super().__init__()
@@ -937,7 +831,6 @@ class LongT5LayerSelfAttention(nn.Module):
 
 
 class LongT5LayerLocalSelfAttention(nn.Module):
-    """Local self attention used in encoder"""
 
     def __init__(self, config, has_relative_attention_bias=False, layer_idx: int | None = None):
         super().__init__()
@@ -966,7 +859,6 @@ class LongT5LayerLocalSelfAttention(nn.Module):
 
 
 class LongT5LayerTransientGlobalSelfAttention(nn.Module):
-    """Transient-Global self attention used in encoder"""
 
     def __init__(self, config, has_relative_attention_bias=False, layer_idx: int | None = None):
         super().__init__()
@@ -996,7 +888,6 @@ class LongT5LayerTransientGlobalSelfAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerCrossAttention with T5->LongT5
 class LongT5LayerCrossAttention(nn.Module):
     def __init__(self, config, layer_idx: int | None = None):
         super().__init__()
@@ -1077,7 +968,6 @@ class LongT5Block(GradientCheckpointingLayer):
         hidden_states = self_attention_outputs[0]
         attention_outputs = self_attention_outputs[1:]  # Keep self-attention outputs and relative position weights
 
-        # clamp inf values to enable fp16 inference - check https://github.com/huggingface/transformers/pull/19229/
         if hidden_states.dtype == torch.float16 and torch.isinf(hidden_states).any():
             clamp_value = torch.finfo(hidden_states.dtype).max - 1000
             hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
@@ -1094,18 +984,14 @@ class LongT5Block(GradientCheckpointingLayer):
             )
             hidden_states = cross_attention_outputs[0]
 
-            # clamp inf values to enable fp16 inference - check https://github.com/huggingface/transformers/pull/19229/
             if hidden_states.dtype == torch.float16 and torch.isinf(hidden_states).any():
                 clamp_value = torch.finfo(hidden_states.dtype).max - 1000
                 hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
 
-            # Keep cross-attention outputs and relative position weights
             attention_outputs = attention_outputs + cross_attention_outputs[1:]
 
-        # Apply Feed Forward layer
         hidden_states = self.layer[-1](hidden_states)
 
-        # clamp inf values to enable fp16 inference - check https://github.com/huggingface/transformers/pull/19229/
         if hidden_states.dtype == torch.float16 and torch.isinf(hidden_states).any():
             clamp_value = torch.finfo(hidden_states.dtype).max - 1000
             hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
@@ -1125,16 +1011,8 @@ class LongT5PreTrainedModel(PreTrainedModel):
     _can_compile_fullgraph = False  # TODO: @raushan more involved due to local/global attn
 
     @property
-    # Copied from transformers.models.t5.modeling_t5.T5PreTrainedModel.dummy_inputs
     def dummy_inputs(self):
-        input_ids = torch.tensor(DUMMY_INPUTS)
-        input_mask = torch.tensor(DUMMY_MASK)
-        dummy_inputs = {
-            "decoder_input_ids": input_ids,
-            "input_ids": input_ids,
-            "decoder_attention_mask": input_mask,
-        }
-        return dummy_inputs
+        pass
 
     @torch.no_grad()
     def _init_weights(self, module):
@@ -1179,7 +1057,6 @@ class LongT5PreTrainedModel(PreTrainedModel):
                         module.global_relative_attention_bias.weight, mean=0.0, std=factor * ((d_model) ** -0.5)
                     )
 
-    # Copied from transformers.models.t5.modeling_t5.T5PreTrainedModel._shift_right with T5->LongT5
     def _shift_right(self, input_ids):
         decoder_start_token_id = self.config.decoder_start_token_id
         pad_token_id = self.config.pad_token_id
@@ -1196,7 +1073,6 @@ class LongT5PreTrainedModel(PreTrainedModel):
 
         if pad_token_id is None:
             raise ValueError("self.model.config.pad_token_id has to be defined.")
-        # replace possible -100 values in labels by `pad_token_id`
         shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
         return shifted_input_ids
@@ -1223,10 +1099,8 @@ class LongT5Stack(LongT5PreTrainedModel):
 
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.t5.modeling_t5.T5Stack.set_input_embeddings
     def set_input_embeddings(self, new_embeddings):
         self.embed_tokens = new_embeddings
 
@@ -1287,13 +1161,10 @@ class LongT5Stack(LongT5PreTrainedModel):
                 else:
                     past_key_values = DynamicCache(config=self.config)
         elif not self.is_decoder:
-            # do not pass cache object down the line for encoder stack
-            # it messes indexing later in decoder-stack because cache object is modified in-place
             past_key_values = None
 
         past_key_values_length = past_key_values.get_seq_length() if past_key_values is not None else 0
         if attention_mask is None and not is_torchdynamo_compiling():
-            # required mask seq length can be calculated via length of past
             mask_seq_length = past_key_values_length + seq_length
             attention_mask = torch.ones(batch_size, mask_seq_length, device=inputs_embeds.device)
 
@@ -1304,7 +1175,6 @@ class LongT5Stack(LongT5PreTrainedModel):
                 attention_mask=attention_mask,
                 past_key_values=past_key_values,
             )
-        # We use local attention in encoder self-attention, otherwise standard self & cross attentions are used
         elif self.config.encoder_attention_type == "local":
             causal_mask = _get_local_attention_mask(attention_mask, self.block_len, inputs_embeds.device)
         else:  # we need to use both local attention mask and standard extended mask for transient-global attention
@@ -1343,14 +1213,9 @@ class LongT5Stack(LongT5PreTrainedModel):
                 return_dict=return_dict,
             )
 
-            # layer_outputs is a tuple with:
-            # hidden-states, (self-attention position bias), (self-attention weights), (cross-attention position bias), (cross-attention weights)
 
             hidden_states = layer_outputs[0]
 
-            # We share the position biases between the layers - the first layer store them
-            # layer_outputs = hidden-states, key-value-states (self-attention position bias), (self-attention weights),
-            # (cross-attention position bias), (cross-attention weights)
             position_bias = layer_outputs[1]
             if self.is_decoder and encoder_hidden_states is not None:
                 encoder_decoder_position_bias = layer_outputs[3 if output_attentions else 2]
@@ -1363,7 +1228,6 @@ class LongT5Stack(LongT5PreTrainedModel):
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.dropout(hidden_states)
 
-        # Add last layer
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -1412,7 +1276,6 @@ class LongT5Model(LongT5PreTrainedModel):
         decoder_config.num_layers = config.num_decoder_layers
         self.decoder = LongT5Stack(decoder_config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1492,7 +1355,6 @@ class LongT5Model(LongT5PreTrainedModel):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # Encode if needed (training, first prediction pass)
         if encoder_outputs is None:
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
@@ -1511,7 +1373,6 @@ class LongT5Model(LongT5PreTrainedModel):
 
         hidden_states = encoder_outputs[0]
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -1573,7 +1434,6 @@ class LongT5ForConditionalGeneration(LongT5PreTrainedModel, GenerationMixin):
 
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1657,9 +1517,7 @@ class LongT5ForConditionalGeneration(LongT5PreTrainedModel, GenerationMixin):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # Encode if needed (training, first prediction pass)
         if encoder_outputs is None:
-            # Convert encoder inputs in embeddings if needed
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -1678,10 +1536,8 @@ class LongT5ForConditionalGeneration(LongT5PreTrainedModel, GenerationMixin):
         hidden_states = encoder_outputs[0]
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
-            # get decoder inputs from shifting lm labels to the right
             decoder_input_ids = self._shift_right(labels)
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -1744,7 +1600,6 @@ class LongT5EncoderModel(LongT5PreTrainedModel):
         encoder_config.use_cache = False
         self.encoder = LongT5Stack(encoder_config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):

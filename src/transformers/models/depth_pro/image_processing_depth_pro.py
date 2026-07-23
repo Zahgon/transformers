@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for DepthPro."""
 
 from typing import TYPE_CHECKING
 
@@ -71,11 +57,9 @@ class DepthProImageProcessor(TorchvisionBackend):
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
-            # Rescale and normalize FIRST
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
-            # Then resize (using torch interpolation to handle negative values)
             if do_resize:
                 stacked_images = self.resize(stacked_images, size, resample, antialias=False)
             processed_images_grouped[shape] = stacked_images
@@ -102,13 +86,11 @@ class DepthProImageProcessor(TorchvisionBackend):
         for depth, fov_value, target_size in zip(predicted_depth, fov, target_sizes):
             focal_length = None
             if target_size is not None:
-                # scale image w.r.t fov
                 if fov_value is not None:
                     width = target_size[1]
                     focal_length = 0.5 * width / torch.tan(0.5 * torch.deg2rad(fov_value))
                     depth = depth * width / focal_length
                 depth = torch.nn.functional.interpolate(
-                    # input should be (B, C, H, W)
                     input=depth.unsqueeze(0).unsqueeze(1),
                     size=target_size,
                     mode=pil_torch_interpolation_mapping[self.resample].value,

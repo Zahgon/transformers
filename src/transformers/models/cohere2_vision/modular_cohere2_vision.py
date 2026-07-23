@@ -1,17 +1,3 @@
-# Copyright 2025 the Cohere Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch AyaVision model."""
 
 from functools import lru_cache
 
@@ -70,7 +56,6 @@ class Cohere2VisionMultiModalProjector(nn.Module):
         image_features = self.pixel_shuffle(image_features)
         hidden_states = self.linear_1(image_features)
 
-        # Split along last dimension and apply SwiGLU
         x, gate = hidden_states.chunk(2, dim=-1)
         hidden_states = self.act(gate) * x
 
@@ -219,7 +204,6 @@ class Cohere2VisionForConditionalGeneration(AyaVisionForConditionalGeneration):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -281,32 +265,18 @@ def get_optimal_tiled_canvas(
     patch_size_height, patch_size_width = target_tile_size  # (height == width)
 
     candidate_resolutions = np.array(possible_resolutions) * patch_size_height
-    # tiles following (width, height) order to align with aspect ratio convention
     tile_size = np.stack([image_width, image_height])
     required_scales = candidate_resolutions / tile_size
     required_scale = np.min(required_scales, axis=-1, keepdims=True)  # [n_resolutions, 1]
     if np.all(required_scale < 1):
-        # We are forced to downscale, so try to minimize the amount of downscaling
         best_grid = possible_resolutions[np.argmax(required_scale)]
     else:
-        # Pick the resolution that required the least upscaling so that it most closely fits the image
         required_scale = np.where(required_scale < 1.0, 10e9, required_scale)
         best_grid = possible_resolutions[np.argmin(required_scale)]
     return best_grid  # (width, height)
 
 
 class Cohere2VisionImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    crop_to_patches (`bool`, *optional*, defaults to `False`):
-        Whether to crop the image to patches. Can be overridden by the `crop_to_patches` parameter in the
-        `preprocess` method.
-    min_patches (`int`, *optional*, defaults to 1):
-        The minimum number of patches to be extracted from the image. Only has an effect if `crop_to_patches` is
-        set to `True`. Can be overridden by the `min_patches` parameter in the `preprocess` method.
-    max_patches (`int`, *optional*, defaults to 12):
-        The maximum number of patches to be extracted from the image. Only has an effect if `crop_to_patches` is
-        set to `True`. Can be overridden by the `max_patches` parameter in the `preprocess` method.
-    """
 
     crop_to_patches: bool
     min_patches: int

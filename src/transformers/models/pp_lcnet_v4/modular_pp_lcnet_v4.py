@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from collections.abc import Sequence
@@ -37,32 +24,6 @@ from ..pp_lcnet.modeling_pp_lcnet import (
 @auto_docstring(checkpoint="PaddlePaddle/Not_yet_released")
 @strict
 class PPLCNetV4Config(PPLCNetConfig):
-    r"""
-    scale (`float`, *optional*, defaults to 1.0):
-        The scaling factor for the model's channel dimensions, used to adjust the model size and computational cost
-        without changing the overall architecture (e.g., 0.25, 0.5, 1.0, 1.5).
-    block_configs (`list[list[tuple]]`, *optional*, defaults to `None`):
-        Configuration for each block in each stage. Each tuple contains:
-        (kernel_size, in_channels, out_channels, stride, use_squeeze_excitation).
-        If `None`, uses the default PP-LCNet configuration.
-    stem_channels (`list[int]`, *optional*, defaults to `[3, 48, 96]`):
-        Channel dimensions for the stem layers:
-        - First number (3) is input image channels
-        - Second number (48) is intermediate stem channels
-        - Third number (96) is output stem channels
-    reduction (`int`, *optional*, defaults to 4):
-        The reduction factor for feature channel dimensions in the squeeze-and-excitation (SE) blocks, used to
-        reduce the number of model parameters and computational complexity while maintaining feature representability.
-    stem_strides (`Sequence[int | list[int] | tuple[int, ...]]`, *optional*, defaults to `(2, 1, 1, 2, 1)`):
-        Stride patterns for the stem layers.
-    stem_type (`str`, *optional*, defaults to `large`):
-        The type of stem layer to use. Can be one of:
-        - `"large"`: Standard PP-LCNetV4 stem.
-        - `"small"`: Variant with smaller channel dimensions.
-    use_learnable_affine_block (`bool`, *optional*, defaults to `False`):
-        Whether to use Learnable Affine Blocks (LAB) in the network.
-        LAB adds learnable scale and bias parameters after certain operations.
-    """
 
     model_type = "pp_lcnet_v4"
 
@@ -79,15 +40,10 @@ class PPLCNetV4Config(PPLCNetConfig):
     class_expand = AttributeError()
 
     def __post_init__(self, **kwargs):
-        # Default block configs for PP-LCNetV3
-        # Each tuple: (kernel_size, in_channels, out_channels, stride, use_squeeze_excitation)
         self.block_configs = (
             [
-                # Stage 1 (blocks2)
                 [[3, 96, 96, 1, True]],
-                # Stage 2 (blocks3)
                 [[3, 96, 96, 1, False], [3, 96, 96, 1, False]],
-                # Stage 3 (blocks4)
                 [
                     [3, 96, 192, [2, 1], False],
                     [3, 192, 192, 1, True],
@@ -97,7 +53,6 @@ class PPLCNetV4Config(PPLCNetConfig):
                     [3, 192, 192, 1, True],
                     [3, 192, 192, 1, False],
                 ],
-                # Stage 4 (blocks5)
                 [
                     [3, 192, 384, [2, 1], False],
                     [3, 384, 384, 1, True],
@@ -117,11 +72,7 @@ class PPLCNetV4Config(PPLCNetConfig):
         PreTrainedConfig.__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if len(self.block_configs) != 4:
-            raise ValueError(f"block_configs must have 5 stages, but got {len(self.block_configs)}")
-        if self.stem_type not in ["large", "small"]:
-            raise ValueError(f"stem_type must be either 'large' or 'small', but got {self.stem_type}")
+        pass
 
 
 class PPLCNetV4ConvLayer(HGNetV2ConvLayer):
@@ -259,7 +210,6 @@ class PPLCNetV4Encoder(PPLCNetEncoder):
         super().__init__(config)
         self.config = config
 
-        # stem
         self.convolution = PPLCNetV4LargeStem(config) if config.stem_type == "large" else PPLCNetV4SmallStem(config)
 
 

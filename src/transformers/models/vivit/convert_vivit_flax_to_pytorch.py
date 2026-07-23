@@ -1,19 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert Flax ViViT checkpoints from the original repository to PyTorch. URL:
-https://github.com/google-research/scenic/tree/main/scenic/projects/vivit
-"""
 
 import argparse
 import json
@@ -53,9 +37,6 @@ def get_vivit_config() -> VivitConfig:
     return config
 
 
-# We will verify our results on a video of eating spaghetti
-# Frame indices used: [ 47, 51, 55, 59, 63, 67, 71, 75, 80, 84, 88, 92, 96, 100, 104, 108, 113, 117,
-# 121, 125, 129, 133, 137, 141, 146, 150, 154, 158, 162, 166, 170, 174]
 def prepare_video():
     file = hf_hub_download(
         repo_id="hf-internal-testing/spaghetti-video", filename="eating_spaghetti_32_frames.npy", repo_type="dataset"
@@ -160,10 +141,6 @@ def transform_state(state_dict, classification_head=False):
     return {k: torch.tensor(v) for k, v in new_state.items()}
 
 
-# checks that image processor settings are the same as in the original implementation
-# original: https://github.com/google-research/scenic/blob/main/scenic/projects/vivit/data/video_tfrecord_dataset.py
-# dataset specific config:
-# https://github.com/google-research/scenic/blob/main/scenic/projects/vivit/configs/kinetics400/vivit_base_k400.py
 def get_processor() -> VivitImageProcessor:
     extractor = VivitImageProcessor()
 
@@ -173,14 +150,10 @@ def get_processor() -> VivitImageProcessor:
     assert extractor.crop_size == {"width": 224, "height": 224}
     assert extractor.resample == PILImageResampling.BILINEAR
 
-    # here: https://github.com/deepmind/dmvr/blob/master/dmvr/modalities.py
-    # one can seen that add_image has default values for normalization_mean and normalization_std set to 0 and 1
-    # which effectively means no normalization (and ViViT does not overwrite those when calling this func)
     assert extractor.do_normalize is False
     assert extractor.do_rescale is True
     assert extractor.rescale_factor == 1 / 255
 
-    # zero-centering = True in original implementation
     assert extractor.do_zero_centering is True
 
     return extractor

@@ -24,29 +24,6 @@ logger = logging.get_logger(__name__)
 
 @add_end_docstrings(build_pipeline_init_args(has_image_processor=True))
 class ObjectDetectionPipeline(Pipeline):
-    """
-    Object detection pipeline using any `AutoModelForObjectDetection`. This pipeline predicts bounding boxes of objects
-    and their classes.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> detector = pipeline(model="facebook/detr-resnet-50")
-    >>> detector("https://huggingface.co/datasets/Narsil/image_dummy/raw/main/parrots.png")
-    [{'score': 0.997, 'label': 'bird', 'box': {'xmin': 69, 'ymin': 171, 'xmax': 396, 'ymax': 507}}, {'score': 0.999, 'label': 'bird', 'box': {'xmin': 398, 'ymin': 105, 'xmax': 767, 'ymax': 507}}]
-
-    >>> # x, y  are expressed relative to the top left hand corner.
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This object detection pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"object-detection"`.
-
-    See the list of available models on [huggingface.co/models](https://huggingface.co/models?filter=object-detection).
-    """
 
     _load_processor = False
     _load_image_processor = True
@@ -109,7 +86,6 @@ class ObjectDetectionPipeline(Pipeline):
             - **score** (`float`) -- The score attributed by the model for that label.
             - **box** (`list[dict[str, int]]`) -- The bounding box of detected object in image's original size.
         """
-        # After deprecation of this is completed, remove the default `None` value for `images`
         if "images" in kwargs and "inputs" not in kwargs:
             kwargs["inputs"] = kwargs.pop("images")
         return super().__call__(*args, **kwargs)
@@ -135,8 +111,6 @@ class ObjectDetectionPipeline(Pipeline):
     def postprocess(self, model_outputs, threshold=0.5):
         target_size = model_outputs["target_size"]
         if self.tokenizer is not None:
-            # This is a LayoutLMForTokenClassification variant.
-            # The OCR got the boxes and the model classified the words.
             height, width = target_size[0].tolist()
 
             def unnormalize(bbox):
@@ -157,7 +131,6 @@ class ObjectDetectionPipeline(Pipeline):
             keys = ["score", "label", "box"]
             annotation = [dict(zip(keys, vals)) for vals in zip(scores.tolist(), labels, boxes) if vals[0] > threshold]
         else:
-            # This is a regular ForObjectDetectionModel
             raw_annotations = self.image_processor.post_process_object_detection(model_outputs, threshold, target_size)
             raw_annotation = raw_annotations[0]
             scores = raw_annotation["scores"]
@@ -168,7 +141,6 @@ class ObjectDetectionPipeline(Pipeline):
             raw_annotation["labels"] = [self.model.config.id2label[label.item()] for label in labels]
             raw_annotation["boxes"] = [self._get_bounding_box(box) for box in boxes]
 
-            # {"scores": [...], ...} --> [{"score":x, ...}, ...]
             keys = ["score", "label", "box"]
             annotation = [
                 dict(zip(keys, vals))

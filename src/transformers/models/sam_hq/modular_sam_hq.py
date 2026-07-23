@@ -1,17 +1,3 @@
-# Copyright 2025 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from dataclasses import dataclass
 
 import torch
@@ -56,20 +42,6 @@ class SamHQVisionConfig(SamVisionConfig):
 @auto_docstring(checkpoint="syscv-community/sam-hq-vit-base")
 @strict
 class SamHQMaskDecoderConfig(SamMaskDecoderConfig):
-    r"""
-    mlp_dim (`int`, *optional*, defaults to 2048):
-        Dimensionality of the "intermediate" (i.e., feed-forward) layer in the Transformer encoder.
-    attention_downsample_rate (`int`, *optional*, defaults to 2):
-        The downsampling rate of the attention layer.
-    num_multimask_outputs (`int`, *optional*, defaults to 3):
-        The number of outputs from the `SamMaskDecoder` module. In the Segment Anything paper, this is set to 3.
-    iou_head_depth (`int`, *optional*, defaults to 3):
-        The number of layers in the IoU head module.
-    iou_head_hidden_dim (`int`, *optional*, defaults to 256):
-        The dimensionality of the hidden states in the IoU head module.
-    vit_dim (`int`, *optional*, defaults to 768):
-        Dimensionality of the Vision Transformer (ViT) used in the `SamHQMaskDecoder` module.
-    """
 
     vit_dim: int = 768
 
@@ -77,38 +49,16 @@ class SamHQMaskDecoderConfig(SamMaskDecoderConfig):
 @auto_docstring(checkpoint="syscv-community/sam-hq-vit-base")
 @strict
 class SamHQConfig(SamConfig):
-    r"""
-    prompt_encoder_config (Union[`dict`, `SamHQPromptEncoderConfig`], *optional*):
-        Dictionary of configuration options used to initialize [`SamHQPromptEncoderConfig`].
-    mask_decoder_config (Union[`dict`, `SamHQMaskDecoderConfig`], *optional*):
-        Dictionary of configuration options used to initialize [`SamHQMaskDecoderConfig`].
-    """
+    pass
 
 
 class SamHQVisionEncoderOutput(SamVisionEncoderOutput):
-    r"""
-    image_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim)` *optional* returned when model is initialized with `with_projection=True`):
-        The image embeddings obtained by applying the projection layer to the pooler_output.
-    intermediate_embeddings (`list(torch.FloatTensor)`, *optional*):
-        A list of intermediate embeddings collected from certain blocks within the model, typically those without
-        windowed attention. Each element in the list is of shape `(batch_size, sequence_length, hidden_size)`.
-        This is specific to SAM-HQ and not present in base SAM.
-    """
 
     intermediate_embeddings: list[torch.FloatTensor] | None = None
 
 
 @dataclass
 class SamHQMMaskDecoderOutputs(ModelOutput):
-    r"""
-    masks (`torch.FloatTensor` of shape `(batch_size, num_prompts, num_masks, height, width)`):
-        The predicted masks for the input image. The masks are of shape `(batch_size, num_prompts, num_masks, height, width)`.
-    iou_scores (`torch.FloatTensor` of shape `(batch_size, num_prompts, num_masks)`):
-        The predicted IoU scores for each mask. The scores are of shape `(batch_size, num_prompts, num_masks)`.
-    mask_decoder_attentions (`torch.FloatTensor`, *optional*):
-        The attention weights from the mask decoder, if `output_attentions=True` was passed during the forward pass.
-        This is specific to SAM-HQ and not present in base SAM.
-    """
 
     masks: torch.FloatTensor
     iou_scores: torch.FloatTensor | None = None
@@ -154,7 +104,6 @@ class SamHQVisionEncoder(SamVisionEncoder, SamHQPreTrainedModel):
         for layer_module in self.layers:
             hidden_states = layer_module(hidden_states)
 
-            # Collect embeddings from non-windowed blocks
             if hasattr(layer_module, "window_size") and layer_module.window_size == 0:
                 intermediate_embeddings.append(hidden_states)
 
@@ -209,17 +158,14 @@ class SamHQMaskDecoder(nn.Module):
         self.hq_mask_mlp = SamHQFeedForward(self.hidden_size, self.hidden_size, self.hidden_size // 8, 3)
         self.num_mask_tokens = self.num_mask_tokens + 1
 
-        # Compress ViT features
         self.compress_vit_conv1 = nn.ConvTranspose2d(config.vit_dim, self.hidden_size, kernel_size=2, stride=2)
         self.compress_vit_norm = SamHQLayerNorm(self.hidden_size, data_format="channels_first")
         self.compress_vit_conv2 = nn.ConvTranspose2d(self.hidden_size, self.hidden_size // 8, kernel_size=2, stride=2)
 
-        # Embedding encoder
         self.encoder_conv1 = nn.ConvTranspose2d(self.hidden_size, self.hidden_size // 4, kernel_size=2, stride=2)
         self.encoder_norm = SamHQLayerNorm(self.hidden_size // 4, data_format="channels_first")
         self.encoder_conv2 = nn.ConvTranspose2d(self.hidden_size // 4, self.hidden_size // 8, kernel_size=2, stride=2)
 
-        # Embedding mask feature
         self.mask_conv1 = nn.Conv2d(self.hidden_size // 8, self.hidden_size // 4, kernel_size=3, stride=1, padding=1)
         self.mask_norm = SamHQLayerNorm(self.hidden_size // 4, data_format="channels_first")
         self.mask_conv2 = nn.Conv2d(self.hidden_size // 4, self.hidden_size // 8, kernel_size=3, stride=1, padding=1)
@@ -354,16 +300,13 @@ class SamHQMaskDecoder(nn.Module):
         if multimask_output:
             mask_slice = slice(1, self.num_mask_tokens - 1)
             iou_pred = iou_pred[:, :, mask_slice]
-            # Sort the IoU scores in descending order and get indices
             iou_pred_sorted, sort_indices = torch.sort(iou_pred, dim=2, descending=True)
-            # Reorder the masks according to sorted scores
             masks_sam = masks[:, :, mask_slice, :, :]
             masks_sam = torch.gather(
                 masks_sam,
                 2,
                 sort_indices[..., None, None].expand(-1, -1, -1, masks_sam.shape[3], masks_sam.shape[4]),
             )
-            # Update iou_pred with sorted scores
             iou_pred = iou_pred_sorted
         else:
             mask_slice = slice(0, 1)
@@ -536,7 +479,6 @@ class SamHQModel(SamModel):
                 f" got {input_boxes.shape}."
             )
 
-        # Add validation for point and box batch sizes
         if input_points is not None and input_boxes is not None:
             point_batch_size = input_points.shape[1]
             box_batch_size = input_boxes.shape[1]
@@ -546,7 +488,6 @@ class SamHQModel(SamModel):
                 )
 
         image_positional_embeddings = self.get_image_wide_positional_embeddings()
-        # repeat with batch size
         batch_size = pixel_values.shape[0] if pixel_values is not None else image_embeddings.shape[0]
         image_positional_embeddings = image_positional_embeddings.repeat(batch_size, 1, 1, 1)
 
@@ -564,7 +505,6 @@ class SamHQModel(SamModel):
             input_masks=input_masks,
         )
 
-        # Predict masks
         mask_decoder_output = self.mask_decoder(
             image_embeddings=image_embeddings,
             image_positional_embeddings=image_positional_embeddings,

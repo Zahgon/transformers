@@ -1,18 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-# Modifications Copyright (C) 2025, Advanced Micro Devices, Inc. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Abstract base class for all Transformers exporters."""
 
 from __future__ import annotations
 
@@ -40,16 +25,9 @@ if TYPE_CHECKING:
 
 
 class HfExporter(ABC):
-    """
-    Abstract base class for all Transformers exporters.
-
-    Subclass and implement [`~HfExporter.export`] to add a new export backend.
-    """
 
     required_packages: list[str] = []
-    # Hard minimum versions — the exporter raises below these (features it relies on are absent).
     min_versions: dict[str, str] = {}
-    # Versions the exporter is validated against — a mismatch only warns.
     tested_versions: dict[str, str] = {}
 
     def __init__(self):
@@ -57,10 +35,6 @@ class HfExporter(ABC):
 
     def validate_environment(self, *args, **kwargs):
         """Check `required_packages` are installed and warn on version drift from `tested_versions`."""
-        # Single pass: ``_is_package_available`` returns both existence and version, so we collect
-        # missing packages and drift in one loop and report them all at the end (rather than failing
-        # on the first miss). The local-version suffix (``+cu126``, ``+cpu``) is stripped — patches
-        # target the public API, not the build.
         missing, drift = [], []
         for pkg in self.required_packages:
             exists, installed = _is_package_available(pkg, return_version=True)
@@ -80,7 +54,6 @@ class HfExporter(ABC):
             )
             raise ImportError(f"To use {type(self).__name__}, please install the following dependencies: {specs}")
 
-        # Enforce hard minimums; collect all violations and report once, rather than failing on the first.
         outdated = []
         for pkg, minimum in self.min_versions.items():
             _, installed = _is_package_available(pkg, return_version=True)
@@ -135,52 +108,4 @@ class HfExporter(ABC):
         sample_inputs: MutableMapping[str, torch.Tensor | Cache],
         config: ExportConfigMixin | dict[str, ExportConfigMixin],
     ) -> dict[str, object]:
-        """
-        Decompose a generative model and export each component independently.
-
-        Thin wrapper around [`~exporters.utils.decompose_for_generation`] that calls
-        [`~HfExporter.export`] on every returned `(submodel, forward_inputs)` pair. If you need
-        the intermediate `(submodel, forward_inputs)` pairs (for verification, custom inputs,
-        skipping a stage, …), call [`~exporters.utils.decompose_for_generation`] directly.
-
-        Args:
-            model ([`PreTrainedModel`]):
-                The generative model to export. Must support `model.generate(**sample_inputs)`.
-            sample_inputs (`dict[str, torch.Tensor | Cache]`):
-                **Generate** kwargs — what you'd pass to `model.generate(**sample_inputs)`
-                (typically `input_ids` + `attention_mask`, plus any modality inputs like
-                `pixel_values` / `input_features` for multi-modal models). Per-stage forward
-                kwargs are captured internally.
-            config ([`~transformers.exporters.configs.ExportConfigMixin`] or `dict[str, ExportConfigMixin]`):
-                Backend-specific configuration. Pass a single config to apply to every
-                component, or a `dict` keyed by component name (e.g. `"image_encoder"`,
-                `"language_model"`, `"lm_head"`, `"decode"`) to override per-component —
-                all component names must be present in the dict.
-
-        Returns:
-            `dict[str, Any]`: `{component_name: backend_specific_artifact}` — same keys as
-            [`~exporters.utils.decompose_for_generation`]. Values are whatever
-            [`~HfExporter.export`] returns for the concrete backend (`ExportedProgram`,
-            `ONNXProgram`, `ExecutorchProgramManager`).
-        """
-        components = decompose_for_generation(model, sample_inputs)
-        if isinstance(config, dict):
-            missing = set(components) - set(config)
-            if missing:
-                raise ValueError(
-                    f"Per-component `config` dict is missing entries for: {sorted(missing)}. "
-                    f"Expected one entry per component: {sorted(components)}."
-                )
-            configs = config
-        else:
-            configs = dict.fromkeys(components, config)
-        exported: dict[str, object] = {}
-        for name, (submodel, subinputs) in components.items():
-            try:
-                exported[name] = self.export(submodel, subinputs, config=configs[name])
-            except Exception as e:
-                raise RuntimeError(
-                    f"{type(self).__name__}.export failed on component '{name}' "
-                    f"(submodel={type(submodel).__name__}, input keys={list(subinputs)})."
-                ) from e
-        return exported
+        pass

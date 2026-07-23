@@ -1,16 +1,3 @@
-# Copyright 2025 Sesame and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from pathlib import Path
@@ -35,13 +22,6 @@ from ...tokenization_utils_base import PreTokenizedInput, TextInput
 
 
 class CsmAudioKwargs(AudioKwargs, total=False):
-    """
-    encoded_length_kwargs (`dict[str, Any]`, *optional*):
-        Dictionary of keyword arguments used to compute the encoded audio sequence length. This includes parameters
-        such as `kernel_sizes`, `strides`, `dilations`, and `use_causal_conv` that define the convolutional layers
-        used in audio encoding. The encoded length is used to determine how many audio tokens to generate for each
-        audio input in the text sequence.
-    """
 
     encoded_length_kwargs: dict[str, Any] | None
 
@@ -94,41 +74,7 @@ class CsmProcessor(ProcessorMixin):
 
     @staticmethod
     def _get_encoded_length(audio_length, kernel_sizes=None, strides=None, dilations=None, use_causal_conv=None):
-        """
-        Compute the length of the encoded audio sequence.
-
-        Args:
-            audio_length (int): The length of the audio sequence.
-            kernel_sizes (list[int]): The kernel sizes for the convolutional layers.
-            strides (list[int]): The strides for the convolutional layers.
-            use_causal_conv (bool): Whether to use causal convolutions.
-        """
-        cur_length = audio_length
-
-        if kernel_sizes is None or strides is None or dilations is None or use_causal_conv is None:
-            return cur_length
-
-        for kernel_size, stride, dilation in zip(kernel_sizes, strides, dilations):
-            effective_kernel_size = (kernel_size - 1) * dilation + 1
-            padding_total = kernel_size - stride
-            padding_right = padding_total // 2
-            padding_left = padding_total - padding_right
-
-            n_frames = (cur_length - effective_kernel_size + padding_total) / stride + 1
-            n_frames = math.ceil(n_frames) - 1
-            ideal_length = n_frames * stride + kernel_size - padding_total
-            extra_padding = ideal_length - cur_length
-
-            if use_causal_conv:
-                padding_left = padding_total
-                padding_right = extra_padding
-            else:
-                padding_right = padding_right + extra_padding
-
-            cur_length = cur_length + padding_left + padding_right
-            cur_length = (cur_length - dilation * (kernel_size - 1) - 1) // stride + 1
-
-        return cur_length
+        pass
 
     def save_audio(
         self,
@@ -136,32 +82,7 @@ class CsmProcessor(ProcessorMixin):
         saving_path: str | Path | list[str | Path],
         **kwargs: Unpack[CsmProcessorKwargs],
     ):
-        # TODO: @eustlb, this should be in AudioProcessor
-        requires_backends(self, ["soundfile"])
-
-        # ensure correct audio input
-        audio = make_list_of_audio(audio)
-
-        # ensure correct saving path
-        if isinstance(saving_path, (str, Path)):
-            saving_path = [saving_path]
-        elif not (isinstance(saving_path, (list, tuple)) and all(isinstance(p, (str, Path)) for p in saving_path)):
-            raise ValueError("Invalid input path. Please provide a string, or a list of strings")
-
-        if len(audio) != len(saving_path):
-            raise ValueError("The number of audio and saving paths must be the same")
-
-        output_kwargs = self._merge_kwargs(
-            CsmProcessorKwargs,
-            **kwargs,
-        )
-        audio_kwargs = output_kwargs["audio_kwargs"]
-        sampling_rate = audio_kwargs["sampling_rate"]
-
-        for audio_value, p in zip(audio, saving_path):
-            if isinstance(audio_value, torch.Tensor):
-                audio_value = audio_value.cpu().float().numpy()
-            sf.write(p, audio_value, sampling_rate)
+        pass
 
     @auto_docstring
     def __call__(
@@ -231,7 +152,6 @@ class CsmProcessor(ProcessorMixin):
             ]
             num_audio_tokens_list_copy = num_audio_tokens_list.copy()
 
-            # expand the text to repeat the audio token for the corresponding number of frames
             expanded_text = []
             for sample in text:
                 replace_str = []
@@ -280,7 +200,6 @@ class CsmProcessor(ProcessorMixin):
             audio_inputs.pop("padding_mask", None)  # not applicable here
             data.update(audio_inputs)
 
-            # pad and stack the audio cut idxs
             max_len = max(cut_idxs.shape[-1] for cut_idxs in input_values_cutoffs)
             input_values_cutoffs = [
                 torch.nn.functional.pad(cut_idxs, (0, max_len - cut_idxs.shape[-1]), value=-1)
@@ -311,13 +230,7 @@ class CsmProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        feature_extractor_input_names = self.feature_extractor.model_input_names
-
-        # Remove `padding_mask`, it is popped and not used when processing. Make a copy of list when removing
-        # otherwise `self.feature_extractor.model_input_names` is also modified
-        feature_extractor_input_names = [name for name in feature_extractor_input_names if name != "padding_mask"]
-        return list(tokenizer_input_names + feature_extractor_input_names + ["input_values_cutoffs"])
+        pass
 
 
 __all__ = ["CsmProcessor"]

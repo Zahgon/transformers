@@ -1,22 +1,4 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""SonicMoE integration: fused MoE using CuteDSL kernels from `kernels-community/sonic-moe`.
-
-Provides `sonicmoe_experts_forward` registered as "sonicmoe" in the ExpertsInterface.
-Requirements: CUDA, `kernels`, `nvidia-cutlass-dsl`, has_gate=True.
-"""
 
 from __future__ import annotations
 
@@ -33,13 +15,11 @@ from .tensor_parallel import to_local
 
 logger = logging.get_logger(__name__)
 
-# Map activation function names from HF config to SonicMoE epilogue names
 ACT_MAP = {"silu": "swiglu", "gelu": "geglu", "relu": "reglu"}
 
 
 @dataclass(frozen=True)
 class SonicMoE:
-    """Entry points exposed by the `kernels-community/sonic-moe` kernel."""
 
     activation_type_enum: type
     moe_general_routing_inputs: Callable
@@ -59,7 +39,6 @@ def _load_sonicmoe_kernel() -> SonicMoE:
             "sonic-moe kernel requires CUDA, but CUDA is not available. Use a different `experts_implementation`."
         )
 
-    # sonic-moe requires Hopper (SM90) or newer
     major = torch.cuda.get_device_capability()[0]
     if major < 9:
         raise ImportError(
@@ -159,27 +138,17 @@ def sonicmoe_experts_forward(
     num_top_k = top_k_index.size(-1)
     num_tokens = hidden_states.size(0)
 
-    # Flatten — token_indices must be int32, sorted ascending (required by sonic-moe)
     token_idx = torch.arange(num_tokens, device=device).unsqueeze(1).expand(-1, num_top_k).reshape(-1).int()
     router_scores = top_k_weights.reshape(-1).to(hidden_states.dtype)
     expert_ids = top_k_index.reshape(-1).int()
 
-    # EP sentinel handling: leave `expert_ids` unclamped — the kernel's metadata stage drops
-    # `expert_ids >= num_experts` from the per-expert histogram and masks them out of the
-    # scatter indices, so sentinels never enter the grouped GEMM. Their routing weights are
-    # already zero (RouterParallel masks them at dispatch), so the per-token reduction
-    # contributes nothing for sentinel slots.
 
     w1 = to_local(self.gate_up_proj)
     w2 = to_local(self.down_proj)
     b1 = to_local(self.gate_up_proj_bias) if self.has_bias else None
     b2 = to_local(self.down_proj_bias) if self.has_bias else None
 
-    # Map activation function
     act_name = getattr(self.config, "hidden_act", "silu").lower()
-    # Permute weights as expected by sonic-moe (E=num_experts, H=hidden_size, I=intermediate_size).
-    # Non-transposed: gate_up_proj is (E, 2*I, H), down_proj is (E, H, I) -> permute(1, 2, 0).
-    # Transposed: gate_up_proj is (E, H, 2*I), down_proj is (E, I, H) -> permute(2, 1, 0).
     perm = (2, 1, 0) if self.is_transposed else (1, 2, 0)
     w1 = w1.permute(*perm)  # (2*I, H, E)
     w2 = w2.permute(*perm)  # (I, H, E)

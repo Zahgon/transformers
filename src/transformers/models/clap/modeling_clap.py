@@ -1,17 +1,3 @@
-# Copyright 2023 The LAION-AI Team and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch CLAP model."""
 
 import collections
 import math
@@ -43,7 +29,6 @@ from .configuration_clap import ClapAudioConfig, ClapConfig, ClapTextConfig
 logger = logging.get_logger(__name__)
 
 
-# Adapted from: https://github.com/LAION-AI/CLAP/blob/6ad05a971ba0622f6acee8c41993e0d02bbed639/src/open_clip/utils.py#L191
 def interpolate(hidden_states, ratio):
     """
     Interpolate data in time domain. This is used to compensate the resolution reduction in downsampling of a CNN.
@@ -60,7 +45,6 @@ def interpolate(hidden_states, ratio):
     return upsampled
 
 
-# Adapted from https://github.com/LAION-AI/CLAP/blob/6ad05a971ba0622f6acee8c41993e0d02bbed639/src/open_clip/htsat.py#L249
 def window_partition(hidden_states, window_size):
     """
     Returns the resized hidden states. The output shape should be `(batch_size * num_windows, window_size, window_size,
@@ -81,7 +65,6 @@ def window_partition(hidden_states, window_size):
     return windows
 
 
-# Adapted from https://github.com/LAION-AI/CLAP/blob/6ad05a971ba0622f6acee8c41993e0d02bbed639/src/open_clip/htsat.py#L263
 def window_reverse(windows, window_size, height, width):
     """
     Merges windows to produce higher resolution features.
@@ -101,8 +84,6 @@ def window_reverse(windows, window_size, height, width):
     return windows
 
 
-# contrastive loss function, adapted from
-# https://sachinruk.github.io/blog/pytorch/pytorch%20lightning/loss%20function/gpu/2021/03/07/CLIP.html#CLIP-loss-function
 def contrastive_loss(logits: torch.Tensor) -> torch.Tensor:
     labels = torch.arange(len(logits), device=logits.device)
     return nn.functional.cross_entropy(logits, labels)
@@ -114,12 +95,7 @@ def contrastive_loss(logits: torch.Tensor) -> torch.Tensor:
     """
 )
 @dataclass
-# Copied from transformers.models.clip.modeling_clip.CLIPTextModelOutput with CLIP->Clap
 class ClapTextModelOutput(ModelOutput):
-    r"""
-    text_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim)` *optional* returned when model is initialized with `with_projection=True`):
-        The text embeddings obtained by applying the projection layer to the pooler_output.
-    """
 
     text_embeds: torch.FloatTensor | None = None
     last_hidden_state: torch.FloatTensor | None = None
@@ -134,10 +110,6 @@ class ClapTextModelOutput(ModelOutput):
 )
 @dataclass
 class ClapAudioModelOutput(ModelOutput):
-    r"""
-    audio_embeds (`torch.FloatTensor` of shape `(batch_size, hidden_size)`):
-        The Audio embeddings obtained by applying the projection layer to the pooler_output.
-    """
 
     audio_embeds: torch.FloatTensor | None = None
     last_hidden_state: torch.FloatTensor | None = None
@@ -147,26 +119,7 @@ class ClapAudioModelOutput(ModelOutput):
 
 @auto_docstring
 @dataclass
-# Copied from transformers.models.clip.modeling_clip.CLIPOutput with CLIP->Clap, vision->audio, Vision->Audio, image->audio
 class ClapOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `return_loss` is `True`):
-        Contrastive loss for audio-text similarity.
-    logits_per_audio (`torch.FloatTensor` of shape `(audio_batch_size, text_batch_size)`):
-        The scaled dot product scores between `audio_embeds` and `text_embeds`. This represents the audio-text
-        similarity scores.
-    logits_per_text (`torch.FloatTensor` of shape `(text_batch_size, audio_batch_size)`):
-        The scaled dot product scores between `text_embeds` and `audio_embeds`. This represents the text-audio
-        similarity scores.
-    text_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim`):
-        The text embeddings obtained by applying the projection layer to the pooled output of [`ClapTextModel`].
-    audio_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim`):
-        The audio embeddings obtained by applying the projection layer to the pooled output of [`ClapAudioModel`].
-    text_model_output (`BaseModelOutputWithPooling`):
-        The output of the [`ClapTextModel`].
-    audio_model_output (`BaseModelOutputWithPooling`):
-        The output of the [`ClapAudioModel`].
-    """
 
     loss: torch.FloatTensor | None = None
     logits_per_audio: torch.FloatTensor | None = None
@@ -180,12 +133,7 @@ class ClapOutput(ModelOutput):
         return tuple(v.to_tuple() if isinstance(v, ModelOutput) else v for v in self.values())
 
 
-# Adapted from https://github.com/LAION-AI/CLAP/blob/6ad05a971ba0622f6acee8c41993e0d02bbed639/src/open_clip/feature_fusion.py#L133
 class ClapAudioAFFBlock(nn.Module):
-    r"""
-    ATTENTIONAL FEATURE FUSION Block from CLAP, since in CLAP we are always in 2D mode, it is not needed to implement
-    the 1D version.
-    """
 
     def __init__(self, config: ClapAudioConfig):
         super().__init__()
@@ -222,10 +170,6 @@ class ClapAudioAFFBlock(nn.Module):
 
 
 class ClapAudioPatchEmbed(nn.Module):
-    """
-    This module converts the hidden states reshaped as an image to patch embeddings ready to be passed to the
-    Transformer block.
-    """
 
     def __init__(self, config: ClapAudioConfig):
         super().__init__()
@@ -271,10 +215,8 @@ class ClapAudioPatchEmbed(nn.Module):
 
     def forward(self, hidden_states, is_longer_idx=None):
         if self.enable_fusion:
-            # retrieve the last mel as we have transposed the input
             global_hidden_states = hidden_states[:, 0:1, :, :]
 
-            # global processing
             batch_size, num_channels, height, width = global_hidden_states.shape
 
             if height != self.img_size[0] or width != self.img_size[1]:
@@ -285,7 +227,6 @@ class ClapAudioPatchEmbed(nn.Module):
             global_hidden_states = self.proj(global_hidden_states)
             output_width = global_hidden_states.size(-1)
             if len(is_longer_idx) > 0:
-                # local processing
                 local_hidden_states = hidden_states[is_longer_idx, 1:, :, :].contiguous()
                 batch_size, num_channels, height, width = local_hidden_states.shape
                 local_hidden_states = local_hidden_states.view(batch_size * num_channels, 1, height, width)
@@ -319,7 +260,6 @@ class ClapAudioPatchEmbed(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinSelfAttention with Swin->ClapAudio
 class ClapAudioSelfAttention(nn.Module):
     def __init__(self, config, dim, num_heads, window_size):
         super().__init__()
@@ -360,7 +300,6 @@ class ClapAudioSelfAttention(nn.Module):
         key_layer = self.key(hidden_states).view(hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
@@ -374,7 +313,6 @@ class ClapAudioSelfAttention(nn.Module):
         attention_scores = attention_scores + relative_position_bias.unsqueeze(0)
 
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in ClapAudioModel forward() function)
             mask_shape = attention_mask.shape[0]
             attention_scores = attention_scores.view(
                 batch_size // mask_shape, mask_shape, self.num_attention_heads, dim, dim
@@ -382,11 +320,8 @@ class ClapAudioSelfAttention(nn.Module):
             attention_scores = attention_scores + attention_mask.unsqueeze(1).unsqueeze(0)
             attention_scores = attention_scores.view(-1, self.num_attention_heads, dim, dim)
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -399,7 +334,6 @@ class ClapAudioSelfAttention(nn.Module):
         return outputs
 
     def create_relative_position_index(self):
-        # get pair-wise relative position index for each token inside the window
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
         coords = torch.stack(torch.meshgrid([coords_h, coords_w], indexing="ij"))
@@ -413,7 +347,6 @@ class ClapAudioSelfAttention(nn.Module):
         return relative_position_index
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinSelfOutput with Swin->ClapAudio
 class ClapAudioSelfOutput(nn.Module):
     def __init__(self, config, dim):
         super().__init__()
@@ -427,7 +360,6 @@ class ClapAudioSelfOutput(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinAttention with Swin->ClapAudio
 class ClapAudioAttention(nn.Module):
     def __init__(self, config, dim, num_heads, window_size):
         super().__init__()
@@ -446,7 +378,6 @@ class ClapAudioAttention(nn.Module):
         return outputs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinIntermediate with Swin->ClapAudio
 class ClapAudioIntermediate(nn.Module):
     def __init__(self, config, dim):
         super().__init__()
@@ -462,7 +393,6 @@ class ClapAudioIntermediate(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinOutput with Swin->ClapAudio
 class ClapAudioOutput(nn.Module):
     def __init__(self, config, dim):
         super().__init__()
@@ -475,13 +405,7 @@ class ClapAudioOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->ClapDropPath
 class ClapDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -497,10 +421,9 @@ class ClapDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinLayer with Swin->ClapAudio
 class ClapAudioLayer(nn.Module):
     def __init__(self, config, dim, input_resolution, num_heads, drop_path_rate=0.0, shift_size=0):
         super().__init__()
@@ -517,7 +440,6 @@ class ClapAudioLayer(nn.Module):
 
     def set_shift_and_window_size(self, input_resolution):
         if min(input_resolution) <= self.window_size:
-            # if window size is larger than input resolution, we don't partition windows
             self.shift_size = torch_int(0)
             self.window_size = (
                 torch.min(torch.tensor(input_resolution)) if torch.jit.is_tracing() else min(input_resolution)
@@ -574,17 +496,14 @@ class ClapAudioLayer(nn.Module):
 
         hidden_states = hidden_states.view(batch_size, height, width, channels)
 
-        # pad hidden_states to multiples of window size
         hidden_states, pad_values = self.maybe_pad(hidden_states, height, width)
 
         _, height_pad, width_pad, _ = hidden_states.shape
-        # cyclic shift
         if self.shift_size > 0:
             shifted_hidden_states = torch.roll(hidden_states, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
         else:
             shifted_hidden_states = hidden_states
 
-        # partition windows
         hidden_states_windows = window_partition(shifted_hidden_states, self.window_size)
         hidden_states_windows = hidden_states_windows.view(-1, self.window_size * self.window_size, channels)
         attn_mask = self.get_attn_mask(
@@ -598,7 +517,6 @@ class ClapAudioLayer(nn.Module):
         attention_windows = attention_output.view(-1, self.window_size, self.window_size, channels)
         shifted_windows = window_reverse(attention_windows, self.window_size, height_pad, width_pad)
 
-        # reverse cyclic shift
         if self.shift_size > 0:
             attention_windows = torch.roll(shifted_windows, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
         else:
@@ -620,7 +538,6 @@ class ClapAudioLayer(nn.Module):
         return layer_outputs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.swin.modeling_swin.SwinStage with Swin->ClapAudio
 class ClapAudioStage(GradientCheckpointingLayer):
     def __init__(self, config, dim, input_resolution, depth, num_heads, drop_path, downsample):
         super().__init__()
@@ -640,7 +557,6 @@ class ClapAudioStage(GradientCheckpointingLayer):
             ]
         )
 
-        # patch merging layer
         if downsample is not None:
             self.downsample = downsample(dim=dim)
         else:
@@ -676,15 +592,7 @@ class ClapAudioStage(GradientCheckpointingLayer):
         return stage_outputs
 
 
-# Copied from transformers.models.swin.modeling_swin.SwinPatchMerging with Swin->ClapAudio
 class ClapAudioPatchMerging(nn.Module):
-    """
-    Patch Merging Layer.
-
-    Args:
-        dim (`int`):
-            Number of input channels.
-    """
 
     def __init__(self, dim: int) -> None:
         super().__init__()
@@ -699,13 +607,10 @@ class ClapAudioPatchMerging(nn.Module):
 
     def forward(self, input_feature: torch.Tensor, input_dimensions: tuple[int, int]) -> torch.Tensor:
         height, width = input_dimensions
-        # `dim` is height * width
         batch_size, dim, num_channels = input_feature.shape
 
         input_feature = input_feature.view(batch_size, height, width, num_channels)
-        # pad input to be divisible by width and height, if needed
         input_feature = self.maybe_pad(input_feature, height, width)
-        # Interleave rows and columns to produce [batch_size, height/2*width/2, 4*num_channels]
         input_feature = torch.cat(
             [input_feature[:, row::2, col::2, :] for col in range(2) for row in range(2)], dim=-1
         )
@@ -771,7 +676,6 @@ class ClapAudioEncoder(nn.Module):
         if time_length > spec_width or freq_length > spec_height:
             raise ValueError("the wav size should be less than or equal to the swin input size")
 
-        # to avoid bicubic zero error
         if time_length < spec_width:
             normalized_input_features = nn.functional.interpolate(
                 normalized_input_features, (spec_width, freq_length), mode="bicubic", align_corners=True
@@ -783,7 +687,6 @@ class ClapAudioEncoder(nn.Module):
 
         batch, channels, time, freq = normalized_input_features.shape
 
-        # batch_size, channels, spec_width, spec_height --> batch_size, channels, spec_height * freq_ratio, spec_width // freq_ratio
         normalized_input_features = normalized_input_features.reshape(
             batch, channels * self.freq_ratio, time // self.freq_ratio, freq
         )
@@ -805,7 +708,6 @@ class ClapAudioEncoder(nn.Module):
         always_partition: bool | None = False,
         return_dict: bool | None = True,
     ) -> tuple | ClapAudioModelOutput:
-        # Unique logic so no refactor here yet
         output_hidden_states = output_hidden_states or self.config.output_hidden_states
         output_attentions = output_attentions or self.config.output_attentions
 
@@ -832,7 +734,6 @@ class ClapAudioEncoder(nn.Module):
 
         if output_hidden_states:
             batch_size, _, hidden_size = hidden_states.shape
-            # rearrange batch_size (height width) channels -> batch_size channel height width
             reshaped_hidden_state = hidden_states.view(batch_size, *input_dimensions, hidden_size)
             reshaped_hidden_state = reshaped_hidden_state.permute(0, 3, 1, 2)
             all_hidden_states += (hidden_states,)
@@ -852,8 +753,6 @@ class ClapAudioEncoder(nn.Module):
 
             if output_hidden_states and output_hidden_states_before_downsampling:
                 batch_size, _, hidden_size = hidden_states_before_downsampling.shape
-                # rearrange batch_size (height width) channels -> batch_size channel height width
-                # here we use the original (not downsampled) height and width
                 reshaped_hidden_state = hidden_states_before_downsampling.view(
                     batch_size, *(output_dimensions[0], output_dimensions[1]), hidden_size
                 )
@@ -862,7 +761,6 @@ class ClapAudioEncoder(nn.Module):
                 all_reshaped_hidden_states += (reshaped_hidden_state,)
             elif output_hidden_states and not output_hidden_states_before_downsampling:
                 batch_size, _, hidden_size = hidden_states.shape
-                # rearrange batch_size (height width) channels -> batch_size channel height width
                 reshaped_hidden_state = hidden_states.view(batch_size, *input_dimensions, hidden_size)
                 reshaped_hidden_state = reshaped_hidden_state.permute(0, 3, 1, 2)
                 all_hidden_states += (hidden_states,)
@@ -883,7 +781,6 @@ class ClapAudioEncoder(nn.Module):
         )
 
         batch_size, n_channels, n_frequencies, n_temp = last_hidden_state.shape
-        # group 2D CNN
         c_freq_bin = n_frequencies // self.freq_ratio
         last_hidden_state = last_hidden_state.reshape(
             batch_size, n_channels, n_frequencies // c_freq_bin, c_freq_bin, n_temp
@@ -920,9 +817,7 @@ class ClapProjectionLayer(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaEmbeddings with Roberta->ClapText, persistent=False->persistent=True
 class ClapTextEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -931,7 +826,6 @@ class ClapTextEmbeddings(nn.Module):
 
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=True
         )
@@ -954,7 +848,6 @@ class ClapTextEmbeddings(nn.Module):
     ) -> torch.Tensor:
         if position_ids is None:
             if input_ids is not None:
-                # Create the position ids from the input token ids. Any padded tokens remain padded.
                 position_ids = self.create_position_ids_from_input_ids(
                     input_ids, self.padding_idx, past_key_values_length
                 )
@@ -968,12 +861,8 @@ class ClapTextEmbeddings(nn.Module):
 
         batch_size, seq_length = input_shape
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
-                # NOTE: We assume either pos ids to have bsz == 1 (broadcastable) or bsz == effective bsz (input_shape[0])
                 buffered_token_type_ids = self.token_type_ids.to(position_ids.device).expand(position_ids.shape[0], -1)
                 buffered_token_type_ids = torch.gather(buffered_token_type_ids, dim=1, index=position_ids)
                 token_type_ids = buffered_token_type_ids.expand(batch_size, seq_length)
@@ -1021,13 +910,11 @@ class ClapTextEmbeddings(nn.Module):
 
         Returns: torch.Tensor
         """
-        # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
         mask = input_ids.ne(padding_idx).int()
         incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
         return incremental_indices.long() + padding_idx
 
 
-# Copied from transformers.models.align.modeling_align.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -1050,7 +937,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextSelfAttention with Align->Clap
 class ClapTextSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -1105,7 +991,6 @@ class ClapTextSelfAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput
 class ClapTextSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -1120,7 +1005,6 @@ class ClapTextSelfOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextAttention with Align->Clap
 class ClapTextAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -1143,7 +1027,6 @@ class ClapTextAttention(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate
 class ClapTextIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -1159,7 +1042,6 @@ class ClapTextIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput
 class ClapTextOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -1174,7 +1056,6 @@ class ClapTextOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextLayer with Align->Clap
 class ClapTextLayer(GradientCheckpointingLayer):
     def __init__(self, config):
         super().__init__()
@@ -1208,7 +1089,6 @@ class ClapTextLayer(GradientCheckpointingLayer):
         return layer_output
 
 
-# Copied from transformers.models.align.modeling_align.AlignTextEncoder with Align->Clap
 class ClapTextEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -1234,7 +1114,6 @@ class ClapTextEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler
 class ClapTextPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -1242,8 +1121,6 @@ class ClapTextPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -1291,7 +1168,6 @@ class ClapAudioModel(ClapPreTrainedModel):
     def __init__(self, config: ClapAudioConfig):
         super().__init__(config)
         self.audio_encoder = ClapAudioEncoder(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> nn.Module:
@@ -1368,7 +1244,6 @@ class ClapTextModel(ClapPreTrainedModel):
 
         self.pooler = ClapTextPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1465,7 +1340,6 @@ class ClapModel(ClapPreTrainedModel):
         self.audio_model = ClapAudioModel(audio_config)
         self.audio_projection = ClapProjectionLayer(audio_config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1596,11 +1470,9 @@ class ClapModel(ClapPreTrainedModel):
         text_embeds = text_outputs.pooler_output
         text_embeds = self.text_projection(text_embeds)
 
-        # normalized features
         audio_embeds = audio_embeds / audio_embeds.norm(p=2, dim=-1, keepdim=True)
         text_embeds = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True)
 
-        # cosine similarity as logits
         logit_scale_text = self.logit_scale_t.exp()
         logit_scale_audio = self.logit_scale_a.exp()
         logits_per_text = torch.matmul(text_embeds, audio_embeds.t()) * logit_scale_text
@@ -1636,7 +1508,6 @@ class ClapTextModelWithProjection(ClapPreTrainedModel):
         super().__init__(config)
         self.text_model = ClapTextModel(config)
         self.text_projection = ClapProjectionLayer(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> nn.Module:
@@ -1695,7 +1566,6 @@ class ClapAudioModelWithProjection(ClapPreTrainedModel):
         super().__init__(config)
         self.audio_model = ClapAudioModel(config)
         self.audio_projection = ClapProjectionLayer(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> nn.Module:

@@ -1,17 +1,3 @@
-# Copyright 2020 Microsoft and the Hugging Face Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch DeBERTa-v2 model."""
 
 from collections.abc import Sequence
 
@@ -38,7 +24,6 @@ from .configuration_deberta_v2 import DebertaV2Config
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.deberta.modeling_deberta.DebertaSelfOutput with DebertaLayerNorm->LayerNorm
 class DebertaV2SelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -135,15 +120,6 @@ def build_rpos(query_layer, key_layer, relative_pos, position_buckets: int, max_
 
 
 class DisentangledSelfAttention(nn.Module):
-    """
-    Disentangled self-attention module
-
-    Parameters:
-        config (`DebertaV2Config`):
-            A model config class instance with the configuration to build a new model. The schema is similar to
-            *BertConfig*, for more details, please refer [`DebertaV2Config`]
-
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -233,7 +209,6 @@ class DisentangledSelfAttention(nn.Module):
         value_layer = self.transpose_for_scores(self.value_proj(hidden_states), self.num_attention_heads)
 
         rel_att = None
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         scale_factor = 1
         if "c2p" in self.pos_att_type:
             scale_factor += 1
@@ -255,7 +230,6 @@ class DisentangledSelfAttention(nn.Module):
 
         attention_mask = attention_mask.bool()
         attention_scores = attention_scores.masked_fill(~(attention_mask), torch.finfo(query_layer.dtype).min)
-        # bsz x height x length x dimension
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
         attention_probs = self.dropout(attention_probs)
@@ -285,7 +259,6 @@ class DisentangledSelfAttention(nn.Module):
             relative_pos = relative_pos.unsqueeze(0).unsqueeze(0)
         elif relative_pos.dim() == 3:
             relative_pos = relative_pos.unsqueeze(1)
-        # bsz x height x query x key
         elif relative_pos.dim() != 4:
             raise ValueError(f"Relative position ids must be of dim 2 or 3 or 4. {relative_pos.dim()}")
 
@@ -311,7 +284,6 @@ class DisentangledSelfAttention(nn.Module):
                 ).repeat(query_layer.size(0) // self.num_attention_heads, 1, 1)  # .split(self.all_head_size, dim=-1)
 
         score = 0
-        # content->position
         if "c2p" in self.pos_att_type:
             scale = scaled_size_sqrt(pos_key_layer, scale_factor)
             c2p_att = torch.bmm(query_layer, pos_key_layer.transpose(-1, -2))
@@ -323,7 +295,6 @@ class DisentangledSelfAttention(nn.Module):
             )
             score += c2p_att / scale.to(dtype=c2p_att.dtype)
 
-        # position->content
         if "p2c" in self.pos_att_type:
             scale = scaled_size_sqrt(pos_query_layer, scale_factor)
             r_pos = build_rpos(
@@ -345,7 +316,6 @@ class DisentangledSelfAttention(nn.Module):
         return score
 
 
-# Copied from transformers.models.deberta.modeling_deberta.DebertaAttention with Deberta->DebertaV2
 class DebertaV2Attention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -380,7 +350,6 @@ class DebertaV2Attention(nn.Module):
             return (attention_output, None)
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->DebertaV2
 class DebertaV2Intermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -396,7 +365,6 @@ class DebertaV2Intermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.deberta.modeling_deberta.DebertaOutput with DebertaLayerNorm->LayerNorm
 class DebertaV2Output(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -412,7 +380,6 @@ class DebertaV2Output(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.deberta.modeling_deberta.DebertaLayer with Deberta->DebertaV2
 class DebertaV2Layer(GradientCheckpointingLayer):
     def __init__(self, config):
         super().__init__()
@@ -482,9 +449,7 @@ class ConvLayer(nn.Module):
         return output_states
 
 
-# Copied from transformers.models.deberta.modeling_deberta.DebertaEmbeddings with DebertaLayerNorm->LayerNorm,Deberta->DebertaV2
 class DebertaV2Embeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -512,7 +477,6 @@ class DebertaV2Embeddings(nn.Module):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.config = config
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -565,7 +529,6 @@ class DebertaV2Embeddings(nn.Module):
 
 
 class DebertaV2Encoder(nn.Module):
-    """Modified BertEncoder with relative position bias support"""
 
     def __init__(self, config):
         super().__init__()
@@ -700,7 +663,6 @@ class DebertaV2PreTrainedModel(PreTrainedModel):
 
 
 @auto_docstring
-# Copied from transformers.models.deberta.modeling_deberta.DebertaModel with Deberta->DebertaV2
 class DebertaV2Model(DebertaV2PreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -709,7 +671,6 @@ class DebertaV2Model(DebertaV2PreTrainedModel):
         self.encoder = DebertaV2Encoder(config)
         self.z_steps = 0
         self.config = config
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -801,7 +762,6 @@ class DebertaV2Model(DebertaV2PreTrainedModel):
         )
 
 
-# Copied from transformers.models.deberta.modeling_deberta.LegacyDebertaPredictionHeadTransform with Deberta->DebertaV2
 class LegacyDebertaV2PredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -827,8 +787,6 @@ class LegacyDebertaV2LMPredictionHead(nn.Module):
         self.transform = LegacyDebertaV2PredictionHeadTransform(config)
 
         self.embedding_size = getattr(config, "embedding_size", config.hidden_size)
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         self.decoder = nn.Linear(self.embedding_size, config.vocab_size)
 
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
@@ -850,7 +808,6 @@ class LegacyDebertaV2OnlyMLMHead(nn.Module):
 
 
 class DebertaV2LMPredictionHead(nn.Module):
-    """https://github.com/microsoft/DeBERTa/blob/master/DeBERTa/deberta/bert.py#L270"""
 
     def __init__(self, config):
         super().__init__()
@@ -865,7 +822,6 @@ class DebertaV2LMPredictionHead(nn.Module):
 
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
-    # note that the input embeddings must be passed as an argument
     def forward(self, hidden_states, word_embeddings):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.transform_act_fn(hidden_states)
@@ -879,7 +835,6 @@ class DebertaV2OnlyMLMHead(nn.Module):
         super().__init__()
         self.lm_head = DebertaV2LMPredictionHead(config)
 
-    # note that the input embeddings must be passed as an argument
     def forward(self, sequence_output, word_embeddings):
         prediction_scores = self.lm_head(sequence_output, word_embeddings)
         return prediction_scores
@@ -904,7 +859,6 @@ class DebertaV2ForMaskedLM(DebertaV2PreTrainedModel):
                 "lm_predictions.lm_head.weight": "deberta.embeddings.word_embeddings.weight",
             }
             self.lm_predictions = DebertaV2OnlyMLMHead(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -922,7 +876,6 @@ class DebertaV2ForMaskedLM(DebertaV2PreTrainedModel):
             self.lm_predictions.lm_head.bias = new_embeddings.bias
 
     @auto_docstring
-    # Copied from transformers.models.deberta.modeling_deberta.DebertaForMaskedLM.forward with Deberta->DebertaV2
     def forward(
         self,
         input_ids: torch.Tensor | None = None,
@@ -979,7 +932,6 @@ class DebertaV2ForMaskedLM(DebertaV2PreTrainedModel):
         )
 
 
-# Copied from transformers.models.deberta.modeling_deberta.ContextPooler
 class ContextPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -988,8 +940,6 @@ class ContextPooler(nn.Module):
         self.config = config
 
     def forward(self, hidden_states):
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
 
         context_token = hidden_states[:, 0]
         context_token = self.dropout(context_token)
@@ -999,7 +949,7 @@ class ContextPooler(nn.Module):
 
     @property
     def output_dim(self):
-        return self.config.hidden_size
+        pass
 
 
 @auto_docstring(
@@ -1024,7 +974,6 @@ class DebertaV2ForSequenceClassification(DebertaV2PreTrainedModel):
         drop_out = self.config.hidden_dropout_prob if drop_out is None else drop_out
         self.dropout = nn.Dropout(drop_out)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1034,7 +983,6 @@ class DebertaV2ForSequenceClassification(DebertaV2PreTrainedModel):
         self.deberta.set_input_embeddings(new_embeddings)
 
     @auto_docstring
-    # Copied from transformers.models.deberta.modeling_deberta.DebertaForSequenceClassification.forward with Deberta->DebertaV2
     def forward(
         self,
         input_ids: torch.Tensor | None = None,
@@ -1076,7 +1024,6 @@ class DebertaV2ForSequenceClassification(DebertaV2PreTrainedModel):
         if labels is not None:
             if self.config.problem_type is None:
                 if self.num_labels == 1:
-                    # regression task
                     loss_fn = nn.MSELoss()
                     logits = logits.view(-1).to(labels.dtype)
                     loss = loss_fn(logits, labels.view(-1))
@@ -1117,7 +1064,6 @@ class DebertaV2ForSequenceClassification(DebertaV2PreTrainedModel):
 
 
 @auto_docstring
-# Copied from transformers.models.deberta.modeling_deberta.DebertaForTokenClassification with Deberta->DebertaV2
 class DebertaV2ForTokenClassification(DebertaV2PreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -1127,7 +1073,6 @@ class DebertaV2ForTokenClassification(DebertaV2PreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1189,11 +1134,9 @@ class DebertaV2ForQuestionAnswering(DebertaV2PreTrainedModel):
         self.deberta = DebertaV2Model(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
-    # Copied from transformers.models.deberta.modeling_deberta.DebertaForQuestionAnswering.forward with Deberta->DebertaV2
     def forward(
         self,
         input_ids: torch.Tensor | None = None,
@@ -1230,12 +1173,10 @@ class DebertaV2ForQuestionAnswering(DebertaV2PreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

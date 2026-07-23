@@ -1,16 +1,3 @@
-# Copyright 2025 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from collections.abc import Callable
@@ -47,25 +34,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="deepseek-ai/DeepSeek-V2-Lite")
 @strict
 class DeepseekV2Config(LlamaConfig):
-    r"""
-    first_k_dense_replace (`int`, *optional*, defaults to 0):
-        Number of dense layers in the shallow layers before switching to MoE layers.
-    n_group (`int`, *optional*):
-        Number of groups for routed experts.
-    topk_method (`str`, *optional*, defaults to `"greedy"`):
-        The method used for selecting top-k experts in the routed gate mechanism.
-
-    Example:
-
-    ```python
-    >>> from transformers import DeepseekV2Model, DeepseekV2Config
-    >>> # Initializing a DeepSeek-V2 style configuration
-    >>> configuration = DeepseekV2Config()
-    >>> # Accessing the model configuration
-    >>> model = DeepseekV2Model(configuration)
-    >>> print(model.config)
-    ```
-    """
 
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
@@ -144,7 +112,6 @@ def apply_rotary_emb(
     xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
     xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
 
-    # Broadcast to [1, 1, seq_len, dim // 2]
     freqs_cis = freqs_cis.unsqueeze(1).to(xq_.device)
 
     xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3).type_as(xq)
@@ -251,7 +218,6 @@ def yarn_apply_mscale(rope_parameters, scaling):
 
 
 class DeepseekV2Attention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: DeepseekV2Config, layer_idx: int | None = None):
         super().__init__()

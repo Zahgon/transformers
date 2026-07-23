@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from importlib import metadata
 from typing import TYPE_CHECKING
 
@@ -32,9 +19,6 @@ logger = logging.get_logger(__name__)
 
 
 class AqlmHfQuantizer(HfQuantizer):
-    """
-    Quantizer of the AQLM method. Enables the loading of prequantized models.
-    """
 
     requires_calibration = True
     quantization_config: "AqlmConfig"
@@ -62,14 +46,7 @@ class AqlmHfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self) -> bool:
-        aqlm_supports_training = version.parse(metadata.version("aqlm")) >= version.parse("1.0.2")
-        if aqlm_supports_training:
-            return True
-        else:
-            logger.warning(
-                f"Currently installed `aqlm` version ({metadata.version('aqlm')}) doesn't support training. If you wish to train a quantized model, please update `aqlm` with `pip install aqlm>=1.0.2`"
-            )
-            return False
+        pass
 
     def is_serializable(self):
         return True

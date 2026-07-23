@@ -1,19 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for MarkupLM.
-"""
 
 from ...file_utils import TensorType
 from ...processing_utils import ProcessorMixin
@@ -52,7 +36,6 @@ class MarkupLMProcessor(ProcessorMixin):
         return_tensors: str | TensorType | None = None,
         **kwargs,
     ) -> BatchEncoding:
-        # first, create nodes and xpaths
         r"""
         html_strings (`str` or `list[str]`, *optional*):
             Raw HTML strings to parse and process. When `parse_html=True` (default), these strings are parsed
@@ -92,7 +75,6 @@ class MarkupLMProcessor(ProcessorMixin):
             if nodes is None or xpaths is None:
                 raise ValueError("Make sure to pass nodes and xpaths in case `parse_html` is set to `False`")
 
-        # # second, apply the tokenizer
         if questions is not None and self.parse_html:
             if isinstance(questions, str):
                 questions = [questions]  # add batch dimension (as the feature extractor always adds a batch dimension)

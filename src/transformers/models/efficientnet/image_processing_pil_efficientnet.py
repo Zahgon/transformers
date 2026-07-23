@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for EfficientNet."""
 
 import numpy as np
 
@@ -27,14 +13,7 @@ from ...processing_utils import ImagesKwargs, Unpack
 from ...utils import TensorType, auto_docstring
 
 
-# Adapted from transformers.models.efficientnet.image_processing_efficientnet.EfficientNetImageProcessorKwargs
 class EfficientNetImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    rescale_offset (`bool`, *optional*, defaults to `self.rescale_offset`):
-        Whether to rescale the image between [-max_range/2, scale_range/2] instead of [0, scale_range].
-    include_top (`bool`, *optional*, defaults to `self.include_top`):
-        Normalize the image again with the standard deviation only for image classification if set to True.
-    """
 
     rescale_offset: bool
     include_top: bool
@@ -42,7 +21,6 @@ class EfficientNetImageProcessorKwargs(ImagesKwargs, total=False):
 
 @auto_docstring
 class EfficientNetImageProcessorPil(PilBackend):
-    """PIL backend for EfficientNet with rescale offset and include_top."""
 
     valid_kwargs = EfficientNetImageProcessorKwargs
 

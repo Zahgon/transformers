@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. & Google team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Pix2Struct modeling file"""
 
 import math
 
@@ -44,10 +30,8 @@ from .configuration_pix2struct import Pix2StructConfig, Pix2StructTextConfig, Pi
 
 logger = logging.get_logger(__name__)
 
-# General docstring
 
 
-# Adapted from transformers.models.t5.modeling_t5.T5LayerNorm with T5->Pix2Struct
 class Pix2StructLayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-6):
         """
@@ -58,15 +42,10 @@ class Pix2StructLayerNorm(nn.Module):
         self.variance_epsilon = eps
 
     def forward(self, hidden_states):
-        # T5 uses a layer_norm which only scales and doesn't shift, which is also known as Root Mean
-        # Square Layer Normalization https://huggingface.co/papers/1910.07467 thus variance is calculated
-        # w/o mean and there is no bias. Additionally we want to make sure that the accumulation for
-        # half-precision inputs is done in fp32
 
         variance = hidden_states.to(torch.float32).pow(2).mean(-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
 
-        # convert into half-precision if necessary
         if self.weight.dtype in [torch.float16, torch.bfloat16]:
             hidden_states = hidden_states.to(self.weight.dtype)
 
@@ -74,11 +53,6 @@ class Pix2StructLayerNorm(nn.Module):
 
 
 class Pix2StructVisionEmbeddings(nn.Module):
-    r"""
-    Construct the embeddings from patch. In `Pix2Struct` the input is different from classic Vision-transformer models.
-    Here the input is a sequence of `seq_len` flattened patches that also combines padding patches (tokens). Each patch
-    is represented by a vector of `hidden_size` values.
-    """
 
     def __init__(self, config: Pix2StructConfig) -> None:
         super().__init__()
@@ -90,8 +64,6 @@ class Pix2StructVisionEmbeddings(nn.Module):
         self.dropout = nn.Dropout(config.dropout_rate)
 
     def forward(self, flattened_patches: torch.Tensor) -> torch.Tensor:
-        # the row and column indices are stored in the first and second position of the flattened_patches
-        # flattened_patches: `batch_size`, `seq_len`, `hidden_size` + 2
         row_indices = flattened_patches[:, :, 0].long()
         col_indices = flattened_patches[:, :, 1].long()
 
@@ -101,7 +73,6 @@ class Pix2StructVisionEmbeddings(nn.Module):
         row_embeddings = self.row_embedder(row_indices)
         col_embeddings = self.column_embedder(col_indices)
 
-        # sum all embeddings together
         embeddings = embeddings + row_embeddings + col_embeddings
 
         embeddings = self.dropout(embeddings)
@@ -135,24 +106,17 @@ class Pix2StructVisionAttention(nn.Module):
         """
         Self-attention block
         """
-        # Input is (batch_size, seq_length, dim)
-        # Mask is (batch_size, key_length) (non-causal) or (batch_size, key_length, key_length)
         batch_size, seq_length = hidden_states.shape[:2]
 
         def to_projection_shape(states):
             """projection"""
             return states.contiguous().view(batch_size, -1, self.n_heads, self.key_value_proj_dim).transpose(1, 2)
 
-        # get query states
-        # (batch_size, n_heads, seq_length, dim_per_head)
         query_states = to_projection_shape(self.query(hidden_states))
 
-        # get key/value states
         key_states = to_projection_shape(self.key(hidden_states))
         value_states = to_projection_shape(self.value(hidden_states))
 
-        # compute scores
-        # equivalent of torch.einsum("bnqd,bnkd->bnqk", query_states, key_states), compatible with onnx op>9
         scores = torch.matmul(query_states, key_states.transpose(3, 2))
 
         if position_bias is None:
@@ -165,7 +129,6 @@ class Pix2StructVisionAttention(nn.Module):
             if attention_mask.dim() == 2:
                 position_bias = position_bias + attention_mask[:, None, None, :].to(position_bias.device)
             elif attention_mask is not None:
-                # (batch_size, n_heads, seq_length, key_length)
                 position_bias = position_bias + attention_mask.to(position_bias.device)
             elif not is_torchdynamo_compiling():
                 attention_mask = torch.ones(
@@ -179,15 +142,12 @@ class Pix2StructVisionAttention(nn.Module):
         scores += position_bias_masked
         scores = torch.max(scores, torch.tensor(torch.finfo(scores.dtype).min))
 
-        # (batch_size, n_heads, seq_length, key_length)
         attn_weights = nn.functional.softmax(scores, dim=-1, dtype=torch.float32).type_as(scores)
 
-        # (batch_size, n_heads, seq_length, key_length)
         attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
 
         attn_output = torch.matmul(attn_weights, value_states)
 
-        # (batch_size, seq_length, dim)
         attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, -1, self.inner_dim)
 
         attn_output = self.output(attn_output)
@@ -199,7 +159,6 @@ class Pix2StructVisionAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.t5.modeling_t5.T5DenseGatedActDense with T5DenseGatedActDense->Pix2StructVisionMlp,T5Config->Pix2StructVisionConfig,config.d_model->config.hidden_size,dropout_rate->dropout_rate
 class Pix2StructVisionMlp(nn.Module):
     def __init__(self, config: Pix2StructVisionConfig):
         super().__init__()
@@ -215,9 +174,6 @@ class Pix2StructVisionMlp(nn.Module):
         hidden_states = hidden_gelu * hidden_linear
         hidden_states = self.dropout(hidden_states)
 
-        # To make 8bit quantization work for google/flan-t5-xxl, self.wo is kept in float32.
-        # See https://github.com/huggingface/transformers/issues/20287
-        # we also make sure the weights are not in `int8` in case users will force `_keep_in_fp32_modules` to be `None``
         if (
             isinstance(self.wo.weight, torch.Tensor)
             and hidden_states.dtype != self.wo.weight.dtype
@@ -247,7 +203,6 @@ class Pix2StructVisionLayer(GradientCheckpointingLayer):
     ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor]:
         residual = hidden_states
 
-        # in Pix2StructVision, layernorm is applied before self-attention
         hidden_states = self.pre_attention_layer_norm(hidden_states)
 
         self_attention_outputs = self.attention(
@@ -258,10 +213,8 @@ class Pix2StructVisionLayer(GradientCheckpointingLayer):
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
 
-        # first residual connection
         hidden_states = attention_output + residual
 
-        # in Pix2StructVision, layernorm is also applied after self-attention
         layer_output = self.pre_mlp_layer_norm(hidden_states)
         layer_output = self.mlp(layer_output) + hidden_states  # second residual connection
 
@@ -320,14 +273,7 @@ class Pix2StructPreTrainedModel(PreTrainedModel):
 
     @property
     def dummy_inputs(self):
-        input_ids = torch.tensor(DUMMY_INPUTS)
-        input_mask = torch.tensor(DUMMY_MASK)
-        dummy_inputs = {
-            "decoder_input_ids": input_ids,
-            "input_ids": input_ids,
-            "decoder_attention_mask": input_mask,
-        }
-        return dummy_inputs
+        pass
 
     @torch.no_grad()
     def _init_weights(self, module):
@@ -382,7 +328,6 @@ class Pix2StructPreTrainedModel(PreTrainedModel):
             )
 
             init.normal_(module.weight, mean=0.0, std=factor * ((hidden_size) ** -0.5))
-            # Here we need the check explicitly, as we slice the weight in the `zeros_` call, so it looses the flag
             if module.padding_idx is not None and not getattr(module.weight, "_is_hf_initialized", False):
                 init.zeros_(module.weight[module.padding_idx])
         elif isinstance(module, Pix2StructTextModel):
@@ -398,7 +343,6 @@ class Pix2StructPreTrainedModel(PreTrainedModel):
             if module.bias is not None:
                 init.zeros_(module.bias)
 
-    # Copied from transformers.models.t5.modeling_t5.T5PreTrainedModel._shift_right with T5->Pix2Struct
     def _shift_right(self, input_ids):
         decoder_start_token_id = self.config.decoder_start_token_id
         pad_token_id = self.config.pad_token_id
@@ -415,7 +359,6 @@ class Pix2StructPreTrainedModel(PreTrainedModel):
 
         if pad_token_id is None:
             raise ValueError("self.model.config.pad_token_id has to be defined.")
-        # replace possible -100 values in labels by `pad_token_id`
         shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
         return shifted_input_ids
@@ -438,7 +381,6 @@ class Pix2StructVisionModel(Pix2StructPreTrainedModel):
 
         self.layernorm = Pix2StructLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -494,7 +436,6 @@ class Pix2StructVisionModel(Pix2StructPreTrainedModel):
             raise ValueError("You have to specify flattened_patches")
 
         if attention_mask is None:
-            # check where `flattened_patches` is not 0
             attention_mask = (flattened_patches.sum(dim=-1) != 0).float()
 
         embedding_output = self.embeddings(flattened_patches)
@@ -520,7 +461,6 @@ class Pix2StructVisionModel(Pix2StructPreTrainedModel):
         )
 
 
-# Copied from transformers.models.t5.modeling_t5.T5DenseGatedActDense with T5->Pix2StructText,d_model->hidden_size
 class Pix2StructTextDenseGatedActDense(nn.Module):
     def __init__(self, config: Pix2StructTextConfig):
         super().__init__()
@@ -536,9 +476,6 @@ class Pix2StructTextDenseGatedActDense(nn.Module):
         hidden_states = hidden_gelu * hidden_linear
         hidden_states = self.dropout(hidden_states)
 
-        # To make 8bit quantization work for google/flan-t5-xxl, self.wo is kept in float32.
-        # See https://github.com/huggingface/transformers/issues/20287
-        # we also make sure the weights are not in `int8` in case users will force `_keep_in_fp32_modules` to be `None``
         if (
             isinstance(self.wo.weight, torch.Tensor)
             and hidden_states.dtype != self.wo.weight.dtype
@@ -558,7 +495,6 @@ class Pix2StructTextLayerFF(nn.Module):
         self.layer_norm = Pix2StructLayerNorm(config.hidden_size, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
 
-    # Copied from transformers.models.t5.modeling_t5.T5LayerFF.forward
     def forward(self, hidden_states):
         forwarded_states = self.layer_norm(hidden_states)
         forwarded_states = self.DenseReluDense(forwarded_states)
@@ -596,7 +532,6 @@ class Pix2StructTextAttention(nn.Module):
         self.gradient_checkpointing = False
 
     @staticmethod
-    # Copied from transformers.models.t5.modeling_t5.T5Attention._relative_position_bucket
     def _relative_position_bucket(relative_position, bidirectional=True, num_buckets=32, max_distance=128):
         """
         Adapted from Mesh Tensorflow:
@@ -625,13 +560,10 @@ class Pix2StructTextAttention(nn.Module):
             relative_position = torch.abs(relative_position)
         else:
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
-        # now relative_position is in the range [0, inf)
 
-        # half of the buckets are for exact increments in positions
         max_exact = num_buckets // 2
         is_small = relative_position < max_exact
 
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
         relative_position_if_large = max_exact + (
             torch.log(relative_position.float() / max_exact)
             / math.log(max_distance / max_exact)
@@ -644,7 +576,6 @@ class Pix2StructTextAttention(nn.Module):
         relative_buckets += torch.where(is_small, relative_position, relative_position_if_large)
         return relative_buckets
 
-    # Adapted from transformers.models.t5.modeling_t5.T5Attention.compute_bias
     def compute_bias(self, query_length, key_length, device=None, past_seen_tokens=0):
         """Compute binned relative position bias"""
         if device is None:
@@ -662,7 +593,6 @@ class Pix2StructTextAttention(nn.Module):
         values = values.permute([2, 0, 1]).unsqueeze(0)  # shape (1, num_heads, query_length, key_length)
         return values
 
-    # Adapted from transformers.models.t5.modeling_t5.T5Attention.forward
     def forward(
         self,
         hidden_states,
@@ -676,24 +606,18 @@ class Pix2StructTextAttention(nn.Module):
         """
         Self-attention (if key_value_states is None) or attention over source sentence (provided by key_value_states).
         """
-        # Input is (batch_size, seq_length, dim)
-        # Mask is (batch_size, 1, 1, key_length) (non-causal) or (batch_size, 1, seq_length, key_length) (causal decoder)
         batch_size, seq_length = hidden_states.shape[:2]
         past_seen_tokens = past_key_values.get_seq_length(self.layer_idx) if past_key_values is not None else 0
-        # We clone here for StaticCache, as we get the value before updating it, but use it after and it's the same ref
         past_seen_tokens = past_seen_tokens.clone() if isinstance(past_seen_tokens, torch.Tensor) else past_seen_tokens
 
-        # if key_value_states are provided this layer is used as a cross-attention layer for the decoder
         is_cross_attention = key_value_states is not None
 
         query_states = self.query(hidden_states)
         query_states = query_states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim).transpose(1, 2)
 
-        # Check is encoder-decoder model is being used. Otherwise we'll get `DynamicCache`
         if past_key_values is not None and isinstance(past_key_values, EncoderDecoderCache):
             is_updated = past_key_values.is_updated.get(self.layer_idx)
             if is_cross_attention:
-                # after the first generated id, we can subsequently re-use all key/value_states from cache
                 curr_past_key_values = past_key_values.cross_attention_cache
             else:
                 curr_past_key_values = past_key_values.self_attention_cache
@@ -702,7 +626,6 @@ class Pix2StructTextAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -713,11 +636,9 @@ class Pix2StructTextAttention(nn.Module):
 
             if past_key_values is not None:
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention:
                     past_key_values.is_updated[self.layer_idx] = True
 
-        # compute scores, equivalent of torch.einsum("bnqd,bnkd->bnqk", query_states, key_states), compatible with onnx op>9
         scores = torch.matmul(query_states, key_states.transpose(3, 2))
 
         if position_bias is None:
@@ -740,7 +661,6 @@ class Pix2StructTextAttention(nn.Module):
         position_bias_masked = position_bias
         scores += position_bias_masked
 
-        # (batch_size, n_heads, seq_length, key_length)
         attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(scores)
         attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
 
@@ -757,7 +677,6 @@ class Pix2StructTextAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerSelfAttention with T5LayerNorm->Pix2StructLayerNorm,T5Attention->Pix2StructTextAttention,T5LayerSelfAttention->Pix2StructTextLayerSelfAttention,self.SelfAttention->self.attention,config.d_model->config.hidden_size
 class Pix2StructTextLayerSelfAttention(nn.Module):
     def __init__(self, config, has_relative_attention_bias=False, layer_idx: int | None = None):
         super().__init__()
@@ -791,7 +710,6 @@ class Pix2StructTextLayerSelfAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.t5.modeling_t5.T5LayerCrossAttention with T5LayerNorm->Pix2StructLayerNorm,T5Attention->Pix2StructTextAttention,T5LayerCrossAttention->Pix2StructTextLayerCrossAttention,self.EncDecAttention->self.attention,config.d_model->config.hidden_size
 class Pix2StructTextLayerCrossAttention(nn.Module):
     def __init__(self, config, layer_idx: int | None = None):
         super().__init__()
@@ -865,7 +783,6 @@ class Pix2StructTextBlock(GradientCheckpointingLayer):
         hidden_states = self_attention_outputs[0]
         attention_outputs = self_attention_outputs[1:]  # Keep self-attention outputs and relative position weights
 
-        # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16 and torch.isinf(hidden_states).any():
             clamp_value = torch.finfo(hidden_states.dtype).max - 1000
             hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
@@ -882,18 +799,14 @@ class Pix2StructTextBlock(GradientCheckpointingLayer):
             )
             hidden_states = cross_attention_outputs[0]
 
-            # clamp inf values to enable fp16 training
             if hidden_states.dtype == torch.float16 and torch.isinf(hidden_states).any():
                 clamp_value = torch.finfo(hidden_states.dtype).max - 1000
                 hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
 
-            # Keep cross-attention outputs and relative position weights
             attention_outputs = attention_outputs + cross_attention_outputs[1:]
 
-        # Apply Feed Forward layer
         hidden_states = self.mlp(hidden_states)
 
-        # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16 and torch.isinf(hidden_states).any():
             clamp_value = torch.finfo(hidden_states.dtype).max - 1000
             hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
@@ -930,7 +843,6 @@ class Pix2StructTextModel(Pix2StructPreTrainedModel):
 
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
         self.gradient_checkpointing = False
 
@@ -1017,7 +929,6 @@ class Pix2StructTextModel(Pix2StructPreTrainedModel):
                 past_key_values = DynamicCache(config=self.config)
 
         if attention_mask is None:
-            # required mask seq length can be calculated via length of past
             mask_seq_length = (
                 past_key_values.get_seq_length() + seq_length if past_key_values is not None else seq_length
             )
@@ -1069,9 +980,6 @@ class Pix2StructTextModel(Pix2StructPreTrainedModel):
 
             hidden_states = layer_outputs[0]
 
-            # We share the position biases between the layers - the first layer store them
-            # layer_outputs = hidden-states, key-value-states (self-attention position bias), (self-attention weights),
-            # (cross-attention position bias), (cross-attention weights)
             position_bias = layer_outputs[1]
             if encoder_hidden_states is not None:
                 encoder_decoder_position_bias = layer_outputs[3 if output_attentions else 2]
@@ -1086,13 +994,11 @@ class Pix2StructTextModel(Pix2StructPreTrainedModel):
 
         logits = self.lm_head(hidden_states)
 
-        # Add last layer
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
         loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(logits.device)
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction="mean")
 
@@ -1138,7 +1044,6 @@ class Pix2StructForConditionalGeneration(Pix2StructPreTrainedModel, GenerationMi
 
         self.is_vqa = config.is_vqa
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1259,7 +1164,6 @@ class Pix2StructForConditionalGeneration(Pix2StructPreTrainedModel, GenerationMi
         use_cache = use_cache if use_cache is not None else self.config.text_config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # Encode if needed (training, first prediction pass)
         if encoder_outputs is None:
             encoder_outputs = self.encoder(
                 flattened_patches=flattened_patches,
@@ -1278,17 +1182,14 @@ class Pix2StructForConditionalGeneration(Pix2StructPreTrainedModel, GenerationMi
         hidden_states = encoder_outputs[0]
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
-            # get decoder inputs from shifting lm labels to the right
             decoder_input_ids = self._shift_right(labels)
             decoder_attention_mask = (
                 decoder_attention_mask
                 if decoder_attention_mask is not None
                 else decoder_input_ids.ne(self.config.pad_token_id).float()
             )
-            # Always attend to the first token
             decoder_attention_mask[:, 0] = 1
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,

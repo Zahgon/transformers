@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from collections.abc import Sequence
@@ -48,18 +35,6 @@ from ..pp_ocrv5_server_det.modeling_pp_ocrv5_server_det import PPOCRV5ServerDetP
 @auto_docstring(checkpoint="PaddlePaddle/UVDoc_safetensors")
 @strict
 class UVDocBackboneConfig(BackboneConfigMixin, PreTrainedConfig):
-    r"""
-    resnet_head (`Sequence[list[int] | tuple[int, ...]]`, *optional*, defaults to `((3, 32), (32, 32))`):
-        Configuration for the ResNet head layers in format [in_channels, out_channels].
-    resnet_configs (`Sequence[Sequence[tuple[int, int, int, bool] | list[int | bool]]]`, *optional*, defaults to `(((32, 32, 1, False),
-        (32, 32, 3, False), (32, 32, 3, False)), ((32, 64, 1, True), (64, 64, 3, False), (64, 64, 3, False), (64, 64, 3, False)), ((64, 128, 1, True),
-        (128, 128, 3, False), (128, 128, 3, False), (128, 128, 3, False), (128, 128, 3, False), (128, 128, 3, False)))`):
-        Configuration for the ResNet stages in format [in_channels, out_channels, dilation_value, downsample].
-    stage_configs (Sequence[Sequence[tuple[int, ...] | list[int]]], *optional*, defaults to `(((128, 1),), ((128, 2),),
-        ((128, 5),), ((128, 8),(128, 3),(128, 2),), ((128, 12), (128, 7), (128, 4),), ((128, 18), (128, 12), (128, 6),),)`):
-        Configuration for the bridge module stages in format [in_channels, dilation_value].
-        Each inner sequence corresponds to a single bridge block, and the outer sequence groups blocks by bridge stage.
-    """
 
     model_type = "uvdoc_backbone"
 
@@ -128,16 +103,6 @@ class UVDocBackboneConfig(BackboneConfigMixin, PreTrainedConfig):
 @auto_docstring(checkpoint="PaddlePaddle/UVDoc_safetensors")
 @strict
 class UVDocConfig(PreTrainedConfig):
-    r"""
-    padding_mode (`str`, *optional*, defaults to `"reflect"`):
-        Padding mode for convolutional layers. Supported modes are `"reflect"`, `"constant"`, and `"replicate"`.
-    kernel_size (`int`, *optional*, defaults to 5):
-        Kernel size for convolutional layers in the backbone network.
-    bridge_connector (`list[int] | tuple[int, ...]`, *optional*, defaults to `(128, 128)`):
-        Configuration for the bridge connector in format [in_channels, out_channels].
-    out_point_positions2D (`Sequence[list[int] | tuple[int, ...]]`, *optional*, defaults to `((128, 32), (32, 2))`):
-        Configuration for the output point positions 2D layer in format [in_channels, out_channels].
-    """
 
     model_type = "uvdoc"
     sub_configs = {"backbone_config": AutoConfig}
@@ -186,7 +151,6 @@ class UVDocImageProcessor(TorchvisionBackend):
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
-            # RGB to BGR conversion
             stacked_images = stacked_images[:, [2, 1, 0], :, :]
             processed_images_grouped[shape] = stacked_images
 
@@ -198,9 +162,7 @@ class UVDocImageProcessor(TorchvisionBackend):
             rescale_and_normalize_images, disable_grouping=disable_grouping
         )
         interpolated_images_grouped = {}
-        # Upsample images and extract originals for post-processing
         for shape, stacked_images in grouped_images.items():
-            # Interpolate to target size (use interpolate with align_corners=True to match original implementation)
             if do_resize:
                 stacked_images = F.interpolate(
                     stacked_images, size=(size.height, size.width), mode="bilinear", align_corners=True
@@ -221,58 +183,10 @@ class UVDocImageProcessor(TorchvisionBackend):
         original_images: list[torch.Tensor],
         scale: float = 255.0,
     ) -> list[dict[str, torch.Tensor]]:
-        """
-        Post-process document rectification predictions to convert them into rectified images.
-
-        Args:
-            prediction: Predicted 2D Bezier mesh coordinates, shape (B, 2, H, W)
-            original_images: List of original input tensors, each of shape (C, H_i, W_i). Images may have different sizes.
-            scale: Scaling factor for output images (default: 255.0)
-
-        Returns:
-            List of dictionaries containing rectified images. Each dictionary has:
-                - "images": Rectified image tensor of shape (H, W, 3) with dtype torch.uint8
-                          and BGR channel order (suitable for OpenCV visualization)
-        """
-        image_list = list(original_images)
-        scale = torch.tensor(float(scale), device=prediction.device)
-        results = []
-
-        for i, original_image in enumerate(image_list):
-            # Ensure (1, C, H, W) for grid_sample
-            if original_image.ndim == 3:
-                original_image = original_image.unsqueeze(0)
-            original_image = original_image.to(prediction.device)
-            original_height, original_width = original_image.shape[2:]
-
-            # Upsample predicted mesh for this image to its original size
-            upsampled_mesh = F.interpolate(
-                prediction[i : i + 1],
-                size=(original_height, original_width),
-                mode="bilinear",
-                align_corners=True,
-            )
-            # Permute mesh for grid_sample: (1, H, W, 2)
-            rearranged_mesh = upsampled_mesh.permute(0, 2, 3, 1)
-
-            # Apply spatial transformation to rectify the document
-            rectified = F.grid_sample(original_image, rearranged_mesh, align_corners=True)
-
-            # Remove batch dimension and rearrange channels: (H, W, C)
-            image = rectified.squeeze(0).permute(1, 2, 0)
-
-            # Scale and convert to uint8 with BGR channel
-            image = image * scale
-
-            image = image.flip(dims=[-1]).to(dtype=torch.uint8, non_blocking=True, copy=False)
-
-            results.append({"images": image})
-
-        return results
+        pass
 
 
 class UVDocConvLayer(PPLCNetConvLayer):
-    """Convolutional layer with batch normalization and activation."""
 
     def __init__(
         self,
@@ -301,7 +215,6 @@ class UVDocConvLayer(PPLCNetConvLayer):
 
 
 class UVDocResidualBlock(nn.Module):
-    """Base residual block with dilation support."""
 
     def __init__(
         self,
@@ -363,7 +276,6 @@ class UVDocResidualBlock(nn.Module):
 
 
 class UVDocResNetStage(nn.Module):
-    """A ResNet stage containing multiple residual blocks."""
 
     def __init__(self, config, stage_index):
         super().__init__()
@@ -390,7 +302,6 @@ class UVDocResNetStage(nn.Module):
 
 
 class UVDocResNet(nn.Module):
-    """Initial resnet_head and resnet_down."""
 
     def __init__(self, config):
         super().__init__()
@@ -420,7 +331,6 @@ class UVDocResNet(nn.Module):
 
 
 class UVDocBridgeBlock(GradientCheckpointingLayer):
-    """Bridge module with dilated convolutions for long-range dependencies."""
 
     def __init__(self, config, bridge_index):
         super().__init__()
@@ -440,7 +350,6 @@ class UVDocBridgeBlock(GradientCheckpointingLayer):
 
 
 class UVDocPointPositions2D(nn.Module):
-    """Module for predicting 2D point positions for document rectification."""
 
     def __init__(self, config):
         super().__init__()

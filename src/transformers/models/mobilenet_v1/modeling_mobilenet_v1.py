@@ -1,17 +1,3 @@
-# Copyright 2022 Apple Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch MobileNetV1 model."""
 
 import torch
 from torch import nn
@@ -183,7 +169,6 @@ class MobileNetV1Model(MobileNetV1PreTrainedModel):
 
         self.pooler = nn.AdaptiveAvgPool2d((1, 1)) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -244,11 +229,9 @@ class MobileNetV1ForImageClassification(MobileNetV1PreTrainedModel):
 
         last_hidden_size = self.mobilenet_v1.layer[-1].convolution.out_channels
 
-        # Classifier head
         self.dropout = nn.Dropout(config.classifier_dropout_prob, inplace=True)
         self.classifier = nn.Linear(last_hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

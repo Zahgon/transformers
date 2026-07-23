@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Chameleon."""
 
 import numpy as np
 import PIL.Image
@@ -30,7 +16,6 @@ logger = logging.get_logger(__name__)
 
 @auto_docstring
 class ChameleonImageProcessor(TorchvisionBackend):
-    """Torchvision backend for Chameleon with custom convert_to_rgb."""
 
     resample = PILImageResampling.LANCZOS
     image_mean = [1.0, 1.0, 1.0]
@@ -60,11 +45,9 @@ class ChameleonImageProcessor(TorchvisionBackend):
 
         img_rgba = np.array(image.convert("RGBA"))
 
-        # If there is no transparency layer, simple convert and return.
         if not (img_rgba[:, :, 3] < 255).any():
             return image.convert("RGB")
 
-        # There is a transparency layer, blend it with a white background.
         alpha = img_rgba[:, :, 3] / 255.0
         img_rgb = (1 - alpha[:, :, np.newaxis]) * 255 + alpha[:, :, np.newaxis] * img_rgba[:, :, :3]
         return PIL.Image.fromarray(img_rgb.astype("uint8"), "RGB")

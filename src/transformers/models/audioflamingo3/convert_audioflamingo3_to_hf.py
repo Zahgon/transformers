@@ -1,19 +1,4 @@
-# Copyright 2025 NVIDIA CORPORATION and the HuggingFace Inc. team. All rights
-# reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Convert AudioFlamingo3 checkpoints into a Hugging Face repository layout."""
 
 from __future__ import annotations
 
@@ -52,7 +37,6 @@ def _load_json(p: Path):
 def write_processor(src_root: Path, dst_root: Path):
     llm_dir = src_root / "llm"
 
-    # fmt: off
     tokenizer_chat_template = (
         "{% if messages[0]['role'] != 'system' %}"
             "{{ '<|im_start|>system\\nYou are a helpful assistant.<|im_end|>\\n' }}"
@@ -64,9 +48,7 @@ def write_processor(src_root: Path, dst_root: Path):
             "{{ '<|im_start|>assistant\\n' }}"
         "{% endif %}"
     )
-    # fmt: on
 
-    # fmt: off
     processor_chat_template = (
         "{% if messages[0]['role'] != 'system' %}"
             "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n"
@@ -93,7 +75,6 @@ def write_processor(src_root: Path, dst_root: Path):
             "<|im_start|>assistant\n"
         "{% endif %}"
     )
-    # fmt: on
 
     processor = AudioFlamingo3Processor(
         feature_extractor=WhisperFeatureExtractor(feature_size=128, return_attention_mask=True),
@@ -178,7 +159,6 @@ def merge_and_shard_weights(src_root: Path, dst_root: Path, processor: AudioFlam
     config = AudioFlamingo3Config(text_config=text_config, audio_token_id=tok.get_vocab()["<sound>"])
     model = AudioFlamingo3ForConditionalGeneration(config).to(dtype=torch.bfloat16)
 
-    # Update state dict to new key names if necessary
     projector_key_mapping = {
         "multi_modal_projector.layers.0.weight": "multi_modal_projector.linear_1.weight",
         "multi_modal_projector.layers.0.bias": "multi_modal_projector.linear_1.bias",
@@ -189,9 +169,7 @@ def merge_and_shard_weights(src_root: Path, dst_root: Path, processor: AudioFlam
         if old_key in state:
             state[new_key] = state.pop(old_key)
 
-    # Load weights into the instantiated model so we can push via `push_to_hub` later.
     load_res = model.load_state_dict(state, strict=True)
-    # Enforce a clean load
     if getattr(load_res, "missing_keys", None) and load_res.missing_keys:
         mk = load_res.missing_keys
         raise ValueError(f"Missing keys when loading: {mk[:10]}{' ...' if len(mk) > 10 else ''}")
@@ -274,7 +252,6 @@ def main() -> None:
     processor = write_processor(src_root, dst_root)
     model = merge_and_shard_weights(src_root, dst_root, processor)
 
-    # Optionally push converted assets using native push_to_hub only
     if args.push_to_hub:
         logger.info("Pushing processor to the Hub ...")
         processor.push_to_hub(args.push_to_hub)

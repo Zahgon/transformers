@@ -1,17 +1,3 @@
-# Copyright 2021 The Fairseq Authors and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Hubert model."""
 
 import torch
 import torch.nn as nn
@@ -105,7 +91,6 @@ class HubertFeatureProjection(nn.Module):
         self.dropout = nn.Dropout(config.feat_proj_dropout)
 
     def forward(self, hidden_states):
-        # non-projected hidden states are needed for quantization
         if self.feat_proj_layer_norm:
             hidden_states = self.layer_norm(hidden_states)
         hidden_states = self.projection(hidden_states)
@@ -165,8 +150,6 @@ class HubertPreTrainedModel(PreTrainedModel):
         """
 
         def _conv_out_length(input_length, kernel_size, stride):
-            # 1D convolutional layer output length formula taken
-            # from https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html
             return torch.div(input_length - kernel_size, stride, rounding_mode="floor") + 1
 
         for kernel_size, stride in zip(self.config.conv_kernel, self.config.conv_stride):
@@ -181,7 +164,6 @@ class HubertPreTrainedModel(PreTrainedModel):
         attention_mask = torch.zeros(
             (batch_size, feature_vector_length), dtype=attention_mask.dtype, device=attention_mask.device
         )
-        # these two operations makes sure that all values before the output lengths idxs are attended to
         attention_mask[(torch.arange(attention_mask.shape[0], device=attention_mask.device), output_lengths - 1)] = 1
         attention_mask = attention_mask.flip([-1]).cumsum(-1).flip([-1]).bool()
         return attention_mask
@@ -202,7 +184,6 @@ class HubertModel(Wav2Vec2Model, HubertPreTrainedModel):
         else:
             self.encoder = HubertEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
         del self.adapter
@@ -256,7 +237,6 @@ class HubertModel(Wav2Vec2Model, HubertPreTrainedModel):
         extract_features = extract_features.transpose(1, 2)
 
         if attention_mask is not None:
-            # compute reduced attention_mask corresponding to feature vectors
             attention_mask = self._get_feature_vector_attention_mask(extract_features.shape[1], attention_mask)
 
         hidden_states = self.feature_projection(extract_features)

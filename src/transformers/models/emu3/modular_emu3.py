@@ -1,17 +1,3 @@
-# Copyright 2024 HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from dataclasses import dataclass
@@ -45,10 +31,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring
 @dataclass
 class Emu3VQVAEModelOutput(BaseModelOutputWithPooling):
-    r"""
-    image_tokens (`torch.LongTensor` of shape `(batch_size, config.vocab_size`):
-        Indices of the image tokens predicted by the VQ-VAE model.
-    """
 
     image_tokens: torch.LongTensor | None = None
 
@@ -57,7 +39,6 @@ class Emu3Attention(LlamaAttention):
     pass
 
 
-# Has extra dropout which no other model in the library has
 class Emu3DecoderLayer(LlamaDecoderLayer):
     def __init__(self, config: Emu3Config, layer_idx: int):
         super().__init__(config, layer_idx)
@@ -95,15 +76,6 @@ class Emu3DecoderLayer(LlamaDecoderLayer):
 
 
 class Emu3VQVAEVectorQuantizer(nn.Module):
-    """
-    A module for vector quantization using learned embedding vectors.
-
-    This module implements the quantization process similar to te one described in
-    the VQ-VAE (Vector Quantized Variational AutoEncoder) paper. It quantizes continuous
-    input vectors into discrete codebook vectors, which are learned during training.
-    Current implementation improves over previous ones by avoiding costly matrix multiplications
-    and allowing for post-hoc remapping of indices.
-    """
 
     def __init__(self, config: Emu3VQVAEConfig):
         super().__init__()
@@ -115,11 +87,9 @@ class Emu3VQVAEVectorQuantizer(nn.Module):
         hidden_state = hidden_state.permute(0, 1, 3, 4, 2).contiguous()
         hidden_state_flattened = hidden_state.view(-1, channels)
 
-        # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
         hidden_state_sum = torch.sum(hidden_state_flattened**2, dim=1, keepdim=True)
         embedding_sum = torch.sum(self.embedding.weight**2, dim=1)
 
-        # "bd,dn->bn",
         distances = 2 * torch.matmul(hidden_state_flattened, self.embedding.weight.transpose(0, 1))
         distances = hidden_state_sum + embedding_sum - distances
 
@@ -366,16 +336,10 @@ class Emu3VQVAEAttentionBlock(SiglipAttention):
     def __init__(self, config: Emu3VQVAEConfig):
         super().__init__(config)
 
-        # for compatibility with the attention interface
         self.num_key_value_groups = 1
 
 
 class Emu3VQVAEGroupNorm(nn.GroupNorm):
-    """
-    Same as the torch GroupNorm with the only difference that this ones accepts
-    an optional kwarg `quant_states` which is not used. This class makes it easier to
-    use SpatialNorm or GroupNorm without conditionals
-    """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -579,12 +543,10 @@ class Emu3VQVAEEncoder(nn.Module):
         temporal_dim = pixel_values.shape[1]
         pixel_values = pixel_values.reshape(-1, *pixel_values.shape[2:])
 
-        # downsampling & middle
         hidden_states = self.conv_in(pixel_values)
         hidden_states = self.down_block(hidden_states)
         hidden_states = self.middle_block(hidden_states)
 
-        # end
         hidden_states = self.norm_out(hidden_states)
         hidden_states *= torch.sigmoid(hidden_states)
         hidden_states = self.conv_out(hidden_states)
@@ -592,7 +554,6 @@ class Emu3VQVAEEncoder(nn.Module):
         hidden_states = hidden_states.reshape(-1, temporal_dim, *hidden_states.shape[1:])
         hidden_states = hidden_states.permute(0, 2, 1, 3, 4)
 
-        # temporal convs
         for conv in self.time_conv:
             hidden_states = conv(hidden_states)
             hidden_states *= torch.sigmoid(hidden_states)
@@ -649,7 +610,6 @@ class Emu3VQVAEDecoder(nn.Module):
         hidden_quant_states = torch.cat((hidden_states, quant_states), dim=0)
         hidden_quant_states = hidden_quant_states.permute(0, 2, 1, 3, 4)
 
-        # temporal convs
         for layer in self.time_res_stack:
             hidden_quant_states = layer(hidden_quant_states)
 
@@ -664,7 +624,6 @@ class Emu3VQVAEDecoder(nn.Module):
 
         hidden_states = self.conv_in(hidden_states)
 
-        # middle & upsampling
         hidden_states = self.middle_block(hidden_states, quant_states)
         hidden_states = self.up_block(hidden_states, quant_states)
 
@@ -720,7 +679,6 @@ class Emu3VQVAE(PreTrainedModel):
                 init.uniform_(module.bias, -bound, bound)
         elif isinstance(module, nn.Embedding):
             init.normal_(module.weight)
-            # Here we need the check explicitly, as we slice the weight in the `zeros_` call, so it looses the flag
             if module.padding_idx is not None and not getattr(module.weight, "_is_hf_initialized", False):
                 init.zeros_(module.weight[module.padding_idx])
 
@@ -760,11 +718,9 @@ class Emu3VQVAE(PreTrainedModel):
 
         hidden_states = self.encoder(pixel_values)
 
-        # b t c h w -> b c t h w
         conv_hidden_states = hidden_states.permute(0, 2, 1, 3, 4)
         conv_hidden_states = self.quant_conv(conv_hidden_states)
 
-        # b c t h w -> b t c h w
         conv_hidden_states = conv_hidden_states.permute(0, 2, 1, 3, 4)
         codes = self.quantize(conv_hidden_states)
 
@@ -807,9 +763,6 @@ class Emu3VQVAE(PreTrainedModel):
 
 
 class Emu3ImageVocabularyMapping:
-    """
-    A class for mapping discrete image tokens from VQGAN to BPE tokens.
-    """
 
     def __init__(self, vocab_map):
         self.vocab_map = vocab_map
@@ -818,33 +771,27 @@ class Emu3ImageVocabularyMapping:
 
     @cached_property
     def image_tokens(self):
-        return sorted([val for name, val in self.vocab_map.items() if name.startswith("<|visual token")])
+        pass
 
     @cached_property
     def image_tokens_str(self):
-        return sorted([name for name, val in self.vocab_map.items() if name.startswith("<|visual token")])
+        pass
 
     @cached_property
     def img2bpe(self):
-        return {int(token[-8:-2]): self.vocab_map[token] for token in self.image_tokens_str}
+        pass
 
     @cached_property
     def bpe2img(self):
-        return {v: k for k, v in self.img2bpe.items()}
+        pass
 
     @cached_property
     def bpe2img_mapping_tensor(self):
-        mapping = torch.zeros(max(self.bpe2img.keys()) + 1, dtype=torch.int)
-        for k, v in self.bpe2img.items():
-            mapping[k] = v
-        return mapping
+        pass
 
     @cached_property
     def img2bpe_mapping_tensor(self):
-        mapping = torch.zeros(max(self.img2bpe.keys()) + 1, dtype=torch.int)
-        for k, v in self.img2bpe.items():
-            mapping[k] = v
-        return mapping
+        pass
 
     def convert_img2bpe(self, img_batch: list[torch.Tensor]) -> torch.Tensor:
         device = img_batch.device
@@ -918,7 +865,6 @@ class Emu3Model(Emu3PreTrainedModel):
         self.vqmodel = Emu3VQVAE(config.vq_config)
         self.vocabulary_mapping = Emu3ImageVocabularyMapping(config.vocabulary_map)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1053,7 +999,6 @@ class Emu3Model(Emu3PreTrainedModel):
             )
             inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
 
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.text_model(
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -1164,7 +1109,6 @@ class Emu3ForConditionalGeneration(Emu3PreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -1194,7 +1138,6 @@ class Emu3ForConditionalGeneration(Emu3PreTrainedModel, GenerationMixin):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,

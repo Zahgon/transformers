@@ -1,16 +1,3 @@
-# Copyright 2025 Baidu Inc and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import math
 
 import torch
@@ -49,115 +36,9 @@ from ..rt_detr_v2.modeling_rt_detr_v2 import multi_scale_deformable_attention_v2
 logger = logging.get_logger(__name__)
 
 
-# TODO: Attribute map assignment logic should be fixed in modular
-# as well as super() call parsing because otherwise we cannot re-write args after initialization
 @auto_docstring(checkpoint="ustc-community/dfine-xlarge-coco")
 @strict
 class DFineConfig(PreTrainedConfig):
-    r"""
-    initializer_bias_prior_prob (`float`, *optional*):
-        The prior probability used by the bias initializer to initialize biases for `enc_score_head` and `class_embed`.
-        If `None`, `prior_prob` computed as `prior_prob = 1 / (num_labels + 1)` while initializing model weights.
-    freeze_backbone_batch_norms (`bool`, *optional*, defaults to `True`):
-        Whether to freeze the batch normalization layers in the backbone.
-    encoder_in_channels (`list`, *optional*, defaults to `[512, 1024, 2048]`):
-        Multi level features input for encoder.
-    feat_strides (`list[int]`, *optional*, defaults to `[8, 16, 32]`):
-        Strides used in each feature map.
-    encode_proj_layers (`list[int]`, *optional*, defaults to `[2]`):
-        Indexes of the projected layers to be used in the encoder.
-    positional_encoding_temperature (`int`, *optional*, defaults to 10000):
-        The temperature parameter used to create the positional encodings.
-    encoder_activation_function (`str`, *optional*, defaults to `"gelu"`):
-        The non-linear activation function (function or string) in the encoder and pooler. If string, `"gelu"`,
-        `"relu"`, `"silu"` and `"gelu_new"` are supported.
-    eval_size (`tuple[int, int]`, *optional*):
-        Height and width used to computes the effective height and width of the position embeddings after taking
-        into account the stride.
-    normalize_before (`bool`, *optional*, defaults to `False`):
-        Determine whether to apply layer normalization in the transformer encoder layer before self-attention and
-        feed-forward modules.
-    hidden_expansion (`float`, *optional*, defaults to 1.0):
-        Expansion ratio to enlarge the dimension size of RepVGGBlock and CSPRepLayer.
-    num_queries (`int`, *optional*, defaults to 300):
-        Number of object queries.
-    decoder_in_channels (`list`, *optional*, defaults to `[256, 256, 256]`):
-        Multi level features dimension for decoder
-    num_feature_levels (`int`, *optional*, defaults to 3):
-        The number of input feature levels.
-    decoder_n_points (`int`, *optional*, defaults to 4):
-        The number of sampled keys in each feature level for each attention head in the decoder.
-    decoder_activation_function (`str`, *optional*, defaults to `"relu"`):
-        The non-linear activation function (function or string) in the decoder. If string, `"gelu"`,
-        `"relu"`, `"silu"` and `"gelu_new"` are supported.
-    num_denoising (`int`, *optional*, defaults to 100):
-        The total number of denoising tasks or queries to be used for contrastive denoising.
-    label_noise_ratio (`float`, *optional*, defaults to 0.5):
-        The fraction of denoising labels to which random noise should be added.
-    box_noise_scale (`float`, *optional*, defaults to 1.0):
-        Scale or magnitude of noise to be added to the bounding boxes.
-    learn_initial_query (`bool`, *optional*, defaults to `False`):
-        Indicates whether the initial query embeddings for the decoder should be learned during training
-    anchor_image_size (`tuple[int, int]`, *optional*):
-        Height and width of the input image used during evaluation to generate the bounding box anchors. If None, automatic generate anchor is applied.
-    with_box_refine (`bool`, *optional*, defaults to `True`):
-        Whether to apply iterative bounding box refinement, where each decoder layer refines the bounding boxes
-        based on the predictions from the previous layer.
-    matcher_alpha (`float`, *optional*, defaults to 0.25):
-        Parameter alpha used by the Hungarian Matcher.
-    matcher_gamma (`float`, *optional*, defaults to 2.0):
-        Parameter gamma used by the Hungarian Matcher.
-    matcher_class_cost (`float`, *optional*, defaults to 2.0):
-        The relative weight of the class loss used by the Hungarian Matcher.
-    matcher_bbox_cost (`float`, *optional*, defaults to 5.0):
-        The relative weight of the bounding box loss used by the Hungarian Matcher.
-    matcher_giou_cost (`float`, *optional*, defaults to 2.0):
-        The relative weight of the giou loss of used by the Hungarian Matcher.
-    use_focal_loss (`bool`, *optional*, defaults to `True`):
-        Parameter informing if focal focal should be used.
-    focal_loss_alpha (`float`, *optional*, defaults to 0.75):
-        Parameter alpha used to compute the focal loss.
-    focal_loss_gamma (`float`, *optional*, defaults to 2.0):
-        Parameter gamma used to compute the focal loss.
-    weight_loss_vfl (`float`, *optional*, defaults to 1.0):
-        Relative weight of the varifocal loss in the object detection loss.
-    weight_loss_bbox (`float`, *optional*, defaults to 5.0):
-        Relative weight of the L1 bounding box loss in the object detection loss.
-    weight_loss_giou (`float`, *optional*, defaults to 2.0):
-        Relative weight of the generalized IoU loss in the object detection loss.
-    weight_loss_fgl (`float`, *optional*, defaults to 0.15):
-        Relative weight of the fine-grained localization loss in the object detection loss.
-    weight_loss_ddf (`float`, *optional*, defaults to 1.5):
-        Relative weight of the decoupled distillation focal loss in the object detection loss.
-    eval_idx (`int`, *optional*, defaults to -1):
-        Index of the decoder layer to use for evaluation. If negative, counts from the end
-        (e.g., -1 means use the last layer). This allows for early prediction in the decoder
-        stack while still training later layers.
-    layer_scale (`float`, *optional*, defaults to `1.0`):
-        Scaling factor for the hidden dimension in later decoder layers. Used to adjust the
-        model capacity after the evaluation layer.
-    max_num_bins (`int`, *optional*, defaults to 32):
-        Maximum number of bins for the distribution-guided bounding box refinement.
-        Higher values allow for more fine-grained localization but increase computation.
-    reg_scale (`float`, *optional*, defaults to 4.0):
-        Scale factor for the regression distribution. Controls the range and granularity
-        of the bounding box refinement process.
-    depth_mult (`float`, *optional*, defaults to 1.0):
-        Multiplier for the number of blocks in RepNCSPELAN4 layers. Used to scale the model's
-        depth while maintaining its architecture.
-    top_prob_values (`int`, *optional*, defaults to 4):
-        Number of top probability values to consider from each corner's distribution.
-    lqe_hidden_dim (`int`, *optional*, defaults to 64):
-        Hidden dimension size for the Location Quality Estimator (LQE) network.
-    lqe_layers (`int`, *optional*, defaults to 2):
-        Number of layers in the Location Quality Estimator MLP.
-    decoder_offset_scale (`float`, *optional*, defaults to 0.5):
-        Offset scale used in deformable attention.
-    decoder_method (`str`, *optional*, defaults to `"default"`):
-        The method to use for the decoder: `"default"` or `"discrete"`.
-    up (`float`, *optional*, defaults to 0.5):
-        Controls the upper bounds of the Weighting Function.
-    """
 
     model_type = "d_fine"
     sub_configs = {"backbone_config": AutoConfig}
@@ -174,7 +55,6 @@ class DFineConfig(PreTrainedConfig):
     backbone_config: dict | PreTrainedConfig | None = None
     freeze_backbone_batch_norms: bool = True
 
-    # encoder HybridEncoder
     encoder_hidden_dim: int = 256
     encoder_in_channels: list[int] | tuple[int, ...] = (512, 1024, 2048)
     feat_strides: list[int] | tuple[int, ...] = (8, 16, 32)
@@ -191,7 +71,6 @@ class DFineConfig(PreTrainedConfig):
     normalize_before: bool = False
     hidden_expansion: float = 1.0
 
-    # decoder DFineTransformer
     d_model: int = 256
     num_queries: int = 300
     decoder_in_channels: list[int] | tuple[int, ...] = (256, 256, 256)
@@ -209,7 +88,6 @@ class DFineConfig(PreTrainedConfig):
     anchor_image_size: int | list[int] | None = None
     with_box_refine: bool = True
 
-    # Loss
     matcher_alpha: float = 0.25
     matcher_gamma: float = 2.0
     matcher_class_cost: float = 2.0
@@ -250,17 +128,7 @@ class DFineConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if isinstance(self.decoder_n_points, list):
-            if len(self.decoder_n_points) != self.num_feature_levels:
-                raise ValueError(
-                    f"Length of decoder_n_points list ({len(self.decoder_n_points)}) must match num_feature_levels ({self.num_feature_levels})."
-                )
-
-        if self.head_dim * self.decoder_attention_heads != self.d_model:
-            raise ValueError(
-                f"Embedded dimension {self.d_model} must be divisible by decoder_attention_heads {self.decoder_attention_heads}"
-            )
+        pass
 
 
 class DFineDecoderOutput(RTDetrDecoderOutput):
@@ -397,7 +265,6 @@ class DFineMultiscaleDeformableAttention(nn.Module):
             "Make sure to align the spatial shapes with the sequence length of the encoder hidden states",
         )
 
-        # Reshape for multi-head attention
         value = encoder_hidden_states.reshape(batch_size, sequence_length, self.n_heads, self.d_model // self.n_heads)
         if attention_mask is not None:
             value = value.masked_fill(~attention_mask[..., None], float(0))
@@ -420,8 +287,6 @@ class DFineMultiscaleDeformableAttention(nn.Module):
                 + sampling_offsets / offset_normalizer
             )
         elif reference_points.shape[-1] == 4:
-            # reference_points [8, 480, None, 1,  4]
-            # sampling_offsets [8, 480, 8,    12, 2]
             num_points_scale = self.num_points_scale.to(dtype=hidden_states.dtype).unsqueeze(-1)
             offset = sampling_offsets * num_points_scale * reference_points[:, :, None, :, 2:] * self.offset_scale
             sampling_locations = reference_points[:, :, None, :, :2] + offset
@@ -475,9 +340,6 @@ class DFineRepVggBlock(RTDetrRepVggBlock):
 
 
 class DFineCSPRepLayer(nn.Module):
-    """
-    Cross Stage Partial (CSP) network layer with RepVGG blocks.
-    """
 
     def __init__(
         self, config: DFineConfig, in_channels: int, out_channels: int, num_blocks: int, expansion: float = 1.0
@@ -521,10 +383,8 @@ class DFineRepNCSPELAN4(nn.Module):
         self.conv4 = DFineConvNormLayer(config, conv3_dim + (2 * conv4_dim), conv2_dim, 1, 1, activation=act)
 
     def forward(self, input_features: torch.Tensor) -> torch.Tensor:
-        # Split initial features into two branches after first convolution
         split_features = list(self.conv1(input_features).split((self.conv_dim, self.conv_dim), 1))
 
-        # Process branches sequentially
         branch1 = self.csp_rep1(split_features[-1])
         branch1 = self.conv2(branch1)
         branch2 = self.csp_rep2(branch1)
@@ -568,17 +428,6 @@ class DFineAIFILayer(RTDetrAIFILayer):
 
 
 class DFineIntegral(nn.Module):
-    """
-    A static layer that calculates integral results from a distribution.
-
-    This layer computes the target location using the formula: `sum{Pr(n) * W(n)}`,
-    where Pr(n) is the softmax probability vector representing the discrete
-    distribution, and W(n) is the non-uniform Weighting Function.
-
-    Args:
-        max_num_bins (int): Max number of the discrete bins. Default is 32.
-                       It can be adjusted based on the dataset or task requirements.
-    """
 
     def __init__(self, config: DFineConfig):
         super().__init__()
@@ -613,9 +462,7 @@ class DFineDecoderLayer(RTDetrDecoderLayer):
     def __init__(self, config: DFineConfig):
         super().__init__(config)
 
-        # override the encoder attention module with d-fine version
         self.encoder_attn = DFineMultiscaleDeformableAttention(config=config)
-        # gate
         self.gateway = DFineGate(config.d_model)
         self.mlp = DFineMLP(
             self.hidden_size, config.decoder_ffn_dim, self.hidden_size, 2, config.decoder_activation_function
@@ -636,7 +483,6 @@ class DFineDecoderLayer(RTDetrDecoderLayer):
     ) -> torch.Tensor:
         residual = hidden_states
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=encoder_attention_mask,
@@ -650,7 +496,6 @@ class DFineDecoderLayer(RTDetrDecoderLayer):
 
         residual = hidden_states
 
-        # Cross-Attention
         hidden_states = hidden_states if position_embeddings is None else hidden_states + position_embeddings
         hidden_states, _ = self.encoder_attn(
             hidden_states=hidden_states,
@@ -662,7 +507,6 @@ class DFineDecoderLayer(RTDetrDecoderLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = self.gateway(residual, hidden_states)
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.mlp(hidden_states)
         hidden_states = residual + hidden_states
@@ -680,7 +524,6 @@ class DFinePreTrainedModel(RTDetrPreTrainedModel):
     def _init_weights(self, module):
         """Initialize the weights"""
         PreTrainedModel._init_weights(self, module)
-        # initialize linear layer bias value according to a given probability value.
         if isinstance(module, (DFineForObjectDetection, DFineDecoder)):
             if module.class_embed is not None:
                 for layer in module.class_embed:
@@ -754,10 +597,8 @@ class DFineHybridEncoder(RTDetrHybridEncoder):
         self.out_channels = [self.encoder_hidden_dim for _ in self.in_channels]
         self.out_strides = self.feat_strides
 
-        # AIFI (Attention-based Intra-scale Feature Interaction) layers
         self.aifi = nn.ModuleList([DFineAIFILayer(config) for _ in range(len(self.encode_proj_layers))])
 
-        # top-down fpn
         self.lateral_convs = nn.ModuleList()
         self.fpn_blocks = nn.ModuleList()
         for _ in range(len(self.in_channels) - 1, 0, -1):
@@ -767,7 +608,6 @@ class DFineHybridEncoder(RTDetrHybridEncoder):
             fpn_layer = DFineRepNCSPELAN4(config, numb_blocks=num_blocks)
             self.fpn_blocks.append(fpn_layer)
 
-        # bottom-up pan
         self.downsample_convs = nn.ModuleList()
         self.pan_blocks = nn.ModuleList()
         for _ in range(len(self.in_channels) - 1):
@@ -779,13 +619,6 @@ class DFineHybridEncoder(RTDetrHybridEncoder):
 
 
 class DFineDecoder(RTDetrDecoder):
-    """
-    D-FINE Decoder implementing Fine-grained Distribution Refinement (FDR).
-
-    This decoder refines object detection predictions through iterative updates across multiple layers,
-    utilizing attention mechanisms, location quality estimators, and distribution refinement techniques
-    to improve bounding box accuracy and robustness.
-    """
 
     def __init__(self, config: DFineConfig):
         self.eval_idx = config.eval_idx if config.eval_idx >= 0 else config.decoder_layers + config.eval_idx
@@ -819,7 +652,6 @@ class DFineDecoder(RTDetrDecoder):
         if inputs_embeds is not None:
             hidden_states = inputs_embeds
 
-        # decoder layers
         intermediate = ()
         intermediate_reference_points = ()
         intermediate_logits = ()
@@ -847,13 +679,11 @@ class DFineDecoder(RTDetrDecoder):
             )
 
             if i == 0:
-                # Initial bounding box predictions with inverse sigmoid refinement
                 new_reference_points = F.sigmoid(
                     self.pre_bbox_head(hidden_states) + inverse_sigmoid(ref_points_detach)
                 )
                 ref_points_initial = new_reference_points.detach()
 
-            # Refine bounding box corners using FDR, integrating previous layer's corrections
             if self.bbox_embed is not None:
                 pred_corners = self.bbox_embed[i](hidden_states + output_detach) + pred_corners_undetach
                 inter_ref_bbox = distance2bbox(
@@ -868,18 +698,15 @@ class DFineDecoder(RTDetrDecoder):
 
             if self.class_embed is not None and (self.training or i == self.eval_idx):
                 scores = self.class_embed[i](hidden_states)
-                # Add initial logits and reference points with pre-bbox head
                 if i == 0:
                     intermediate_logits += (scores,)
                     intermediate_reference_points += (new_reference_points,)
-                # Lqe does not affect the performance here.
                 scores = self.lqe_layers[i](scores, pred_corners)
                 intermediate_logits += (scores,)
                 intermediate_reference_points += (inter_ref_bbox,)
                 initial_reference_points += (ref_points_initial,)
                 intermediate_predicted_corners += (pred_corners,)
 
-        # Keep batch_size as first dimension
         intermediate = torch.stack(intermediate)
         if self.class_embed is not None and self.bbox_embed is not None:
             intermediate_logits = torch.stack(intermediate_logits, dim=1)
@@ -924,8 +751,6 @@ class DFineModel(RTDetrModel):
 
 
 class DFineForObjectDetection(RTDetrForObjectDetection):
-    # When using clones, all layers > 0 will be clones, but layer 0 *is* required
-    # We can't initialize the model on meta device as some weights are modified during the initialization
     _no_split_modules = None
     _tied_weights_keys = {
         r"bbox_embed.(?![0])\d+": r"bbox_embed.0",
@@ -937,7 +762,6 @@ class DFineForObjectDetection(RTDetrForObjectDetection):
     def __init__(self, config: DFineConfig):
         DFinePreTrainedModel.__init__(self, config)
 
-        # D-FINE encoder-decoder model
         self.eval_idx = config.eval_idx if config.eval_idx >= 0 else config.decoder_layers + config.eval_idx
         self.model = DFineModel(config)
         scaled_dim = round(config.layer_scale * config.hidden_size)
@@ -956,7 +780,6 @@ class DFineForObjectDetection(RTDetrForObjectDetection):
 
         self.model.decoder.class_embed = self.class_embed
         self.model.decoder.bbox_embed = self.bbox_embed
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(**super_kwargs):

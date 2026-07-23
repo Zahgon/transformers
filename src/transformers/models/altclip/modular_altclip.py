@@ -1,16 +1,3 @@
-# Copyright 2022 The BAAI Teams Authors and The HuggingFace Inc. team. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch AltCLIP model."""
 
 import torch
 import torch.nn as nn
@@ -58,24 +45,6 @@ from ..roberta.modeling_roberta import (
 @auto_docstring(checkpoint="BAAI/AltCLIP")
 @strict
 class AltCLIPTextConfig(CLIPTextConfig):
-    r"""
-    project_dim (`int`, *optional*, defaults to 768):
-        The dimensions of the teacher model before the mapping layer.
-
-    Examples:
-
-    ```python
-    >>> from transformers import AltCLIPTextModel, AltCLIPTextConfig
-
-    >>> # Initializing a AltCLIPTextConfig with BAAI/AltCLIP style configuration
-    >>> configuration = AltCLIPTextConfig()
-
-    >>> # Initializing a AltCLIPTextModel (with random weights) from the BAAI/AltCLIP style configuration
-    >>> model = AltCLIPTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     vocab_size: int = 250002
     hidden_size: int = 1024
@@ -99,49 +68,12 @@ class AltCLIPTextConfig(CLIPTextConfig):
 @auto_docstring(checkpoint="BAAI/AltCLIP")
 @strict
 class AltCLIPVisionConfig(CLIPVisionConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import AltCLIPVisionConfig, AltCLIPVisionModel
-
-    >>> # Initializing a AltCLIPVisionConfig with BAAI/AltCLIP style configuration
-    >>> configuration = AltCLIPVisionConfig()
-
-    >>> # Initializing a AltCLIPVisionModel (with random weights) from the BAAI/AltCLIP style configuration
-    >>> model = AltCLIPVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
+    pass
 
 
 @auto_docstring(checkpoint="BAAI/AltCLIP")
 @strict
 class AltCLIPConfig(CLIPConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import AltCLIPConfig, AltCLIPModel
-
-    >>> # Initializing a AltCLIPConfig with BAAI/AltCLIP style configuration
-    >>> configuration = AltCLIPConfig()
-
-    >>> # Initializing a AltCLIPModel (with random weights) from the BAAI/AltCLIP style configuration
-    >>> model = AltCLIPModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-
-    >>> # We can also initialize a AltCLIPConfig from a AltCLIPTextConfig and a AltCLIPVisionConfig
-
-    >>> # Initializing a AltCLIPText and AltCLIPVision configuration
-    >>> config_text = AltCLIPTextConfig()
-    >>> config_vision = AltCLIPVisionConfig()
-
-    >>> config = AltCLIPConfig(text_config=config_text, vision_config=config_vision)
-    ```"""
 
     projection_dim: int = 768
 
@@ -188,13 +120,6 @@ class AltRobertaLayer(ChineseCLIPTextLayer):
 
 
 class AltRobertaEncoder(CLIPEncoder):
-    """
-    Transformer encoder consisting of `config.num_hidden_layers` self attention layers. Each layer is a
-    [`AltRobertaEncoderLayer`].
-
-    Args:
-        config: AltCLIPTextConfig
-    """
 
     def __init__(self, config: AltCLIPTextConfig):
         super().__init__(config)
@@ -435,13 +360,10 @@ class AltCLIPTextModel(AltCLIPPreTrainedModel):
             **kwargs,
         )
 
-        # last module outputs
         sequence_output = outputs[0]
 
-        # project every module
         sequence_output = self.pre_LN(sequence_output)
 
-        # pooler
         projection_state = self.transformation(sequence_output)
         pooler_output = projection_state[:, 0]
 
@@ -556,11 +478,9 @@ class AltCLIPModel(ChineseCLIPModel, AltCLIPPreTrainedModel):
         text_embeds = text_outputs[1]
         text_embeds = self.text_projection(text_embeds)
 
-        # normalized features
         image_embeds = image_embeds / _get_vector_norm(image_embeds)
         text_embeds = text_embeds / _get_vector_norm(text_embeds)
 
-        # cosine similarity as logits
         logits_per_text = torch.matmul(text_embeds, image_embeds.t().to(text_embeds.device))
         logits_per_text = logits_per_text * self.logit_scale.exp().to(text_embeds.device)
         logits_per_image = logits_per_text.t()

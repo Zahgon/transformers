@@ -1,19 +1,3 @@
-# Copyright 2024 Authors: Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan,
-# Kaitao Song, Ding Liang, Tong Lu, Ping Luo, Ling Shao and The HuggingFace Inc. team.
-# All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch PVTv2 model."""
 
 import math
 
@@ -35,7 +19,6 @@ logger = logging.get_logger(__name__)
 
 
 class PvtV2OverlapPatchEmbeddings(nn.Module):
-    """Image to Patch Embedding"""
 
     def __init__(self, config: PvtV2Config, layer_idx: int):
         super().__init__()
@@ -63,11 +46,6 @@ class PvtV2OverlapPatchEmbeddings(nn.Module):
 
 
 class PvtV2DepthWiseConv(nn.Module):
-    """
-    Depth-wise (DW) convolution to infuse positional information using zero-padding. Depth-wise convolutions
-    have an equal number of groups to the number of input channels, meaning one filter per input channel. This
-    reduces the overall parameters and compute costs since the key purpose of this layer is position encoding.
-    """
 
     def __init__(self, config: PvtV2Config, dim: int = 768):
         super().__init__()
@@ -83,7 +61,6 @@ class PvtV2DepthWiseConv(nn.Module):
 
 
 class PvtV2SelfAttention(nn.Module):
-    """Efficient self-attention mechanism."""
 
     def __init__(self, config: PvtV2Config, hidden_size: int, num_attention_heads: int, spatial_reduction_ratio: int):
         super().__init__()
@@ -151,16 +128,12 @@ class PvtV2SelfAttention(nn.Module):
         key_layer = self.transpose_for_scores(self.key(hidden_states))
         value_layer = self.transpose_for_scores(self.value(hidden_states))
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.attn_drop(attention_probs)
         context_layer = (attention_probs @ value_layer).transpose(1, 2).reshape(batch_size, seq_len, num_channels)
         context_layer = self.proj(context_layer)
@@ -202,13 +175,7 @@ class PvtV2ConvFeedForwardNetwork(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->PvtV2DropPath
 class PvtV2DropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -224,7 +191,7 @@ class PvtV2DropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class PvtV2BlockLayer(nn.Module):
@@ -276,8 +243,6 @@ class PvtV2EncoderLayer(GradientCheckpointingLayer):
             config=config,
             layer_idx=layer_idx,
         )
-        # Transformer block
-        # stochastic depth decay rule
         drop_path_decays = torch.linspace(0, config.drop_path_rate, sum(config.depths), device="cpu").tolist()
         block_layers = []
         for block_idx in range(config.depths[layer_idx]):
@@ -290,20 +255,16 @@ class PvtV2EncoderLayer(GradientCheckpointingLayer):
             )
         self.blocks = nn.ModuleList(block_layers)
 
-        # Layer norm
         self.layer_norm = nn.LayerNorm(config.hidden_sizes[layer_idx], eps=config.layer_norm_eps)
 
     def forward(self, hidden_states, output_attentions):
         all_self_attentions = () if output_attentions else None
-        # first, obtain patch embeddings
         hidden_states, height, width = self.patch_embedding(hidden_states)
-        # second, send embeddings through blocks
         for block in self.blocks:
             layer_outputs = block(hidden_states, height, width, output_attentions)
             hidden_states = layer_outputs[0]
             if output_attentions:
                 all_self_attentions += (layer_outputs[1],)
-        # third, apply layer norm
         hidden_states = self.layer_norm(hidden_states)
 
         outputs = (hidden_states,)
@@ -320,7 +281,6 @@ class PvtV2Encoder(nn.Module):
         self.config = config
         self.gradient_checkpointing = False
 
-        # encoder layers
         self.layers = nn.ModuleList([PvtV2EncoderLayer(config, i) for i in range(config.num_encoder_blocks)])
 
     def forward(
@@ -341,7 +301,6 @@ class PvtV2Encoder(nn.Module):
             hidden_states = outputs[0]
             if output_attentions:
                 all_self_attentions = all_self_attentions + (outputs[1],)
-            # reshape back to (batch_size, num_channels, height, width)
             hidden_states = hidden_states.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
@@ -384,10 +343,8 @@ class PvtV2Model(PvtV2PreTrainedModel):
         super().__init__(config)
         self.config = config
 
-        # hierarchical Transformer encoder
         self.encoder = PvtV2Encoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -436,12 +393,10 @@ class PvtV2ForImageClassification(PvtV2PreTrainedModel):
         self.num_labels = config.num_labels
         self.pvt_v2 = PvtV2Model(config)
 
-        # Classifier head
         self.classifier = (
             nn.Linear(config.hidden_sizes[-1], config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -471,13 +426,10 @@ class PvtV2ForImageClassification(PvtV2PreTrainedModel):
 
         sequence_output = outputs[0]
 
-        # convert last hidden states to (batch_size, height*width, hidden_size)
         batch_size = sequence_output.shape[0]
-        # (batch_size, num_channels, height, width) -> (batch_size, height, width, num_channels)
         sequence_output = sequence_output.permute(0, 2, 3, 1)
         sequence_output = sequence_output.reshape(batch_size, -1, self.config.hidden_sizes[-1])
 
-        # global average pooling
         sequence_output = sequence_output.mean(dim=1)
 
         logits = self.classifier(sequence_output)

@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import enum
 import re
@@ -52,9 +39,6 @@ class ReturnType(enum.Enum):
 
 
 class Chat:
-    """This class is intended to just be used internally in this pipeline and not exposed to users. We convert chats
-    to this format because the rest of the pipeline code tends to assume that lists of messages are
-    actually a batch of samples rather than messages in the same conversation."""
 
     def __init__(self, messages: list[dict]):
         for message in messages:
@@ -65,67 +49,6 @@ class Chat:
 
 @add_end_docstrings(build_pipeline_init_args(has_processor=True))
 class AnyToAnyPipeline(Pipeline):
-    """
-    Multimodal Generation pipeline using an `AutoModelForMultimodalLM`. This pipeline generates text given any
-    combination of multimodal data and text.When the underlying model is a conversational model, it can also
-    accept one or more chats, in which case the pipeline will operate in chat mode and will continue the
-    chat(s) by adding its response(s). Each chat takes the form of a list of dicts, where each dict contains
-    "role" and "content" keys.
-
-    Unless the model you're using explicitly sets these generation parameters in its configuration files
-    (`generation_config.json`), the following default values will be used:
-    - max_new_tokens: 256
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> pipe = pipeline(task="any-to-any", model="google/gemma-3n-E4B-it")
-    >>> pipe("https://huggingface.co/datasets/Narsil/image_dummy/raw/main/parrots.png", text="A photo of")
-    [{'generated_text': 'a photo of two birds'}]
-    ```
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> pipe = pipeline("any-to-any", model="google/gemma-3n-E4B-it")
-    >>> messages = [
-    >>>     {
-    >>>         "role": "user",
-    >>>         "content": [
-    >>>             {
-    >>>                 "type": "image",
-    >>>                 "url": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-    >>>             },
-    >>>             {"type": "text", "text": "Describe this image."},
-    >>>         ],
-    >>>     },
-    >>>     {
-    >>>         "role": "assistant",
-    >>>         "content": [
-    >>>             {"type": "text", "text": "There is a dog and"},
-    >>>         ],
-    >>>     },
-    >>> ]
-    >>> pipe(text=messages, max_new_tokens=20, return_full_text=False)
-    [{'input_text': [{'role': 'user',
-        'content': [{'type': 'image',
-        'url': 'https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg'},
-        {'type': 'text', 'text': 'Describe this image.'}]},
-    {'role': 'assistant',
-        'content': [{'type': 'text', 'text': 'There is a dog and'}]}],
-    'generated_text': ' a person in the image. The dog is sitting on the sand, and the person is sitting on'}]
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This multimodal pipeline can currently be loaded from pipeline() using the following task identifier:
-    "any-to-any".
-
-    See the list of available models on
-    [huggingface.co/models](https://huggingface.co/models?pipeline_tag=any-to-any).
-    """
 
     _load_processor = True
     _load_image_processor = False
@@ -133,7 +56,6 @@ class AnyToAnyPipeline(Pipeline):
     _load_tokenizer = False
 
     _pipeline_calls_generate = True
-    # Make sure the docstring is updated when the default generation config is changed
     _default_generation_config = GenerationConfig(
         max_new_tokens=256,
     )
@@ -167,7 +89,6 @@ class AnyToAnyPipeline(Pipeline):
         preprocess_params = {}
         postprocess_params = {}
 
-        # Preprocess params
         preprocess_params.update(kwargs)
         if timeout is not None:
             preprocess_params["timeout"] = timeout
@@ -176,11 +97,9 @@ class AnyToAnyPipeline(Pipeline):
         if processor_kwargs is not None:
             preprocess_params["processor_kwargs"] = processor_kwargs
 
-        # Forward kwargs
         forward_kwargs["generate_kwargs"] = generate_kwargs or {}
         if generation_mode is not None and generation_mode != "text":
             forward_kwargs["generate_kwargs"]["generation_mode"] = generation_mode
-        # Qwen-Omni models need to know the origin of audio, to align mm position ids
         if kwargs.get("load_audio_from_video") and re.search(r"qwen\domni", self.model.__class__.__name__.lower()):
             forward_kwargs["generate_kwargs"]["use_audio_in_video"] = True
         if stop_sequence is not None:
@@ -203,12 +122,9 @@ class AnyToAnyPipeline(Pipeline):
             return_type = ReturnType.FULL_TEXT if return_full_text else ReturnType.NEW_TEXT
         elif return_tensors is not None and return_type is None:
             return_type = ReturnType.TENSORS
-        # We don't want to set the global default to FULLTEXT at init time. That is why
-        # `_postprocess_params` is checked before setting the default value
         elif return_type is None and generation_mode in [None, "text"] and hasattr(self, "_postprocess_params"):
             return_type = ReturnType.FULL_TEXT
 
-        # Postprocess params
         if generation_mode not in [None, "text"] and return_type is not None:
             raise ValueError(
                 f"`return_type` cannot be set to {return_type} when generation_mode={generation_mode}. "
@@ -330,7 +246,6 @@ class AnyToAnyPipeline(Pipeline):
             raise ValueError("You must at least provide either text or images.")
 
         if isinstance(text, (list, tuple, KeyDataset)) and isinstance(text[0], (list, tuple, dict)):
-            # We have one or more prompts in list-of-dicts format, so this is chat mode
             if isinstance(text[0], dict) and "role" in text[0]:
                 return super().__call__(Chat(text), **kwargs)
             elif isinstance(text[0], (list, tuple)) and isinstance(text[0][0], dict) and "role" in text[0][0]:
@@ -347,7 +262,6 @@ class AnyToAnyPipeline(Pipeline):
             """
             return super().__call__(text, **kwargs)
 
-        # encourage the user to use the chat format if supported
         if getattr(self.processor, "chat_template", None) is not None:
             logger.warning_once(
                 "The input data was not formatted as a chat with dicts containing 'role' and 'content' keys, even "
@@ -359,13 +273,9 @@ class AnyToAnyPipeline(Pipeline):
 
     def preprocess(self, inputs=None, timeout=None, continue_final_message=None, **processing_kwargs):
         if isinstance(inputs, Chat):
-            # If the user passes a chat that ends in an assistant message, we treat it as a prefill by default
-            # because very few models support multiple separate, consecutive assistant messages
             if continue_final_message is None:
                 continue_final_message = inputs.messages[-1]["role"] == "assistant"
 
-            # Processor kwargs are passed separately from jinja kwargs to chat template
-            # but it was added only in https://github.com/huggingface/transformers/pull/44881
             processor_kwargs = processing_kwargs.pop("processor_kwargs", None) or {}
 
             chat_template_kwargs = {
@@ -378,7 +288,6 @@ class AnyToAnyPipeline(Pipeline):
                 **processing_kwargs,
             }
 
-            # Handle Mistral tokenizer which does not accept processing kwargs
             if self.processor.tokenizer.__class__.__name__ == "MistralCommonBackend":
                 chat_template_kwargs = {
                     k: v for k, v in chat_template_kwargs.items() if k in ["padding", "truncation", "max_length"]
@@ -391,7 +300,6 @@ class AnyToAnyPipeline(Pipeline):
             model_inputs["text"] = inputs
             return model_inputs
 
-        # In case we only have text inputs
         if isinstance(inputs, (list, tuple, str)):
             text = inputs
             inputs = {}
@@ -399,11 +307,9 @@ class AnyToAnyPipeline(Pipeline):
             inputs = inputs.copy()  # avoid in-place changes if users passed dict
             text = inputs.pop("text")
 
-            # Feature extractor do not load audio files and expect a decoded array
             if inputs.get("audio", None) is not None and hasattr(self.processor, "feature_extractor"):
                 inputs["audio"] = self.processor.feature_extractor.fetch_audio(inputs["audio"])
 
-        # If batched text inputs, we set padding to True unless specified otherwise
         processor_kwargs = processing_kwargs.pop("processor_kwargs", None) or processing_kwargs
         if isinstance(text, (list, tuple)) and len(text) > 1:
             processor_kwargs.setdefault("padding", True)
@@ -418,7 +324,6 @@ class AnyToAnyPipeline(Pipeline):
         prompt_text = model_inputs.pop("text")
         input_ids = model_inputs.get("input_ids", model_inputs.get("decoder_input_ids"))
 
-        # User-defined `generation_config` passed to the pipeline call take precedence
         if "generation_config" not in generate_kwargs:
             generate_kwargs["generation_config"] = self.generation_config
 
@@ -443,7 +348,6 @@ class AnyToAnyPipeline(Pipeline):
                 for i in range(len(input_texts))
             ]
 
-        # Decode inputs and outputs the same way to remove input text from generated text if present
         skip_special_tokens = skip_special_tokens if skip_special_tokens is not None else True
         if getattr(self.tokenizer, "response_template", None) or getattr(self.tokenizer, "response_schema", None):
             skip_special_tokens = False
@@ -454,21 +358,15 @@ class AnyToAnyPipeline(Pipeline):
             generated_sequence, skip_special_tokens=skip_special_tokens, **postprocess_kwargs
         )
 
-        # Force consistent behavior for including the input text in the output
         if return_type in {ReturnType.NEW_TEXT, ReturnType.FULL_TEXT}:
-            # Remove the input text from the generated text if the generated text starts with the input text
-            # (accounting for the possibility of a space between the input and generated text)
             new_generated_texts = []
             postprocess_kwargs["generation_mode"] = "text"
             decoded_inputs = self.processor.post_process_multimodal_output(
                 input_ids, skip_special_tokens=skip_special_tokens, **postprocess_kwargs
             )
             for text_generated, decoded_input in zip(generated_outputs, decoded_inputs):
-                # There can be added characters before the input text, so we need to find the beginning of the input text in the generated text
                 index_input_text = text_generated.find(decoded_input)
-                # Limit the search to 2 residual characters, like spaces or new lines, to avoid removing a large part of the answer
                 if 0 <= index_input_text <= 2:
-                    # If the input text is found, we remove it
                     new_generated_texts.append(text_generated[index_input_text + len(decoded_input) :])
                 else:
                     new_generated_texts.append(text_generated)
@@ -480,11 +378,8 @@ class AnyToAnyPipeline(Pipeline):
                     generated_text = prompt_text + generated_text
                 elif isinstance(prompt_text, Chat):
                     if continue_final_message is None:
-                        # If the user passes a chat ending in an assistant message, we treat it as a prefill by
-                        # default because very few models support multiple separate, consecutive assistant messages
                         continue_final_message = prompt_text.messages[-1]["role"] == "assistant"
                     if continue_final_message:
-                        # With assistant prefill, concat onto the end of the last message
                         new_text = dict(prompt_text.messages[-1]["content"][-1].items())
                         new_text["text"] += generated_text
                         generated_text = list(prompt_text.messages)[:-1] + [
@@ -494,14 +389,9 @@ class AnyToAnyPipeline(Pipeline):
                             }
                         ]
                     else:
-                        # When we're not starting from a prefill, the output is a new assistant message
                         if getattr(self.tokenizer, "response_template", None) is not None:
-                            # New-style templates need to see the prompt as `prefix`, because chat
-                            # templates often pre-write part of the assistant message (e.g. an
-                            # opening <think> tag), which affects parsing.
                             assistant_message = self.tokenizer.parse_response(generated_text, prefix=decoded_input)
                         elif getattr(self.tokenizer, "response_schema", None) is not None:
-                            # Legacy schemas parse the generated text alone and don't support `prefix`
                             assistant_message = self.tokenizer.parse_response(generated_text)
                         else:
                             assistant_message = {"role": "assistant", "content": generated_text}

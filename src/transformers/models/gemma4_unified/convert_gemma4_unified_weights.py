@@ -1,37 +1,4 @@
-# Copyright 2026 Google Inc. HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-r"""Utility to convert Gemma4 Unified models from Orbax to HF Transformers checkpoint.
-
-This script handles the unified architecture which has NO vision tower and NO
-audio tower. Instead, vision inputs use a direct patch embedding pipeline
-(LN → Dense → LN → +posemb → LN → RMSNorm → Linear) and audio inputs project
-raw waveform frames directly through a multimodal embedder (RMSNorm → Linear).
-
-The text/transformer weight mapping is identical to the standard Gemma4 conversion
-(minus MoE and PLE).
-
-Usage:
-    python src/transformers/models/gemma4_unified/convert_gemma4_unified_weights.py \
-        --variant='gemma-4-12b' \
-        --include_chat_template \
-        --include_response_schema \
-        --tokenizer_path="$HOME/tokenizers/gemma4/gemma4_cleaned_262144.model" \
-        --checkpoint_path="$HOME/gemma4/checkpoints/gemma4_12b_orbax" \
-        --output_path="$HOME/gemma4/checkpoints/gemma4_12b_safetensors"
-"""
 
 import ast
 import json
@@ -76,9 +43,7 @@ from transformers.tokenization_utils_sentencepiece import SentencePieceExtractor
 from transformers.utils.hub import cached_file
 
 
-# ==== Internal Constants and Classes ====
 
-# The correct chat templates were already uploaded to those 2 repos, so download from there
 _CHAT_TEMPLATE = pathlib.Path(cached_file("google/gemma-4-31B-it", "chat_template.jinja")).read_text()
 
 _RESPONSE_SCHEMA = {
@@ -178,7 +143,6 @@ _VARIANTS: Mapping[str, Gemma4UnifiedConfig | Gemma4UnifiedAssistantConfig] = {
             sliding_window=1024,
             rope_parameters=_ROPE_PARAMS,
             use_double_wide_mlp=False,
-            # BC: not used by the model
             vocab_size_per_layer_input=0,
             hidden_size_per_layer_input=0,
             enable_moe_block=False,
@@ -202,7 +166,6 @@ _VARIANTS: Mapping[str, Gemma4UnifiedConfig | Gemma4UnifiedAssistantConfig] = {
             use_double_wide_mlp=False,
             final_logit_softcapping=30.0,
             rope_parameters=_ROPE_PARAMS,
-            # BC: not used by the model
             vocab_size_per_layer_input=0,
             hidden_size_per_layer_input=0,
             enable_moe_block=False,
@@ -216,7 +179,6 @@ _VARIANTS: Mapping[str, Gemma4UnifiedConfig | Gemma4UnifiedAssistantConfig] = {
 }
 
 
-# ==== Flags ====
 
 _AUDIO_DTYPE = flags.DEFINE_enum(
     name="audio_dtype",
@@ -327,29 +289,22 @@ def convert_embedder_weights(
             converted.append(("model.vision_embedder.patch_ln2.bias", weights, "vision"))
 
     elif path.endswith("mm_encoder_norm"):
-        # This is the pos_norm (LayerNorm after adding positional embeddings)
         if param == "scale":
             converted.append(("model.vision_embedder.pos_norm.weight", weights, "vision"))
         elif param == "bias":
             converted.append(("model.vision_embedder.pos_norm.bias", weights, "vision"))
 
     elif path == _TRANSFORMER_EMBEDDER and param == "mm_pos_embedding":
-        # Factorized 2D positional embedding: (mm_posemb_size, 2, mm_embed_dim)
         converted.append(("model.vision_embedder.pos_embedding", weights, "vision"))
 
     elif path.endswith("mm_input_projection"):
-        # Vision multimodal embedder projection: RMSNorm → Linear
         if param == "w":
             converted.append(("model.embed_vision.embedding_projection.weight", weights.transpose(), "vision"))
 
     elif path.endswith("audio_input_projection"):
-        # Audio multimodal embedder projection: RMSNorm → Linear
         if param == "w":
             converted.append(("model.embed_audio.embedding_projection.weight", weights.transpose(), "audio"))
 
-    # NOTE: mm_input_embedding_extra and audio_input_embedding_extra are captured
-    # in the main convert() loop (not here) for EOA/EOI embedding unification.
-    # See the post-loop embedding table patching section in convert().
 
     return converted
 
@@ -366,16 +321,13 @@ def convert_transformer_weights(
     converted_paths: list[str] = []
     converted_weights: list[Any] = []
 
-    # Handle new checkpoint format: transformer/layer_N/...
     if path.startswith(f"{_TRANSFORMER_PARAMETER}/layer_"):
-        # Extract layer number from path like "transformer/layer_0/attn/q_einsum"
         layer_str = path.split("/")[1]  # "layer_0"
         layer_idx = int(layer_str.replace("layer_", ""))  # 0
         first_kv_shared_layer_idx = config.num_hidden_layers - getattr(config, "num_kv_shared_layers", 0)
         is_kv_shared_layer = layer_idx >= first_kv_shared_layer_idx >= 0
         base_path = f"layers.{layer_idx}"
 
-        # Determine head_dim from actual checkpoint weight dimensions
         if path.endswith("attn/key_norm") or path.endswith("attn/query_norm"):
             head_dim = weights.shape[0]
         elif path.endswith("attn/q_einsum"):
@@ -452,7 +404,6 @@ def convert_transformer_weights(
             converted_paths.append(f"{base_path}.layer_scalar")
             converted_weights.append(matrix)
 
-    # Handle old checkpoint format: transformer/stacked_layers/attention_type_N/...
     elif path.startswith(_TRANSFORMER_DECODER_BLOCK):
         attention_type_index = int(path[_TRANSFORMER_DECODER_BLOCK_LEN])
         expected_layers_per_group = config.num_hidden_layers / _SLIDING_WINDOW_PATTERN
@@ -564,7 +515,6 @@ def _restore_checkpoint(checkpoint_path: str) -> dict:
 
     tree_metadata = metadata["tree_metadata"]
 
-    # Build a nested dict matching the checkpoint's tree structure
     target = {}
     for key_str in tree_metadata:
         keys = ast.literal_eval(key_str)
@@ -604,16 +554,12 @@ def convert(
 
     text_config = config.get_text_config()
 
-    # Collect extra embedding tables and projections for EOA/EOI unification.
-    # These are projected and inserted into the main embedding table after the
-    # main conversion loop.
     audio_extra_embedding: np.ndarray | None = None
     audio_projection_w: np.ndarray | None = None
     mm_extra_embedding: np.ndarray | None = None
     mm_projection_w: np.ndarray | None = None
 
     def update_tree(path: str, weights: np.ndarray, target_dtype: torch.dtype) -> None:
-        # Convert directly to float32 in a single step to avoid an extra intermediate copy.
         weights_f32 = np.asarray(weights, dtype=np.float32)
         del weights  # allow GC of the input (JAX array or numpy view)
         t = torch.from_numpy(weights_f32)  # shares memory with weights_f32
@@ -647,7 +593,6 @@ def convert(
         path_tuple = path_tuple[:-1]
         path = "/".join(path_tuple) if len(path_tuple) > 1 else path_tuple[0]
 
-        # Intercept extra embedding tables before the embedder converter.
         if path == _TRANSFORMER_EMBEDDER and param == "audio_input_embedding_extra":
             audio_extra_embedding = np.asarray(value, dtype=np.float32)
             logging.info("Collected audio_input_embedding_extra: shape=%s", audio_extra_embedding.shape)
@@ -656,7 +601,6 @@ def convert(
             mm_extra_embedding = np.asarray(value, dtype=np.float32)
             logging.info("Collected mm_input_embedding_extra: shape=%s", mm_extra_embedding.shape)
             continue
-        # Also capture raw (un-transposed) projection weights for EOA/EOI patching.
         if path.endswith("audio_input_projection") and param == "w":
             audio_projection_w = np.asarray(value, dtype=np.float32)
             logging.info("Collected audio_input_projection/w: shape=%s", audio_projection_w.shape)
@@ -664,16 +608,13 @@ def convert(
             mm_projection_w = np.asarray(value, dtype=np.float32)
             logging.info("Collected mm_input_projection/w: shape=%s", mm_projection_w.shape)
 
-        # Handle embedder weights (vision/audio multimodal components)
         if path.startswith(_TRANSFORMER_EMBEDDER) and not _TEXT_ONLY.value:
-            # Try the embedder converter first for multimodal-specific weights
             embedder_results = list(convert_embedder_weights(path, param, value))
             if embedder_results:
                 for hf_path, weights, dtype_group in embedder_results:
                     update_tree(hf_path, weights, dtype_map[dtype_group])
                 continue
 
-        # Gemma4UnifiedAssistantForCausalLM weights
         if param == "centroids":
             update_tree("masked_embedding.centroids.weight", value, text_dtype)
         elif param == "token_ordering":
@@ -682,19 +623,10 @@ def convert(
             update_tree("pre_projection.weight", value.transpose(), text_dtype)
         elif path == _TRANSFORMER_POST_PROJ_MTP:
             update_tree("post_projection.weight", value.transpose(), text_dtype)
-        # Handle transformer weights (text model)
         elif path.startswith(_TRANSFORMER_PARAMETER):
             for hf_path, weights in convert_transformer_weights(text_config, path, param, value):
                 update_tree(f"{text_path_prefix}.{hf_path}", weights, text_dtype)
 
-    # Unify extra embeddings into the main embedding table.
-    # The extra embeddings are scaled by sqrt(d) (matching the Gemma convention
-    # for embedding tables), projected through their projection matrices, and
-    # then divided by sqrt(hidden_size) to compensate for the
-    # ScaledWordEmbedding which multiplies by sqrt(hidden_size) at forward time.
-    #
-    #   stored = (extra_raw * sqrt(d)) @ proj_jax / sqrt(hidden_size)
-    #
     embed_key = f"{text_path_prefix}.embed_tokens.weight"
     text_dtype = getattr(torch, _TEXT_DTYPE.value)
     eoa_token_id = getattr(config, "eoa_token_index", None)
@@ -707,7 +639,6 @@ def convert(
         if audio_extra_embedding is not None and audio_projection_w is not None and eoa_token_id is not None:
             eoa_raw = audio_extra_embedding[0]  # First row is the EOA embedding
 
-            # Scale by sqrt(d), project, then divide by sqrt(hidden_size).
             d = eoa_raw.shape[0]
             eoa_scaled = eoa_raw * np.sqrt(d).astype(eoa_raw.dtype)
             projected = np.dot(eoa_scaled.reshape(1, -1), audio_projection_w)  # (1, hidden_dim)
@@ -727,7 +658,6 @@ def convert(
         if mm_extra_embedding is not None and mm_projection_w is not None and eoi_token_id is not None:
             eoi_raw = mm_extra_embedding[0]  # First row is the EOI embedding
 
-            # Scale by sqrt(d), project, then divide by sqrt(hidden_size).
             d = eoi_raw.shape[0]
             eoi_scaled = eoi_raw * np.sqrt(d).astype(eoi_raw.dtype)
             projected = np.dot(eoi_scaled.reshape(1, -1), mm_projection_w)  # (1, hidden_dim)
@@ -746,9 +676,6 @@ def convert(
 
         hf_tree[embed_key] = embed_table.to(text_dtype)
 
-    # Keep input_embeddings and lm_head tied — both point to the same
-    # (now-patched) embedding table.  Suppress EOA/EOI generation via
-    # suppress_tokens in GenerationConfig instead of untying.
     hf_tree["lm_head.weight"] = hf_tree[f"{text_path_prefix}.embed_tokens.weight"]
 
     return hf_tree
@@ -771,8 +698,6 @@ def main(*args):
             audio_config.dtype = getattr(torch, _AUDIO_DTYPE.value)
 
     if _INCLUDE_CHAT_TEMPLATE.value:
-        # Chat template is included for instruction tuned models, which treat
-        # both "<eos>" and "<end_of_turn>" as generation stoppers.
         config.eos_token_id = [1, 106]
 
     logging.info(
@@ -812,7 +737,6 @@ def main(*args):
     chat_template_kwargs = {"chat_template": _CHAT_TEMPLATE} if _INCLUDE_CHAT_TEMPLATE.value else {}
     response_schema_kwargs = {"response_schema": _RESPONSE_SCHEMA} if _INCLUDE_RESPONSE_SCHEMA.value else {}
 
-    # Add <bos> for PT models.
     add_bos_token = not _INCLUDE_CHAT_TEMPLATE.value
 
     sentencepiece_extractor = SentencePieceExtractor(_TOKENIZER_PATH.value)
@@ -846,7 +770,6 @@ def main(*args):
         **response_schema_kwargs,
     )
 
-    # Update config multimodal token IDs from the tokenizer.
     config.image_token_id = tokenizer.image_token_id
     config.boi_token_id = tokenizer.convert_tokens_to_ids(tokenizer.boi_token)
     config.eoi_token_id = tokenizer.convert_tokens_to_ids(tokenizer.eoi_token)
@@ -862,7 +785,6 @@ def main(*args):
         config.boa_token_id,
         config.eoa_token_index,
     )
-    # Re-save the config with correct token IDs
     config.save_pretrained(output_path)
 
     if _TEXT_ONLY.value:
@@ -888,8 +810,6 @@ def main(*args):
         logging.info("Saved Gemma4UnifiedProcessor for %s to %s", variant, output_path)
         del feature_extractor, image_processor, processor
 
-    # Build suppress_tokens list from EOA and EOI token IDs to prevent
-    # the model from generating these control tokens during decoding.
     suppress_tokens = []
     if config.eoa_token_index is not None:
         suppress_tokens.append(config.eoa_token_index)

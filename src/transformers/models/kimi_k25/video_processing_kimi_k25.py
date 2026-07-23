@@ -1,17 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""video processor class for KimiK2.5."""
 
 import math
 
@@ -33,7 +19,6 @@ from ...video_processing_utils import BaseVideoProcessor
 from ...video_utils import group_videos_by_shape, reorder_videos
 
 
-# Same resize as in image processing
 def navit_resize(
     width: int,
     height: int,
@@ -46,22 +31,17 @@ def navit_resize(
     num_patches_h = max(1.0, height // patch_size)
     current_patch_count = num_patches_w * num_patches_h
 
-    # Scale to satisfy total patch budget (affects both dims, hence sqrt)
     scale_for_total_patches = math.sqrt(max_patches / current_patch_count)
 
-    # Scale to satisfy per-side patch budget
     scale_for_width_patches = (max_size_per_side * patch_size) / width
     scale_for_height_patches = (max_size_per_side * patch_size) / height
 
-    # Use the most restrictive scale, never upscale
     scale = min(1.0, scale_for_total_patches, scale_for_width_patches, scale_for_height_patches)
 
-    # Make sure the resized size doesn't go beyond predefined `max`
     new_width, new_height = max(1, int(width * scale)), max(1, int(height * scale))
     new_width = min(new_width, max_size_per_side * patch_size)
     new_height = min(new_height, max_size_per_side * patch_size)
 
-    # Calculate the padding to make the height and width divisible by the merge kernel size and patch size.
     factor = merge_kernel_size * patch_size
     pad_height = (factor - new_height % factor) % factor + new_height
     pad_width = (factor - new_width % factor) % factor + new_width
@@ -70,16 +50,6 @@ def navit_resize(
 
 
 class Kimi_K25VideoProcessorInitKwargs(VideosKwargs, total=False):
-    r"""
-    max_patches (`int`, *optional*, defaults to `16384`):
-        The max limit to resize resize the video.
-    patch_size (`int`, *optional*, defaults to 14):
-        The spatial patch size of the vision encoder.
-    merge_kernel_size (`int`, *optional*, defaults to 2):
-        The merge size of the vision encoder to llm encoder.
-    temporal_patch_size (`int`, *optional*, defaults to 4):
-        The temporal patch size of the vision encoder.
-    """
 
     max_patches: int
     patch_size: int
@@ -138,7 +108,6 @@ class Kimi_K25VideoProcessor(BaseVideoProcessor):
         return_tensors: str | TensorType | None,
         **kwargs,
     ):
-        # Split video to chunks based on temporal patch size
         chunked_videos, num_chunks_per_video = [], []
         for video in videos:
             for chunk in range(0, video.shape[0], temporal_patch_size):
@@ -146,7 +115,6 @@ class Kimi_K25VideoProcessor(BaseVideoProcessor):
                 chunked_videos.append(video_chunk)
             num_chunks_per_video.append(math.ceil(video.shape[0] / temporal_patch_size))
 
-        # Group videos by size for batched resizing and padding
         grouped_videos, grouped_videos_index = group_videos_by_shape(chunked_videos)
         resized_videos_grouped = {}
         for shape, stacked_videos in grouped_videos.items():
@@ -171,15 +139,12 @@ class Kimi_K25VideoProcessor(BaseVideoProcessor):
             resized_videos_grouped[shape] = stacked_videos
         resized_videos = reorder_videos(resized_videos_grouped, grouped_videos_index)
 
-        # Group videos by size for further processing
-        # Needed in case do_resize is False, or resize returns videos with different sizes
         grouped_videos, grouped_videos_index = group_videos_by_shape(resized_videos)
         processed_videos_grouped = {}
         processed_grids = {}
         for shape, stacked_videos in grouped_videos.items():
             resized_height, resized_width = get_image_size(stacked_videos[0], channel_dim=ChannelDimension.FIRST)
 
-            # Fused rescale and normalize
             stacked_videos = self.rescale_and_normalize(
                 stacked_videos, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )

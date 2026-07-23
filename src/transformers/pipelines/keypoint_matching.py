@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Sequence
 from typing import Any, TypeAlias, TypedDict, Union
@@ -43,33 +30,10 @@ class Match(TypedDict):
 
 
 def validate_image_pairs(images: Any) -> Sequence[Sequence[ImagePair]]:
-    error_message = (
-        "Input images must be a one of the following :",
-        " - A pair of images.",
-        " - A list of pairs of images.",
-    )
-
-    def _is_valid_image(image):
-        """images is a PIL Image or a string."""
-        return is_pil_image(image) or isinstance(image, str)
-
-    if isinstance(images, Sequence):
-        if len(images) == 2 and all((_is_valid_image(image)) for image in images):
-            return [images]
-        if all(
-            isinstance(image_pair, Sequence)
-            and len(image_pair) == 2
-            and all(_is_valid_image(image) for image in image_pair)
-            for image_pair in images
-        ):
-            return images
-    raise ValueError(error_message)
+    pass
 
 
 class KeypointMatchingPipeline(Pipeline):
-    """
-    Keypoint matching pipeline using any `AutoModelForKeypointMatching`. This pipeline matches keypoints between two images.
-    """
 
     _load_processor = False
     _load_image_processor = True

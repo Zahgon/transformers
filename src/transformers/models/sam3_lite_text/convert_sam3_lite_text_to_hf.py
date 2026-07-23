@@ -1,17 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert EfficientSAM3 LiteText checkpoints to Hugging Face format."""
 
 import argparse
 import gc
@@ -30,14 +16,9 @@ from transformers.utils import logging
 logging.set_verbosity_info()
 logger = logging.get_logger(__name__)
 
-# fmt: off
 ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
-    # Strip the "detector." prefix that wraps all components
     r"^detector\.":                                                          r"",
 
-    # ============================================================================
-    # Vision Encoder - ViT Backbone
-    # ============================================================================
     r"^backbone\.vision_backbone\.trunk\.":                                  r"vision_encoder.backbone.",
     r"^vision_encoder\.backbone\.pos_embed":                                 r"vision_encoder.backbone.embeddings.position_embeddings",
     r"^vision_encoder\.backbone\.patch_embed\.proj\.":                       r"vision_encoder.backbone.embeddings.patch_embeddings.projection.",
@@ -50,7 +31,6 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"^vision_encoder\.backbone\.blocks\.(\d+)\.mlp\.fc1\.":                r"vision_encoder.backbone.layers.\1.mlp.fc1.",
     r"^vision_encoder\.backbone\.blocks\.(\d+)\.mlp\.fc2\.":                r"vision_encoder.backbone.layers.\1.mlp.fc2.",
 
-    # Vision Encoder - FPN Neck
     r"^backbone\.vision_backbone\.neck\.fpn\.(\d+)\.":                      r"vision_encoder.neck.fpn_layers.\1.",
     r"^backbone\.vision_backbone\.convs\.(\d+)\.dconv_2x2_0\.":             r"vision_encoder.neck.fpn_layers.\1.scale_layers.0.",
     r"^backbone\.vision_backbone\.convs\.(\d+)\.dconv_2x2_1\.":             r"vision_encoder.neck.fpn_layers.\1.scale_layers.2.",
@@ -59,17 +39,11 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"^backbone\.vision_backbone\.convs\.(\d+)\.conv_1x1\.":                r"vision_encoder.neck.fpn_layers.\1.proj1.",
     r"^backbone\.vision_backbone\.convs\.(\d+)\.conv_3x3\.":                r"vision_encoder.neck.fpn_layers.\1.proj2.",
 
-    # ============================================================================
-    # Text Encoder - LiteText (MobileCLIP student)
-    # ============================================================================
-    # Embeddings
     r"^backbone\.language_backbone\.encoder\.embedding_layer\.":            r"text_encoder.embeddings.token_embedding.",
     r"^backbone\.language_backbone\.encoder\.positional_embedding\.pos_embed\.pos_embed$": r"text_encoder.embeddings.position_embedding.position_embedding",
     r"^backbone\.language_backbone\.encoder\.final_layer_norm\.":           r"text_encoder.final_layer_norm.",
     r"^backbone\.language_backbone\.encoder\.projection_layer$":            r"text_encoder.projection.weight",
-    # text_projection: projects from text hidden-dim to DETR hidden-dim
     r"^backbone\.language_backbone\.projector\.":                           r"text_projection.",
-    # RepMixer blocks (layer 0 and the last layer in the mct variant)
     r"^backbone\.language_backbone\.encoder\.transformer\.(\d+)\.layer_scale$": r"text_encoder.layers.\1.layer_scale",
     r"^backbone\.language_backbone\.encoder\.transformer\.(\d+)\.token_mixer\.layer_scale$": r"text_encoder.layers.\1.token_mixer.layer_scale",
     r"^backbone\.language_backbone\.encoder\.transformer\.(\d+)\.token_mixer\.norm\.rbr_skip\.": r"text_encoder.layers.\1.token_mixer.reference_batchnorm.",
@@ -80,7 +54,6 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"^backbone\.language_backbone\.encoder\.transformer\.(\d+)\.convffn\.conv\.bn\.": r"text_encoder.layers.\1.conv_feed_forward.depthwise_batchnorm.",
     r"^backbone\.language_backbone\.encoder\.transformer\.(\d+)\.convffn\.fc1\.": r"text_encoder.layers.\1.conv_feed_forward.mlp.fc1.",
     r"^backbone\.language_backbone\.encoder\.transformer\.(\d+)\.convffn\.fc2\.": r"text_encoder.layers.\1.conv_feed_forward.mlp.fc2.",
-    # Standard transformer layers (pre-norm MHA + FFN)
     r"^backbone\.language_backbone\.encoder\.transformer\.(\d+)\.pre_norm_mha\.0\.": r"text_encoder.layers.\1.layer_norm1.",
     r"^backbone\.language_backbone\.encoder\.transformer\.(\d+)\.pre_norm_mha\.1\.qkv_proj\.": r"text_encoder.layers.\1.self_attn.in_proj_",
     r"^backbone\.language_backbone\.encoder\.transformer\.(\d+)\.pre_norm_mha\.1\.out_proj\.": r"text_encoder.layers.\1.self_attn.out_proj.",
@@ -88,9 +61,6 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"^backbone\.language_backbone\.encoder\.transformer\.(\d+)\.pre_norm_ffn\.1\.": r"text_encoder.layers.\1.mlp.fc1.",
     r"^backbone\.language_backbone\.encoder\.transformer\.(\d+)\.pre_norm_ffn\.4\.": r"text_encoder.layers.\1.mlp.fc2.",
 
-    # ============================================================================
-    # Geometry Encoder
-    # ============================================================================
     r"^geometry_encoder\.points_direct_project\.":                         r"geometry_encoder.boxes_direct_project.",
     r"^geometry_encoder\.points_pool_project\.":                           r"geometry_encoder.boxes_pool_project.",
     r"^geometry_encoder\.points_pos_enc_project\.":                        r"geometry_encoder.boxes_pos_enc_project.",
@@ -107,9 +77,6 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"^geometry_encoder\.norm\.":                                           r"geometry_encoder.prompt_layer_norm.",
     r"^geometry_encoder\.encode_norm\.":                                    r"geometry_encoder.output_layer_norm.",
 
-    # ============================================================================
-    # DETR Encoder
-    # ============================================================================
     r"^transformer\.encoder\.layers\.(\d+)\.cross_attn_image\.out_proj\.":  r"detr_encoder.layers.\1.cross_attn.o_proj.",
     r"^transformer\.encoder\.layers\.(\d+)\.cross_attn_image\.":            r"detr_encoder.layers.\1.cross_attn.",
     r"^transformer\.encoder\.layers\.(\d+)\.self_attn\.out_proj\.":         r"detr_encoder.layers.\1.self_attn.o_proj.",
@@ -122,9 +89,6 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"^transformer\.encoder\.layers\.(\d+)\.norm2\.":                       r"detr_encoder.layers.\1.layer_norm2.",
     r"^transformer\.encoder\.layers\.(\d+)\.norm3\.":                       r"detr_encoder.layers.\1.layer_norm3.",
 
-    # ============================================================================
-    # DETR Decoder
-    # ============================================================================
     r"^transformer\.decoder\.query_embed\.":                                r"detr_decoder.query_embed.",
     r"^transformer\.decoder\.reference_points\.":                           r"detr_decoder.reference_points.",
     r"^transformer\.decoder\.instance_query_embed\.":                       r"detr_decoder.instance_query_embed.",
@@ -160,18 +124,12 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"^transformer\.decoder\.layers\.(\d+)\.norm2\.":                       r"detr_decoder.layers.\1.self_attn_layer_norm.",
     r"^transformer\.decoder\.layers\.(\d+)\.norm3\.":                       r"detr_decoder.layers.\1.mlp_layer_norm.",
 
-    # ============================================================================
-    # Dot Product Scoring
-    # ============================================================================
     r"^dot_prod_scoring\.prompt_mlp\.layers\.0\.":                          r"dot_product_scoring.text_mlp.layer1.",
     r"^dot_prod_scoring\.prompt_mlp\.layers\.1\.":                          r"dot_product_scoring.text_mlp.layer2.",
     r"^dot_prod_scoring\.prompt_mlp\.out_norm\.":                           r"dot_product_scoring.text_mlp_out_norm.",
     r"^dot_prod_scoring\.prompt_proj\.":                                    r"dot_product_scoring.text_proj.",
     r"^dot_prod_scoring\.hs_proj\.":                                        r"dot_product_scoring.query_proj.",
 
-    # ============================================================================
-    # Mask Decoder
-    # ============================================================================
     r"^segmentation_head\.pixel_decoder\.conv_layers\.(\d+)\.":             r"mask_decoder.pixel_decoder.conv_layers.\1.",
     r"^segmentation_head\.pixel_decoder\.norms\.(\d+)\.":                   r"mask_decoder.pixel_decoder.norms.\1.",
     r"^segmentation_head\.mask_embed\.layers\.(\d+)\.":                     r"mask_decoder.mask_embedder.layers.\1.",
@@ -182,7 +140,6 @@ ORIGINAL_TO_CONVERTED_KEY_MAPPING = {
     r"^segmentation_head\.cross_attend_prompt\.":                           r"mask_decoder.prompt_cross_attn.",
     r"^segmentation_head\.cross_attn_norm\.":                               r"mask_decoder.prompt_cross_attn_norm.",
 }
-# fmt: on
 
 
 def convert_old_keys_to_new_keys(state_dict_keys: list[str]) -> dict[str, str]:
@@ -204,7 +161,6 @@ def convert_old_keys_to_new_keys(state_dict_keys: list[str]) -> dict[str, str]:
 
 def split_qkv(state_dict: dict) -> dict:
     """Split combined QKV projections into separate Q, K, V projections."""
-    # Vision backbone: .attention.qkv.* → .attention.{q,k,v}_proj.*
     for key in [k for k in state_dict if ".attention.qkv." in k]:
         qkv = state_dict.pop(key)
         q, k, v = torch.chunk(qkv, 3, dim=0)
@@ -212,7 +168,6 @@ def split_qkv(state_dict: dict) -> dict:
         state_dict[key.replace(".qkv.", ".k_proj.")] = k
         state_dict[key.replace(".qkv.", ".v_proj.")] = v
 
-    # Text encoder & attention layers: .in_proj_weight/bias → .{q,k,v}_proj.*
     for key in [k for k in state_dict if ".in_proj_" in k]:
         in_proj = state_dict.pop(key)
         q, k, v = torch.chunk(in_proj, 3, dim=0)
@@ -299,10 +254,8 @@ def convert_sam3_lite_text_checkpoint(
     """
     os.makedirs(output_path, exist_ok=True)
 
-    # Load original checkpoint
     state_dict_old = load_original_state_dict(checkpoint_path)
 
-    # Build config from checkpoint
     if config is None:
         config = get_sam3_lite_text_config(state_dict_old)
 
@@ -310,7 +263,6 @@ def convert_sam3_lite_text_checkpoint(
     config.save_pretrained(output_path)
     print("Model config saved successfully")
 
-    # Convert keys
     print("Converting checkpoint keys...")
     all_keys = list(state_dict_old.keys())
     key_mapping = convert_old_keys_to_new_keys(all_keys)
@@ -318,16 +270,12 @@ def convert_sam3_lite_text_checkpoint(
     state_dict_new = {}
     for old_key in all_keys:
         new_key = key_mapping.get(old_key, old_key)
-        # num_batches_tracked from BatchNorm is not needed
         if "num_batches_tracked" in new_key:
             continue
-        # Parallel SAM2 neck branch in the original checkpoint; HF vision uses `convs` only.
         if "vision_backbone.sam2_convs" in new_key:
             continue
-        # Drop keys whose names were not transformed (unrecognised / legacy keys)
         if new_key == old_key:
             continue
-        # Strip the first position (cls token) from ViT position embeddings
         if new_key == "vision_encoder.backbone.embeddings.position_embeddings":
             state_dict_new[new_key] = state_dict_old[old_key][:, 1:, :]
         else:
@@ -336,11 +284,9 @@ def convert_sam3_lite_text_checkpoint(
     del state_dict_old
     gc.collect()
 
-    # Split combined QKV projections
     print("Splitting QKV projections...")
     state_dict_new = split_qkv(state_dict_new)
 
-    # HF models compute the RoPE table on the fly
     for k in list(state_dict_new.keys()):
         if k.endswith("rotary_emb.rope_embeddings"):
             state_dict_new.pop(k)
@@ -360,7 +306,6 @@ def convert_sam3_lite_text_checkpoint(
         },
     )
 
-    # Load weights into HF model
     print("Loading weights into Sam3LiteTextModel...")
     model = Sam3LiteTextModel(config)
     missing_keys, unexpected_keys = model.load_state_dict(state_dict_new, strict=False)
@@ -375,11 +320,9 @@ def convert_sam3_lite_text_checkpoint(
         for key in unexpected_keys:
             logger.warning(f"  - {key}")
 
-    # Save model
     print(f"Saving converted model to {output_path}")
     model.save_pretrained(output_path)
 
-    # Save processor
     print("Creating and saving processor...")
     image_processor = Sam3ImageProcessor()
     tokenizer = CLIPTokenizerFast.from_pretrained(
@@ -399,7 +342,6 @@ def convert_sam3_lite_text_checkpoint(
 
     print("Conversion complete!")
 
-    # Cleanup and verify
     del state_dict_new, model
     gc.collect()
 

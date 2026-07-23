@@ -1,17 +1,3 @@
-# Copyright 2024 the Fast authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch TextNet model."""
 
 from typing import Any
 
@@ -71,14 +57,6 @@ class TextNetConvLayer(nn.Module):
 
 
 class TextNetRepConvLayer(nn.Module):
-    r"""
-    This layer supports re-parameterization by combining multiple convolutional branches
-    (e.g., main convolution, vertical, horizontal, and identity branches) during training.
-    At inference time, these branches can be collapsed into a single convolution for
-    efficiency, as per the re-parameterization paradigm.
-
-    The "Rep" in the name stands for "re-parameterization" (introduced by RepVGG).
-    """
 
     def __init__(self, config: TextNetConfig, in_channels: int, out_channels: int, kernel_size: int, stride: int):
         super().__init__()
@@ -141,13 +119,11 @@ class TextNetRepConvLayer(nn.Module):
         main_outputs = self.main_conv(hidden_states)
         main_outputs = self.main_batch_norm(main_outputs)
 
-        # applies a convolution with a vertical kernel
         if self.vertical_conv is not None:
             vertical_outputs = self.vertical_conv(hidden_states)
             vertical_outputs = self.vertical_batch_norm(vertical_outputs)
             main_outputs = main_outputs + vertical_outputs
 
-        # applies a convolution with a horizontal kernel
         if self.horizontal_conv is not None:
             horizontal_outputs = self.horizontal_conv(hidden_states)
             horizontal_outputs = self.horizontal_batch_norm(horizontal_outputs)
@@ -277,10 +253,8 @@ class TextNetForImageClassification(TextNetPreTrainedModel):
         self.flatten = nn.Flatten()
         self.fc = nn.Linear(config.hidden_sizes[-1], config.num_labels) if config.num_labels > 0 else nn.Identity()
 
-        # classification head
         self.classifier = nn.ModuleList([self.avg_pool, self.flatten])
 
-        # initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -352,7 +326,6 @@ class TextNetBackbone(BackboneMixin, TextNetPreTrainedModel):
         self.textnet = TextNetModel(config)
         self.num_features = config.hidden_sizes
 
-        # initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

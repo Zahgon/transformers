@@ -1,17 +1,3 @@
-# Copyright 2021 The Fairseq Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""M2M100 model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,21 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="facebook/m2m100_418M")
 @strict
 class M2M100Config(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import M2M100Config, M2M100Model
-
-    >>> # Initializing a M2M100 facebook/m2m100_418M style configuration
-    >>> configuration = M2M100Config()
-
-    >>> # Initializing a model (with random weights) from the facebook/m2m100_418M style configuration
-    >>> model = M2M100Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "m2m_100"
     keys_to_ignore_at_inference = ["past_key_values"]

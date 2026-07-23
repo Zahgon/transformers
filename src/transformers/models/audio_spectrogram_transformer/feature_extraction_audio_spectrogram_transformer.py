@@ -1,19 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Feature extractor class for Audio Spectrogram Transformer.
-"""
 
 import numpy as np
 
@@ -36,34 +20,6 @@ logger = logging.get_logger(__name__)
 
 @requires(backends=("torch",))
 class ASTFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a Audio Spectrogram Transformer (AST) feature extractor.
-
-    This feature extractor inherits from [`~feature_extraction_sequence_utils.SequenceFeatureExtractor`] which contains
-    most of the main methods. Users should refer to this superclass for more information regarding those methods.
-
-    This class extracts mel-filter bank features from raw speech using TorchAudio if installed or using numpy
-    otherwise, pads/truncates them to a fixed length and normalizes them using a mean and standard deviation.
-
-    Args:
-        feature_size (`int`, *optional*, defaults to 1):
-            The feature dimension of the extracted features.
-        sampling_rate (`int`, *optional*, defaults to 16000):
-            The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
-        num_mel_bins (`int`, *optional*, defaults to 128):
-            Number of Mel-frequency bins.
-        max_length (`int`, *optional*, defaults to 1024):
-            Maximum length to which to pad/truncate the extracted features.
-        do_normalize (`bool`, *optional*, defaults to `True`):
-            Whether or not to normalize the log-Mel features using `mean` and `std`.
-        mean (`float`, *optional*, defaults to -4.2677393):
-            The mean value used to normalize the log-Mel features. Uses the AudioSet mean by default.
-        std (`float`, *optional*, defaults to 4.5689974):
-            The standard deviation value used to normalize the log-Mel features. Uses the AudioSet standard deviation
-            by default.
-        return_attention_mask (`bool`, *optional*, defaults to `False`):
-            Whether or not [`~ASTFeatureExtractor.__call__`] should return `attention_mask`.
-    """
 
     model_input_names = ["input_values", "attention_mask"]
 
@@ -108,51 +64,7 @@ class ASTFeatureExtractor(SequenceFeatureExtractor):
         waveform: np.ndarray,
         max_length: int,
     ) -> np.ndarray:
-        """
-        Get mel-filter bank features using TorchAudio. Note that TorchAudio requires 16-bit signed integers as inputs
-        and hence the waveform should not be normalized before feature extraction.
-        """
-        # waveform = waveform * (2**15)  # Kaldi compliance: 16-bit signed integers
-        if is_speech_available():
-            waveform = torch.from_numpy(waveform).unsqueeze(0)
-            fbank = ta_kaldi.fbank(
-                waveform,
-                sample_frequency=self.sampling_rate,
-                window_type="hanning",
-                num_mel_bins=self.num_mel_bins,
-            )
-        else:
-            waveform = np.squeeze(waveform)
-            fbank = spectrogram(
-                waveform,
-                self.window,
-                frame_length=400,
-                hop_length=160,
-                fft_length=512,
-                power=2.0,
-                center=False,
-                preemphasis=0.97,
-                mel_filters=self.mel_filters,
-                log_mel="log",
-                mel_floor=1.192092955078125e-07,
-                remove_dc_offset=True,
-            ).T
-
-            fbank = torch.from_numpy(fbank)
-
-        n_frames = fbank.shape[0]
-        difference = max_length - n_frames
-
-        # pad or truncate, depending on difference
-        if difference > 0:
-            pad_module = torch.nn.ZeroPad2d((0, 0, 0, difference))
-            fbank = pad_module(fbank)
-        elif difference < 0:
-            fbank = fbank[0:max_length, :]
-
-        fbank = fbank.numpy()
-
-        return fbank
+        pass
 
     def normalize(self, input_values: np.ndarray) -> np.ndarray:
         return (input_values - (self.mean)) / (self.std * 2)
@@ -209,22 +121,17 @@ class ASTFeatureExtractor(SequenceFeatureExtractor):
         elif isinstance(raw_speech, np.ndarray) and raw_speech.dtype is np.dtype(np.float64):
             raw_speech = raw_speech.astype(np.float32)
 
-        # always return batch
         if not is_batched:
             raw_speech = [raw_speech]
 
-        # extract fbank features and pad/truncate to max_length
         features = [self._extract_fbank_features(waveform, max_length=self.max_length) for waveform in raw_speech]
 
-        # convert into BatchFeature
         padded_inputs = BatchFeature({"input_values": features})
 
-        # make sure list is in array format
         input_values = padded_inputs.get("input_values")
         if isinstance(input_values[0], list):
             padded_inputs["input_values"] = [np.asarray(feature, dtype=np.float32) for feature in input_values]
 
-        # normalization
         if self.do_normalize:
             padded_inputs["input_values"] = [self.normalize(feature) for feature in input_values]
 

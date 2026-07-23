@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from functools import lru_cache
@@ -41,10 +28,6 @@ from torchvision.transforms.v2 import functional as tvF
 
 
 class MllamaImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    max_image_tiles (`int`, *optional*):
-        The maximum number of tiles allowed.
-    """
 
     max_image_tiles: int
 
@@ -111,7 +94,6 @@ def get_image_size_fit_to_canvas(
         `tuple[int, int]`: A tuple containing the new height and width of the image.
 
     """
-    # Set target image size in between `tile_size` and canvas_size
     target_width = np.clip(image_width, tile_size, canvas_width)
     target_height = np.clip(image_height, tile_size, canvas_height)
 
@@ -120,11 +102,9 @@ def get_image_size_fit_to_canvas(
 
     if scale_w < scale_h:
         new_width = target_width
-        # minimum height is 1 to avoid invalid height of 0
         new_height = min(math.floor(image_height * scale_w) or 1, target_height)
     else:
         new_height = target_height
-        # minimum width is 1 to avoid invalid width of 0
         new_width = min(math.floor(image_width * scale_h) or 1, target_width)
 
     return new_height, new_width
@@ -231,12 +211,8 @@ def build_aspect_ratio_mask(
 
     aspect_ratio_mask = torch.zeros((batch_size, max_num_images, max_image_tiles), dtype=torch.long, device=device)
 
-    # Set the first tile to 1 for all aspect ratios
-    # because in original implementation aspect ratios are padded with (1, 1),
-    # but original code examples are not built to handle batches, so we might remove it later
     aspect_ratio_mask[:, :, 0] = 1
 
-    # Set the aspect ratio mask for the rest of the tiles
     for i, sample_aspect_ratios in enumerate(aspect_ratios):
         for j, (num_tiles_w, num_tiles_h) in enumerate(sample_aspect_ratios):
             aspect_ratio_mask[i, j, : num_tiles_w * num_tiles_h] = 1
@@ -271,20 +247,17 @@ def pad_batches_and_tiles(
                 A list of lists containing the number of tiles
                 for each image in each batch sample.
     """
-    # Determine output shape
     batch_size = len(batch_images)
     max_num_images = max(len(images) for images in batch_images)
     shapes = [image.shape for images in batch_images for image in images]
     _, channels, tile_height, tile_width = shapes[0]
 
-    # Initialize the stacked images array with zeros
     stacked_images = torch.zeros(
         (batch_size, max_num_images, max_image_tiles, channels, tile_height, tile_width),
         dtype=torch.float32,
         device=batch_images[0][0].device,
     )
 
-    # Fill the stacked images array with the tiled images from the batch
     all_num_tiles = []
     for i, images in enumerate(batch_images):
         num_sample_tiles = []
@@ -333,7 +306,6 @@ def convert_aspect_ratios_to_ids(
     return aspect_ratios_ids
 
 
-# Copied from transformers.models.idefics2.image_processing_idefics2.convert_to_rgb
 def convert_to_rgb(image: ImageInput) -> ImageInput:
     """
     Converts an image to RGB format. Only converts if the image is of type PIL.Image.Image, otherwise returns the image
@@ -489,7 +461,6 @@ class MllamaImageProcessor(TorchvisionBackend):
         disable_grouping: bool | None,
         **kwargs,
     ) -> BatchFeature:
-        # Group images by size for batched resizing (nested structure)
         grouped_images, grouped_images_index = group_images_by_shape(
             images, is_nested=True, disable_grouping=disable_grouping
         )
@@ -506,10 +477,8 @@ class MllamaImageProcessor(TorchvisionBackend):
             )
             num_tiles_height, num_tiles_width = aspect_ratio
             aspect_ratio_grouped[shape] = [aspect_ratio] * len(stacked_images)
-            # same aspect ratio for all images in the batch
             split_images = split_to_tiles(stacked_images, num_tiles_height, num_tiles_width)
 
-            # Rescale and normalize
             split_images = self.rescale_and_normalize(
                 split_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -520,7 +489,6 @@ class MllamaImageProcessor(TorchvisionBackend):
 
         split_images, num_tiles = pad_batches_and_tiles(split_images, max_image_tiles)
 
-        # Use the same device as the processed image tiles so that all output tensors are consistent.
         pixel_values_device = split_images.device
         aspect_ratio_ids = convert_aspect_ratios_to_ids(
             aspect_ratios, max_image_tiles=max_image_tiles, device=pixel_values_device

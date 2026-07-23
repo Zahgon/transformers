@@ -1,16 +1,3 @@
-# Copyright 2023 The Bigcode team and HuggingFace Inc. team.
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch GPTBigCode model."""
 
 import math
 from collections.abc import Callable
@@ -47,34 +34,21 @@ from .configuration_gpt_bigcode import GPTBigCodeConfig
 logger = logging.get_logger(__name__)
 
 
-# Fused kernels
-# Use separate functions for each case because conditionals prevent kernel fusion.
-# TODO: Could have better fused kernels depending on scaling and dropout.
-#  Is it doable without writing 32 functions?
 @torch.jit.script
 def upcast_masked_softmax(
     x: torch.Tensor, mask: torch.Tensor, mask_value: torch.Tensor, scale: float, softmax_dtype: torch.dtype
 ):
-    input_dtype = x.dtype
-    x = x.to(softmax_dtype) * scale
-    x = torch.where(mask, x, mask_value)
-    x = torch.nn.functional.softmax(x, dim=-1).to(input_dtype)
-    return x
+    pass
 
 
 @torch.jit.script
 def upcast_softmax(x: torch.Tensor, scale: float, softmax_dtype: torch.dtype):
-    input_dtype = x.dtype
-    x = x.to(softmax_dtype) * scale
-    x = torch.nn.functional.softmax(x, dim=-1).to(input_dtype)
-    return x
+    pass
 
 
 @torch.jit.script
 def masked_softmax(x: torch.Tensor, mask: torch.Tensor, mask_value: torch.Tensor):
-    x = torch.where(mask, x, mask_value)
-    x = torch.nn.functional.softmax(x, dim=-1)
-    return x
+    pass
 
 
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
@@ -179,7 +153,6 @@ class GPTBigCodeAttention(nn.Module):
             if isinstance(layer_past, EncoderDecoderCache):
                 is_updated = layer_past.is_updated.get(self.layer_idx)
                 if self.is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = layer_past.cross_attention_cache
                 else:
                     curr_past_key_values = layer_past.self_attention_cache
@@ -193,7 +166,6 @@ class GPTBigCodeAttention(nn.Module):
                     "Please make sure to instantiate class with `GPTBigCodeAttention(..., is_cross_attention=True)`."
                 )
             if layer_past is not None and is_updated:
-                # reuse k,v, cross_attentions
                 key = curr_past_key_values.layers[self.layer_idx].keys
                 value = curr_past_key_values.layers[self.layer_idx].values
             else:
@@ -214,9 +186,7 @@ class GPTBigCodeAttention(nn.Module):
                 )
 
         if layer_past is not None:
-            # save all key/value_states to cache to be re-used for fast auto-regressive generation
             key, value = curr_past_key_values.update(key, value, self.layer_idx)
-            # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
             if self.is_cross_attention:
                 layer_past.is_updated[self.layer_idx] = True
 
@@ -250,7 +220,6 @@ class GPTBigCodeMLP(nn.Module):
         self.act = ACT2FN[config.activation_function]
         self.dropout = nn.Dropout(config.resid_pdrop)
 
-    # Copied from transformers.models.gpt2.modeling_gpt2.GPT2MLP.forward
     def forward(self, hidden_states: tuple[torch.FloatTensor] | None) -> torch.FloatTensor:
         hidden_states = self.c_fc(hidden_states)
         hidden_states = self.act(hidden_states)
@@ -305,7 +274,6 @@ class GPTBigCodeBlock(GradientCheckpointingLayer):
         hidden_states = attn_output + residual
 
         if encoder_hidden_states is not None:
-            # add one self-attention block for cross-attention
             if not hasattr(self, "crossattention"):
                 raise ValueError(
                     f"If `encoder_hidden_states` are passed, {self} has to be instantiated with "
@@ -321,7 +289,6 @@ class GPTBigCodeBlock(GradientCheckpointingLayer):
                 output_attentions=output_attentions,
                 **kwargs,
             )
-            # residual connection
             hidden_states = residual + attn_output
 
         residual = hidden_states
@@ -352,12 +319,6 @@ class GPTBigCodePreTrainedModel(PreTrainedModel):
         """Initialize the weights."""
         super()._init_weights(module)
         if isinstance(module, (GPTBigCodeMLP, GPTBigCodeAttention)):
-            # Reinitialize selected weights subject to the OpenAI GPT-2 Paper Scheme:
-            #   > A modified initialization which accounts for the accumulation on the residual path with model depth. Scale
-            #   > the weights of residual layers at initialization by a factor of 1/√N where N is the # of residual layers.
-            #   >   -- GPT-2 :: https://openai.com/blog/better-language-models/
-            #
-            # Reference (Megatron-LM): https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/model/gpt_model.py
             init.normal_(
                 module.c_proj.weight, mean=0.0, std=self.config.initializer_range / math.sqrt(2 * self.config.n_layer)
             )
@@ -387,7 +348,6 @@ class GPTBigCodeModel(GPTBigCodePreTrainedModel):
 
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -455,8 +415,6 @@ class GPTBigCodeModel(GPTBigCodePreTrainedModel):
                 else None
             )
         else:
-            # If a 2D or 3D attention mask is provided for the cross-attention
-            # we need to make broadcastable to [batch_size, num_heads, seq_length, seq_length]
             if (
                 self.config.add_cross_attention
                 and encoder_hidden_states is not None
@@ -515,7 +473,6 @@ class GPTBigCodeForCausalLM(GPTBigCodePreTrainedModel, GenerationMixin):
         self.transformer = GPTBigCodeModel(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -567,7 +524,6 @@ class GPTBigCodeForCausalLM(GPTBigCodePreTrainedModel, GenerationMixin):
         )
 
         hidden_states = transformer_outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -606,7 +562,6 @@ class GPTBigCodeForSequenceClassification(GPTBigCodePreTrainedModel):
         self.transformer = GPTBigCodeModel(config)
         self.score = nn.Linear(config.n_embd, self.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -664,7 +619,6 @@ class GPTBigCodeForSequenceClassification(GPTBigCodePreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)
@@ -727,7 +681,6 @@ class GPTBigCodeForTokenClassification(GPTBigCodePreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

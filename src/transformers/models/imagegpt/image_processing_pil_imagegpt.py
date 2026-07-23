@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for ImageGPT."""
 
 from typing import Union
 
@@ -50,16 +36,7 @@ def color_quantize(x, clusters):
     return np.argmin(d, axis=1)
 
 
-# Adapted from transformers.models.imagegpt.image_processing_imagegpt.ImageGPTImageProcessorKwargs
 class ImageGPTImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    clusters (`np.ndarray` or `list[list[int]]` or `torch.Tensor`, *optional*, defaults to `self.clusters`):
-        The color clusters to use, of shape `(n_clusters, 3)` when color quantizing. Can be overridden by `clusters`
-        in `preprocess`.
-    do_color_quantize (`bool`, *optional*, defaults to `self.do_color_quantize`):
-        Controls whether to apply color quantization to convert continuous pixel values to discrete cluster indices.
-        When True, each pixel is assigned to its nearest color cluster, enabling ImageGPT's discrete token modeling.
-    """
 
     clusters: Union[np.ndarray, list[list[int]], "torch.Tensor"] | None
     do_color_quantize: bool
@@ -119,26 +96,20 @@ class ImageGPTImageProcessorPil(PilBackend):
                 image = self.normalize(image, image_mean, image_std)
             processed_images.append(image)
 
-        # If color quantization is requested, perform it; otherwise return pixel values
         if do_color_quantize:
-            # Prepare clusters
             if clusters is None:
                 raise ValueError("Clusters must be provided for color quantization.")
-            # Convert to numpy array if needed
             clusters_np = np.array(clusters) if not isinstance(clusters, np.ndarray) else clusters
 
-            # Stack channel-first images (B, C, H, W) and transpose to (B, H, W, C) for color quantization
             images_array = np.array(processed_images)
             images_hwc = images_array.transpose(0, 2, 3, 1)
             input_ids = color_quantize(images_hwc, clusters_np).reshape(
                 images_array.shape[0], images_array.shape[2], images_array.shape[3]
             )
 
-            # flatten to (batch_size, height*width)
             batch_size = input_ids.shape[0]
             input_ids = input_ids.reshape(batch_size, -1)
 
-            # We need to convert back to a list to keep consistent behaviour across processors.
             input_ids = list(input_ids)
             return BatchFeature(data={"input_ids": input_ids}, tensor_type=return_tensors)
 

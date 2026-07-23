@@ -1,17 +1,3 @@
-# Copyright 2025 The Qwen Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Qwen3.5 model."""
 
 from typing import Optional
 
@@ -70,31 +56,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="Qwen/Qwen3.5-27B")
 @strict
 class Qwen3_5TextConfig(Qwen3NextConfig):
-    r"""
-    linear_conv_kernel_dim (`int`, *optional*, defaults to 4):
-        Kernel size of the convolution used in linear attention layers.
-    linear_key_head_dim (`int`, *optional*, defaults to 128):
-        Dimension of each key head in linear attention.
-    linear_value_head_dim (`int`, *optional*, defaults to 128):
-        Dimension of each value head in linear attention.
-    linear_num_key_heads (`int`, *optional*, defaults to 16):
-        Number of key heads used in linear attention layers.
-    linear_num_value_heads (`int`, *optional*, defaults to 32):
-        Number of value heads used in linear attention layers.
-
-    ```python
-    >>> from transformers import Qwen3_5TextModel, Qwen3_5TextConfig
-
-    >>> # Initializing a Qwen3.5 style configuration
-    >>> configuration =  Qwen3_5TextConfig()
-
-    >>> # Initializing a model from the Qwen3.5-9B style configuration
-    >>> model = Qwen3_5TextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "qwen3_5_text"
     base_config_key = "text_config"
@@ -142,12 +103,6 @@ class Qwen3_5TextConfig(Qwen3NextConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3.5-27B")
 @strict
 class Qwen3_5VisionConfig(Qwen3VLVisionConfig):
-    r"""
-    out_hidden_size (`int`, *optional*, defaults to 3584):
-        The output hidden size of the vision model.
-    num_position_embeddings (`int`, *optional*, defaults to 2304):
-        The maximum sequence length that this model might ever be used with
-    """
 
     deepstack_visual_indexes = AttributeError()
 
@@ -155,21 +110,6 @@ class Qwen3_5VisionConfig(Qwen3VLVisionConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3.5-27B")
 @strict
 class Qwen3_5Config(Qwen3VLConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Qwen3_5ForConditionalGeneration, Qwen3_5Config
-
-    >>> # Initializing a Qwen3.5 style configuration
-    >>> configuration = Qwen3_5Config()
-
-    >>> # Initializing a model from the Qwen3.5-9B style configuration
-    >>> model = Qwen3_5ForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     image_token_id: int = 248056
     video_token_id: int = 248057
@@ -198,7 +138,6 @@ class Qwen3_5TextRotaryEmbedding(Qwen3VLTextRotaryEmbedding):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
@@ -232,16 +171,10 @@ class Qwen3_5GatedDeltaNet(Qwen3NextGatedDeltaNet):
     ):
         hidden_states = apply_mask_to_padding_states(hidden_states, attention_mask)
 
-        # Set up dimensions for reshapes later
         batch_size, seq_len, _ = hidden_states.shape
 
-        # We have cached `conv_state` / `recurrent_state` to continue from. The two cached modes
-        # (single-token decode and chunk-tokens continuation) share the state read here; they only
-        # diverge in how the conv input is assembled and which kernel consumes the states below,
-        # which we gate locally on `seq_len`.
         use_precomputed_states = cache_params is not None and cache_params.has_previous_state(self.layer_idx)
 
-        # getting projected states from cache if it exists
         if use_precomputed_states:
             conv_state = cache_params.layers[self.layer_idx].conv_states[0]
             recurrent_state = cache_params.layers[self.layer_idx].recurrent_states[0]
@@ -256,7 +189,6 @@ class Qwen3_5GatedDeltaNet(Qwen3NextGatedDeltaNet):
         a = self.in_proj_a(hidden_states)
 
         if use_precomputed_states and seq_len == 1:
-            # Single-token cached decode: the fused per-step kernel updates the conv state in-place.
             mixed_qkv = causal_conv1d_update(
                 mixed_qkv,
                 conv_state,
@@ -265,11 +197,7 @@ class Qwen3_5GatedDeltaNet(Qwen3NextGatedDeltaNet):
                 self.activation,
             )
         else:
-            # Multi-token forward (prefill, or chunked-tokens decode when the cache has prior state).
             if use_precomputed_states:
-                # Cached chunked-tokens decode: prepend the cached conv context so the causal conv
-                # sees the correct left-context rather than zero-padding. Dropped from the output
-                # at the end of this branch.
                 mixed_qkv = torch.cat([conv_state, mixed_qkv], dim=-1)
             if cache_params is not None:
                 new_conv_state = F.pad(mixed_qkv, (self.conv_kernel_size - mixed_qkv.shape[-1], 0))
@@ -302,7 +230,6 @@ class Qwen3_5GatedDeltaNet(Qwen3NextGatedDeltaNet):
         value = value.reshape(batch_size, seq_len, -1, self.head_v_dim)
 
         beta = b.sigmoid()
-        # If the model is loaded in fp16, without the .float() here, A might be -inf
         g = -self.A_log.float().exp() * F.softplus(a.float() + self.dt_bias)
         if self.num_v_heads // self.num_k_heads > 1:
             query = query.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
@@ -329,15 +256,12 @@ class Qwen3_5GatedDeltaNet(Qwen3NextGatedDeltaNet):
                 initial_state=recurrent_state if use_precomputed_states else None,
                 output_final_state=cache_params is not None,
                 use_qk_l2norm_in_kernel=True,
-                # The chunked FLA kernel takes a single `cu_seqlens` arg; for packed self-attention this matches q-side lengths.
                 cu_seqlens=kwargs.get("cu_seq_lens_q"),
             )
 
-        # Update cache
         if cache_params is not None:
             cache_params.update_recurrent_state(last_recurrent_state, self.layer_idx)
 
-        # reshape input data into 2D tensor
         core_attn_out = core_attn_out.reshape(-1, self.head_v_dim)
         z = z.reshape(-1, self.head_v_dim)
         core_attn_out = self.norm(core_attn_out, z)
@@ -387,7 +311,6 @@ class Qwen3_5DecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Token Mixer
         if self.block_type == "linear_attention":
             hidden_states = self.linear_attn(
                 hidden_states=hidden_states,
@@ -396,7 +319,6 @@ class Qwen3_5DecoderLayer(GradientCheckpointingLayer):
                 **kwargs,
             )
         elif self.block_type == "full_attention":
-            # Self Attention
             hidden_states, _ = self.self_attn(
                 hidden_states=hidden_states,
                 attention_mask=attention_mask,
@@ -408,7 +330,6 @@ class Qwen3_5DecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -431,7 +352,6 @@ class Qwen3_5PreTrainedModel(Qwen3NextPreTrainedModel):
         if isinstance(module, Qwen3_5GatedDeltaNet):
             init.ones_(module.dt_bias)
             init.copy_(module.A_log, torch.empty_like(module.A_log).uniform_(0, 16).log_())
-        # We initialize with 0s to be 1 centered as the RMSNorm here does (1 + weight)
         elif isinstance(module, Qwen3_5RMSNorm):
             init.zeros_(module.weight)
         elif isinstance(module, Qwen3_5VisionRotaryEmbedding):
@@ -528,7 +448,6 @@ class Qwen3_5TextModel(Qwen3NextModel):
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache(config=self.config)
 
-        # the hard coded `4` is for text, temporal, height and width.
         if position_ids is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
@@ -543,7 +462,6 @@ class Qwen3_5TextModel(Qwen3NextModel):
             text_position_ids = None
 
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -551,7 +469,6 @@ class Qwen3_5TextModel(Qwen3NextModel):
                 "past_key_values": past_key_values,
                 "position_ids": text_position_ids,
             }
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
                 "linear_attention": create_recurrent_attention_mask(**mask_kwargs),
@@ -583,7 +500,6 @@ class Qwen3_5Model(Qwen3VLModel):
     _no_split_modules = ["Qwen3_5DecoderLayer", "Qwen3_5VisionBlock"]
 
     def get_video_features(self, **super_kwargs) -> tuple | BaseModelOutputWithPooling:
-        # Same implementation as for images
         return super().get_video_features(**super_kwargs)
 
     @accepts_precomputed_kwargs(modality="image")

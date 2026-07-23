@@ -1,19 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for DeepSeek-OCR-2.
-"""
 
 import math
 
@@ -68,36 +52,7 @@ class DeepseekOcr2Processor(ProcessorMixin):
         text: list[TextInput],
         num_crops_list: list[int],
     ) -> list[str]:
-        """
-        Expand each `<image>` placeholder in the text to the correct number of image tokens.
-
-        Args:
-            text (`list[str]`):
-                List of text strings, each potentially containing `<image>` placeholders.
-            num_crops_list (`list[int]`):
-                Number of crops for each image, consumed in order as `<image>` placeholders
-                are encountered across all text samples.
-
-        Returns:
-            `list[str]`: Text with expanded image token placeholders.
-        """
-        size = self.image_processor.size["height"]
-        tile_size = self.image_processor.tile_size
-
-        num_queries_global = math.ceil(size / self.patch_size / self.downsample_ratio)
-        global_tokens = num_queries_global * num_queries_global
-
-        num_queries_local = math.ceil(tile_size / self.patch_size / self.downsample_ratio)
-        local_tokens = num_queries_local * num_queries_local
-
-        crop_index = 0
-        for i in range(len(text)):
-            while self.image_token in text[i]:
-                num_tokens = global_tokens + local_tokens * num_crops_list[crop_index] + 1
-                text[i] = text[i].replace(self.image_token, "<|placeholder|>" * num_tokens, 1)
-                crop_index += 1
-            text[i] = text[i].replace("<|placeholder|>", self.image_token)
-        return text
+        pass
 
     @auto_docstring
     def __call__(

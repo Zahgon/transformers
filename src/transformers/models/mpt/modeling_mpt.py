@@ -1,17 +1,3 @@
-# Copyright 2023 HuggingFace Inc. team and MosaicML NLP team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch MPT model."""
 
 import math
 
@@ -63,9 +49,6 @@ def build_mpt_alibi_tensor(num_heads, sequence_length, alibi_bias_max=8, device=
 
 
 class MptAttention(nn.Module):
-    """Multi-head self attention.
-    Using torch or triton attention implementation enables user to also use additive bias.
-    """
 
     def __init__(self, config: MptConfig, layer_idx: int | None = None):
         super().__init__()
@@ -123,7 +106,6 @@ class MptAttention(nn.Module):
         if attention_mask is not None:
             attention_scores = attention_scores.masked_fill(attention_mask, torch.finfo(query_states.dtype).min)
 
-        # (batch_size, n_heads, seq_length, key_length)
         attn_weights = nn.functional.softmax(attention_scores.float(), dim=-1).to(value_states.dtype)
         attn_weights = nn.functional.dropout(attn_weights, p=self.attn_dropout_p, training=self.training)
 
@@ -161,14 +143,12 @@ class MptBlock(GradientCheckpointingLayer):
         hidden_size = config.hidden_size
 
         self.norm_1 = LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
-        # backward compatibility with weights on the Hub
         self.norm_1.bias = None
 
         self.num_heads = config.n_heads
         self.attn = MptAttention(config, layer_idx)
 
         self.norm_2 = LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
-        # backward compatibility with weights on the Hub
         self.norm_2.bias = None
 
         self.ffn = MptMLP(config)
@@ -186,13 +166,10 @@ class MptBlock(GradientCheckpointingLayer):
         output_attentions: bool = False,
         **kwargs,
     ):
-        # hidden_states: [batch_size, seq_length, hidden_size]
-        # Layer norm at the beginning of the transformer layer.
         layernorm_output = self.norm_1(hidden_states)
 
         residual = hidden_states
 
-        # Self attention.
         attn_outputs, attn_weights = self.attn(
             layernorm_output,
             position_bias=position_bias,
@@ -204,10 +181,8 @@ class MptBlock(GradientCheckpointingLayer):
 
         layernorm_output = self.norm_2(hidden_states)
 
-        # Get residual
         residual = hidden_states
 
-        # MLP.
         output = self.ffn(layernorm_output, residual)
         return output, attn_weights
 
@@ -228,20 +203,15 @@ class MptModel(MptPreTrainedModel):
         self.hidden_size = config.hidden_size
         self.num_heads = config.n_heads
 
-        # Embedding + LN Embedding
         self.wte = nn.Embedding(config.vocab_size, self.hidden_size)
 
-        # Transformer blocks
         self.blocks = nn.ModuleList([MptBlock(config, layer_idx=i) for i in range(config.n_layers)])
 
-        # Final Layer Norm
         self.norm_f = LayerNorm(self.hidden_size, eps=config.layer_norm_epsilon)
-        # backward compatibility with weights on the Hub
         self.norm_f.bias = None
 
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -313,7 +283,6 @@ class MptModel(MptPreTrainedModel):
         all_self_attentions = () if output_attentions else None
         all_hidden_states = () if output_hidden_states else None
 
-        # Compute alibi tensor: check build_alibi_tensor documentation
         alibi = self.build_mpt_alibi_tensor(self.num_heads, self.config.max_seq_len, device=hidden_states.device)
 
         causal_mask = create_causal_mask(
@@ -340,7 +309,6 @@ class MptModel(MptPreTrainedModel):
             if output_attentions:
                 all_self_attentions = all_self_attentions + (outputs[1],)
 
-        # Add last hidden state
         hidden_states = self.norm_f(hidden_states)
 
         if output_hidden_states:
@@ -373,7 +341,6 @@ class MptForCausalLM(MptPreTrainedModel, GenerationMixin):
         self.transformer = MptModel(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def set_output_embeddings(self, new_embeddings: torch.Tensor):
@@ -425,7 +392,6 @@ class MptForCausalLM(MptPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = transformer_outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -467,7 +433,6 @@ class MptForSequenceClassification(MptPreTrainedModel):
         self.transformer = MptModel(config)
         self.score = nn.Linear(config.hidden_size, config.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def set_output_embeddings(self, new_embeddings: torch.Tensor):
@@ -530,7 +495,6 @@ class MptForSequenceClassification(MptPreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)
@@ -594,7 +558,6 @@ class MptForTokenClassification(MptPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -647,7 +610,6 @@ class MptForTokenClassification(MptPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(logits.device)
             batch_size, seq_length = labels.shape
             loss_fct = CrossEntropyLoss()
@@ -674,7 +636,6 @@ class MptForQuestionAnswering(MptPreTrainedModel):
         self.transformer = MptModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -723,12 +684,10 @@ class MptForQuestionAnswering(MptPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

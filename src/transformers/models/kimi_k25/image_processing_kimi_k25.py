@@ -1,17 +1,3 @@
-# Copyright 2026 the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Torchvision Image processor class for KimiK2.5."""
 
 import math
 
@@ -33,14 +19,6 @@ from ...utils import TensorType, auto_docstring
 
 
 class Kimi_K25ImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    max_patches (`int`, *optional*, defaults to `16384`):
-        The max limit to resize resize the image.
-    patch_size (`int`, *optional*, defaults to 14):
-        The spatial patch size of the vision encoder.
-    merge_kernel_size (`int`, *optional*, defaults to 2):
-        The merge size of the vision encoder to llm encoder.
-    """
 
     max_patches: int
     patch_size: int
@@ -59,22 +37,17 @@ def navit_resize(
     num_patches_h = max(1.0, height // patch_size)
     current_patch_count = num_patches_w * num_patches_h
 
-    # Scale to satisfy total patch budget (affects both dims, hence sqrt)
     scale_for_total_patches = math.sqrt(max_patches / current_patch_count)
 
-    # Scale to satisfy per-side patch budget
     scale_for_width_patches = (max_size_per_side * patch_size) / width
     scale_for_height_patches = (max_size_per_side * patch_size) / height
 
-    # Use the most restrictive scale, never upscale
     scale = min(1.0, scale_for_total_patches, scale_for_width_patches, scale_for_height_patches)
 
-    # Make sure the resized size doesn't go beyond predefined `max`
     new_width, new_height = max(1, int(width * scale)), max(1, int(height * scale))
     new_width = min(new_width, max_size_per_side * patch_size)
     new_height = min(new_height, max_size_per_side * patch_size)
 
-    # Calculate the padding to make the height and width divisible by the merge kernel size and patch size.
     factor = merge_kernel_size * patch_size
     pad_height = (factor - new_height % factor) % factor + new_height
     pad_width = (factor - new_width % factor) % factor + new_width
@@ -188,37 +161,7 @@ class Kimi_K25ImageProcessor(TorchvisionBackend):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None):
-        """
-        A utility that returns number of image patches for a given image size.
-
-        Note: Do not remove this method! It is used by vLLM to infer the number of patches and placeholders
-        without an image input.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`, *optional*)
-                Any kwargs to override defaults of the image processor.
-        Returns:
-            `int`: Number of image patches per image.
-        """
-        max_size_per_side = images_kwargs["size"]["max_height"] if "size" in images_kwargs else self.size["max_height"]
-        patch_size = images_kwargs.get("patch_size", self.patch_size)
-        merge_size = images_kwargs.get("merge_size", self.merge_size)
-        max_patches = images_kwargs.get("max_patches", self.max_patches)
-
-        (resized_height, resized_width), (pad_height, pad_width) = navit_resize(
-            height,
-            width,
-            patch_size=patch_size,
-            merge_kernel_size=merge_size,
-            max_patches=max_patches,
-            max_size_per_side=max_size_per_side,
-        )
-        grid_h, grid_w = pad_height // patch_size, pad_width // patch_size
-        return grid_h * grid_w
+        pass
 
 
 __all__ = ["Kimi_K25ImageProcessor"]

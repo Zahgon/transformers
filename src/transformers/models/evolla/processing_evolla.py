@@ -1,19 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for EVOLLA.
-"""
 
 from ...feature_extraction_utils import BatchFeature
 from ...processing_utils import (
@@ -48,41 +32,14 @@ class EvollaProcessor(ProcessorMixin):
         self.text_max_length = text_max_length
 
     def process_proteins(self, proteins, protein_max_length=1024):
-        sa_sequences = []
-        for protein in proteins:
-            aa_seq = protein.get("aa_seq")
-            foldseek = protein.get("foldseek")
-            sa_sequence = "".join([s.upper() + f.lower() for s, f in zip(aa_seq, foldseek)])
-            sa_sequences.append(sa_sequence)
-
-        sa_tokens = self.protein_tokenizer(
-            sa_sequences, return_tensors="pt", truncation=True, max_length=protein_max_length, padding=True
-        )
-        return sa_tokens
+        pass
 
     def process_text(
         self,
         texts,
         text_max_length: int = 512,
     ):
-        prompts = []
-        for messages in texts:
-            prompt = self.tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-            prompts.append(prompt)
-
-        prompt_inputs = self.tokenizer(
-            prompts,
-            add_special_tokens=False,
-            return_tensors="pt",
-            padding="longest",
-            truncation=True,
-            max_length=text_max_length,
-        )
-        return prompt_inputs
+        pass
 
     @auto_docstring
     def __call__(
@@ -114,20 +71,16 @@ class EvollaProcessor(ProcessorMixin):
                 - `text_input_ids` (`torch.Tensor` of shape `(batch_size, sequence_length)`) -- The input IDs for the text sequence.
                 - `text_attention_mask` (`torch.Tensor` of shape `(batch_size, sequence_length)`) -- The attention mask for the text sequence.
         """
-        # proteins and messages_list should be provided
         if proteins is None or messages_list is None:
             raise ValueError("You need to specify `messages_list` and `proteins`.")
 
         protein_max_length = protein_max_length if protein_max_length is not None else self.protein_max_length
         text_max_length = text_max_length if text_max_length is not None else self.text_max_length
 
-        # proteins should be List[dict]
         if isinstance(proteins, dict):
             proteins = [proteins]
-        # messages_list should be List[List[dict]]
         if isinstance(messages_list, (list, tuple)) and not isinstance(messages_list[0], (list, tuple)):
             messages_list = [messages_list]
-        # Check if batched proteins are in the correct format
         if isinstance(proteins, (list, tuple)) and not all(isinstance(p, dict) for p in proteins):
             raise ValueError("The proteins should be a list of dictionaries, but not all elements are dictionaries.")
         if isinstance(proteins, (list, tuple)) and not all(
@@ -138,7 +91,6 @@ class EvollaProcessor(ProcessorMixin):
                 f"{', '.join(PROTEIN_VALID_KEYS)} for each protein."
                 f"But got: {proteins}"
             )
-        # Check if batched messages_list is in the correct format
         if isinstance(messages_list, (list, tuple)):
             for messages in messages_list:
                 if not isinstance(messages, (list, tuple)):
@@ -178,10 +130,10 @@ class EvollaProcessor(ProcessorMixin):
         return self.tokenizer.decode(*args, **kwargs)
 
     def protein_batch_decode(self, *args, **kwargs):
-        return self.protein_tokenizer.batch_decode(*args, **kwargs)
+        pass
 
     def protein_decode(self, *args, **kwargs):
-        return self.protein_tokenizer.decode(*args, **kwargs)
+        pass
 
 
 __all__ = ["EvollaProcessor"]

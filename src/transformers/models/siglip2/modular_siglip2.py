@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -48,9 +35,6 @@ from ...utils.output_capturing import capture_outputs
 
 
 class Siglip2Tokenizer(GemmaTokenizer):
-    """
-    Gemma tokenizer + SigLIP2 training default: lowercase normalization.
-    """
 
     def __init__(
         self,
@@ -74,7 +58,6 @@ class Siglip2Tokenizer(GemmaTokenizer):
             **kwargs,
         )
 
-        # Persist for save/load + push_to_hub dynamic tokenizer test
         if hasattr(self, "init_kwargs") and isinstance(self.init_kwargs, dict):
             self.init_kwargs.setdefault("tokenizer_class", self.__class__.__name__)
 
@@ -92,27 +75,6 @@ class Siglip2TextConfig(SiglipTextConfig):
 @auto_docstring(checkpoint="google/siglip2-base-patch16-naflex")
 @strict
 class Siglip2VisionConfig(SiglipVisionConfig):
-    r"""
-    num_patches (`int`, *optional*, defaults to 256):
-        The number of patches in the image with the size of (`patch_size`, `patch_size`).
-        The image is resized to fill maximum of this number of patches, and to preserve
-        the aspect ratio. In case the resulted number of patches is lower, the image is
-        padded in "patch" dimension.
-
-    Example:
-
-    ```python
-    >>> from transformers import Siglip2VisionConfig, Siglip2VisionModel
-
-    >>> # Initializing a Siglip2VisionConfig with google/siglip2-base-patch16-naflex style configuration
-    >>> configuration = Siglip2VisionConfig()
-
-    >>> # Initializing a Siglip2VisionModel (with random weights) from the google/siglip2-base-patch16-naflex style configuration
-    >>> model = Siglip2VisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     num_patches: int = 256
     image_size = AttributeError()
@@ -182,15 +144,12 @@ class Siglip2VisionEmbeddings(nn.Module):
             dtype=source_dtype,
         )
 
-        # (height, width, embed_dim) -> (1, embed_dim, height, width) for interpolation
         positional_embeddings = positional_embeddings.permute(2, 0, 1).unsqueeze(0)
 
-        # Upcast to float32 on CPU because antialias is not supported for bfloat16/float16 on CPU
         if positional_embeddings.device.type == "cpu":
             positional_embeddings = positional_embeddings.to(torch.float32)
 
         for i in range(batch_size):
-            # (1, dim, height, width) -> (1, dim, target_height, target_width)
             height, width = spatial_shapes[i].tolist()  # will be itemized in F.interpolate either way
             torch_compilable_check((width > 0), "Width of resized positional embeddings must be positive.")
             torch_compilable_check((height > 0), "Height of resized positional embeddings must be positive.")
@@ -203,10 +162,8 @@ class Siglip2VisionEmbeddings(nn.Module):
                 antialias=True,
             )
 
-            # (1, dim, target_height, target_width) -> (target_height * target_width, dim)
             resized_embeddings = resized_embeddings.reshape(embed_dim, height * width).transpose(0, 1)
 
-            # Cast to original dtype
             resized_embeddings = resized_embeddings.to(source_dtype)
 
             resulted_positional_embeddings[i, : height * width] = resized_embeddings
@@ -223,11 +180,9 @@ class Siglip2VisionEmbeddings(nn.Module):
                 Spatial shapes of shape (batch_size, 2) to resize the positional embeddings to
         """
 
-        # Apply patch embeddings to already patchified pixel values
         target_dtype = self.patch_embedding.weight.dtype
         patch_embeds = self.patch_embedding(pixel_values.to(dtype=target_dtype))
 
-        # Get positional resized and padded positional embeddings
         positional_embeddings = self.position_embedding.weight.reshape(
             self.position_embedding_size, self.position_embedding_size, -1
         )
@@ -235,13 +190,11 @@ class Siglip2VisionEmbeddings(nn.Module):
             positional_embeddings, spatial_shapes, max_length=pixel_values.shape[1]
         )
 
-        # Add positional embeddings to patch embeddings
         embeddings = patch_embeds + resized_positional_embeddings
         return embeddings
 
 
 class Siglip2PreTrainedModel(SiglipPreTrainedModel):
-    # nn.MultiHeadAttention mask doesn't allow for non 4d mask
     _supports_flex_attn = False
     _supports_flash_attn = False
 
@@ -340,7 +293,6 @@ class Siglip2MultiheadAttentionPoolingHead(SiglipMultiheadAttentionPoolingHead):
                 attention_mask = attention_mask.repeat(1, self.num_heads, target_len, 1)
                 attention_mask = attention_mask.reshape(-1, target_len, source_len)
 
-                # `nn.MultiheadAttention` cannot handle boolean masks (which SDPA can)
                 if attention_mask.dtype == torch.bool:
                     attention_mask = torch.where(
                         attention_mask,
@@ -358,7 +310,6 @@ class Siglip2MultiheadAttentionPoolingHead(SiglipMultiheadAttentionPoolingHead):
 
 
 class Siglip2Model(SiglipModel):
-    # Update: add `spatial_shapes` and `pixel_attention_mask`
     @can_return_tuple
     @auto_docstring
     def get_image_features(
@@ -400,7 +351,6 @@ class Siglip2Model(SiglipModel):
             **kwargs,
         )
 
-    # Update: add `spatial_shapes` and `pixel_attention_mask`
     @can_return_tuple
     @auto_docstring
     def forward(
@@ -468,11 +418,9 @@ class Siglip2Model(SiglipModel):
         image_embeds = vision_outputs.pooler_output
         text_embeds = text_outputs.pooler_output
 
-        # normalized features
         image_embeds = image_embeds / image_embeds.norm(p=2, dim=-1, keepdim=True)
         text_embeds = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True)
 
-        # cosine similarity as logits
         logits_per_text = torch.matmul(text_embeds, image_embeds.t().to(text_embeds.device))
 
         logit_scale, logit_bias = self.logit_scale.to(text_embeds.device), self.logit_bias.to(text_embeds.device)
@@ -482,7 +430,6 @@ class Siglip2Model(SiglipModel):
 
         loss = None
         if return_loss:
-            # Adapted from https://github.com/google-research/big_vision/blob/01edb81a4716f93a48be43b3a4af14e29cdb3a7f/big_vision/trainers/proj/image_text/siglip2.py#L287
             eye = torch.eye(logits_per_text.size(0), device=logits_per_text.device)
             m1_diag1 = -torch.ones_like(logits_per_text) + 2 * eye
             loglik = torch.nn.functional.logsigmoid(m1_diag1 * logits_per_text)
@@ -501,7 +448,6 @@ class Siglip2Model(SiglipModel):
 
 
 class Siglip2ForImageClassification(SiglipForImageClassification):
-    # Update: add `spatial_shapes` and `pixel_attention_mask`
     @can_return_tuple
     @auto_docstring
     def forward(
@@ -559,14 +505,12 @@ class Siglip2ForImageClassification(SiglipForImageClassification):
 
         sequence_output = outputs.last_hidden_state
 
-        # average pool the patch tokens
         if pixel_attention_mask is not None:
             pool_mask = pixel_attention_mask[..., None].to(sequence_output.device)
             sequence_output = torch.sum(sequence_output * pool_mask, dim=1) / torch.sum(pool_mask, dim=1)
         else:
             sequence_output = torch.mean(sequence_output, dim=1)
 
-        # apply classifier
         logits = self.classifier(sequence_output)
 
         loss = None

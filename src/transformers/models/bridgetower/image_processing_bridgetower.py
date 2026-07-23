@@ -1,17 +1,3 @@
-# Copyright 2023 The Intel Labs Team Authors, The Microsoft Research Team Authors and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for BridgeTower."""
 
 from typing import Union
 
@@ -69,17 +55,12 @@ def get_resize_output_image_size(
 
 
 class BridgeTowerImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    size_divisor (`int`, *optional*, defaults to `self.size_divisor`):
-        The size by which to make sure both the height and width can be divided.
-    """
 
     size_divisor: int
 
 
 @auto_docstring
 class BridgeTowerImageProcessor(TorchvisionBackend):
-    """Torchvision backend for BridgeTower with custom resize and center_crop."""
 
     valid_kwargs = BridgeTowerImageProcessorKwargs
     model_input_names = ["pixel_values", "pixel_mask"]
@@ -144,7 +125,6 @@ class BridgeTowerImageProcessor(TorchvisionBackend):
         **kwargs,
     ) -> BatchFeature:
         """Custom preprocessing for BridgeTower."""
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -153,7 +133,6 @@ class BridgeTowerImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -161,7 +140,6 @@ class BridgeTowerImageProcessor(TorchvisionBackend):
                 stacked_images = self.center_crop(
                     stacked_images, size=SizeDict(height=crop_size.shortest_edge, width=crop_size.shortest_edge)
                 )
-            # Use fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )

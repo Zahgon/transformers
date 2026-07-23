@@ -1,17 +1,3 @@
-# Copyright 2024 IBM and the HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from typing import TypedDict
 
 import torch
@@ -34,21 +20,6 @@ logger = logging.get_logger(__name__)
 
 
 class GraniteFlashAttentionKwargs(TypedDict, total=False):
-    """
-    Keyword arguments for advanced Flash Attention, causal-conv1d, and mamba_ssm kernel usage.
-    Use cases include padding-free training and fewer `torch.compile` graph breaks.
-
-    cu_seq_lens_q (`torch.LongTensor`):
-        Gets cumulative sequence length for query state.
-    cu_seq_lens_k (`torch.LongTensor`):
-        Gets cumulative sequence length for key state.
-    max_length_q (`int`):
-        Maximum sequence length for query state.
-    max_length_k (`int`):
-        Maximum sequence length for key state.
-    seq_idx (`torch.IntTensor):
-        Index of each packed sequence.
-    """
 
     cu_seq_lens_q: torch.LongTensor
     cu_seq_lens_k: torch.LongTensor
@@ -58,13 +29,6 @@ class GraniteFlashAttentionKwargs(TypedDict, total=False):
 
 
 class GraniteMoeSharedMLP(nn.Module):
-    """
-    MLP layer for shared experts
-
-    Args:
-        config:
-            Configuration object with model hyperparameters.
-    """
 
     def __init__(self, config: GraniteMoeSharedConfig):
         super().__init__()
@@ -102,7 +66,6 @@ class GraniteMoeSharedDecoderLayer(GraniteMoeDecoderLayer):
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -147,7 +110,6 @@ class GraniteMoeSharedForCausalLM(GraniteMoeForCausalLM):
     def __init__(self, config: GraniteMoeSharedConfig):
         super().__init__(config)
         self.model = GraniteMoeSharedModel(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
 

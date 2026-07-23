@@ -1,16 +1,3 @@
-# Copyright 2022 The Impira Team and the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import re
 from typing import Any, Union, overload
@@ -47,9 +34,6 @@ if is_pytesseract_available():
 logger = logging.get_logger(__name__)
 
 
-# normalize_bbox() and apply_tesseract() are derived from apply_tesseract in models/layoutlmv3/feature_extraction_layoutlmv3.py.
-# However, because the pipeline may evolve from what layoutlmv3 currently does, it's copied (vs. imported) to avoid creating an
-# unnecessary dependency.
 def normalize_box(box, width, height):
     return [
         int(1000 * (box[0] / width)),
@@ -77,20 +61,16 @@ def decode_spans(
         max_answer_len (`int`): Maximum size of the answer to extract from the model's output.
         undesired_tokens (`np.ndarray`): Mask determining tokens that can be part of the answer
     """
-    # Ensure we have batch axis
     if start.ndim == 1:
         start = start[None]
 
     if end.ndim == 1:
         end = end[None]
 
-    # Compute the score of each tuple(start, end) to be the real answer
     outer = np.matmul(np.expand_dims(start, -1), np.expand_dims(end, 1))
 
-    # Remove candidate with end < start and end - start > max_answer_len
     candidates = np.tril(np.triu(outer), max_answer_len - 1)
 
-    #  Inspired by Chen & al. (https://github.com/facebookresearch/DrQA)
     scores_flat = candidates.flatten()
     if topk == 1:
         idx_sort = [np.argmax(scores_flat)]
@@ -133,20 +113,16 @@ def select_starts_ends(
         handle_impossible_answer(`bool`): Whether to allow null (empty) answers
         max_answer_len (`int`): Maximum size of the answer to extract from the model's output.
     """
-    # Ensure padded tokens & question tokens cannot belong to the set of candidate answers.
     undesired_tokens = np.abs(np.array(p_mask) - 1)
 
     if attention_mask is not None:
         undesired_tokens = undesired_tokens & attention_mask
 
-    # Generate mask
     undesired_tokens_mask = undesired_tokens == 0.0
 
-    # Make sure non-context indexes in the tensor cannot contribute to the softmax
     start = np.where(undesired_tokens_mask, -10000.0, start)
     end = np.where(undesired_tokens_mask, -10000.0, end)
 
-    # Normalize logits and spans to retrieve the answer
     start = np.exp(start - start.max(axis=-1, keepdims=True))
     start = start / start.sum()
 
@@ -156,7 +132,6 @@ def select_starts_ends(
     if handle_impossible_answer:
         min_null_score = min(min_null_score, (start[0, 0] * end[0, 0]).item())
 
-    # Mask CLS
     start[0, 0] = end[0, 0] = 0.0
 
     starts, ends, scores = decode_spans(start, end, top_k, max_answer_len, undesired_tokens)
@@ -165,11 +140,9 @@ def select_starts_ends(
 
 def apply_tesseract(image: "Image.Image", lang: str | None, tesseract_config: str | None):
     """Applies Tesseract OCR on a document image, and returns recognized words + normalized bounding boxes."""
-    # apply OCR
     data = pytesseract.image_to_data(image, lang=lang, output_type="dict", config=tesseract_config)
     words, left, top, width, height = data["text"], data["left"], data["top"], data["width"], data["height"]
 
-    # filter empty words and corresponding coordinates
     irrelevant_indices = [idx for idx, word in enumerate(words) if not word.strip()]
     words = [word for idx, word in enumerate(words) if idx not in irrelevant_indices]
     left = [coord for idx, coord in enumerate(left) if idx not in irrelevant_indices]
@@ -177,7 +150,6 @@ def apply_tesseract(image: "Image.Image", lang: str | None, tesseract_config: st
     width = [coord for idx, coord in enumerate(width) if idx not in irrelevant_indices]
     height = [coord for idx, coord in enumerate(height) if idx not in irrelevant_indices]
 
-    # turn coordinates into (left, top, left+width, top+height) format
     actual_boxes = []
     for x, y, w, h in zip(left, top, width, height):
         actual_box = [x, y, x + w, y + h]
@@ -185,7 +157,6 @@ def apply_tesseract(image: "Image.Image", lang: str | None, tesseract_config: st
 
     image_width, image_height = image.size
 
-    # finally, normalize the bounding boxes
     normalized_boxes = []
     for box in actual_boxes:
         normalized_boxes.append(normalize_box(box, image_width, image_height))
@@ -204,45 +175,12 @@ class ModelType(ExplicitEnum):
 
 @add_end_docstrings(build_pipeline_init_args(has_image_processor=True, has_tokenizer=True))
 class DocumentQuestionAnsweringPipeline(ChunkPipeline):
-    # TODO: Update task_summary docs to include an example with document QA and then update the first sentence
-    """
-    Document Question Answering pipeline using any `AutoModelForDocumentQuestionAnswering`. The inputs/outputs are
-    similar to the (extractive) question answering pipeline; however, the pipeline takes an image (and optional OCR'd
-    words/boxes) as input instead of text context.
-
-    Unless the model you're using explicitly sets these generation parameters in its configuration files
-    (`generation_config.json`), the following default values will be used:
-    - max_new_tokens: 256
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> document_qa = pipeline(model="impira/layoutlm-document-qa")
-    >>> document_qa(
-    ...     image="https://huggingface.co/spaces/impira/docquery/resolve/2359223c1837a7587402bda0f2643382a6eefeab/invoice.png",
-    ...     question="What is the invoice number?",
-    ... )
-    [{'score': 0.425, 'answer': 'us-001', 'start': 16, 'end': 16}]
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This document question answering pipeline can currently be loaded from [`pipeline`] using the following task
-    identifier: `"document-question-answering"`.
-
-    The models that this pipeline can use are models that have been fine-tuned on a document question answering task.
-    See the up-to-date list of available models on
-    [huggingface.co/models](https://huggingface.co/models?filter=document-question-answering).
-    """
 
     _pipeline_calls_generate = True
     _load_processor = False
     _load_image_processor = None
     _load_feature_extractor = None
     _load_tokenizer = True
-    # Make sure the docstring is updated when the default generation config is changed
     _default_generation_config = GenerationConfig(
         max_new_tokens=256,
     )
@@ -423,8 +361,6 @@ class DocumentQuestionAnsweringPipeline(ChunkPipeline):
         tesseract_config="",
         timeout=None,
     ):
-        # NOTE: This code mirrors the code in question answering and will be implemented in a follow up PR
-        # to support documents with enough tokens that overflow the model's window
         if max_seq_len is None:
             max_seq_len = self.tokenizer.model_max_length
 
@@ -474,7 +410,6 @@ class DocumentQuestionAnsweringPipeline(ChunkPipeline):
 
         if self.model_type == ModelType.VisionEncoderDecoder:
             task_prompt = f"<s_docvqa><s_question>{input['question']}</s_question><s_answer>"
-            # Adapted from https://huggingface.co/spaces/nielsr/donut-docvqa/blob/main/app.py
             encoding = {
                 "inputs": image_features["pixel_values"],
                 "decoder_input_ids": self.tokenizer(
@@ -510,15 +445,10 @@ class DocumentQuestionAnsweringPipeline(ChunkPipeline):
                 return_overflowing_tokens=True,
                 **tokenizer_kwargs,
             )
-            # TODO: check why slower `LayoutLMTokenizer` and `LayoutLMv2Tokenizer` don't have this key in outputs
-            # FIXME: ydshieh and/or Narsil
             encoding.pop("overflow_to_sample_mapping", None)  # We do not use this
 
             num_spans = len(encoding["input_ids"])
 
-            # p_mask: mask with 1 for token than cannot be in the answer (0 for token which can be in an answer)
-            # We put 0 on the tokens from the context and 1 everywhere else (question and special tokens)
-            # This logic mirrors the logic in the question_answering pipeline
             p_mask = [[tok != 1 for tok in encoding.sequence_ids(span_id)] for span_id in range(num_spans)]
             for span_idx in range(num_spans):
                 span_encoding = {k: torch.tensor(v[span_idx : span_idx + 1]) for (k, v) in encoding.items()}
@@ -526,14 +456,11 @@ class DocumentQuestionAnsweringPipeline(ChunkPipeline):
                     span_encoding["image"] = image_features["pixel_values"]
 
                 input_ids_span_idx = encoding["input_ids"][span_idx]
-                # keep the cls_token unmasked (some models use it to indicate unanswerable questions)
                 if self.tokenizer.cls_token_id is not None:
                     cls_indices = np.nonzero(np.array(input_ids_span_idx) == self.tokenizer.cls_token_id)[0]
                     for cls_index in cls_indices:
                         p_mask[span_idx][cls_index] = 0
 
-                # For each span, place a bounding box [0,0,0,0] for question and CLS tokens, [1000,1000,1000,1000]
-                # for SEP tokens, and the word's bounding box for words in the original document.
                 if "boxes" not in tokenizer_kwargs:
                     bbox = []
                     for input_id, sequence_id, word_id in zip(
@@ -564,7 +491,6 @@ class DocumentQuestionAnsweringPipeline(ChunkPipeline):
         is_last = model_inputs.pop("is_last", False)
 
         if self.model_type == ModelType.VisionEncoderDecoder:
-            # User-defined `generation_config` passed to the pipeline call take precedence
             if "generation_config" not in generate_kwargs:
                 generate_kwargs["generation_config"] = self.generation_config
 
@@ -592,8 +518,6 @@ class DocumentQuestionAnsweringPipeline(ChunkPipeline):
     def postprocess_encoder_decoder_single(self, model_outputs, **kwargs):
         sequence = self.tokenizer.batch_decode(model_outputs["sequences"])[0]
 
-        # TODO: A lot of this logic is specific to Donut and should probably be handled in the tokenizer
-        # (see https://github.com/huggingface/transformers/pull/18414/files#r961747408 for more context).
         sequence = sequence.replace(self.tokenizer.eos_token, "").replace(self.tokenizer.pad_token, "")
         sequence = re.sub(r"<.*?>", "", sequence, count=1).strip()  # remove first task start token
         ret = {

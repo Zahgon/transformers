@@ -1,17 +1,3 @@
-# Copyright 2021 The OpenAI Team Authors and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch IdeficsVision model: a copy of CLIPVisionModel using a simpler config object"""
 
 import math
 from collections.abc import Callable
@@ -38,26 +24,6 @@ logger = logging.get_logger(__name__)
 
 @dataclass
 class IdeficsVisionModelOutput(ModelOutput):
-    """
-    Base class for vision model's outputs that also contains image embeddings of the pooling of the last hidden states.
-
-    Args:
-        image_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim)` *optional* returned when model is initialized with `with_projection=True`):
-            The image embeddings obtained by applying the projection layer to the pooler_output.
-        last_hidden_state (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-            Sequence of hidden-states at the output of the last layer of the model.
-        hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-            Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
-            one for the output of each layer) of shape `(batch_size, sequence_length, hidden_size)`.
-
-            Hidden-states of the model at the output of each layer plus the optional initial embedding outputs.
-        attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-            Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-            sequence_length)`.
-
-            Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
-            heads.
-    """
 
     image_embeds: torch.FloatTensor | None = None
     last_hidden_state: torch.FloatTensor | None = None
@@ -65,7 +31,6 @@ class IdeficsVisionModelOutput(ModelOutput):
     attentions: tuple[torch.FloatTensor, ...] | None = None
 
 
-# Adapted from transformers.models.clip.modeling_clip.CLIPVisionEmbeddings
 class IdeficsVisionEmbeddings(nn.Module):
     def __init__(self, config: IdeficsVisionConfig):
         super().__init__()
@@ -89,7 +54,6 @@ class IdeficsVisionEmbeddings(nn.Module):
         self.position_embedding = nn.Embedding(self.num_positions, self.embed_dim)
         self.register_buffer("position_ids", torch.arange(self.num_positions).expand((1, -1)), persistent=False)
 
-    # Heavily inspired from https://github.com/huggingface/transformers/blob/v4.33.0/src/transformers/models/vit/modeling_vit.py#L82
     def interpolate_pos_encoding(self, embeddings: torch.Tensor, height: int, width: int) -> torch.Tensor:
         """
         This method allows to interpolate the pre-trained position encodings, to be able to use the model on higher
@@ -110,8 +74,6 @@ class IdeficsVisionEmbeddings(nn.Module):
         embed_dim = embeddings.shape[-1]
         num_h_patches = height // self.config.patch_size
         num_w_patches = width // self.config.patch_size
-        # we add a small number to avoid floating point error in the interpolation
-        # see discussion at https://github.com/facebookresearch/dino/issues/8
         num_h_patches, num_w_patches = num_h_patches + 0.1, num_w_patches + 0.1
         sqrt_num_positions = math.sqrt(num_positions)
         patch_pos_embed = patch_pos_embed.reshape(1, int(sqrt_num_positions), int(sqrt_num_positions), embed_dim)
@@ -165,7 +127,6 @@ class IdeficsVisionEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.siglip.modeling_siglip.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -190,7 +151,6 @@ def eager_attention_forward(
 
 
 class IdeficsVisionAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: IdeficsVisionConfig):
         super().__init__()
@@ -252,7 +212,6 @@ class IdeficsVisionAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.clip.modeling_clip.CLIPMLP with CLIP->IdeficsVision
 class IdeficsVisionMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -268,7 +227,6 @@ class IdeficsVisionMLP(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.altclip.modeling_altclip.AltCLIPEncoderLayer with AltCLIPVisionConfig->IdeficsVisionConfig,AltCLIP->IdeficsVision
 class IdeficsVisionEncoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: IdeficsVisionConfig):
         super().__init__()
@@ -302,15 +260,7 @@ class IdeficsVisionEncoderLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-# Copied from transformers.models.altclip.modeling_altclip.AltCLIPEncoder with AltCLIP->IdeficsVision
 class IdeficsVisionEncoder(nn.Module):
-    """
-    Transformer encoder consisting of `config.num_hidden_layers` self attention layers. Each layer is a
-    [`IdeficsVisionEncoderLayer`].
-
-    Args:
-        config: IdeficsVisionConfig
-    """
 
     def __init__(self, config: IdeficsVisionConfig):
         super().__init__()
@@ -337,7 +287,6 @@ class IdeficsVisionEncoder(nn.Module):
         )
 
 
-# Adapted from transformers.models.clip.modeling_clip.CLIPVisionTransformer
 class IdeficsVisionTransformer(nn.Module):
     def __init__(self, config: IdeficsVisionConfig):
         super().__init__()
@@ -349,7 +298,6 @@ class IdeficsVisionTransformer(nn.Module):
         self.encoder = IdeficsVisionEncoder(config)
         self.post_layernorm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
 
-    # Adapted from transformers.models.clip.modeling_clip.CLIPVisionTransformer.forward
     def forward(
         self,
         pixel_values: torch.FloatTensor | None = None,

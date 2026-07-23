@@ -1,17 +1,3 @@
-# Copyright 2025 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Blt modular model, inheriting from Mllama where appropriate."""
 
 from collections.abc import Callable
 
@@ -89,11 +75,9 @@ def byte_group_hash_function(
     """Hash token groups and map to range [0, max_hash]."""
     with torch.no_grad():
         batch_size, seq_len = token_ids.shape
-        # Add padding for sliding window
         padding = torch.zeros(batch_size, group_size - 1, dtype=torch.int64, device=token_ids.device)
         padded_tokens = torch.cat([padding, token_ids], dim=1)
 
-        # Create sliding windows and compute hashes
         windows = padded_tokens.unfold(1, group_size, 1)
         hashes = rolling_polynomial_hash(windows, prime)
         hash_values = hashes % max_hash
@@ -110,7 +94,6 @@ def compute_hash_embeddings(
     encoder_hash_byte_group_vocab: int,
 ) -> torch.Tensor:
     """Compute token embeddings enhanced with hash-based embeddings."""
-    # Available primes for hash functions
     primes = [
         1000000007,
         5915587277,
@@ -131,7 +114,6 @@ def compute_hash_embeddings(
         prime = primes[func_nb % len(primes)]  # Cycle through primes if more functions than primes
         for group_size in encoder_hash_byte_group_size:
             hash_ids = byte_group_hash_function(local_encoder_tokens, group_size, prime, encoder_hash_byte_group_vocab)
-            # Apply offset to get the correct slice of the fused embedding
             offset_hash_ids = hash_ids + embedding_idx * encoder_hash_byte_group_vocab
             embeddings += encoder_hash_tok_embedding(offset_hash_ids).to(embeddings.device)
             embedding_idx += 1
@@ -168,11 +150,9 @@ def _prepare_patch_cross_attention_mask(
     batch_size, seq_len = patch_ids.shape
     device = patch_ids.device
 
-    # Determine query and key lengths based on configuration
     if patches_as_queries:
         q_len = num_patches * cross_attn_k
         kv_len = sequence_length
-        # Create patch-to-sequence mapping
         q_patch_ids = (
             torch.arange(num_patches, device=device)
             .unsqueeze(0)
@@ -183,32 +163,24 @@ def _prepare_patch_cross_attention_mask(
     else:
         q_len = sequence_length
         kv_len = num_patches * cross_attn_k
-        # Create sequence-to-patch mapping
         q_patch_ids = patch_ids.unsqueeze(-1).expand(batch_size, seq_len, num_patches)
         kv_patch_ids = (
             torch.arange(num_patches, device=device).unsqueeze(0).unsqueeze(0).expand(batch_size, seq_len, num_patches)
         )
 
-    # Create base attention mask - boolean mask where True means "should attend"
-    # Exact patch matching
     cross_attention_mask = q_patch_ids == kv_patch_ids
 
-    # Handle cross_attn_k multiplier by repeating along appropriate dimension
     repeat_dim = 1 if patches_as_queries else -1
     cross_attention_mask = cross_attention_mask.repeat_interleave(cross_attn_k, dim=repeat_dim)
 
-    # Validate dimensions
     expected_shape = (batch_size, q_len, kv_len)
     if cross_attention_mask.shape != expected_shape:
         raise ValueError(
             f"Cross attention mask shape {cross_attention_mask.shape} doesn't match expected {expected_shape}"
         )
 
-    # Reshape so it can be used by attn module - add head dimension
     cross_attention_mask = cross_attention_mask.unsqueeze(1)  # [batch_size, 1, q_len, kv_len]
 
-    # Invert the mask (following mllama pattern exactly)
-    # True -> 0.0 (attend), False -> 1.0 (will become -inf)
     inverted_cross_attn_mask = 1.0 - cross_attention_mask.to(dtype)
     cross_attention_mask = inverted_cross_attn_mask.masked_fill(
         inverted_cross_attn_mask.to(torch.bool), torch.finfo(dtype).min
@@ -305,7 +277,6 @@ class BltSelfAttention(MllamaTextSelfAttention):
 
 
 class BltCrossAttention(MllamaTextCrossAttention):
-    """Cross-attention module for Blt, following transformers style"""
 
     def __init__(self, config: BltConfig, layer_idx: int, hidden_size: int | None = None):
         super().__init__()
@@ -363,13 +334,6 @@ class BltPreTrainedModel(MllamaPreTrainedModel):
         "attentions": OutputRecorder(BltSelfAttention, index=1),
     }
 
-    # Weight initialization is adapted from:
-    # - https://github.com/facebookresearch/blt/blob/main/bytelatent/model/blt.py
-    # - https://github.com/pytorch/torchtitan/blob/main/torchtitan/experiments/transformers_modeling_backend/model/model.py
-    #
-    # Both implementations use truncated normal initialization with std ~ 1 / sqrt(d_model)
-    # (or 1 / sqrt(hidden_dim) for FFN outputs), and unit initialization for normalization layers.
-    # We follow the same scheme here, but expressed in the Transformers APIs.
 
     @torch.no_grad()
     def _init_weights(self, module):
@@ -384,7 +348,6 @@ class BltPreTrainedModel(MllamaPreTrainedModel):
 
         class_name = module.__class__.__name__
 
-        # Embeddings (encoder / patcher / hash embeddings)
         if isinstance(module, nn.Embedding):
             hidden_size = getattr(self.config, "hidden_size", None)
             if hidden_size is None and hasattr(self.config, "encoder_config"):
@@ -404,7 +367,6 @@ class BltPreTrainedModel(MllamaPreTrainedModel):
                 init.zeros_(module.weight[module.padding_idx])
             return
 
-        # Self-attention / cross-attention projections
         if isinstance(module, (BltSelfAttention, BltCrossAttention)) or class_name in (
             "MllamaTextSelfAttention",
             "MllamaTextCrossAttention",
@@ -423,7 +385,6 @@ class BltPreTrainedModel(MllamaPreTrainedModel):
 
             std = dim**-0.5
 
-            # Input projections (q, k, v)
             for proj_name in ("q_proj", "k_proj", "v_proj"):
                 proj = getattr(module, proj_name, None)
                 if proj is not None and hasattr(proj, "weight"):
@@ -437,7 +398,6 @@ class BltPreTrainedModel(MllamaPreTrainedModel):
                     if getattr(proj, "bias", None) is not None:
                         init.zeros_(proj.bias)
 
-            # Output projection: o_proj or dense
             o_proj = getattr(module, "o_proj", getattr(module, "dense", None))
             if o_proj is not None and hasattr(o_proj, "weight"):
                 init.trunc_normal_(
@@ -451,7 +411,6 @@ class BltPreTrainedModel(MllamaPreTrainedModel):
                     init.zeros_(o_proj.bias)
             return
 
-        # MLP / FFN blocks
         if isinstance(module, BltMLP) or class_name == "MllamaTextMLP":
             hidden_size = getattr(self.config, "hidden_size", None)
             if hidden_size is None and hasattr(self.config, "decoder_config"):
@@ -459,7 +418,6 @@ class BltPreTrainedModel(MllamaPreTrainedModel):
             if hidden_size is None and hasattr(self.config, "encoder_config"):
                 hidden_size = getattr(self.config.encoder_config, "hidden_size", None)
 
-            # Input-side std
             in_std = None
             if hidden_size is not None:
                 in_std = hidden_size**-0.5
@@ -468,7 +426,6 @@ class BltPreTrainedModel(MllamaPreTrainedModel):
             up_proj = getattr(module, "up_proj", None)
             down_proj = getattr(module, "down_proj", getattr(module, "fc2", None))
 
-            # gate / input projections
             for proj in (gate_proj, up_proj):
                 if proj is not None and hasattr(proj, "weight"):
                     std = in_std or (proj.weight.shape[1] ** -0.5)
@@ -482,7 +439,6 @@ class BltPreTrainedModel(MllamaPreTrainedModel):
                     if getattr(proj, "bias", None) is not None:
                         init.zeros_(proj.bias)
 
-            # output/ down projections
             if down_proj is not None and hasattr(down_proj, "weight"):
                 hidden_dim = down_proj.weight.shape[1]
                 out_std = hidden_dim**-0.5
@@ -497,7 +453,6 @@ class BltPreTrainedModel(MllamaPreTrainedModel):
                     init.zeros_(down_proj.bias)
             return
 
-        # Generic Linear layers (projections, lm_head, etc.)
         if isinstance(module, nn.Linear):
             fan_in = module.in_features
             std = fan_in**-0.5
@@ -716,7 +671,6 @@ class BltGlobalTransformer(BltPreTrainedModel):
             self.layers.append(BltTransformerLayer(config, layer_idx))
         self.rotary_emb = BltRotaryEmbedding(config=config)
 
-        # Create token embedding projection (use nn.Identity() when no projection needed)
         if getattr(config, "encoder_cross_output_size", None) is not None:
             self.token_embedding_projection = nn.Linear(
                 config.encoder_cross_output_size, config.hidden_size, bias=False
@@ -847,37 +801,29 @@ class BltPatcher(BltPreTrainedModel):
 
         batch_size = entropies.shape[0]
 
-        # Always include token 0 and 1 as starting tokens
         init_tokens = (
             torch.tensor([0, 1], dtype=torch.long, device=entropies.device).unsqueeze(0).repeat(batch_size, 1)
         )
         offset = init_tokens.shape[1]
 
-        # Ignore first token entropy (BOS)
         entropies = entropies[:, 1:]
 
-        # Threshold the entropy values to define patch start points
         patch_mask = entropies > threshold
 
         seq_len = patch_mask.shape[1]
 
-        # Create patch IDs (token indices), and add a sentinel to ensure alignment
         token_indices = torch.arange(seq_len, device=entropies.device).unsqueeze(0).expand(batch_size, -1)
         sentinel = torch.full_like(token_indices, seq_len)
         padded_indices = torch.cat([token_indices, sentinel], dim=1)
 
-        # Pad mask with inverse to align sentinel correctly
         padded_mask = torch.cat([patch_mask, ~patch_mask], dim=1)
 
-        # Select indices where mask is True
         patch_starts = padded_indices[padded_mask].reshape(batch_size, seq_len)
         max_valid_patches = patch_mask.sum(dim=1).max()
         patch_starts = patch_starts[:, :max_valid_patches]
 
-        # Offset patch starts to account for the two initial tokens
         patch_start_ids = torch.cat((init_tokens, patch_starts + offset), dim=1)
 
-        # Compute patch end positions by shifting start positions
         last_token = torch.full_like(patch_start_ids[:, :1], sequence_length - 1)
         patch_ends = torch.cat((patch_start_ids[:, 1:] - 1, last_token), dim=1)
 
@@ -929,11 +875,8 @@ class BltModel(BltPreTrainedModel):
                     DynamicCache(config=self.config), DynamicCache(config=self.config)
                 )
             elif not isinstance(past_key_values, EncoderDecoderCache):
-                # BLT uses an encoder-decoder cache even though it is not en encoder-decoder model. Create a cross-cache
-                # if not yet created by the user
                 past_key_values = EncoderDecoderCache(past_key_values, DynamicCache(config=self.config))
 
-        # Extract input embeddings as early as possible
         if inputs_embeds is not None:
             encoder_embeds = inputs_embeds
             batch_size, sequence_length, _ = inputs_embeds.shape
@@ -1142,7 +1085,6 @@ class BltForCausalLM(BltPreTrainedModel, GenerationMixin):
         I love the idea of snowflakes gently falling, each one
         ```
         """
-        # Call parent forward but exclude cross_attention_states from model call
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,

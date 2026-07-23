@@ -1,17 +1,3 @@
-# Copyright 2018 Google AI, Google Brain and Carnegie Mellon University Authors and the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License
-"""Tokenization classes for XLM-RoBERTa model (Tokenizers backend)."""
 
 from tokenizers import Tokenizer, decoders, normalizers, pre_tokenizers, processors
 from tokenizers.models import Unigram
@@ -26,26 +12,6 @@ VOCAB_FILES_NAMES = {"vocab_file": "sentencepiece.bpe.model", "tokenizer_file": 
 
 
 class XLMRobertaTokenizer(TokenizersBackend):
-    r"""
-    Construct an XLM-RoBERTa tokenizer (backed by HuggingFace's tokenizers library). Based on SentencePiece.
-
-    This tokenizer inherits from [`TokenizersBackend`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`, optional): Path to the vocabulary file.
-        merges_file (`str`, optional): Path to the merges file.
-        tokenizer_file (`str`, optional): Path to a tokenizers JSON file containing the serialization of a tokenizer.
-        bos_token (`str`, optional, defaults to `"<s>"`): The beginning of sequence token.
-        eos_token (`str`, optional, defaults to `"</s>"`): The end of sequence token.
-        sep_token (`str`, optional, defaults to `"</s>"`): The separator token.
-        cls_token (`str`, optional, defaults to `"<s>"`): The classifier token.
-        unk_token (`str`, optional, defaults to `"<unk>"`): The unknown token.
-        pad_token (`str`, optional, defaults to `"<pad>"`): The padding token.
-        mask_token (`str`, optional, defaults to `"<mask>"`): The mask token.
-        add_prefix_space (`bool`, optional, defaults to `True`): Whether to add an initial space.
-        vocab (`str`, `dict` or `list`, optional): Custom vocabulary dictionary.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]

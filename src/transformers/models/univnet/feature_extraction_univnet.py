@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Feature extractor class for UnivNetModel."""
 
 from typing import Any
 
@@ -27,74 +13,6 @@ logger = logging.get_logger(__name__)
 
 
 class UnivNetFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a UnivNet feature extractor.
-
-    This class extracts log-mel-filter bank features from raw speech using the short time Fourier Transform (STFT). The
-    STFT implementation follows that of TacoTron 2 and Hifi-GAN.
-
-    This feature extractor inherits from [`~feature_extraction_sequence_utils.SequenceFeatureExtractor`] which contains
-    most of the main methods. Users should refer to this superclass for more information regarding those methods.
-
-    Args:
-        feature_size (`int`, *optional*, defaults to 1):
-            The feature dimension of the extracted features.
-        sampling_rate (`int`, *optional*, defaults to 24000):
-            The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
-        padding_value (`float`, *optional*, defaults to 0.0):
-            The value to pad with when applying the padding strategy defined by the `padding` argument to
-            [`UnivNetFeatureExtractor.__call__`]. Should correspond to audio silence. The `pad_end` argument to
-            `__call__` will also use this padding value.
-        do_normalize (`bool`, *optional*, defaults to `False`):
-            Whether to perform Tacotron 2 normalization on the input. Normalizing can help to significantly improve the
-            performance for some models.
-        num_mel_bins (`int`, *optional*, defaults to 100):
-            The number of mel-frequency bins in the extracted spectrogram features. This should match
-            `UnivNetModel.config.num_mel_bins`.
-        hop_length (`int`, *optional*, defaults to 256):
-            The direct number of samples between sliding windows. Otherwise referred to as "shift" in many papers. Note
-            that this is different from other audio feature extractors such as [`SpeechT5FeatureExtractor`] which take
-            the `hop_length` in ms.
-        win_length (`int`, *optional*, defaults to 1024):
-            The direct number of samples for each sliding window. Note that this is different from other audio feature
-            extractors such as [`SpeechT5FeatureExtractor`] which take the `win_length` in ms.
-        win_function (`str`, *optional*, defaults to `"hann_window"`):
-            Name for the window function used for windowing, must be accessible via `torch.{win_function}`
-        filter_length (`int`, *optional*, defaults to 1024):
-            The number of FFT components to use. If `None`, this is determined using
-            `transformers.audio_utils.optimal_fft_length`.
-        max_length_s (`int`, *optional*, defaults to 10):
-            The maximum input length of the model in seconds. This is used to pad the audio.
-        fmin (`float`, *optional*, defaults to 0.0):
-            Minimum mel frequency in Hz.
-        fmax (`float`, *optional*):
-            Maximum mel frequency in Hz. If not set, defaults to `sampling_rate / 2`.
-        mel_floor (`float`, *optional*, defaults to 1e-09):
-            Minimum value of mel frequency banks. Note that the way [`UnivNetFeatureExtractor`] uses `mel_floor` is
-            different than in [`transformers.audio_utils.spectrogram`].
-        center (`bool`, *optional*, defaults to `False`):
-            Whether to pad the waveform so that frame `t` is centered around time `t * hop_length`. If `False`, frame
-            `t` will start at time `t * hop_length`.
-        compression_factor (`float`, *optional*, defaults to 1.0):
-            The multiplicative compression factor for dynamic range compression during spectral normalization.
-        compression_clip_val (`float`, *optional*, defaults to 1e-05):
-            The clip value applied to the waveform before applying dynamic range compression during spectral
-            normalization.
-        normalize_min (`float`, *optional*, defaults to -11.512925148010254):
-            The min value used for Tacotron 2-style linear normalization. The default is the original value from the
-            Tacotron 2 implementation.
-        normalize_max (`float`, *optional*, defaults to 2.3143386840820312):
-            The max value used for Tacotron 2-style linear normalization. The default is the original value from the
-            Tacotron 2 implementation.
-        model_in_channels (`int`, *optional*, defaults to 64):
-            The number of input channels to the [`UnivNetModel`] model. This should match
-            `UnivNetModel.config.model_in_channels`.
-        pad_end_length (`int`, *optional*, defaults to 10):
-            If padding the end of each waveform, the number of spectrogram frames worth of samples to append. The
-            number of appended samples will be `pad_end_length * hop_length`.
-        return_attention_mask (`bool`, *optional*, defaults to `True`):
-            Whether or not [`~UnivNetFeatureExtractor.__call__`] should return `attention_mask`.
-    """
 
     model_input_names = ["input_features", "noise_sequence", "padding_mask"]
 
@@ -140,7 +58,6 @@ class UnivNetFeatureExtractor(SequenceFeatureExtractor):
         self.filter_length = filter_length
         self.fmin = fmin
         if fmax is None:
-            # Follows the librosa.filters.mel implementation
             fmax = float(sampling_rate) / 2
         self.fmax = fmax
         self.mel_floor = mel_floor
@@ -178,87 +95,17 @@ class UnivNetFeatureExtractor(SequenceFeatureExtractor):
         return 2 * ((spectrogram - self.normalize_min) / (self.normalize_max - self.normalize_min)) - 1
 
     def denormalize(self, spectrogram):
-        return self.normalize_min + (self.normalize_max - self.normalize_min) * ((spectrogram + 1) / 2)
+        pass
 
     def mel_spectrogram(self, waveform: np.ndarray) -> np.ndarray:
-        """
-        Calculates log MEL spectrograms from a batch of waveforms. Note that the input waveform(s) will be padded by
-        `int(self.n_fft - self.hop_length) / 2` on both sides using the `reflect` padding mode.
-
-        Args:
-            waveform (`np.ndarray` of shape `(length,)`):
-                The input waveform. This must be a single real-valued, mono waveform.
-
-        Returns:
-            `numpy.ndarray`: Array containing a log-mel spectrogram of shape `(num_frames, num_mel_bins)`.
-        """
-        # Do custom padding based on the official MelGAN and Hifi-GAN implementations
-        # See https://github.com/maum-ai/univnet/blob/9bb2b54838bb6d7ce767131cc7b8b61198bc7558/utils/stft.py#L84-L86
-        waveform = np.pad(
-            waveform,
-            (int((self.n_fft - self.hop_length) / 2), int((self.n_fft - self.hop_length) / 2)),
-            mode="reflect",
-        )
-
-        # Get the complex spectrogram.
-        # Note: waveform must be unbatched currently due to the implementation of spectrogram(...).
-        complex_spectrogram = spectrogram(
-            waveform,
-            window=self.window,
-            frame_length=self.n_fft,
-            hop_length=self.hop_length,
-            fft_length=self.n_fft,
-            power=None,
-            center=self.center,
-            mel_filters=None,
-            mel_floor=None,
-        )
-
-        # Apply the MEL filter bank and MEL floor manually since UnivNet uses a slightly different implementation
-        amplitude_spectrogram = np.sqrt(
-            np.real(complex_spectrogram) ** 2 + np.imag(complex_spectrogram) ** 2 + self.mel_floor
-        )
-        mel_spectrogram = np.matmul(self.mel_filters.T, amplitude_spectrogram)
-
-        # Perform spectral normalization to get the log mel spectrogram.
-        log_mel_spectrogram = np.log(
-            np.clip(mel_spectrogram, a_min=self.compression_clip_val, a_max=None) * self.compression_factor
-        )
-
-        # Return spectrogram with num_mel_bins last
-        return log_mel_spectrogram.T
+        pass
 
     def generate_noise(
         self,
         noise_length: int,
         generator: np.random.Generator | None = None,
     ) -> np.ndarray:
-        """
-        Generates a random noise sequence of standard Gaussian noise for use in the `noise_sequence` argument of
-        [`UnivNetModel.forward`].
-
-        Args:
-            spectrogram_length (`int`):
-                The length (dim 0) of the generated noise.
-            model_in_channels (`int`, *optional*, defaults to `None`):
-                The number of features (dim 1) of the generated noise. This should correspond to the
-                `model_in_channels` of the [`UnivNetGan`] model. If not set, this will default to
-                `self.config.model_in_channels`.
-            generator (`numpy.random.Generator`, *optional*, defaults to `None`)
-                An optional `numpy.random.Generator` random number generator to control noise generation. If not set, a
-                new generator with fresh entropy will be created.
-
-        Returns:
-            `numpy.ndarray`: Array containing random standard Gaussian noise of shape `(noise_length,
-            model_in_channels)`.
-        """
-        if generator is None:
-            generator = np.random.default_rng()
-
-        noise_shape = (noise_length, self.model_in_channels)
-        noise = generator.standard_normal(noise_shape, dtype=np.float32)
-
-        return noise
+        pass
 
     def batch_decode(self, waveforms, waveform_lengths=None) -> list[np.ndarray]:
         r"""
@@ -275,7 +122,6 @@ class UnivNetFeatureExtractor(SequenceFeatureExtractor):
         Returns:
             `list[np.ndarray]`: A ragged list of 1D waveform arrays with padding removed.
         """
-        # Collapse the batched waveform tensor to a list of 1D audio waveforms
         waveforms = [waveform.detach().to(device="cpu", copy=True).numpy() for waveform in waveforms]
 
         if waveform_lengths is not None:
@@ -387,11 +233,9 @@ class UnivNetFeatureExtractor(SequenceFeatureExtractor):
         elif isinstance(raw_speech, np.ndarray) and raw_speech.dtype is np.dtype(np.float64):
             raw_speech = raw_speech.astype(np.float32)
 
-        # always return batch
         if not is_batched:
             raw_speech = [np.asarray(raw_speech, dtype=np.float32)]
 
-        # Pad end to reduce artifacts
         if pad_end:
             pad_length = pad_length if pad_length is not None else self.pad_end_length
             raw_speech = [
@@ -410,8 +254,6 @@ class UnivNetFeatureExtractor(SequenceFeatureExtractor):
             return_attention_mask=return_attention_mask,
         )
 
-        # make sure list is in array format
-        # input_features = padded_inputs.get("input_features").transpose(2, 0, 1)
         input_features = padded_inputs.get("input_features")
 
         mel_spectrograms = [self.mel_spectrogram(waveform) for waveform in input_features]
@@ -421,7 +263,6 @@ class UnivNetFeatureExtractor(SequenceFeatureExtractor):
         else:
             batched_speech["input_features"] = [mel.astype(np.float32) for mel in mel_spectrograms]
 
-        # convert attention_mask to correct format
         attention_mask = padded_inputs.get("attention_mask")
         if attention_mask is not None:
             batched_speech["padding_mask"] = [np.asarray(array, dtype=np.int32) for array in attention_mask]
@@ -446,7 +287,6 @@ class UnivNetFeatureExtractor(SequenceFeatureExtractor):
     def to_dict(self) -> dict[str, Any]:
         output = super().to_dict()
 
-        # Don't serialize these as they are derived from the other properties.
         names = ["window", "mel_filters", "n_fft", "n_freqs", "num_max_samples"]
         for name in names:
             if name in output:

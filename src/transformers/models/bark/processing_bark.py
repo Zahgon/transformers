@@ -1,19 +1,3 @@
-# Copyright 2023 The Suno AI Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for Bark
-"""
 
 import json
 import os
@@ -165,19 +149,11 @@ class BarkProcessor(ProcessorMixin):
 
     @staticmethod
     def _reject_path_traversal(base_dir: str, target_path: str, offending_value: str):
-        # base_dir/target_path derive from the untrusted speaker_embeddings json; allow nested
-        # subdirectories but reject any value that escapes base_dir (path traversal, CWE-22).
-        # The only untrusted input is the relative path string, so this is a purely lexical check:
-        # we use os.path.abspath (not realpath/Path.resolve) and must NOT follow symlinks here.
-        # When repo_or_path points at a populated HF cache, the referenced snapshot files are
-        # symlinks into a sibling blobs/ directory that sits outside base_dir, so a resolve()-based
-        # containment check would wrongly reject perfectly legitimate loads.
         base = os.path.abspath(base_dir)
         target = os.path.abspath(target_path)
         try:
             contained = os.path.commonpath([base, target]) == base
         except ValueError:
-            # e.g. different Windows drives: definitely an escape.
             contained = False
         if not contained:
             raise ValueError(f"Invalid voice preset path: {offending_value!r}")
@@ -223,54 +199,14 @@ class BarkProcessor(ProcessorMixin):
         return voice_preset_dict
 
     def _validate_voice_preset_dict(self, voice_preset: dict | None = None):
-        for key in ["semantic_prompt", "coarse_prompt", "fine_prompt"]:
-            if key not in voice_preset:
-                raise ValueError(f"Voice preset unrecognized, missing {key} as a key.")
-
-            if not isinstance(voice_preset[key], np.ndarray):
-                raise TypeError(f"{key} voice preset must be a {str(self.preset_shape[key])}D ndarray.")
-
-            if len(voice_preset[key].shape) != self.preset_shape[key]:
-                raise ValueError(f"{key} voice preset must be a {str(self.preset_shape[key])}D ndarray.")
+        pass
 
     @property
     def available_voice_presets(self) -> list:
-        """
-        Returns a list of available voice presets.
-
-        Returns:
-            `list[str]`: A list of voice preset names.
-        """
-        if self.speaker_embeddings is None:
-            return []
-
-        voice_presets = list(self.speaker_embeddings.keys())
-        if "repo_or_path" in voice_presets:
-            voice_presets.remove("repo_or_path")
-        return voice_presets
+        pass
 
     def _verify_speaker_embeddings(self, remove_unavailable: bool = True):
-        # check which actually downloaded properly / are available
-        unavailable_keys = []
-        if self.speaker_embeddings is not None:
-            for voice_preset in self.available_voice_presets:
-                try:
-                    voice_preset_dict = self._load_voice_preset(voice_preset)
-                except ValueError:
-                    # error from `_load_voice_preset` of path not existing
-                    unavailable_keys.append(voice_preset)
-                    continue
-                self._validate_voice_preset_dict(voice_preset_dict)
-
-            if unavailable_keys:
-                logger.warning(
-                    f"The following {len(unavailable_keys)} speaker embeddings are not available: {unavailable_keys} "
-                    "If you would like to use them, please check the paths or try downloading them again."
-                )
-
-            if remove_unavailable:
-                for voice_preset in unavailable_keys:
-                    del self.speaker_embeddings[voice_preset]
+        pass
 
     @auto_docstring
     def __call__(

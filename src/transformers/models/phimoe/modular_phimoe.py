@@ -1,18 +1,4 @@
-# Copyright 2024 Microsoft and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""PyTorch Phimoe model."""
 
 from collections.abc import Callable
 
@@ -118,34 +104,7 @@ class PhimoeMultiplier(torch.autograd.Function):
         ctx,
         grad_at_output: torch.Tensor,
     ):
-        """
-        Backward pass for the custom autograd function.
-
-        Args:
-            ctx: Context object with saved tensors from the forward pass.
-            grad_at_output (torch.Tensor): Gradient at the output.
-
-        Returns:
-            tuple[torch.Tensor, None, None, None, None]: Gradients for the inputs.
-        """
-        multiplier, selected_experts, masked_gates = ctx.saved_tensors
-
-        grad_at_output = grad_at_output * multiplier
-
-        grad_at_scores_expanded = masked_gates * grad_at_output.mul(-1)
-        grad_at_scores_expanded.scatter_add_(
-            dim=-1,
-            index=selected_experts,
-            src=grad_at_output,
-        )
-
-        return (
-            grad_at_scores_expanded,
-            None,
-            None,
-            None,
-            None,
-        )
+        pass
 
 
 def sparsemixer(scores, jitter_eps, training, top_k=2):
@@ -167,12 +126,10 @@ def sparsemixer(scores, jitter_eps, training, top_k=2):
         tuple[torch.Tensor, torch.Tensor]: Multiplier and selected experts tensors.
     """
     with torch.no_grad():
-        # Compute mask for sparsity
         mask_logits_threshold, max_ind = scores.max(dim=-1, keepdim=True)
         factor = scores.abs().clamp(min=mask_logits_threshold)
         mask_logits_threshold = ((mask_logits_threshold - scores) / factor) > (2 * jitter_eps)
 
-    # Apply mask
     masked_gates = scores.masked_fill(mask_logits_threshold, float("-inf"))
     if training:
         selected_experts = (
@@ -186,18 +143,15 @@ def sparsemixer(scores, jitter_eps, training, top_k=2):
     else:
         selected_experts = max_ind
 
-    # Compute scores for gradients
     masked_gates = torch.softmax(masked_gates, dim=-1)
     multiplier_o = masked_gates.gather(dim=-1, index=selected_experts)
 
     if training:
-        # Compute midpoint mask
         max_scores, max_ind = masked_gates.max(dim=-1, keepdim=True)
         mask_for_one = torch.logical_or(
             selected_experts == max_ind,
             torch.rand_like(max_scores) > 0.75,  # Heun's third-order method
         )
-        # 1 -> 1.0 & 0 -> 1./3: lambda x: (x + 0.5) / 1.5
         mask_for_one = torch.add(0.3333, mask_for_one, alpha=0.6667).type_as(masked_gates)
 
         multiplier = PhimoeMultiplier.apply(
@@ -210,7 +164,6 @@ def sparsemixer(scores, jitter_eps, training, top_k=2):
     else:
         multiplier = multiplier_o
 
-    # Masked out first expert
     masked_scores = torch.scatter(
         scores,
         -1,
@@ -218,12 +171,10 @@ def sparsemixer(scores, jitter_eps, training, top_k=2):
         float("-inf"),
     )
     with torch.no_grad():
-        # Compute mask for sparsity
         mask_logits_threshold, max_ind = masked_scores.max(dim=-1, keepdim=True)
         factor = scores.abs().clamp(min=mask_logits_threshold)
         mask_logits_threshold = ((mask_logits_threshold - scores) / factor) > (2 * jitter_eps)
 
-    # Apply mask
     masked_gates_top2 = masked_scores.masked_fill(mask_logits_threshold, float("-inf"))
     if training:
         selected_experts_top2 = (
@@ -238,18 +189,15 @@ def sparsemixer(scores, jitter_eps, training, top_k=2):
         )  # Gumbel sampling, more robust than the multinomial method
     else:
         selected_experts_top2 = max_ind
-    # Compute scores for gradients
     masked_gates_top2 = torch.softmax(masked_gates_top2, dim=-1)
     multiplier_top2_o = masked_gates_top2.gather(dim=-1, index=selected_experts_top2)
 
     if training:
-        # Compute midpoint mask
         max_scores, max_ind = masked_gates_top2.max(dim=-1, keepdim=True)
         mask_for_one_top2 = torch.logical_or(
             selected_experts_top2 == max_ind,
             torch.rand_like(max_scores).uniform_() > 0.75,  # Heun's third-order method
         )
-        # 1 -> 1.0 & 0 -> 1./3: lambda x: (x + 0.5) / 1.5
         mask_for_one_top2 = torch.add(0.3333, mask_for_one_top2, alpha=0.6667).type_as(masked_gates_top2)
 
         multiplier_top2 = PhimoeMultiplier.apply(
@@ -296,16 +244,6 @@ class PhimoeTopKRouter(nn.Linear):
 
 
 class PhimoeSparseMoeBlock(nn.Module):
-    """
-    This implementation is
-    strictly equivalent to standard MoE with full capacity (no
-    dropped tokens). It's faster since it formulates MoE operations
-    in terms of block-sparse operations to accommodate imbalanced
-    assignments of tokens to experts, whereas standard MoE either
-    (1) drop tokens at the cost of reduced performance or (2) set
-    capacity factor to number of experts and thus waste computation
-    and memory on padding.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -335,7 +273,6 @@ class PhimoeDecoderLayer(MixtralDecoderLayer):
     def __init__(self, config: PhimoeConfig, layer_idx: int):
         super().__init__(config, layer_idx)
 
-        # Phimoe uses nn.LayerNorm
         self.input_layernorm = nn.LayerNorm(config.hidden_size, eps=config.rms_norm_eps, elementwise_affine=True)
         self.post_attention_layernorm = nn.LayerNorm(
             config.hidden_size, eps=config.rms_norm_eps, elementwise_affine=True
@@ -361,7 +298,6 @@ class PhimoeForCausalLM(MixtralForCausalLM):
         super().__init__(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=self.config.lm_head_bias)
 
-    # Copied from transformers.models.phi3.modeling_phi3.Phi3ForCausalLM.prepare_inputs_for_generation
     def prepare_inputs_for_generation(
         self,
         input_ids,
@@ -373,11 +309,7 @@ class PhimoeForCausalLM(MixtralForCausalLM):
         logits_to_keep=None,
         **kwargs,
     ):
-        # Overwritten -- this model may need to switch between short and long rope, invalidating the cache in the
-        # process
 
-        # When the first time input length reached long and short factor switching point, enforce re-compute cache
-        # It will cause downside of slower at this single token position, however, better than current failure.
         if (
             past_key_values
             and hasattr(self.config, "original_max_position_embeddings")

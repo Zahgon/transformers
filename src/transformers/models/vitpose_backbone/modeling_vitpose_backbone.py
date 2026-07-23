@@ -1,22 +1,3 @@
-# Copyright 2024 University of Sydney and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch VitPose backbone model.
-
-This code is the same as the original Vision Transformer (ViT) with 2 modifications:
-- use of padding=2 in the patch embedding layer
-- addition of a mixture-of-experts MLP layer
-"""
 
 import collections.abc
 from collections.abc import Callable
@@ -41,7 +22,6 @@ logger = logging.get_logger(__name__)
 
 
 class VitPoseBackbonePatchEmbeddings(nn.Module):
-    """Image to Patch Embedding."""
 
     def __init__(self, config):
         super().__init__()
@@ -73,9 +53,6 @@ class VitPoseBackbonePatchEmbeddings(nn.Module):
 
 
 class VitPoseBackboneEmbeddings(nn.Module):
-    """
-    Construct the position and patch embeddings.
-    """
 
     def __init__(self, config: VitPoseBackboneConfig):
         super().__init__()
@@ -96,7 +73,6 @@ class VitPoseBackboneEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -110,7 +86,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -125,7 +100,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->VitPoseBackbone
 class VitPoseBackboneSelfAttention(nn.Module):
     def __init__(self, config: VitPoseBackboneConfig):
         super().__init__()
@@ -181,12 +155,7 @@ class VitPoseBackboneSelfAttention(nn.Module):
         return context_layer, attention_probs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->VitPoseBackbone
 class VitPoseBackboneSelfOutput(nn.Module):
-    """
-    The residual connection is defined in VitPoseBackboneLayer instead of here (as is the case with other models), due to the
-    layernorm applied before each block.
-    """
 
     def __init__(self, config: VitPoseBackboneConfig):
         super().__init__()
@@ -199,7 +168,6 @@ class VitPoseBackboneSelfOutput(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->VitPoseBackbone
 class VitPoseBackboneAttention(nn.Module):
     def __init__(self, config: VitPoseBackboneConfig):
         super().__init__()
@@ -299,7 +267,6 @@ class VitPoseBackboneLayer(GradientCheckpointingLayer):
         dataset_index: torch.Tensor | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> torch.Tensor:
-        # Validate dataset_index when using multiple experts
         if self.num_experts > 1 and dataset_index is None:
             raise ValueError(
                 "dataset_index must be provided when using multiple experts "
@@ -310,7 +277,6 @@ class VitPoseBackboneLayer(GradientCheckpointingLayer):
         hidden_states_norm = self.layernorm_before(hidden_states)
         attention_output = self.attention(hidden_states_norm, **kwargs)
 
-        # first residual connection
         hidden_states = attention_output + hidden_states
 
         layer_output = self.layernorm_after(hidden_states)
@@ -319,7 +285,6 @@ class VitPoseBackboneLayer(GradientCheckpointingLayer):
         else:
             layer_output = self.mlp(layer_output, indices=dataset_index)
 
-        # second residual connection
         layer_output = layer_output + hidden_states
 
         return layer_output
@@ -387,7 +352,6 @@ class VitPoseBackbone(BackboneMixin, VitPoseBackbonePreTrainedModel):
 
         self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

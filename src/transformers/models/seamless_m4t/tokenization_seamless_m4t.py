@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization class for SeamlessM4T."""
 
 from tokenizers import Regex, Tokenizer, decoders, normalizers, pre_tokenizers, processors
 from tokenizers.models import BPE
@@ -31,73 +17,6 @@ VOCAB_FILES_NAMES = {"vocab_file": "sentencepiece.bpe.model", "tokenizer_file": 
 
 
 class SeamlessM4TTokenizer(TokenizersBackend):
-    """
-    Construct a SeamlessM4T tokenizer (backed by HuggingFace's *tokenizers* library). Based on
-    [BPE](https://huggingface.co/docs/tokenizers/python/latest/components.html?highlight=bpe#models).
-
-    This tokenizer inherits from [`TokenizersBackend`] which contains most of the main methods. Users should
-    refer to this superclass for more information regarding those methods.
-
-    The tokenization method is `<language code> <tokens> <eos>` for source language documents, and `<eos> <language
-    code> <tokens> <eos>` for target language documents.
-
-    Examples:
-
-    ```python
-    >>> from transformers import SeamlessM4TTokenizer
-
-    >>> tokenizer = SeamlessM4TTokenizer.from_pretrained(
-    ...     "facebook/hf-seamless-m4t-medium", src_lang="eng", tgt_lang="fra"
-    ... )
-    >>> example_english_phrase = " UN Chief Says There Is No Military Solution in Syria"
-    >>> expected_translation_french = "Le chef de l'ONU affirme qu'il n'y a pas de solution militaire en Syrie."
-    >>> inputs = tokenizer(example_english_phrase, text_target=expected_translation_french, return_tensors="pt")
-    ```
-
-    Args:
-        vocab (`list` or `dict`, *optional*):
-            List of (token, score) tuples or dict mapping tokens to indices. If not provided, uses default vocab.
-        merges (`str` or `list`, *optional*):
-            List of merge rules for BPE model. If not provided, uses empty list.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the beginning of
-            sequence. The token used is the `cls_token`.
-
-            </Tip>
-
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the end of sequence.
-            The token used is the `sep_token`.
-
-            </Tip>
-
-        sep_token (`str`, *optional*, defaults to `"</s>"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        cls_token (`str`, *optional*, defaults to `"<s>"`):
-            The classifier token which is used when doing sequence classification (classification of the whole sequence
-            instead of per-token classification). It is the first token of the sequence when built with special tokens.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        src_lang (`str`, *optional*, defaults to `"eng"`):
-            The language to use as source language for translation.
-        tgt_lang (`str`, *optional*, defaults to `"fra"`):
-            The language to use as target language for translation.
-        additional_special_tokens (tuple or list of `str` or `tokenizers.AddedToken`, *optional*):
-            A tuple or a list of additional special tokens.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -162,8 +81,6 @@ class SeamlessM4TTokenizer(TokenizersBackend):
         if "__" not in tgt_lang:
             tgt_lang = f"__{tgt_lang}__"
 
-        # V5: Convert additional_special_tokens parameter to extra_special_tokens for backward compatibility
-        # PreTrainedTokenizerBase.__init__() will handle the conversion, but we need to pass it via kwargs
         if additional_special_tokens is not None:
             kwargs.setdefault("additional_special_tokens", additional_special_tokens)
 
@@ -181,7 +98,6 @@ class SeamlessM4TTokenizer(TokenizersBackend):
             **kwargs,
         )
 
-        # Build fairseq mappings
         self.fairseq_offset = 1
         self.fairseq_tokens_to_ids = {
             "<pad>": 0,
@@ -212,41 +128,24 @@ class SeamlessM4TTokenizer(TokenizersBackend):
 
     @property
     def src_lang(self) -> str:
-        return self._src_lang
+        pass
 
     @src_lang.setter
     def src_lang(self, new_src_lang: str) -> None:
-        if "__" not in new_src_lang:
-            self._src_lang = f"__{new_src_lang}__"
-        else:
-            self._src_lang = new_src_lang
-        self.set_src_lang_special_tokens(self._src_lang)
+        pass
 
     @property
     def tgt_lang(self) -> str:
-        return self._tgt_lang
+        pass
 
     @tgt_lang.setter
     def tgt_lang(self, new_tgt_lang: str) -> None:
-        if "__" not in new_tgt_lang:
-            self._tgt_lang = f"__{new_tgt_lang}__"
-        else:
-            self._tgt_lang = new_tgt_lang
-        self.set_tgt_lang_special_tokens(self._tgt_lang)
+        pass
 
     def _build_translation_inputs(
         self, raw_inputs, return_tensors: str, src_lang: str | None, tgt_lang: str | None, **extra_kwargs
     ):
-        """Used by translation pipeline, to prepare inputs for the generate function"""
-        if src_lang is None or tgt_lang is None:
-            raise ValueError("Translation requires a `src_lang` and a `tgt_lang` for this model")
-        self.src_lang = src_lang
-        inputs = self(raw_inputs, add_special_tokens=True, return_tensors=return_tensors, **extra_kwargs)
-        if "__" not in tgt_lang:
-            tgt_lang = f"__{tgt_lang}__"
-        tgt_lang_id = self.convert_tokens_to_ids(tgt_lang)
-        inputs["forced_bos_token_id"] = tgt_lang_id
-        return inputs
+        pass
 
     def prepare_seq2seq_batch(
         self,
@@ -261,50 +160,13 @@ class SeamlessM4TTokenizer(TokenizersBackend):
         truncation: bool = True,
         **kwargs,
     ) -> BatchEncoding:
-        self.src_lang = src_lang
-        self.tgt_lang = tgt_lang
-
-        if max_length is None:
-            max_length = self.model_max_length
-
-        model_inputs = self(
-            src_texts,
-            add_special_tokens=True,
-            return_tensors=return_tensors,
-            max_length=max_length,
-            padding=padding,
-            truncation=truncation,
-            **kwargs,
-        )
-
-        if tgt_texts is None:
-            return model_inputs
-
-        # Process tgt_texts
-        if max_target_length is None:
-            max_target_length = max_length
-
-        self._switch_to_target_mode()
-        labels = self(
-            tgt_texts,
-            add_special_tokens=True,
-            return_tensors=return_tensors,
-            padding=padding,
-            max_length=max_target_length,
-            truncation=truncation,
-            **kwargs,
-        )
-        model_inputs["labels"] = labels["input_ids"]
-
-        self._switch_to_input_mode()
-
-        return model_inputs
+        pass
 
     def _switch_to_input_mode(self):
-        return self.set_src_lang_special_tokens(self.src_lang)
+        pass
 
     def _switch_to_target_mode(self):
-        return self.set_tgt_lang_special_tokens(self.tgt_lang)
+        pass
 
     def set_src_lang_special_tokens(self, src_lang) -> None:
         """Reset the special tokens to the source lang setting.

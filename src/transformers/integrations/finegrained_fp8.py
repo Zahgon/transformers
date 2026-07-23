@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from __future__ import annotations
 
 import functools
@@ -75,7 +62,6 @@ def _first_attr(obj, *names):
 
 @dataclass(frozen=True)
 class FineGrainedFP8:
-    """Entry points exposed by the `kernels-community/finegrained-fp8` Triton kernel."""
 
     matmul: Callable
     batched_matmul: Callable
@@ -242,13 +228,6 @@ def fp8_linear(
             to a single CUDA context and produce garbage across devices (see the multi-device guard
             in ``quantizer_finegrained_fp8.py``).
     """
-    # DeepGEMM is CUDA-only, dynamic-only, SM90+ only, FP4/FP8-block-128-only.
-    # ``TRANSFORMERS_DISABLE_DEEPGEMM_LINEAR=1`` forces the Triton fallback for this single
-    # dispatcher (the experts ``"deepgemm"`` impl is unaffected — use ``set_experts_implementation``
-    # for that). Used by the FP8 MoE batched_mm / grouped_mm paths to avoid a still-unexplained
-    # DeepGEMM-vs-Triton interaction that degrades end-to-end generation on B200 (per-row kernel
-    # outputs still measure bit-perfect, but final tokens drift; not reproducible with the
-    # DeepGEMM linear off).
     deepgemm_preferred = (
         allow_deepgemm
         and activation_scale is None
@@ -269,8 +248,6 @@ def fp8_linear(
                 bias=bias,
             )
         except ImportError as e:
-            # Forward the original reason so the user knows whether DeepGEMM is unavailable
-            # (env/build issue) or refused this specific input (e.g. multi-device on SM100).
             logger.warning_once(
                 f"DeepGEMM unavailable for this call, falling back to Triton. Reason: {e} "
                 "Set `TRANSFORMERS_DISABLE_DEEPGEMM_LINEAR=1` to skip DeepGEMM for FP8 linear entirely."
@@ -280,9 +257,6 @@ def fp8_linear(
 
 
 class FP8Linear(nn.Linear):
-    # Internal, temporary flag — not public API, don't set it directly. `_disable_deepgemm_on_multi_device`
-    # flips it True at load when the model spans >1 CUDA device in one process (DeepGEMM's context-bound
-    # kernels corrupt across devices); removable once the kernel ships a context-free loader.
     _deepgemm_disabled = False
 
     def __init__(
@@ -302,7 +276,6 @@ class FP8Linear(nn.Linear):
         self.weight = torch.nn.Parameter(torch.empty(out_features, in_features, dtype=_FP8_DTYPE))
 
         if self.block_size is None:
-            # If block size is None, it means that we are doing per-tensor quantization
             self.weight_scale_inv = nn.Parameter(torch.tensor(1.0, dtype=torch.float32))
         else:
             sf_dtype = _get_ue8m0_dtype() if scale_fmt == "ue8m0" else torch.float32
@@ -342,16 +315,6 @@ class FP8Linear(nn.Linear):
 
 
 class FP8GroupedLinear(FP8Linear):
-    """FP8 drop-in for block-diagonal grouped linears.
-
-    The underlying nn.Linear stores a single `(n_groups * out_per_group, in_per_group)`
-    weight; logically that's `n_groups` independent `(out_per_group, in_per_group)`
-    sub-matrices, each consuming a disjoint slice of the input's last-but-one dim.
-    Forward expects input of shape `(..., n_groups, in_per_group)` and returns
-    `(..., n_groups, out_per_group)` — same contract as the vanilla bf16 grouped
-    linear it replaces.
-
-    """
 
     def __init__(
         self,
@@ -418,72 +381,7 @@ def fp8_batched_mm_experts_forward(
     top_k_index: torch.Tensor,
     top_k_weights: torch.Tensor,
 ) -> torch.Tensor:
-    if self.activation_scheme == "static":
-        raise NotImplementedError(
-            "batched_mm experts dispatch does not support activation_scheme='static'. "
-            "Use the default eager dispatch or switch to activation_scheme='dynamic'."
-        )
-
-    finegrained_fp8 = load_finegrained_fp8_kernel()
-
-    num_top_k = top_k_index.size(-1)
-    num_tokens = hidden_states.size(0)
-    hidden_dim = hidden_states.size(-1)
-
-    # S is the number of selected tokens-experts pairs (S = num_tokens * num_top_k)
-    # Replicate each token num_top_k times to align with the flattened (S,) routing tensors.
-    selected_hidden_states = hidden_states.repeat_interleave(num_top_k, dim=0)
-    sample_weights = top_k_weights.reshape(-1)  # (S,)
-    expert_ids = top_k_index.reshape(-1)  # (S,)
-
-    # EP sentinel handling: leave `expert_ids` unclamped — the batched kernel early-returns on
-    # `expert_id >= NUM_EXPERTS`, leaving sentinel output rows uninitialized. The post-mask below
-    # zeroes them before the per-token reduction so `uninit * 0 = NaN` can't poison the sum.
-    sentinel_mask = (expert_ids >= self.num_experts).unsqueeze(-1)
-
-    weight_up = to_local(self.gate_up_proj if self.has_gate else self.up_proj)
-    weight_scale_up = to_local(self.gate_up_proj_scale_inv if self.has_gate else self.up_proj_scale_inv)
-    weight_down = to_local(self.down_proj)
-    weight_scale_down = to_local(self.down_proj_scale_inv)
-
-    # --- Up projection per expert (FP8 batched) ---
-    proj_out = finegrained_fp8.batched_matmul(
-        selected_hidden_states,
-        weight_up,
-        weight_scale_up,
-        block_size=self.block_size,
-        expert_ids=expert_ids,
-    )  # (S, 2 * intermediate_dim) or (S, intermediate_dim) depending on gating
-
-    # Apply gating or activation
-    if self.has_gate:
-        # for gated experts we apply the custom/default gating mechanism
-        proj_out = self._apply_gate(proj_out)  # (S, intermediate_dim)
-    else:
-        # for non-gated experts we just apply the activation function
-        proj_out = self.act_fn(proj_out)  # (S, intermediate_dim)
-
-    # --- Down projection per expert (FP8 batched) ---
-    proj_out = finegrained_fp8.batched_matmul(
-        proj_out,
-        weight_down,
-        weight_scale_down,
-        block_size=self.block_size,
-        expert_ids=expert_ids,
-    )  # (S, hidden_dim)
-
-    # Apply routing weights
-    weighted_out = proj_out * sample_weights.to(proj_out.dtype).unsqueeze(-1)  # (S, hidden_dim)
-
-    # Post-mask sentinel rows: kernel left them uninitialized, so zero them out
-    # before the reduction below (uninit may be NaN; NaN * 0 = NaN).
-    weighted_out.masked_fill_(sentinel_mask, 0.0)
-
-    # Accumulate results using deterministic reshape+sum instead of index_add_
-    # (index_add_ with duplicate indices is non-deterministic on CUDA due to atomicAdd)
-    final_hidden_states = weighted_out.view(num_tokens, num_top_k, hidden_dim).sum(dim=1)
-
-    return final_hidden_states.to(hidden_states.dtype)
+    pass
 
 
 def fp8_grouped_mm_experts_forward(
@@ -492,107 +390,12 @@ def fp8_grouped_mm_experts_forward(
     top_k_index: torch.Tensor,
     top_k_weights: torch.Tensor,
 ) -> torch.Tensor:
-    if self.activation_scheme == "static":
-        raise NotImplementedError(
-            "grouped_mm experts dispatch does not support activation_scheme='static'. "
-            "Use the default eager dispatch or switch to activation_scheme='dynamic'."
-        )
-
-    finegrained_fp8 = load_finegrained_fp8_kernel()
-
-    device = hidden_states.device
-    num_top_k = top_k_index.size(-1)
-    num_tokens = hidden_states.size(0)
-    hidden_dim = hidden_states.size(-1)
-
-    # S is the number of selected token-expert pairs (S = num_tokens * num_top_k)
-    sample_weights = top_k_weights.reshape(-1)  # (S,)
-    expert_ids = top_k_index.reshape(-1)  # (S,)
-
-    # Sort by expert for grouped processing
-    expert_ids_g, perm = torch.sort(expert_ids)
-    selected_hidden_states_g = hidden_states[perm // num_top_k]
-    sample_weights_g = sample_weights[perm]
-
-    # Compute offsets for grouped processing.
-    # histc instead of bincount avoids cuda-graph issues;
-    # CPU requires float input, CUDA requires int input (deterministic mode).
-    histc_input = expert_ids_g.float() if device.type == "cpu" else expert_ids_g.int()
-    tokens_per_expert = torch.histc(histc_input, bins=self.num_experts, min=0, max=self.num_experts - 1)
-    offsets = torch.cumsum(tokens_per_expert, dim=0, dtype=torch.int32)
-
-    # EP sentinel handling: leave `expert_ids` unclamped so the sort pushes sentinels to the tail,
-    # `histc(max=num_experts-1)` drops them from `tokens_per_expert`, and the grouped matmul skips
-    # rows beyond `offsets[-1]` — sentinels cost no real GEMM compute. The kernel writes only
-    # valid rows, so sentinel-tail `proj_out` rows are uninit; without the post-mask below,
-    # `proj_out[sentinel] * 0 = NaN * 0 = NaN` would poison the per-token reduction. FP8
-    # quantized weights are inference-only, so no bwd pre-mask is needed.
-    sentinel_mask = (expert_ids_g >= self.num_experts).unsqueeze(-1)
-
-    weight_up = to_local(self.gate_up_proj if self.has_gate else self.up_proj)
-    weight_scale_up = to_local(self.gate_up_proj_scale_inv if self.has_gate else self.up_proj_scale_inv)
-    weight_down = to_local(self.down_proj)
-    weight_scale_down = to_local(self.down_proj_scale_inv)
-
-    # --- Up projection per expert (FP8 grouped) ---
-    proj_out = finegrained_fp8.grouped_matmul(
-        selected_hidden_states_g,
-        weight_up,
-        weight_scale_up,
-        offsets=offsets,
-        tokens_per_expert=tokens_per_expert,
-        block_size=self.block_size,
-    )  # (S, 2 * intermediate_dim)
-
-    # Apply gating or activation
-    if self.has_gate:
-        # for gated experts we apply the custom/default gating mechanism
-        proj_out = self._apply_gate(proj_out)  # (S, intermediate_dim)
-    else:
-        # for non-gated experts we just apply the activation function
-        proj_out = self.act_fn(proj_out)  # (S, intermediate_dim)
-
-    # --- Down projection per expert (FP8 grouped) ---
-    proj_out = finegrained_fp8.grouped_matmul(
-        proj_out,
-        weight_down,
-        weight_scale_down,
-        offsets=offsets,
-        tokens_per_expert=tokens_per_expert,
-        block_size=self.block_size,
-    )  # (S, hidden_dim)
-
-    # Apply routing weights
-    weighted_out = proj_out * sample_weights_g.to(proj_out.dtype).unsqueeze(-1)  # (S, hidden_dim)
-
-    # Post-mask (fwd path).
-    weighted_out.masked_fill_(sentinel_mask, 0.0)
-
-    # Restore original order
-    inv_perm = torch.empty_like(perm)
-    inv_perm[perm] = torch.arange(perm.size(0), device=device)
-    weighted_out = weighted_out[inv_perm]
-
-    # Accumulate results using deterministic reshape+sum instead of index_add_
-    # (index_add_ with duplicate indices is non-deterministic on CUDA due to atomicAdd)
-    final_hidden_states = weighted_out.view(num_tokens, num_top_k, hidden_dim).sum(dim=1)
-
-    return final_hidden_states.to(hidden_states.dtype)
+    pass
 
 
 class FP8Experts(nn.Module):
-    # Internal, temporary flag — not public API, don't set it directly. `_disable_deepgemm_on_multi_device`
-    # flips it True at load when the model spans >1 CUDA device in one process (DeepGEMM's context-bound
-    # kernels corrupt across devices); removable once the kernel ships a context-free loader.
     _deepgemm_disabled = False
 
-    # Per-`_experts_implementation` rewrite of parallel-layer kinds in the TP/EP plan.
-    # The plan dicts store `{module-path-pattern: parallel-layer-kind}`; this maps an
-    # old kind to a new kind, and the quantizer rewrites every plan VALUE that matches.
-    # The default `MoeTensorParalellExperts` kind is impl-agnostic; some impls need a
-    # distinct TP layer (e.g. megamoe needs no gradient-sync hooks and an EP
-    # `process_group` injection). Declared here so the quantizer doesn't have to know
-    # about impl-specific TP needs — extend this dict when adding new impls.
     _impl_tp_layer_overrides: dict[str, dict[str, str]] = {
         "deepgemm_megamoe": {
             "moe_tp_experts": "megamoe_experts",
@@ -628,10 +431,6 @@ class FP8Experts(nn.Module):
         self.act_fn = ACT2FN[_first_attr(config, "hidden_activation", "hidden_act")]
         self.limit = getattr(config, "swiglu_limit", None)
 
-        # Expert weight precision is FP8 by default; DeepSeek V4-style models declare
-        # `config.expert_dtype = "fp4"` for FP4-packed expert weights. FP4 storage:
-        #   - weight is `int8`, K dim halved (2 e2m1 values per byte).
-        #   - per-row SF at gran_k=32 (no block-wise SF; `block_size` ignored).
         is_fp4 = getattr(config, "expert_dtype", "fp8") == "fp4"
         sf_dtype = _get_ue8m0_dtype() if scale_fmt == "ue8m0" else torch.float32
         if is_fp4:
@@ -673,7 +472,6 @@ class FP8Experts(nn.Module):
     def _apply_gate(self, gate_up: torch.Tensor) -> torch.Tensor:
         gate, up = gate_up.chunk(2, dim=-1)
         if self.swiglu_alpha is not None:
-            # Clamped SwiGLU-OAI gate (same math as the model's non-quantized experts).
             gate = gate.clamp(max=self.swiglu_limit)
             up = up.clamp(min=-self.swiglu_limit, max=self.swiglu_limit)
             glu = gate * torch.sigmoid(gate * self.swiglu_alpha)
@@ -686,8 +484,6 @@ class FP8Experts(nn.Module):
     def forward(
         self, hidden_states: torch.Tensor, top_k_index: torch.Tensor, top_k_weights: torch.Tensor
     ) -> torch.Tensor:
-        # index_add_ will accumulate using the dtype of the tensor we write into
-        # so we use float32 for the accumulation to avoid numerical issues in bf16/fp16
         final_hidden_states = torch.zeros_like(hidden_states, dtype=torch.float32)
 
         with torch.no_grad():
@@ -746,7 +542,6 @@ class FP8Experts(nn.Module):
 
 
 class FP8ExpertsInterface(ExpertsInterface):
-    """Interface for registering custom FP8 experts forward functions."""
 
     _global_mapping = {
         "batched_mm": fp8_batched_mm_experts_forward,
@@ -835,7 +630,6 @@ def replace_with_fp8_linear(
                     has_gate=has_gate,
                 )
             elif type(module) is nn.Linear:
-                # Vanilla `nn.Linear` → standard FP8Linear swap.
                 new_module = FP8Linear(
                     in_features=module.in_features,
                     out_features=module.out_features,
@@ -845,12 +639,6 @@ def replace_with_fp8_linear(
                     has_bias=module.bias is not None,
                 )
             elif isinstance(module, nn.Linear) and "GroupedLinear" in type(module).__name__:
-                # Block-diagonal grouped linear (e.g. DSv4's `DeepseekV4GroupedLinear`):
-                # one underlying weight conceptually split into `n_groups` independent
-                # sub-matmuls fed by disjoint input slices. Vanilla `FP8Linear` would
-                # collapse those groups into one giant linear and yield the wrong
-                # output dim, so swap to `FP8GroupedLinear` which keeps the per-group
-                # bmm contract and runs each block as its own FP8 matmul.
                 new_module = FP8GroupedLinear(
                     in_features_per_group=module.in_features,
                     out_features=module.out_features,
@@ -873,9 +661,6 @@ def replace_with_fp8_linear(
 
 
 class Fp8Quantize(ConversionOps):
-    """
-    A quantization operation that creates two tensors, weight and scale out of a weight.
-    """
 
     def __init__(self, hf_quantizer):
         self.hf_quantizer = hf_quantizer
@@ -892,9 +677,6 @@ class Fp8Quantize(ConversionOps):
         return tuple(block_size)
 
     def _quantize_one(self, key: str, value: torch.Tensor) -> dict[str, torch.Tensor]:
-        # Pass through tensors that aren't tileable (1D norms / biases, or shapes
-        # that don't divide cleanly by the configured block) — they were never
-        # FP8-quantized on the load side, so the reverse op shouldn't touch them.
         if value.ndim < 2:
             return {key: value}
         block_m, block_n = self._resolve_block_size(value)
@@ -902,28 +684,21 @@ class Fp8Quantize(ConversionOps):
         if rows % block_m != 0 or cols % block_n != 0:
             return {key: value}
 
-        # Leading dims can be empty (2D) or include num_experts/... (3D+)
         leading_shape = value.shape[:-2]
         rows_tiles = rows // block_m
         cols_tiles = cols // block_n
         original_shape = value.shape
         value_fp32 = value.to(torch.float32)
-        # Reshape to (..., rows_tiles, block_m, cols_tiles, block_n)
         reshaped = value_fp32.reshape(*leading_shape, rows_tiles, block_m, cols_tiles, block_n)
-        # Per-tile max-abs over the block dims (block_m at -3, block_n at -1)
         max_abs = reshaped.abs().amax(dim=(-3, -1))
         safe_max_abs = torch.where(max_abs > 0, max_abs, torch.ones_like(max_abs))
-        # We store inverse scale to match the upstream ``weight_scale_inv`` convention
         scales = _FP8_MAX / safe_max_abs
         scales = torch.where(max_abs > 0, scales, torch.ones_like(scales))  # keep zeros stable
         inv_scales = (1.0 / scales).to(torch.float32)
-        # ue8m0 stores weight_scale_inv as a power of two. Round it before quantizing and derive the
-        # forward scale from it, so dequant multiplies by the exact scale the weight was divided by.
         if self.hf_quantizer.quantization_config.scale_fmt == "ue8m0":
             inv_scales = torch.pow(2.0, torch.ceil(torch.log2(inv_scales.clamp(min=torch.finfo(torch.float32).tiny))))
             inv_scales = inv_scales.to(_get_ue8m0_dtype())
             scales = 1.0 / inv_scales.to(torch.float32)  # forward scale = exact reciprocal of the stored inverse
-        # Broadcast scales over the block dims and quantize
         scales_broadcast = scales.unsqueeze(-1).unsqueeze(-3)  # (..., rows_tiles, 1, cols_tiles, 1)
         scaled = reshaped * scales_broadcast
         quantized = torch.clamp(scaled, min=_FP8_MIN, max=_FP8_MAX).to(_FP8_DTYPE)
@@ -932,9 +707,6 @@ class Fp8Quantize(ConversionOps):
         return {key: quantized, scale_key: inv_scales}
 
     def convert(self, input_dict: torch.Tensor, **kwargs) -> dict[str, torch.Tensor]:
-        # Quantize every (key, tensor) entry in the dict. Single-tensor case (legacy
-        # callers that pass one key) and multi-tensor case (reverse of an expert
-        # ``MergeModulelist`` that emits one key per expert) are handled the same way.
         result: dict[str, torch.Tensor] = {}
         for key, value in input_dict.items():
             tensor = value[0] if isinstance(value, list) else value
@@ -943,32 +715,15 @@ class Fp8Quantize(ConversionOps):
 
     @property
     def reverse_op(self) -> ConversionOps:
-        return Fp8Dequantize(self.hf_quantizer)
+        pass
 
 
 class Fp8Dequantize(ConversionOps):
-    """Dequantize FP8 weights using their per-block ``weight_scale_inv``.
-
-    Designed to run as the *first* op in any :class:`WeightConverter` chain when
-    loading with ``dequantize=True`` — :meth:`update_weight_conversions` on the
-    FP8 quantizer attaches it to each existing model-specific converter so that
-    per-expert (weight, scale) pairs are folded into full-precision tensors before
-    the chain's merge / concat ops collapse the per-expert structure.
-
-    Pattern semantics
-        Input ``input_dict`` carries one entry per source pattern; each value is a
-        list of tensors (one per ``*`` match). For every weight pattern that has a
-        sibling ``*.weight_scale_inv`` pattern in the dict, this op pairs them up by
-        index, dequantizes per-pair, and emits the dequantized list under the
-        original *weight* key. Scale entries are dropped from the output so the
-        remaining ops only see weights.
-    """
 
     def __init__(self, hf_quantizer):
         self.hf_quantizer = hf_quantizer
 
     def _scale_pattern_for(self, weight_pattern: str) -> str:
-        # Strip the optional ``$`` regex anchor so we can match the underlying name.
         anchored = weight_pattern.endswith("$")
         base = weight_pattern[:-1] if anchored else weight_pattern
         if base.endswith(".weight"):
@@ -979,9 +734,6 @@ class Fp8Dequantize(ConversionOps):
             scale = base + "_scale_inv"
         return scale + "$" if anchored else scale
 
-    # E2M1 (FP4) value table — checkpoints sometimes ship MoE experts as packed FP4
-    # (two e2m1 nibbles per int8 byte), so the "weight" dtype lands as ``int8`` /
-    # ``float4_e2m1fn_x2`` and we have to unpack before applying the scale grid.
     _FP4_E2M1_LUT = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0)
 
     def _unpack_fp4(self, packed: torch.Tensor) -> torch.Tensor:
@@ -996,21 +748,15 @@ class Fp8Dequantize(ConversionOps):
     def _dequantize_one(
         self, quantized: torch.Tensor, scales: torch.Tensor, output_dtype: torch.dtype | None = None
     ) -> torch.Tensor:
-        # FP4 path: int8 / float4_e2m1fn_x2 stores two nibbles per byte. Unpack to fp32
-        # first so the rest of the routine sees a normal (rows, cols) float matrix.
         fp4_dtype = getattr(torch, "float4_e2m1fn_x2", None)
         if quantized.dtype == torch.int8 or (fp4_dtype is not None and quantized.dtype == fp4_dtype):
             quantized_fp32 = self._unpack_fp4(quantized)
         else:
             quantized_fp32 = quantized.to(torch.float32)
         rows, cols = quantized_fp32.shape[-2:]
-        # Derive block size from the scale grid rather than the global config: MoE experts
-        # ship MXFP4 with a ``[1, 32]`` block, dense linears ship FP8 with ``[128, 128]``,
-        # and the same dequant has to handle both within one checkpoint.
         try:
             scale_rows, scale_cols = scales.shape[-2:]
         except Exception:
-            # scale can be a single tensor in extreme cases where it was not wrapped properly but is [1,0].
             scale_rows, scale_cols = 1, 1
         if rows % scale_rows or cols % scale_cols:
             raise ValueError(
@@ -1018,17 +764,10 @@ class Fp8Dequantize(ConversionOps):
             )
         block_m = rows // scale_rows
         block_n = cols // scale_cols
-        # ``ue8m0`` (``float8_e8m0fnu``) scales have no CUDA ``mul`` kernel, and casting
-        # the FP8 weight to that dtype loses precision. Promote both sides to fp32 for
-        # the math; prefer the destination parameter's dtype when known so eager modules
-        # (e.g. plain ``nn.Linear``) keep the model's compute dtype after load.
         if output_dtype is None:
             output_dtype = (
                 scales.dtype if scales.dtype.is_floating_point and scales.element_size() >= 2 else torch.bfloat16
             )
-        # MXFP8 checkpoints ship E8M0 exponents stored as ``torch.uint8`` (one byte per
-        # block) — the actual scale is `2 ** (byte - 127)`. Interpreting the raw bytes
-        # as scalar multipliers would be silently wrong, so unpack to fp32 here.
         if scales.dtype == torch.uint8:
             s_fp32 = (scales.to(torch.float32) - 127.0).exp2()
         else:
@@ -1053,14 +792,7 @@ class Fp8Dequantize(ConversionOps):
         **kwargs,
     ) -> dict[str, list[torch.Tensor] | torch.Tensor]:
         output_dtype = self._get_target_dtype(model, full_layer_name)
-        # Backward-compatible single-tensor path (the legacy fallback converter declares
-        # ``["weight$", "weight_scale_inv", "activation_scale"]`` and produces a single
-        # ``weight`` target). Also handles the no-scale case (e.g. RMSNorm weights that
-        # match ``weight$`` but ship no ``weight_scale_inv`` alongside).
         if "weight$" in input_dict:
-            # The downstream renamer in `core_model_loading._convert_one_module` uses the
-            # output dict's *key*, not its content, to derive prefix/suffix; if `full_layer_name`
-            # is unset (direct invocation / tests) fall back to the legacy converter's target.
             target_key = full_layer_name if full_layer_name is not None else "weight"
             quantized = input_dict["weight$"]
             quantized = quantized[0] if isinstance(quantized, list) else quantized
@@ -1070,14 +802,12 @@ class Fp8Dequantize(ConversionOps):
                 return {target_key: self._dequantize_one(quantized, scales, output_dtype=output_dtype)}
             return {target_key: quantized}
 
-        # Generic chain path: dequantize every weight pattern that has a sibling scale.
         result: dict[str, list[torch.Tensor] | torch.Tensor] = {}
         for key, value in input_dict.items():
             if "activation_scale" in key or "weight_scale_inv" in key:
                 continue  # consumed by the dequant; drop from the chain
             scale_key = self._scale_pattern_for(key)
             if scale_key not in input_dict:
-                # No scale to apply (e.g. unrelated entry) — pass through untouched.
                 result[key] = value
                 continue
             weights = value if isinstance(value, list) else [value]
@@ -1093,7 +823,4 @@ class Fp8Dequantize(ConversionOps):
 
     @property
     def reverse_op(self) -> ConversionOps:
-        # Round-trip: dequantize on load -> re-quantize on save, so the saved
-        # checkpoint preserves the FP8 format (weight + per-block ``weight_scale_inv``)
-        # whether the in-memory state stayed quantized or was dequantized for compute.
-        return Fp8Quantize(self.hf_quantizer)
+        pass

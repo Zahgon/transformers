@@ -1,14 +1,3 @@
-# Copyright 2026 Meta Platforms, Inc. and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Sapiens2 License. You may obtain a copy of the License at
-#
-#     https://github.com/facebookresearch/sapiens2/blob/main/LICENSE.md
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -87,16 +76,7 @@ class Sapiens2BackboneOutput(DINOv3ViTBackboneOutput):
 )
 @dataclass
 class Sapiens2PoseEstimatorOutput(VitPoseEstimatorOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Pose estimation loss.
-    heatmaps (`torch.FloatTensor` of shape `(batch_size, num_keypoints, height, width)`):
-        Heatmaps as predicted by the model.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
-        one for the output of each stage) of shape `(batch_size, sequence_length, hidden_size)`. Hidden-states
-        (also called feature maps) of the model at the output of each stage.
-    """
+    pass
 
 
 @auto_docstring(
@@ -106,19 +86,6 @@ class Sapiens2PoseEstimatorOutput(VitPoseEstimatorOutput):
 )
 @dataclass
 class Sapiens2NormalEstimatorOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Normal estimation loss.
-    normals (`torch.FloatTensor` of shape `(batch_size, num_labels, height, width)`):
-        Raw normal map predictions as output by the model (unnormalized).
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage)
-        of shape `(batch_size, sequence_length, hidden_size)`. Hidden-states of the model at the output of
-        each layer plus the initial embedding outputs.
-    attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one per layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights after the attention softmax.
-    """
 
     loss: torch.FloatTensor | None = None
     normals: torch.FloatTensor | None = None
@@ -133,21 +100,6 @@ class Sapiens2NormalEstimatorOutput(ModelOutput):
 )
 @dataclass
 class Sapiens2PointmapEstimatorOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Pointmap estimation loss.
-    pointmaps (`torch.FloatTensor` of shape `(batch_size, 3, height, width)`):
-        Per-pixel 3D XYZ coordinate predictions in canonical camera space.
-    scales (`torch.FloatTensor` of shape `(batch_size, 1)`, *optional*):
-        Canonical focal length / actual focal length ratio. `None` when no scale branch is configured.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage)
-        of shape `(batch_size, sequence_length, hidden_size)`. Hidden-states of the model at the output of
-        each layer plus the initial embedding outputs.
-    attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `torch.FloatTensor` (one per layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Attentions weights after the attention softmax.
-    """
 
     loss: torch.FloatTensor | None = None
     pointmaps: torch.FloatTensor | None = None
@@ -163,18 +115,6 @@ class Sapiens2PointmapEstimatorOutput(ModelOutput):
 )
 @dataclass
 class Sapiens2ImageMattingOutput(ImageMattingOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Loss.
-    alphas (`torch.FloatTensor` of shape `(batch_size, 1, height, width)`):
-        Estimated alpha values.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
-        one for the output of each stage) of shape `(batch_size, sequence_length, hidden_size)`. Hidden-states
-        (also called feature maps) of the model at the output of each stage.
-    foregrounds (`torch.FloatTensor` of shape `(batch_size, 3, height, width)`):
-        Pre-multiplied RGB foreground predictions in `[0, 1]` (sigmoid-activated).
-    """
 
     foregrounds: torch.FloatTensor | None = None
 
@@ -259,13 +199,11 @@ def crop_and_resize(
     )
     in_x = grid_x / scale_x[:, None, None] + center_x[:, None, None] - 0.5 * boxes_width[:, None, None]
     in_y = grid_y / scale_y[:, None, None] + center_y[:, None, None] - 0.5 * boxes_height[:, None, None]
-    # (num_boxes, output_height, output_width, 2)
     grids = torch.stack([2.0 * in_x / (input_width - 1) - 1.0, 2.0 * in_y / (input_height - 1) - 1.0], dim=-1)
 
     num_boxes = boxes.shape[0]
     output = torch.empty(num_boxes, num_channels, output_height, output_width, device=image.device, dtype=image.dtype)
 
-    # Apply grid sampling separately for upscaling and downscaling to use the appropriate interpolation mode
     image_4d = image.unsqueeze(0)
     for mask, mode in [(is_bilinear, "bilinear"), (~is_bilinear, "bicubic")]:
         if mask.any():
@@ -299,7 +237,6 @@ def gaussian_blur_preserve_max(heatmaps: torch.Tensor, kernel: int = 11) -> torc
     border = (kernel - 1) // 2
     origin_maxes = heatmaps.amax(dim=(1, 2))  # (K,)
 
-    # Padding required to prevent border effect from gaussian blur. Torchvision uses reflect padding internally.
     padded = F.pad(heatmaps, (border, border, border, border), mode="constant", value=0.0)
     blurred = tvF.gaussian_blur(padded, kernel_size=[kernel, kernel], sigma=[sigma, sigma])
     result = blurred[:, border:-border, border:-border]
@@ -377,7 +314,6 @@ def post_dark_unbiased_data_processing(
         (1, 1): padded_width + 1,
         (-1, -1): -(padded_width + 1),
     }
-    # Dict mapping from (dx, dy) offsets to the corresponding values in the heatmap
     heatmap_values = {
         (dx, dy): heatmaps_flattened[index + offset] for (dx, dy), offset in position_to_index_offset.items()
     }
@@ -413,7 +349,6 @@ class Sapiens2ImageProcessorKwargs(BeitImageProcessorKwargs, total=False):
 
 class Sapiens2ImageProcessor(BeitImageProcessor):
     valid_kwargs = Sapiens2ImageProcessorKwargs
-    # Note: original Sapiens2 uses cv2.INTER_AREA for downsampling and cv2.INTER_CUBIC for upsampling
     resample = PILImageResampling.BILINEAR
     image_mean = IMAGENET_DEFAULT_MEAN
     image_std = IMAGENET_DEFAULT_STD
@@ -503,7 +438,6 @@ class Sapiens2ImageProcessor(BeitImageProcessor):
         for shape, stacked_images in grouped_images.items():
             if do_resize:
                 if do_pad:
-                    # Resize while preserving aspect ratio. Then add symmetric padding on all sides to reach the target size.
                     aspect_ratio_size = SizeDict(max_height=size["height"], max_width=size["width"])
                     stacked_images = self.resize(stacked_images, aspect_ratio_size, resample)
                     stacked_images = self.center_crop(stacked_images, size)
@@ -598,20 +532,17 @@ class Sapiens2ImageProcessor(BeitImageProcessor):
         if num_total_persons == 0:
             return [[] for _ in boxes]
 
-        # (num_total_persons, 4)
         boxes_tensor = torch.tensor(
             [box for image_boxes in boxes for box in image_boxes], dtype=torch.float32, device=device
         )
 
         heatmaps = heatmaps.float()  # For consistency with original numpy/cv2 implementation which uses float32.
 
-        # (num_total_persons, num_keypoints, 2), (num_total_persons, num_keypoints)
         all_keypoints, all_scores = get_keypoint_predictions(heatmaps)
         all_keypoints = post_dark_unbiased_data_processing(
             keypoints=all_keypoints, heatmaps=heatmaps, blur_kernel_size=kernel_size
         )
 
-        # Remap coordinates from heatmap space to original image space
         centers, scales = boxes_to_crop_params(
             box_xywh_to_cxcywh(boxes_tensor), output_size=(self.size["height"], self.size["width"])
         )
@@ -622,7 +553,6 @@ class Sapiens2ImageProcessor(BeitImageProcessor):
         all_boxes = box_xywh_to_xyxy(boxes_tensor)  # (num_total_persons, 4)
 
         if source_sizes is not None and target_sizes is not None:
-            # (num_images, 2)
             per_image_scale = torch.tensor(
                 [
                     [target_width / source_width, target_height / source_height]
@@ -631,7 +561,6 @@ class Sapiens2ImageProcessor(BeitImageProcessor):
                 dtype=torch.float32,
                 device=device,
             )
-            # (num_total_persons, 2)
             per_person_scale = torch.cat(
                 [
                     per_image_scale[image_index].unsqueeze(0).expand(len(boxes[image_index]), 2)
@@ -657,7 +586,6 @@ class Sapiens2ImageProcessor(BeitImageProcessor):
                 {"keypoints": keypoints, "scores": scores, "labels": labels, "bbox": all_boxes[person_index]}
             )
 
-        # Reassemble into list[list[dict]] grouped by image
         result = []
         person_offset = 0
         for image_boxes in boxes:
@@ -673,34 +601,7 @@ class Sapiens2ImageProcessor(BeitImageProcessor):
         target_sizes: TensorType | list[tuple[int, int]] | None = None,
         do_remove_padding: bool | None = None,
     ) -> list[dict[str, torch.Tensor]]:
-        """
-        Converts the output of [`Sapiens2ForNormalEstimation`] into L2-normalized surface normal maps.
-
-        Args:
-            outputs (`Sapiens2NormalEstimatorOutput`):
-                Raw outputs of the model.
-            source_sizes (`torch.Tensor` or `list[tuple[int, int]]` of length `batch_size`, *optional*):
-                Original `(height, width)` of each image before preprocessing. When provided,
-                the padding added during preprocessing is removed and predictions are resized back
-                to the original image size (unless `target_sizes` overrides the final size).
-            target_sizes (`torch.Tensor` or `list[tuple[int, int]]` of length `batch_size`, *optional*):
-                Requested final `(height, width)` for each prediction. When provided, used as the
-                resize target instead of `source_sizes`. Resized with bilinear interpolation after
-                L2 normalization.
-            do_remove_padding (`bool`, *optional*):
-                Whether to crop away the zero-padding added during preprocessing before resizing.
-                Defaults to `True` when `source_sizes` is provided, `False` otherwise.
-
-        Returns:
-            `list[dict[str, torch.Tensor]]` of length `batch_size`. Each dict has a `"normals"` key
-            mapping to a tensor of shape `(3, height, width)` with L2-normalized unit vectors in
-            `[-1, 1]` per channel (XYZ surface normals).
-        """
-        normals = F.normalize(outputs.normals, p=2, dim=1, eps=1e-8)
-        results = self._post_process_maps(
-            maps=normals, source_sizes=source_sizes, target_sizes=target_sizes, do_remove_padding=do_remove_padding
-        )
-        return [{"normals": result} for result in results]
+        pass
 
     def post_process_pointmap_estimation(
         self,
@@ -709,35 +610,7 @@ class Sapiens2ImageProcessor(BeitImageProcessor):
         target_sizes: TensorType | list[tuple[int, int]] | None = None,
         do_remove_padding: bool | None = None,
     ) -> list[dict[str, torch.Tensor]]:
-        """
-        Converts the output of [`Sapiens2ForPointmapEstimation`] into pointmap tensors in image space.
-
-        Args:
-            outputs (`Sapiens2PointmapEstimatorOutput`):
-                Raw outputs of the model.
-            source_sizes (`torch.Tensor` or `list[tuple[int, int]]` of length `batch_size`, *optional*):
-                Original `(height, width)` of each image before preprocessing. When provided,
-                the padding added during preprocessing is removed and predictions are resized back
-                to the original image size (unless `target_sizes` overrides the final size).
-            target_sizes (`torch.Tensor` or `list[tuple[int, int]]` of length `batch_size`, *optional*):
-                Requested final `(height, width)` for each prediction. Overrides `source_sizes`
-                as the resize target.
-            do_remove_padding (`bool`, *optional*):
-                Whether to crop away the zero-padding added during preprocessing before resizing.
-                Defaults to `True` when `source_sizes` is provided, `False` otherwise.
-
-        Returns:
-            `list[dict[str, torch.Tensor]]` of length `batch_size`. Each dict has a `"pointmap"` key
-            mapping to a tensor of shape `(3, height, width)` with per-pixel 3D XYZ coordinates in
-            canonical camera space, optionally divided by `outputs.scales` to convert to metric coordinates.
-        """
-        pointmaps = outputs.pointmaps
-        if outputs.scales is not None:
-            pointmaps = pointmaps / outputs.scales[:, :, None, None]
-        results = self._post_process_maps(
-            maps=pointmaps, source_sizes=source_sizes, target_sizes=target_sizes, do_remove_padding=do_remove_padding
-        )
-        return [{"pointmap": result} for result in results]
+        pass
 
     def post_process_image_matting(
         self,
@@ -745,136 +618,7 @@ class Sapiens2ImageProcessor(BeitImageProcessor):
         target_sizes: TensorType | list[tuple[int, int]] | None = None,
         backgrounds: ImageInput | None = None,
     ) -> list[dict[str, torch.Tensor]]:
-        """
-        Converts the output of [`Sapiens2ForImageMatting`] into alpha mattes and foreground maps.
-
-        Args:
-            outputs (`Sapiens2ImageMattingOutput`):
-                Raw outputs of the model.
-            target_sizes (`torch.Tensor` or `list[tuple[int, int]]` of length `batch_size`, *optional*):
-                Requested final `(height, width)` for each prediction. Resized with bilinear
-                interpolation. If unset, predictions are returned at the model output resolution.
-            backgrounds (`ImageInput`, *optional*):
-                Background image(s) to composite over. Can be a single image (applied to every item
-                in the batch) or a list of images, one per batch item. Accepts PIL images, numpy
-                arrays, or torch tensors of any dtype; integer types (e.g. uint8) are scaled to
-                `[0, 1]` automatically. When provided, each result dict gains a `"composite"` key
-                with the composited image as a uint8 tensor in `[0, 255]`.
-
-        Returns:
-            `list[dict]` of length `batch_size`. Each dict has:
-            - `"alpha"` (`torch.Tensor` of shape `(1, height, width)`): alpha values in `[0, 1]`.
-            - `"foreground"` (`torch.Tensor` of shape `(3, height, width)`): pre-multiplied RGB in `[0, 1]`.
-            - `"composite"` (`torch.Tensor` of shape `(3, height, width)` or `None`): foreground composited
-              over `backgrounds` as a uint8 tensor in `[0, 255]`; `None` when `backgrounds` is not provided.
-        """
-        if isinstance(target_sizes, torch.Tensor):
-            target_sizes = target_sizes.tolist()
-
-        batch_size = outputs.foregrounds.shape[0]
-        device = outputs.foregrounds.device
-        dtype = outputs.foregrounds.dtype
-
-        if target_sizes is not None:
-            if batch_size != len(target_sizes):
-                raise ValueError(
-                    "Make sure that you pass in as many target sizes as the batch dimension of the matting output"
-                )
-        all_target_sizes_equal = target_sizes is None or all(
-            tuple(size) == tuple(target_sizes[0]) for size in target_sizes
-        )
-
-        background_tensors = []
-        if backgrounds is not None:
-            background_list = make_list_of_images(backgrounds)
-            if len(background_list) != 1 and len(background_list) != batch_size:
-                raise ValueError(
-                    "Make sure that you pass in as many backgrounds as the batch dimension of the matting output"
-                )
-            background_tensors = [
-                tvF.to_dtype_image(tvF.to_image(background_image), dtype=dtype, scale=True).to(device)
-                for background_image in background_list
-            ]
-        all_background_sizes_equal = not background_tensors or all(
-            background.shape[-2:] == background_tensors[0].shape[-2:] for background in background_tensors
-        )
-
-        matting = torch.cat([outputs.foregrounds, outputs.alphas], dim=1)  # (batch_size, 4, height, width)
-
-        if target_sizes is not None and all_target_sizes_equal:
-            target_size = tuple(target_sizes[0])
-            matting = F.interpolate(
-                matting,
-                size=target_size,
-                mode="bilinear",
-                align_corners=False,
-                antialias=False,
-            )
-            matting = matting.clamp(0.0, 1.0)
-
-        result = []
-        if all_target_sizes_equal and all_background_sizes_equal:
-            # Fast path
-            foregrounds = matting[:, :3]
-            alphas = matting[:, 3:]
-            composites = [None] * batch_size
-            if background_tensors:
-                background = torch.stack(background_tensors)
-                if background.shape[-2:] != matting.shape[-2:]:
-                    background = F.interpolate(
-                        background,
-                        size=matting.shape[-2:],
-                        mode="bilinear",
-                        align_corners=False,
-                        antialias=False,
-                    )
-                composites = (foregrounds + (1 - alphas) * background).clamp(0.0, 1.0)
-                composites = tvF.to_dtype_image(composites, dtype=torch.uint8, scale=True)
-
-            for foreground, alpha, composite in zip(foregrounds, alphas, composites):
-                result.append(
-                    {
-                        "foreground": foreground,
-                        "alpha": alpha,
-                        "composite": composite,
-                    }
-                )
-
-        else:
-            # Slow path
-            for index in range(len(matting)):
-                matting_item = matting[index]
-
-                if target_sizes and not all_target_sizes_equal:
-                    matting_item = F.interpolate(
-                        matting_item.unsqueeze(0),
-                        size=target_sizes[index],
-                        mode="bilinear",
-                        align_corners=False,
-                        antialias=False,
-                    )[0]
-                    matting_item = matting_item.clamp(0.0, 1.0)
-
-                foreground = matting_item[:3]
-                alpha = matting_item[3:]
-                composite = None
-
-                if background_tensors:
-                    background = background_tensors[0] if len(background_tensors) == 1 else background_tensors[index]
-                    if background.shape[-2:] != matting_item.shape[-2:]:
-                        background = F.interpolate(
-                            background.unsqueeze(0),
-                            size=matting_item.shape[-2:],
-                            mode="bilinear",
-                            align_corners=False,
-                            antialias=False,
-                        )[0]
-                    composite = (foreground + (1 - alpha) * background).clamp(0.0, 1.0)
-                    composite = tvF.to_dtype_image(composite, dtype=torch.uint8, scale=True)
-
-                result.append({"foreground": foreground, "alpha": alpha, "composite": composite})
-
-        return result
+        pass
 
     def _post_process_maps(
         self,
@@ -883,129 +627,12 @@ class Sapiens2ImageProcessor(BeitImageProcessor):
         target_sizes: TensorType | list[tuple[int, int]] | None,
         do_remove_padding: bool | None,
     ) -> list[torch.Tensor]:
-        if isinstance(source_sizes, torch.Tensor):
-            source_sizes = source_sizes.tolist()
-        if isinstance(target_sizes, torch.Tensor):
-            target_sizes = target_sizes.tolist()
-        if do_remove_padding is None:
-            do_remove_padding = source_sizes is not None
-        if do_remove_padding and source_sizes is None:
-            raise ValueError("`source_sizes` must be provided when `do_remove_padding=True`.")
-
-        if source_sizes is not None and len(maps) != len(source_sizes):
-            raise ValueError("Make sure that you pass in as many source sizes as the batch dimension of the outputs")
-        if target_sizes is not None and len(maps) != len(target_sizes):
-            raise ValueError("Make sure that you pass in as many target sizes as the batch dimension of the outputs")
-
-        model_height = self.size["height"]
-        model_width = self.size["width"]
-
-        crops = []
-        if do_remove_padding:
-            for original_height, original_width in source_sizes:
-                new_height, new_width = get_image_size_for_max_height_width(
-                    (original_height, original_width), model_height, model_width
-                )
-                pad_top = (model_height - new_height) // 2 if new_height < model_height else 0
-                pad_left = (model_width - new_width) // 2 if new_width < model_width else 0
-                crops.append(
-                    (
-                        pad_top,
-                        pad_left,
-                        pad_top + min(new_height, model_height),
-                        pad_left + min(new_width, model_width),
-                    )
-                )
-        all_crops_equal = not crops or all(crop == crops[0] for crop in crops)
-
-        final_sizes = []
-        if target_sizes is not None:
-            final_sizes = [tuple(size) for size in target_sizes]
-        elif source_sizes is not None:
-            final_sizes = [tuple(size) for size in source_sizes]
-        all_final_sizes_equal = not final_sizes or all(size == final_sizes[0] for size in final_sizes)
-
-        result = []
-        if all_crops_equal and all_final_sizes_equal:
-            # Fast path
-            if do_remove_padding:
-                top, left, bottom, right = crops[0]
-                maps = maps[:, :, top:bottom, left:right]
-
-            if final_sizes:
-                maps = F.interpolate(
-                    maps,
-                    size=final_sizes[0],
-                    mode="bilinear",
-                    align_corners=False,
-                    antialias=False,
-                )
-
-            result = list(maps)
-        else:
-            # Slow path
-            for index in range(len(maps)):
-                map_item = maps[index]
-
-                if do_remove_padding:
-                    top, left, bottom, right = crops[index]
-                    map_item = map_item[:, top:bottom, left:right]
-
-                if final_sizes:
-                    map_item = F.interpolate(
-                        map_item.unsqueeze(0),
-                        size=final_sizes[index],
-                        mode="bilinear",
-                        align_corners=False,
-                        antialias=False,
-                    )[0]
-
-                result.append(map_item)
-
-        return result
+        pass
 
 
 @auto_docstring(checkpoint="facebook/sapiens2-seg-0.4b")
 @strict
 class Sapiens2HeadConfig(PreTrainedConfig):
-    r"""
-    upsample_out_channels (`list[int]`, *optional*):
-        Output channel counts for each upsample block.
-        The first block takes `hidden_size` channels as input; subsequent blocks use the previous output.
-    upsample_kernel_sizes (`list[int]`, *optional*):
-        Kernel size for each upsample block. Auto-filled with `[4, ...]` when
-        `upsample_out_channels` is set but this is `None`.
-        Must have the same length as `upsample_out_channels`.
-    upsample_kernel_size (`int`, defaults to 4):
-        Default kernel size for upsample blocks when `upsample_kernel_sizes` is not set.
-    use_pixel_shuffle (`bool`, *optional*):
-        Whether the upsample head uses pixel-shuffle upsampling instead of transposed convolutions.
-        When `None` (default), the head uses transposed convolutions.
-    conv_out_channels (`list[int]`, *optional*):
-        Output channel counts for the refinement conv layers that follow the upsample blocks.
-    conv_kernel_sizes (`list[int]`, *optional*):
-        Kernel size for each refinement conv layer. Auto-filled with `[1, ...]` when
-        `conv_out_channels` is set but this is `None`.
-        Must have the same length as `conv_out_channels`.
-    conv_kernel_size (`int`, defaults to 1):
-        Default kernel size for conv layers when `conv_kernel_sizes` is not set.
-    scale_conv_out_channels (`list[int]`, *optional*):
-        Output channel counts for the stride-2 conv layers used to predict the focal-length scale.
-        When `None` (default), no scale branch is built.
-    scale_conv_kernel_sizes (`list[int]`, *optional*):
-        Kernel size for each scale conv layer. Auto-filled with `[1, ...]` when
-        `scale_conv_out_channels` is set but this is `None`.
-        Must have the same length as `scale_conv_out_channels`.
-    scale_conv_kernel_size (`int`, defaults to 1):
-        Default kernel size for scale conv layers when `scale_conv_kernel_sizes` is not set.
-    scale_final_input_size (`int`, *optional*):
-        Flattened feature size passed into the scale MLP.
-        When `None` (default), it is automatically inferred from `image_size` and `patch_size`
-        in the parent [`Sapiens2Config`].
-    scale_final_hidden_sizes (`list[int]`, *optional*):
-        Hidden-layer sizes for the MLP that maps flattened scale features to the scalar scale output.
-        When `None` (default), no scale branch is built.
-    """
 
     model_type = "sapiens2_head"
     base_config_key = "head_config"
@@ -1056,68 +683,6 @@ class Sapiens2HeadConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/sapiens2-pretrain-0.4b")
 @strict
 class Sapiens2Config(DINOv3ViTConfig):
-    r"""
-    rope_theta (`float`, *optional*, defaults to 100.0):
-        The base period of the RoPE embeddings.
-    query_bias (`bool`, *optional*, defaults to `True`):
-        Whether to add a bias to the query projection.
-    key_bias (`bool`, *optional*, defaults to `False`):
-        Whether to add a bias to the key projection.
-    value_bias (`bool`, *optional*, defaults to `True`):
-        Whether to add a bias to the value projection.
-    proj_bias (`bool`, *optional*, defaults to `True`):
-        Whether to add a bias to the output projection.
-    layerscale_value (`float`, *optional*, defaults to 1.0):
-        Initial value to use for layer scale.
-    use_gated_mlp (`bool`, *optional*, defaults to `False`):
-        Whether to use the SwiGLU feedforward neural network.
-    num_register_tokens (`int`, *optional*, defaults to 0):
-        The number of register tokens.
-    pos_embed_shift (`float`, *optional*):
-        Amount to randomly shift position embedding coordinates in [-shift, shift],
-        applied only in training mode if not `None`.
-    pos_embed_jitter (`float`, *optional*):
-        Amount to randomly jitter position embedding coordinates in log-uniform value in [1/jitter, jitter],
-        applied only in training mode if not `None`.
-    pos_embed_rescale (`float`, *optional*, defaults to 2.0):
-        Amount to randomly rescale position embedding coordinates in log-uniform value in [1/rescale, rescale],
-        applied only in training mode if not `None`.
-    reshape_hidden_states (`bool`, *optional*, defaults to `True`):
-        Whether to reshape the hidden states to spatial dimensions when used as backbone.
-    use_mask_token (`bool`, *optional*, defaults to `False`):
-        Whether to use a mask token in the embeddings (needed for masked image modeling pretraining).
-    rms_norm_eps (`float`, *optional*, defaults to 1e-6):
-        Epsilon for the RMS normalization layers.
-    normalize_backbone_outputs (`bool`, *optional*, defaults to `True`):
-        Whether to apply RMSNorm to the backbone `feature_maps` and `cls_tokens` outputs before
-        returning them from the forward pass. Only applies when the model is used as a backbone.
-    use_qk_norm (`bool`, *optional*, defaults to `True`):
-        Whether to apply RMSNorm to queries and keys before RoPE in attention layers.
-    num_key_value_heads_per_layer (`list[int]`, *optional*):
-        Number of key/value heads for each transformer layer. Setting a layer's value equal to
-        `num_attention_heads` gives full multi-head attention; a smaller value gives grouped-query
-        attention. Defaults to `num_attention_heads` for the first `num_first_full_attention_layers`
-        and last `num_last_full_attention_layers` layers and `num_key_valueattention_heads` for all other
-        layers.
-    num_key_value_attention_heads (`int`):
-        Number of key/value heads for layers that use grouped-query attention when `num_key_value_heads_per_layer`
-        is not set. Ignored when `num_key_value_heads_per_layer` is set.
-    num_first_full_attention_layers (`int`, *optional*, defaults to 8):
-        Number of leading transformer layers that use full multi-head attention.
-        Only used when `num_key_value_heads_per_layer` is `None`.
-    num_last_full_attention_layers (`int`, *optional*, defaults to 8):
-        Number of trailing transformer layers that use full multi-head attention.
-        Only used when `num_key_value_heads_per_layer` is `None`.
-    semantic_loss_ignore_index (`int`, *optional*, defaults to 255):
-        Label index ignored when computing the segmentation loss.
-    flip_pairs (`list[list[int]]`, *optional*):
-        Pairs of keypoint indices that are mirrored horizontally (e.g., left ear ↔ right ear).
-        Each pair is a two-element list `[left_index, right_index]`. Used for test-time
-        horizontal flip augmentation in pose estimation: pass these pairs to the second
-        forward call so the model flips heatmaps back before returning them.
-    head_config (`Sapiens2HeadConfig`, *optional*):
-        Configuration for the decode head. See [`Sapiens2HeadConfig`] for the available options.
-    """
 
     model_type = "sapiens2"
     sub_configs = {"head_config": Sapiens2HeadConfig}
@@ -1413,9 +978,7 @@ class Sapiens2PointmapScaleHead(nn.Module):
 class Sapiens2PreTrainedModel(DINOv3ViTPreTrainedModel):
     base_model_prefix = "model"
 
-    # Ignore periods as we use inv_freq instead which is automatically calculated from the config.
     _keys_to_ignore_on_load_unexpected = [r"periods"]
-    # mask_token is only used for masked image modeling pretraining and is absent in most checkpoints.
     _keys_to_ignore_on_load_missing = [r"mask_token"]
 
     @torch.no_grad()

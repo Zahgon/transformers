@@ -1,17 +1,3 @@
-# Copyright 2022 Meta Platforms, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch RegNet model."""
 
 import math
 
@@ -64,9 +50,6 @@ class RegNetConvLayer(nn.Module):
 
 
 class RegNetEmbeddings(nn.Module):
-    """
-    RegNet Embeddings (stem) composed of a single aggressive convolution.
-    """
 
     def __init__(self, config: RegNetConfig):
         super().__init__()
@@ -85,12 +68,7 @@ class RegNetEmbeddings(nn.Module):
         return hidden_state
 
 
-# Copied from transformers.models.resnet.modeling_resnet.ResNetShortCut with ResNet->RegNet
 class RegNetShortCut(nn.Module):
-    """
-    RegNet shortcut, used to project the residual features to the correct size. If needed, it is also used to
-    downsample the input using `stride=2`.
-    """
 
     def __init__(self, in_channels: int, out_channels: int, stride: int = 2):
         super().__init__()
@@ -104,9 +82,6 @@ class RegNetShortCut(nn.Module):
 
 
 class RegNetSELayer(nn.Module):
-    """
-    Squeeze and Excitation layer (SE) proposed in [Squeeze-and-Excitation Networks](https://huggingface.co/papers/1709.01507).
-    """
 
     def __init__(self, in_channels: int, reduced_channels: int):
         super().__init__()
@@ -120,7 +95,6 @@ class RegNetSELayer(nn.Module):
         )
 
     def forward(self, hidden_state):
-        # b c h w -> b c 1 1
         pooled = self.pooler(hidden_state)
         attention = self.attention(pooled)
         hidden_state = hidden_state * attention
@@ -128,9 +102,6 @@ class RegNetSELayer(nn.Module):
 
 
 class RegNetXLayer(nn.Module):
-    """
-    RegNet's layer composed by three `3x3` convolutions, same as a ResNet bottleneck layer with reduction = 1.
-    """
 
     def __init__(self, config: RegNetConfig, in_channels: int, out_channels: int, stride: int = 1):
         super().__init__()
@@ -156,9 +127,6 @@ class RegNetXLayer(nn.Module):
 
 
 class RegNetYLayer(nn.Module):
-    """
-    RegNet's Y layer: an X layer with Squeeze and Excitation.
-    """
 
     def __init__(self, config: RegNetConfig, in_channels: int, out_channels: int, stride: int = 1):
         super().__init__()
@@ -185,9 +153,6 @@ class RegNetYLayer(nn.Module):
 
 
 class RegNetStage(nn.Module):
-    """
-    A RegNet stage composed by stacked layers.
-    """
 
     def __init__(
         self,
@@ -202,7 +167,6 @@ class RegNetStage(nn.Module):
         layer = RegNetXLayer if config.layer_type == "x" else RegNetYLayer
 
         self.layers = nn.Sequential(
-            # downsampling is done in the first layer with stride of 2
             layer(
                 config,
                 in_channels,
@@ -221,7 +185,6 @@ class RegNetEncoder(nn.Module):
     def __init__(self, config: RegNetConfig):
         super().__init__()
         self.stages = nn.ModuleList([])
-        # based on `downsample_in_first_stage`, the first layer of the first stage may or may not downsample the input
         self.stages.append(
             RegNetStage(
                 config,
@@ -266,7 +229,6 @@ class RegNetPreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         if isinstance(module, nn.Conv2d):
             init.kaiming_normal_(module.weight, mode="fan_out", nonlinearity="relu")
-        # copied from the `reset_parameters` method of `class Linear(Module)` in `torch`.
         elif isinstance(module, nn.Linear):
             init.kaiming_uniform_(module.weight, a=math.sqrt(5))
             if module.bias is not None:
@@ -278,7 +240,6 @@ class RegNetPreTrainedModel(PreTrainedModel):
 
 
 @auto_docstring
-# Copied from transformers.models.resnet.modeling_resnet.ResNetModel with RESNET->REGNET,ResNet->RegNet
 class RegNetModel(RegNetPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -286,7 +247,6 @@ class RegNetModel(RegNetPreTrainedModel):
         self.embedder = RegNetEmbeddings(config)
         self.encoder = RegNetEncoder(config)
         self.pooler = nn.AdaptiveAvgPool2d((1, 1))
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -328,18 +288,15 @@ class RegNetModel(RegNetPreTrainedModel):
     ImageNet.
     """
 )
-# Copied from transformers.models.resnet.modeling_resnet.ResNetForImageClassification with RESNET->REGNET,ResNet->RegNet,resnet->regnet
 class RegNetForImageClassification(RegNetPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.regnet = RegNetModel(config)
-        # classification head
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.Linear(config.hidden_sizes[-1], config.num_labels) if config.num_labels > 0 else nn.Identity(),
         )
-        # initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

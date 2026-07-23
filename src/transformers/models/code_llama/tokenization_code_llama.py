@@ -1,16 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from tokenizers import Tokenizer, decoders, normalizers, pre_tokenizers, processors
@@ -28,81 +15,15 @@ SPIECE_UNDERLINE = "▁"
 B_INST, E_INST = "[INST]", "[/INST]"
 B_SYS, E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
 
-# fmt: off
 DEFAULT_SYSTEM_PROMPT = """You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe. Your \
 answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure\
  that your responses are socially unbiased and positive in nature.
 
 If a question does not make any sense, or is not factually coherent, explain why instead of answering something not \
 correct. If you don't know the answer to a question, please don't share false information."""
-# fmt: on
 
 
 class CodeLlamaTokenizer(TokenizersBackend):
-    """
-    Construct a Llama tokenizer. Based on byte-level Byte-Pair-Encoding.
-
-    This uses notably ByteFallback and no normalization.
-
-    ```python
-    >>> from transformers import CodeLlamaTokenizer
-
-    >>> tokenizer = CodeLlamaTokenizer.from_pretrained("hf-internal-testing/llama-tokenizer")
-    >>> tokenizer.encode("Hello this is a test")
-    [1, 15043, 445, 338, 263, 1243]
-    ```
-
-    If you want to change the `bos_token` or the `eos_token`, make sure to specify them when initializing the model, or
-    call `tokenizer.update_post_processor()` to make sure that the post-processing is correctly done (otherwise the
-    values of the first token and final token of an encoded sequence will not be correct). For more details, checkout
-    [post-processors] (https://huggingface.co/docs/tokenizers/api/post-processors) documentation.
-
-
-    This tokenizer inherits from [`PreTrainedTokenizerFast`] which contains most of the main methods. Users should
-    refer to this superclass for more information regarding those methods. The default configuration match that of
-    [meta-llama/CodeLlama-7b-Instruct-hf](https://huggingface.co/meta-llama/CodeLlama-7b-Instruct-hf/blob/main/tokenizer_config.json)
-    which supports prompt infilling.
-
-    Args:
-        clean_up_tokenization_spaces (`str`, *optional*, defaults to `False`):
-            Whether to cleanup spaces after decoding, cleanup consists in removing potential artifacts like extra
-            spaces.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-        prefix_token (`str`, *optional*, defaults to `"▁<PRE>"`):
-            Prefix token used for infilling.
-        middle_token (`str`, *optional*, defaults to `"▁<MID>"`):
-            Middle token used for infilling.
-        suffix_token (`str`, *optional*, defaults to `"▁<SUF>"`):
-            Suffix token used for infilling.
-        eot_token (`str`, *optional*, defaults to `"▁<EOT>"`):
-            End of text token used for infilling.
-        fill_token (`str`, *optional*, defaults to `"<FILL_ME>"`):
-            The token used to split the input between the prefix and suffix.
-        additional_special_tokens (`list[str]`, *optional*):
-            Additional special tokens used by the tokenizer.
-        add_bos_token (`bool`, *optional*, defaults to `True`):
-            Whether to add a beginning of sequence token at the start of sequences.
-        add_eos_token (`bool`, *optional*, defaults to `False`):
-            Whether to add an end of sequence token at the end of sequences.
-        use_default_system_prompt (`bool`, *optional*, defaults to `False`):
-            Whether or not the default system prompt for Llama should be used.
-        add_prefix_space (`bool`, *optional*):
-            Whether or not to add an initial space to the input. This allows to treat the leading word just as any
-            other word.
-        vocab (`str`, `dict` or `list`, *optional*):
-            Custom vocabulary dictionary. If not provided, vocabulary is loaded from vocab_file.
-        merges (`str` or `list`, *optional*):
-            Custom merges list. If not provided, merges are loaded from merges_file.
-        vocab_file (`str`, *optional*):
-            [SentencePiece](https://github.com/google/sentencepiece) file (generally has a .model extension) that
-            contains the vocabulary necessary to instantiate a tokenizer.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     padding_side = "left"
@@ -188,43 +109,35 @@ class CodeLlamaTokenizer(TokenizersBackend):
 
     @property
     def prefix_token(self):
-        return self._prefix_token
+        pass
 
     @property
     def prefix_id(self):
-        if self._prefix_token is None:
-            return None
-        return self.convert_tokens_to_ids(self.prefix_token)
+        pass
 
     @property
     def middle_token(self):
-        return self._middle_token
+        pass
 
     @property
     def middle_id(self):
-        if self._middle_token is None:
-            return None
-        return self.convert_tokens_to_ids(self.middle_token)
+        pass
 
     @property
     def suffix_token(self):
-        return self._suffix_token
+        pass
 
     @property
     def suffix_id(self):
-        if self._suffix_token is None:
-            return None
-        return self.convert_tokens_to_ids(self.suffix_token)
+        pass
 
     @property
     def eot_id(self):
-        if self._eot_token is None:
-            return None
-        return self.convert_tokens_to_ids(self.eot_token)
+        pass
 
     @property
     def eot_token(self):
-        return self._eot_token
+        pass
 
     def set_infilling_processor(self, reset, suffix_first=False, add_special_tokens=True):
         """
@@ -251,7 +164,6 @@ class CodeLlamaTokenizer(TokenizersBackend):
         pair = [self.bos_token] if self.add_bos_token and add_special_tokens else []
         special_tokens = [(self.bos_token, self.bos_token_id)] if self.add_bos_token and add_special_tokens else []
         if suffix_first:
-            # format as " <PRE> <SUF>{suf} <MID> {pre}"
             pair += [self.prefix_token, self.suffix_token, "$B", self.middle_token, "$A"]
             special_tokens += [
                 (self.prefix_token, self.prefix_id),
@@ -259,7 +171,6 @@ class CodeLlamaTokenizer(TokenizersBackend):
                 (self.middle_token, self.middle_id),
             ]
         else:
-            # format as " <PRE> {pre} <SUF>{suf} <MID>"
             pair += [self.prefix_token, "$A", self.suffix_token, "$B", self.middle_token]
             special_tokens += [
                 (self.prefix_token, self.prefix_id),
@@ -275,15 +186,12 @@ class CodeLlamaTokenizer(TokenizersBackend):
         )
 
     def tokenize(self, text, suffix=None, suffix_first=False, **kwargs):
-        # Handle fill_token splitting
         if self.fill_token is not None and self.fill_token in text and suffix is None:
             text, suffix = text.split(self.fill_token)
 
-        # If no suffix, use standard tokenization
         if suffix is None or len(suffix) < 1:
             return super().tokenize(text, **kwargs)
 
-        # Check that infilling tokens are available
         if None in (self.prefix_id, self.middle_id, self.suffix_id):
             raise ValueError(
                 "The input either includes a `prefix` and a `suffix` used for the infilling task,"
@@ -291,19 +199,13 @@ class CodeLlamaTokenizer(TokenizersBackend):
                 " but the model does not support `infilling`."
             )
 
-        # Temporarily set infilling processor
         self.set_infilling_processor(False, suffix_first=suffix_first, add_special_tokens=False)
 
-        # Remove text_pair and pair from kwargs if present to avoid conflict
         kwargs.pop("text_pair", None)
         kwargs.pop("pair", None)
 
-        # Tokenize with infilling format
-        # The processor will handle the special token arrangement
-        # Use pair=suffix (not text_pair) since base class tokenize expects 'pair' parameter
         result = super().tokenize(" " + text, pair=suffix, **kwargs)
 
-        # Reset processor
         self.set_infilling_processor(True)
 
         return result
@@ -354,5 +256,4 @@ class CodeLlamaTokenizer(TokenizersBackend):
 
 __all__ = ["CodeLlamaTokenizer", "CodeLlamaTokenizerFast"]
 
-# Backward alias
 CodeLlamaTokenizerFast = CodeLlamaTokenizer

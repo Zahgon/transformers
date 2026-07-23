@@ -1,17 +1,3 @@
-# Copyright 2019-present CNRS, Facebook Inc. and the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for Flaubert."""
 
 import json
 import os
@@ -46,7 +32,6 @@ def convert_to_unicode(text):
     return ensure_text(text, encoding="utf-8", errors="ignore")
 
 
-# Copied from transformers.models.xlm.tokenization_xlm.get_pairs
 def get_pairs(word):
     """
     Return set of symbol pairs in a word. word is represented as tuple of symbols (symbols being variable-length
@@ -60,7 +45,6 @@ def get_pairs(word):
     return pairs
 
 
-# Copied from transformers.models.xlm.tokenization_xlm.replace_unicode_punct
 def replace_unicode_punct(text):
     """
     Port of https://github.com/moses-smt/mosesdecoder/blob/master/scripts/tokenizer/replace-unicode-punctuation.perl
@@ -104,7 +88,6 @@ def replace_unicode_punct(text):
     return text
 
 
-# Copied from transformers.models.xlm.tokenization_xlm.remove_non_printing_char
 def remove_non_printing_char(text):
     """
     Port of https://github.com/moses-smt/mosesdecoder/blob/master/scripts/tokenizer/remove-non-printing-char.perl
@@ -119,57 +102,6 @@ def remove_non_printing_char(text):
 
 
 class FlaubertTokenizer(PreTrainedTokenizer):
-    """
-    Construct a Flaubert tokenizer. Based on Byte-Pair Encoding. The tokenization process is the following:
-
-    - Moses preprocessing and tokenization.
-    - Normalizing all inputs text.
-    - The arguments `special_tokens` and the function `set_special_tokens`, can be used to add additional symbols (like
-      "__classify__") to a vocabulary.
-    - The argument `do_lowercase` controls lower casing (automatically set for pretrained vocabularies).
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            Vocabulary file.
-        merges_file (`str`):
-            Merges file.
-        do_lowercase (`bool`, *optional*, defaults to `False`):
-            Controls lower casing.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the beginning of
-            sequence. The token used is the `cls_token`.
-
-            </Tip>
-
-        sep_token (`str`, *optional*, defaults to `"</s>"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        cls_token (`str`, *optional*, defaults to `"</s>"`):
-            The classifier token which is used when doing sequence classification (classification of the whole sequence
-            instead of per-token classification). It is the first token of the sequence when built with special tokens.
-        mask_token (`str`, *optional*, defaults to `"<special1>"`):
-            The token used for masking values. This is the token used when training this model with masked language
-            modeling. This is the token which the model will try to predict.
-        additional_special_tokens (`List[str]`, *optional*, defaults to `['<special0>', '<special1>', '<special2>', '<special3>', '<special4>', '<special5>', '<special6>', '<special7>', '<special8>', '<special9>']`):
-            List of additional special tokens.
-        lang2id (`Dict[str, int]`, *optional*):
-            Dictionary mapping languages string identifiers to their IDs.
-        id2lang (`Dict[int, str]`, *optional*):
-            Dictionary mapping language IDs to their string identifiers.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
 
@@ -206,7 +138,6 @@ class FlaubertTokenizer(PreTrainedTokenizer):
                 "`do_lowercase_and_remove_accent` is passed as a keyword argument, but this won't do anything."
                 " `FlaubertTokenizer` will always set it to `False`."
             )
-        # always `False`
         self.do_lowercase_and_remove_accent = False
 
         self.do_lowercase = do_lowercase
@@ -221,9 +152,7 @@ class FlaubertTokenizer(PreTrainedTokenizer):
 
         self.sm = sacremoses
 
-        # cache of sm.MosesPunctNormalizer instance
         self.cache_moses_punct_normalizer = {}
-        # cache of sm.MosesTokenizer instance
         self.cache_moses_tokenizer = {}
         self.lang_with_custom_tokenizer = {"zh", "th", "ja"}
         self.lang2id = lang2id
@@ -258,11 +187,9 @@ class FlaubertTokenizer(PreTrainedTokenizer):
         )
 
     @property
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.do_lower_case
     def do_lower_case(self):
-        return self.do_lowercase_and_remove_accent
+        pass
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.moses_punct_norm
     def moses_punct_norm(self, text, lang):
         if lang not in self.cache_moses_punct_normalizer:
             punct_normalizer = self.sm.MosesPunctNormalizer(lang=lang)
@@ -271,7 +198,6 @@ class FlaubertTokenizer(PreTrainedTokenizer):
             punct_normalizer = self.cache_moses_punct_normalizer[lang]
         return punct_normalizer.normalize(text)
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.moses_tokenize
     def moses_tokenize(self, text, lang):
         if lang not in self.cache_moses_tokenizer:
             moses_tokenizer = self.sm.MosesTokenizer(lang=lang)
@@ -280,14 +206,12 @@ class FlaubertTokenizer(PreTrainedTokenizer):
             moses_tokenizer = self.cache_moses_tokenizer[lang]
         return moses_tokenizer.tokenize(text, return_str=False, escape=False)
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.moses_pipeline
     def moses_pipeline(self, text, lang):
         text = replace_unicode_punct(text)
         text = self.moses_punct_norm(text, lang)
         text = remove_non_printing_char(text)
         return text
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.ja_tokenize
     def ja_tokenize(self, text):
         if self.ja_word_tokenizer is None:
             try:
@@ -310,15 +234,12 @@ class FlaubertTokenizer(PreTrainedTokenizer):
         return list(self.ja_word_tokenizer.getWS(text))
 
     @property
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.vocab_size
     def vocab_size(self):
-        return len(self.encoder)
+        pass
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.get_vocab
     def get_vocab(self):
         return dict(self.encoder, **self.added_tokens_encoder)
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.bpe
     def bpe(self, token):
         word = tuple(token[:-1]) + (token[-1] + "</w>",)
         if token in self.cache:
@@ -410,23 +331,19 @@ class FlaubertTokenizer(PreTrainedTokenizer):
 
         return split_tokens
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer._convert_token_to_id
     def _convert_token_to_id(self, token):
         """Converts a token (str) in an id using the vocab."""
         return self.encoder.get(token, self.encoder.get(self.unk_token))
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer._convert_id_to_token
     def _convert_id_to_token(self, index):
         """Converts an index (integer) in a token (str) using the vocab."""
         return self.decoder.get(index, self.unk_token)
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.convert_tokens_to_string
     def convert_tokens_to_string(self, tokens):
         """Converts a sequence of tokens (string) in a single string."""
         out_string = "".join(tokens).replace("</w>", " ").strip()
         return out_string
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.build_inputs_with_special_tokens
     def build_inputs_with_special_tokens(
         self, token_ids_0: list[int], token_ids_1: list[int] | None = None
     ) -> list[int]:
@@ -454,7 +371,6 @@ class FlaubertTokenizer(PreTrainedTokenizer):
             return bos + token_ids_0 + sep
         return bos + token_ids_0 + sep + token_ids_1 + sep
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.get_special_tokens_mask
     def get_special_tokens_mask(
         self, token_ids_0: list[int], token_ids_1: list[int] | None = None, already_has_special_tokens: bool = False
     ) -> list[int]:
@@ -483,7 +399,6 @@ class FlaubertTokenizer(PreTrainedTokenizer):
             return [1] + ([0] * len(token_ids_0)) + [1] + ([0] * len(token_ids_1)) + [1]
         return [1] + ([0] * len(token_ids_0)) + [1]
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.save_vocabulary
     def save_vocabulary(self, save_directory: str, filename_prefix: str | None = None) -> tuple[str]:
         if not os.path.isdir(save_directory):
             logger.error(f"Vocabulary path ({save_directory}) should be a directory")
@@ -512,13 +427,11 @@ class FlaubertTokenizer(PreTrainedTokenizer):
 
         return vocab_file, merge_file
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.__getstate__
     def __getstate__(self):
         state = self.__dict__.copy()
         state["sm"] = None
         return state
 
-    # Copied from transformers.models.xlm.tokenization_xlm.XLMTokenizer.__setstate__
     def __setstate__(self, d):
         self.__dict__ = d
 

@@ -1,17 +1,3 @@
-# Copyright 2022 The OpenBMB Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch CPMAnt"""
 
 import math
 
@@ -34,9 +20,6 @@ logger = logging.get_logger(__name__)
 
 
 class CpmAntLayerNorm(nn.Module):
-    """
-    We use Root Mean Square (RMS) Layer Normalization, please see https://huggingface.co/papers/1910.07467 for details."
-    """
 
     def __init__(self, config: CpmAntConfig):
         super().__init__()
@@ -124,7 +107,6 @@ class CpmAntAttention(nn.Module):
             key, value = past_key_values.update(key, value, self.layer_idx)
             len_k = key.size(-2)
 
-        # (batch_size, num_heads, len_q, dim_head) @ (batch_size, num_heads, dim_head, len_k) -> (batch_size, num_heads, len_q, len_k)
         score = torch.matmul(query, key.transpose(-1, -2)) / math.sqrt(self.dim_head)
         score = score + position_bias
 
@@ -148,7 +130,6 @@ class CpmAntAttention(nn.Module):
         if self.dropout is not None:
             score = self.dropout(score)
 
-        # (batch_size, num_heads, len_q, len_k) @ (batch_size, num_heads, len_k, dim_head) -> (batch_size, num_heads, len_q, dim_head)
         score = torch.matmul(score, value)
 
         score = score.view(batch_size, self.num_heads, len_q, self.dim_head).permute(0, 2, 1, 3)
@@ -394,7 +375,6 @@ class CpmAntEncoder(nn.Module):
         return hidden_states, all_hidden_states, all_self_attns
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->CPMAnt
 class CpmAntIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -459,7 +439,6 @@ class CpmAntSegmentPositionEmbedding(nn.Module):
             relative_position_bucket = self._segment_relative_position_bucket(query_segment, key_segment)
             relative_position_bucket = relative_position_bucket + self.num_buckets
 
-            # (batch, len_q, len_k)
             absolute_position_bucket = self._position_bucket(
                 torch.arange(keylen, dtype=torch.int32, device=relative_position_bucket.device)[None, :]
                 - torch.arange(querylen, dtype=torch.int32, device=relative_position_bucket.device)[:, None],
@@ -472,9 +451,7 @@ class CpmAntSegmentPositionEmbedding(nn.Module):
                 relative_position_bucket,
             )
 
-        # (batch, len_q, len_k, num_heads)
         embeds = F.embedding(relative_position_bucket, self.relative_attention_bias)
-        # (batch, num_heads, len_q, len_k)
         embeds = embeds.permute(0, 3, 1, 2).contiguous()
         return embeds
 
@@ -483,7 +460,6 @@ class CpmAntSegmentPositionEmbedding(nn.Module):
 
     def _position_bucket(self, relative_position, num_buckets=32, max_distance=128):
         relative_buckets = 0
-        # always bidirectional in CPMAnt
         num_buckets //= 2
         relative_buckets = (relative_position > 0).to(torch.int32) * num_buckets
         relative_position = torch.abs(relative_position)
@@ -502,7 +478,6 @@ class CpmAntSegmentPositionEmbedding(nn.Module):
         return relative_buckets
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput with Bert->CPMAnt
 class CpmAntOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -562,7 +537,6 @@ class CpmAntModel(CpmAntPreTrainedModel):
             context[:, :, None].logical_not() & directional_mask_2d.view(1, seqlen, seqlen)
         )
         attention_mask = attention_mask & (span[:, None, :] == span[:, :, None])
-        # mask for left padding
         mask_1d = (
             torch.tensor(list(range(seqlen - self.prompt_length))[::-1], device=device)[None, :].repeat(batch, 1)
             < length[:, None]
@@ -598,7 +572,6 @@ class CpmAntModel(CpmAntPreTrainedModel):
         return_dict = return_dict if return_dict is not None else self.config.return_dict
         use_cache = use_cache if use_cache is not None else self.config.use_cache
 
-        # add prompts ahead
         if input_ids.dtype != torch.int32:
             input_ids = input_ids.to(torch.int32)
         dtype, device = input_ids.dtype, input_ids.device
@@ -653,7 +626,6 @@ class CpmAntModel(CpmAntPreTrainedModel):
 
         if past_length == 0:
             hidden_states = hidden_states[:, self.prompt_length :, :]
-            # drop the prompt
             if all_attentions is not None:
                 new_attentions = ()
                 for attention in all_attentions:
@@ -690,7 +662,6 @@ class CpmAntForCausalLM(CpmAntPreTrainedModel, GenerationMixin):
         super().__init__(config)
         self.cpmant = CpmAntModel(config)
 
-        # lm_head.weight is tied to cpmant.input_embedding.weight
         self.lm_head = nn.Linear(
             config.hidden_size, config.vocab_size + config.prompt_types * config.prompt_length, bias=False
         )
@@ -748,7 +719,6 @@ class CpmAntForCausalLM(CpmAntPreTrainedModel, GenerationMixin):
             return_dict,
         )
         hidden_states = model_output.last_hidden_state if return_dict else model_output[0]
-        # Only compute necessary logits
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

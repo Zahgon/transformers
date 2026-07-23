@@ -1,17 +1,3 @@
-# Copyright 2026 NAVER CLOUD Corp. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""HyperCLOVAX modular model definition."""
 
 import torch
 import torch.nn as nn
@@ -36,45 +22,13 @@ from ..granite.modeling_granite import (
 @auto_docstring(checkpoint="naver-hyperclovax/HyperCLOVAX-SEED-Think-14B")
 @strict
 class HyperCLOVAXConfig(GraniteConfig):
-    r"""
-    embedding_multiplier (`float`, *optional*, defaults to `1.0`):
-        Scaling factor applied to the token embedding outputs. Used in MuP to control the
-        scale of the embedding activations.
-    logits_scaling (`float`, *optional*, defaults to `1.0`):
-        Scaling factor **multiplied** to the final logits before loss computation or sampling.
-        Used in MuP to ensure consistent output scale across model sizes. Note: unlike
-        [`GraniteConfig`], this is a multiplier, not a divisor.
-    residual_multiplier (`float`, *optional*, defaults to `1.0`):
-        Scaling factor applied to each sub-layer output before adding to the residual stream.
-        Used in Maximal Update Parametrization (MuP) to stabilize training across model sizes.
-    attention_multiplier (`float`, *optional*, defaults to `head_dim ** -0.5`):
-        Scaling factor applied to attention logits before softmax, replacing the standard
-        `1 / sqrt(head_dim)` scaling. Set explicitly for MuP-based training; when `None`,
-        defaults to the standard value.
-    use_post_norm (`bool`, *optional*, defaults to `True`):
-        Whether to apply an extra RMSNorm after each sub-layer output (Peri-Layer Normalization).
-
-    ```python
-    >>> from transformers import HyperCLOVAXModel, HyperCLOVAXConfig
-
-    >>> # Initializing a HyperCLOVAX style configuration
-    >>> configuration = HyperCLOVAXConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = HyperCLOVAXModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "hyperclovax"
 
     head_dim: int | None = None
 
-    # MuP scaling factors: None means "resolve to the mathematically equivalent default".
     attention_multiplier: float | None = None
 
-    # Peri-Layer Normalization
     use_post_norm: bool = True
 
     def __post_init__(
@@ -86,17 +40,11 @@ class HyperCLOVAXConfig(GraniteConfig):
 
         super().__post_init__(**kwargs)
 
-        # Resolve None MuP values to their mathematically equivalent defaults.
         if self.attention_multiplier is None:
             self.attention_multiplier = self.head_dim**-0.5
 
     def validate_architecture(self):
-        """Validates that `hidden_size` is divisible by `num_attention_heads`."""
-        if self.hidden_size % self.num_attention_heads != 0:
-            raise ValueError(
-                f"The hidden size ({self.hidden_size}) is not a multiple of the number of attention "
-                f"heads ({self.num_attention_heads})."
-            )
+        pass
 
 
 class HyperCLOVAXRMSNorm(GraniteRMSNorm):
@@ -114,7 +62,6 @@ class HyperCLOVAXAttention(GraniteAttention):
 class HyperCLOVAXDecoderLayer(GraniteDecoderLayer):
     def __init__(self, config: HyperCLOVAXConfig, layer_idx: int):
         super().__init__(config, layer_idx)
-        # Optional Peri-Layer Normalization: additional RMSNorm after each sub-layer output
         self.post_norm1 = (
             HyperCLOVAXRMSNorm(config.hidden_size, eps=config.rms_norm_eps) if config.use_post_norm else nn.Identity()
         )
@@ -134,7 +81,6 @@ class HyperCLOVAXDecoderLayer(GraniteDecoderLayer):
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -147,7 +93,6 @@ class HyperCLOVAXDecoderLayer(GraniteDecoderLayer):
         hidden_states = self.post_norm1(hidden_states)
         hidden_states = residual + hidden_states * self.residual_multiplier
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -211,7 +156,6 @@ class HyperCLOVAXForCausalLM(GraniteForCausalLM):
 
         hidden_states = outputs.last_hidden_state
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
-        # MuP: multiply logits by logits_scaling (cf. GraniteForCausalLM which divides)
         logits = self.lm_head(hidden_states[:, slice_indices, :]) * self.config.logits_scaling
 
         loss = None

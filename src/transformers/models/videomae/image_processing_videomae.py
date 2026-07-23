@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for VideoMAE."""
 
 import torch
 from torchvision.transforms.v2 import functional as tvF
@@ -100,7 +86,6 @@ class VideoMAEImageProcessor(TorchvisionBackend):
             processed_images_grouped[shape] = stacked_images
         processed_images = reorder_images(processed_images_grouped, grouped_images_index, is_nested=True)
 
-        # Stack frames per video: list[list[Tensor(C,H,W)]] → list[Tensor(num_frames,C,H,W)]
         pixel_values = [torch.stack(video_frames) for video_frames in processed_images]
         return BatchFeature(data={"pixel_values": pixel_values}, tensor_type=return_tensors)
 

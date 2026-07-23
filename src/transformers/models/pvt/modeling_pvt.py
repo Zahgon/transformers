@@ -1,19 +1,3 @@
-# Copyright 2023 Authors: Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan,
-# Kaitao Song, Ding Liang, Tong Lu, Ping Luo, Ling Shao and The HuggingFace Inc. team.
-# All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch PVT model."""
 
 import collections
 import math
@@ -35,11 +19,6 @@ logger = logging.get_logger(__name__)
 
 
 class PvtPatchEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
-    `hidden_states` (patch embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
-    Transformer.
-    """
 
     def __init__(
         self,
@@ -72,7 +51,6 @@ class PvtPatchEmbeddings(nn.Module):
     def interpolate_pos_encoding(self, embeddings: torch.Tensor, height: int, width: int) -> torch.Tensor:
         num_patches = height * width
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == self.config.image_size * self.config.image_size:
             return self.position_embeddings
         embeddings = embeddings.reshape(1, height, width, -1).permute(0, 3, 1, 2)
@@ -115,7 +93,6 @@ class PvtSelfOutput(nn.Module):
 
 
 class PvtEfficientSelfAttention(nn.Module):
-    """Efficient self-attention mechanism with reduction of the sequence [PvT paper](https://huggingface.co/papers/2102.12122)."""
 
     def __init__(
         self, config: PvtConfig, hidden_size: int, num_attention_heads: int, sequences_reduction_ratio: float
@@ -162,27 +139,20 @@ class PvtEfficientSelfAttention(nn.Module):
 
         if self.sequences_reduction_ratio > 1:
             batch_size, seq_len, num_channels = hidden_states.shape
-            # Reshape to (batch_size, num_channels, height, width)
             hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
-            # Apply sequence reduction
             hidden_states = self.sequence_reduction(hidden_states)
-            # Reshape back to (batch_size, seq_len, num_channels)
             hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
             hidden_states = self.layer_norm(hidden_states)
 
         key_layer = self.transpose_for_scores(self.key(hidden_states))
         value_layer = self.transpose_for_scores(self.value(hidden_states))
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -246,13 +216,7 @@ class PvtFFN(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->PvtDropPath
 class PvtDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -268,7 +232,7 @@ class PvtDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class PvtLayer(nn.Module):
@@ -322,10 +286,8 @@ class PvtEncoder(nn.Module):
         super().__init__()
         self.config = config
 
-        # stochastic depth decay rule
         drop_path_decays = torch.linspace(0, config.drop_path_rate, sum(config.depths), device="cpu").tolist()
 
-        # patch embeddings
         embeddings = []
 
         for i in range(config.num_encoder_blocks):
@@ -342,11 +304,9 @@ class PvtEncoder(nn.Module):
             )
         self.patch_embeddings = nn.ModuleList(embeddings)
 
-        # Transformer blocks
         blocks = []
         cur = 0
         for i in range(config.num_encoder_blocks):
-            # each block consists of layers
             layers = []
             if i != 0:
                 cur += config.depths[i - 1]
@@ -365,7 +325,6 @@ class PvtEncoder(nn.Module):
 
         self.block = nn.ModuleList(blocks)
 
-        # Layer norms
         self.layer_norm = nn.LayerNorm(config.hidden_sizes[-1], eps=config.layer_norm_eps)
 
     def forward(
@@ -382,9 +341,7 @@ class PvtEncoder(nn.Module):
         num_blocks = len(self.block)
         hidden_states = pixel_values
         for idx, (embedding_layer, block_layer) in enumerate(zip(self.patch_embeddings, self.block)):
-            # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
-            # second, send embeddings through blocks
             for block in block_layer:
                 layer_outputs = block(hidden_states, height, width, output_attentions)
                 hidden_states = layer_outputs[0]
@@ -435,10 +392,8 @@ class PvtModel(PvtPreTrainedModel):
         super().__init__(config)
         self.config = config
 
-        # hierarchical Transformer encoder
         self.encoder = PvtEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -487,12 +442,10 @@ class PvtForImageClassification(PvtPreTrainedModel):
         self.num_labels = config.num_labels
         self.pvt = PvtModel(config)
 
-        # Classifier head
         self.classifier = (
             nn.Linear(config.hidden_sizes[-1], config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

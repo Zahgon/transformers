@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for LLaVa-NeXT."""
 
 import numpy as np
 
@@ -34,14 +20,7 @@ from ...processing_utils import ImagesKwargs, Unpack
 from ...utils import TensorType, auto_docstring
 
 
-# Adapted from transformers.models.llava_next.image_processing_llava_next.LlavaNextImageProcessorKwargs
 class LlavaNextImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    image_grid_pinpoints (`list[list[int]]`, *optional*):
-        A list of possible resolutions to use for processing high resolution images. The best resolution is selected
-        based on the original size of the image. Can be overridden by `image_grid_pinpoints` in the `preprocess`
-        method.
-    """
 
     image_grid_pinpoints: list[list[int]]
 
@@ -101,12 +80,8 @@ class LlavaNextImageProcessorPil(PilBackend):
         new_resolution = get_patch_output_size(image, target_resolution, input_data_format=ChannelDimension.FIRST)
         padding_hw = self._get_padding_size(new_resolution, target_resolution)
 
-        # For channels_first format (C, H, W), add (0, 0) for channel dimension
-        # padding_hw is ((before_h, after_h), (before_w, after_w))
-        # np.pad expects ((before_C, after_C), (before_H, after_H), (before_W, after_W))
         padding = ((0, 0), padding_hw[0], padding_hw[1])
 
-        # Use np.pad directly for patching padding
         padded_image = np.pad(image, padding, mode="constant", constant_values=0)
 
         return padded_image
@@ -149,10 +124,8 @@ class LlavaNextImageProcessorPil(PilBackend):
     ) -> list[np.ndarray]:
         """Pads images on the `num_of_patches` dimension with zeros to form a batch of same number of patches."""
         max_patch = max(len(x) for x in pixel_values)
-        # Use np.pad directly for patch dimension padding
         padded_values = []
         for image in pixel_values:
-            # Padding format: ((before_dim0, after_dim0), (before_dim1, after_dim1), ...)
             padding = ((0, max_patch - image.shape[0]), (0, 0), (0, 0), (0, 0))
             padded_image = np.pad(image, padding, mode="constant", constant_values=0)
             padded_values.append(padded_image)
@@ -181,14 +154,11 @@ class LlavaNextImageProcessorPil(PilBackend):
         processed_images = []
         image_sizes = []
 
-        # Backend's resize method handles resample conversion, so we can pass it directly
-        # Determine the size tuple
         if size and size.height and size.width:
             size_tuple = (size.height, size.width)
         else:
             size_tuple = (size.shortest_edge, size.shortest_edge)
 
-        # Determine the patch size
         if crop_size and crop_size.height:
             patch_size = crop_size.height
         elif size and size.height:
@@ -197,8 +167,6 @@ class LlavaNextImageProcessorPil(PilBackend):
             patch_size = size.shortest_edge
 
         for image in images:
-            # convert image into a list of patches
-            # we intentionally use the same data format as the input data format
             image_patches = self.get_image_patches(
                 image,
                 image_grid_pinpoints,
@@ -207,7 +175,6 @@ class LlavaNextImageProcessorPil(PilBackend):
                 resample=resample,
             )
 
-            # preprocess patches
             pixel_values = []
             for patch in image_patches:
                 if do_resize:

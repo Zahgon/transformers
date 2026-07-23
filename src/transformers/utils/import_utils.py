@@ -1,19 +1,3 @@
-# Copyright 2022 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Import utilities: Utilities related to imports and our lazy inits.
-"""
 
 import functools
 import importlib.machinery
@@ -54,11 +38,7 @@ def _is_package_available(pkg_name: str, return_version: bool = False) -> tuple[
     package_version = "N/A"
     if package_exists and return_version:
         try:
-            # importlib.metadata works with the distribution package, which may be different from the import
-            # name (e.g. `PIL` is the import name, but `pillow` is the distribution name)
             distributions = PACKAGE_DISTRIBUTION_MAPPING[pkg_name]
-            # Per PEP 503, underscores and hyphens are equivalent in package names.
-            # Prefer the distribution that matches the (normalized) package name.
             normalized_pkg_name = pkg_name.replace("_", "-")
             if normalized_pkg_name in distributions:
                 distribution_name = normalized_pkg_name
@@ -68,11 +48,8 @@ def _is_package_available(pkg_name: str, return_version: bool = False) -> tuple[
                 distribution_name = distributions[0]
             package_version = importlib.metadata.version(distribution_name)
         except (importlib.metadata.PackageNotFoundError, KeyError):
-            # If we cannot find the metadata (because of editable install for example), try to import directly.
-            # Note that this branch will almost never be run, so we do not import packages for nothing here
             package = importlib.import_module(pkg_name)
             package_version = getattr(package, "__version__", "N/A")
-            # No version + no __file__ means a namespace package (PEP 420) shadowing on sys.path, not a real install.
             if package_version == "N/A" and getattr(package, "__file__", None) is None:
                 package_exists = False
         logger.debug(f"Detected {pkg_name} version: {package_version}")
@@ -119,14 +96,12 @@ def is_env_variable_true(env_variable: str) -> bool:
 
 
 def is_env_variable_false(env_variable: str) -> bool:
-    """Detect whether `env_variable` has been set to a false value in the environment"""
-    return os.getenv(env_variable, "true").lower() in ("false", "0", "n", "no", "off")
+    pass
 
 
 ENV_VARS_TRUE_VALUES = {"1", "ON", "YES", "TRUE"}
 ENV_VARS_TRUE_AND_AUTO_VALUES = ENV_VARS_TRUE_VALUES.union({"AUTO"})
 
-# Try to run a native pytorch job in an environment with TorchXLA installed by setting this value to 0.
 USE_TORCH_XLA = os.environ.get("USE_TORCH_XLA", "1").upper()
 
 ACCELERATE_MIN_VERSION = "1.1.0"
@@ -226,40 +201,7 @@ def is_cuda_platform() -> bool:
 
 @lru_cache
 def get_cuda_runtime_version() -> tuple[int, int]:
-    """Deprecated. Return the CUDA runtime version as (major, minor).
-
-    Deprecated in favor of ``torch.version.cuda`` for the CUDA runtime version.
-
-    Prefers a direct query of ``cudaRuntimeGetVersion`` via ``libcudart.so``. If that's
-    not on the system loader path (common with pip-installed torch that bundles its own
-    CUDA runtime), falls back to ``torch.version.cuda`` — which equals the bundled
-    runtime's version for pip wheels. Returns ``(0, 0)`` for CPU-only torch.
-    """
-    warnings.warn(
-        "`get_cuda_runtime_version` is deprecated and will be removed in v5.16. "
-        "Use `torch.version.cuda` for the CUDA runtime version.",
-        FutureWarning,
-        stacklevel=2,
-    )
-    import ctypes
-
-    try:
-        cudart = ctypes.CDLL("libcudart.so")
-    except OSError:
-        if not is_torch_available():
-            return 0, 0
-        import torch
-
-        cuda_version = getattr(torch.version, "cuda", None)
-        if cuda_version is None:
-            return 0, 0
-
-        major, minor, *_ = cuda_version.split(".")
-        return int(major), int(minor)
-
-    version = ctypes.c_int()
-    cudart.cudaRuntimeGetVersion(ctypes.byref(version))
-    return version.value // 1000, (version.value % 1000) // 10
+    pass
 
 
 @lru_cache
@@ -278,7 +220,6 @@ def is_habana_gaudi1() -> bool:
 
     import habana_frameworks.torch.utils.experimental as htexp
 
-    # Check if the device is Gaudi1 (vs Gaudi2, Gaudi3)
     return htexp._get_device_type() == htexp.synDeviceType.synDeviceGaudi
 
 
@@ -306,7 +247,6 @@ def is_torch_npu_available(check_device=False) -> bool:
 
     if check_device:
         try:
-            # Will raise a RuntimeError if no NPU is found
             if hasattr(torch, "npu"):
                 _ = torch.npu.device_count()
                 return torch.npu.is_available()
@@ -333,7 +273,6 @@ def is_torch_xpu_available(check_device: bool = False) -> bool:
 
     if check_device:
         try:
-            # Will raise a RuntimeError if no XPU is found
             _ = torch.xpu.device_count()
             return torch.xpu.is_available()
         except RuntimeError:
@@ -382,7 +321,6 @@ def is_torch_musa_available(check_device=False) -> bool:
 
     if check_device:
         try:
-            # Will raise a RuntimeError if no MUSA is found
             if hasattr(torch, "musa"):
                 _ = torch.musa.device_count()
                 return torch.musa.is_available()
@@ -432,22 +370,15 @@ def is_torch_hpu_available() -> bool:
     import torch
 
     if os.environ.get("PT_HPU_LAZY_MODE", "1") == "1":
-        # import habana_frameworks.torch in case of lazy mode to patch torch with torch.hpu
         import habana_frameworks.torch  # noqa: F401
 
     if not hasattr(torch, "hpu") or not torch.hpu.is_available():
         return False
 
-    # We patch torch.gather for int64 tensors to avoid a bug on Gaudi
-    # Graph compile failed with synStatus 26 [Generic failure]
-    # This can be removed once bug is fixed but for now we need it.
     original_gather = torch.gather
 
     def patched_gather(input: torch.Tensor, dim: int, index: torch.LongTensor) -> torch.Tensor:
-        if input.dtype == torch.int64 and input.device.type == "hpu":
-            return original_gather(input.to(torch.int32), dim, index).to(torch.int64)
-        else:
-            return original_gather(input, dim, index)
+        pass
 
     torch.gather = patched_gather
     torch.Tensor.gather = patched_gather
@@ -455,24 +386,14 @@ def is_torch_hpu_available() -> bool:
     original_take_along_dim = torch.take_along_dim
 
     def patched_take_along_dim(input: torch.Tensor, indices: torch.LongTensor, dim: int | None = None) -> torch.Tensor:
-        if input.dtype == torch.int64 and input.device.type == "hpu":
-            return original_take_along_dim(input.to(torch.int32), indices, dim).to(torch.int64)
-        else:
-            return original_take_along_dim(input, indices, dim)
+        pass
 
     torch.take_along_dim = patched_take_along_dim
 
     original_cholesky = torch.linalg.cholesky
 
     def safe_cholesky(A, *args, **kwargs):
-        output = original_cholesky(A, *args, **kwargs)
-
-        if torch.isnan(output).any():
-            jitter_value = 1e-9
-            diag_jitter = torch.eye(A.size(-1), dtype=A.dtype, device=A.device) * jitter_value
-            output = original_cholesky(A + diag_jitter, *args, **kwargs)
-
-        return output
+        pass
 
     torch.linalg.cholesky = safe_cholesky
 
@@ -481,29 +402,15 @@ def is_torch_hpu_available() -> bool:
     def patched_scatter(
         input: torch.Tensor, dim: int, index: torch.Tensor, src: torch.Tensor, *args, **kwargs
     ) -> torch.Tensor:
-        if input.device.type == "hpu" and input is src:
-            return original_scatter(input, dim, index, src.clone(), *args, **kwargs)
-        else:
-            return original_scatter(input, dim, index, src, *args, **kwargs)
+        pass
 
     torch.scatter = patched_scatter
     torch.Tensor.scatter = patched_scatter
 
-    # IlyasMoutawwakil: we patch torch.compile to use the HPU backend by default
-    # https://github.com/huggingface/transformers/pull/38790#discussion_r2157043944
-    # This is necessary for cases where torch.compile is used as a decorator (defaulting to inductor)
-    # https://github.com/huggingface/transformers/blob/af6120b3eb2470b994c21421bb6eaa76576128b0/src/transformers/models/modernbert/modeling_modernbert.py#L204
     original_compile = torch.compile
 
     def hpu_backend_compile(*args, **kwargs):
-        if kwargs.get("backend") not in ["hpu_backend", "eager"]:
-            logger.warning(
-                f"Calling torch.compile with backend={kwargs.get('backend')} on a Gaudi device is not supported. "
-                "We will override the backend with 'hpu_backend' to avoid errors."
-            )
-            kwargs["backend"] = "hpu_backend"
-
-        return original_compile(*args, **kwargs)
+        pass
 
     torch.compile = hpu_backend_compile
 
@@ -521,7 +428,6 @@ def is_torch_neuron_available(check_device: bool = False) -> bool:
         try:
             import torch_neuronx  # noqa: F401
 
-            # Will raise a RuntimeError if no Neuron is found
             if hasattr(torch, "neuron"):
                 _ = torch.neuron.device_count()
                 return torch.neuron.is_available()
@@ -568,7 +474,6 @@ def is_torch_bf16_gpu_available() -> bool:
     if is_torch_npu_available() and hasattr(torch, "npu"):
         return torch.npu.is_bf16_supported()
     if is_torch_mps_available():
-        # Note: Emulated in software by Metal using fp32 for hardware without native support (like M1/M2)
         return torch.backends.mps.is_macos_or_newer(14, 0)
     if is_torch_musa_available() and hasattr(torch, "musa"):
         return torch.musa.is_bf16_supported()
@@ -577,7 +482,6 @@ def is_torch_bf16_gpu_available() -> bool:
     if is_torch_neuron_available() and hasattr(torch, "neuron"):
         return torch.neuron.is_bf16_supported()
     if is_torch_tpu_available():
-        # bfloat16 is always supported on TPUs; torch.tpu has no is_bf16_supported()
         return True
     return False
 
@@ -598,8 +502,6 @@ def is_torch_fp16_available_on_device(device: str) -> bool:
     try:
         x = torch.zeros(2, 2, dtype=torch.float16, device=device)
         _ = x @ x
-        # At this moment, let's be strict of the check: check if `LayerNorm` is also supported on device, because many
-        # models use this layer.
         batch, sentence_length, embedding_dim = 3, 4, 5
         embedding = torch.randn(batch, sentence_length, embedding_dim, dtype=torch.float16, device=device)
         layer_norm = torch.nn.LayerNorm(embedding_dim, dtype=torch.float16, device=device)
@@ -682,7 +584,7 @@ def is_torch_flex_attn_available() -> bool:
 
 @lru_cache
 def is_grouped_mm_available() -> bool:
-    return is_torch_available() and version.parse(get_torch_version()) >= version.parse("2.9.0")
+    pass
 
 
 @lru_cache
@@ -743,7 +645,7 @@ def is_hqq_available(min_version: str = HQQ_MIN_VERSION) -> bool:
 
 @lru_cache
 def is_pygments_available() -> bool:
-    return _is_package_available("pygments")[0]
+    pass
 
 
 @lru_cache
@@ -807,12 +709,12 @@ def is_librosa_available() -> bool:
 
 @lru_cache
 def is_nagisa_available() -> bool:
-    return _is_package_available("nagisa")[0]
+    pass
 
 
 @lru_cache
 def is_soynlp_available() -> bool:
-    return _is_package_available("soynlp")[0]
+    pass
 
 
 @lru_cache
@@ -862,8 +764,7 @@ def is_mamba_ssm_available() -> bool:
 
 @lru_cache
 def is_mamba_2_ssm_available() -> bool:
-    is_available, mamba_ssm_version = _is_package_available("mamba_ssm", return_version=True)
-    return is_torch_cuda_available() and is_available and version.parse(mamba_ssm_version) >= version.parse("2.0.4")
+    pass
 
 
 @lru_cache
@@ -911,7 +812,7 @@ def is_bs4_available() -> bool:
 
 @lru_cache
 def is_coloredlogs_available() -> bool:
-    return _is_package_available("coloredlogs")[0]
+    pass
 
 
 @lru_cache
@@ -952,7 +853,7 @@ def is_torch_neuroncore_available(check_device=True) -> bool:
 
 @lru_cache
 def is_torch_tensorrt_fx_available() -> bool:
-    return _is_package_available("torch_tensorrt")[0] and _is_package_available("torch_tensorrt.fx")[0]
+    pass
 
 
 @lru_cache
@@ -962,9 +863,6 @@ def is_datasets_available() -> bool:
 
 @lru_cache
 def is_detectron2_available() -> bool:
-    # We need this try/except block because otherwise after uninstalling the library, it stays available for some reason
-    # i.e. `import detectron2` and `import detectron2.modeling` still work, even though the library is uninstalled
-    # (the package exists but the objects are not reachable) - so here we explicitly try to import an object from it
     try:
         from detectron2.modeling import META_ARCH_REGISTRY  # noqa
 
@@ -985,7 +883,7 @@ def is_psutil_available() -> bool:
 
 @lru_cache
 def is_py3nvml_available() -> bool:
-    return _is_package_available("py3nvml")[0]
+    pass
 
 
 @lru_cache
@@ -995,7 +893,7 @@ def is_sacremoses_available() -> bool:
 
 @lru_cache
 def is_apex_available() -> bool:
-    return _is_package_available("apex")[0]
+    pass
 
 
 @lru_cache
@@ -1047,19 +945,16 @@ def is_bitsandbytes_available(min_version: str = BITSANDBYTES_MIN_VERSION) -> bo
 @lru_cache
 def is_flash_attn_2_available(kernels_fallback_ok: bool = False) -> bool:
     is_available, flash_attn_version = _is_package_available("flash_attn", return_version=True)
-    # FA4 is also distributed under "flash_attn", hence we need to check the naming here
     is_available = is_available and "flash-attn" in [
         pkg.replace("_", "-") for pkg in PACKAGE_DISTRIBUTION_MAPPING.get("flash_attn", [])
     ]
 
-    # Only allow versions >= 2.3.3 to avoid very old legacy workarounds that are now 2+ years old
     if is_available and (is_torch_cuda_available() or is_torch_mlu_available()):
         try:
             return version.parse(flash_attn_version) >= version.parse("2.3.3")
         except packaging.version.InvalidVersion:
             return False
 
-    # If the kernels fallback is allowed, check if it is available
     if kernels_fallback_ok and is_kernels_available():
         try:
             from kernels import get_kernel
@@ -1075,16 +970,13 @@ def is_flash_attn_2_available(kernels_fallback_ok: bool = False) -> bool:
 
 @lru_cache
 def is_flash_attn_3_available(kernels_fallback_ok: bool = False) -> bool:
-    # Universally available under `flash_attn_interface`
     is_available = _is_package_available("flash_attn_interface")[0]
-    # Resolving and ensuring the proper name of FA3 being associated
     is_available = is_available and "flash-attn-3" in [
         pkg.replace("_", "-") for pkg in PACKAGE_DISTRIBUTION_MAPPING.get("flash_attn_interface", [])
     ]
     if is_available and is_torch_cuda_available():
         return True
 
-    # If the kernels fallback is allowed, check if it is available
     if kernels_fallback_ok and is_kernels_available():
         try:
             from kernels import get_kernel
@@ -1101,9 +993,6 @@ def is_flash_attn_3_available(kernels_fallback_ok: bool = False) -> bool:
 @lru_cache
 def is_flash_attn_4_available() -> bool:
     is_available = _is_package_available("flash_attn")[0]
-    # FA2 is also distributed under "flash_attn", hence we need to check the naming here
-    # NOTE: FA2 seems to distribute the `cute` subdirectory even if only FA2 has been installed
-    #       -> check for the proper (normalized) distribution name
     is_available = is_available and "flash-attn-4" in [
         pkg.replace("_", "-") for pkg in PACKAGE_DISTRIBUTION_MAPPING.get("flash_attn", [])
     ]
@@ -1114,7 +1003,6 @@ def is_flash_attn_4_available() -> bool:
 @lru_cache
 def is_flash_attn_greater_or_equal(library_version: str) -> bool:
     is_available, flash_attn_version = _is_package_available("flash_attn", return_version=True)
-    # FA4 is also distributed under "flash_attn", hence we need to check the naming here
     is_available = is_available and "flash-attn" in [
         pkg.replace("_", "-") for pkg in PACKAGE_DISTRIBUTION_MAPPING.get("flash_attn", [])
     ]
@@ -1129,12 +1017,7 @@ def is_flash_attn_greater_or_equal(library_version: str) -> bool:
 
 @lru_cache
 def is_flash_attn_greater_or_equal_2_10() -> bool:
-    warnings.warn(
-        "`is_flash_attn_greater_or_equal_2_10` is deprecated and will be removed in v5.8. "
-        "Please use `is_flash_attn_greater_or_equal(library_version='2.1.0')` instead if needed.",
-        FutureWarning,
-    )
-    return is_flash_attn_greater_or_equal("2.1.0")
+    pass
 
 
 @lru_cache
@@ -1168,7 +1051,7 @@ def is_quanto_greater(library_version: str, accept_dev: bool = False) -> bool:
 
 @lru_cache
 def is_torchdistx_available():
-    return _is_package_available("torchdistx")[0]
+    pass
 
 
 @lru_cache
@@ -1198,7 +1081,7 @@ def is_sentencepiece_available() -> bool:
 
 @lru_cache
 def is_seqio_available() -> bool:
-    return _is_package_available("seqio")[0]
+    pass
 
 
 @lru_cache
@@ -1214,7 +1097,7 @@ def is_protobuf_available() -> bool:
 
 @lru_cache
 def is_fsdp_available(min_version: str = FSDP_MIN_VERSION) -> bool:
-    return is_torch_available() and version.parse(get_torch_version()) >= version.parse(min_version)
+    pass
 
 
 @lru_cache
@@ -1224,7 +1107,7 @@ def is_optimum_available() -> bool:
 
 @lru_cache
 def is_llm_awq_available() -> bool:
-    return _is_package_available("awq")[0]
+    pass
 
 
 @lru_cache
@@ -1283,7 +1166,7 @@ def is_levenshtein_available() -> bool:
 
 @lru_cache
 def is_optimum_neuron_available() -> bool:
-    return is_optimum_available() and _is_package_available("optimum.neuron")[0]
+    pass
 
 
 @lru_cache
@@ -1318,12 +1201,12 @@ def is_pytest_order_available() -> bool:
 
 @lru_cache
 def is_spacy_available() -> bool:
-    return _is_package_available("spacy")[0]
+    pass
 
 
 @lru_cache
 def is_pytorch_quantization_available() -> bool:
-    return _is_package_available("pytorch_quantization")[0]
+    pass
 
 
 @lru_cache
@@ -1376,7 +1259,6 @@ def is_torchao_available(min_version: str = TORCHAO_MIN_VERSION) -> bool:
 
 @lru_cache
 def is_speech_available() -> bool:
-    # For now this depends on torchaudio but the exact dependency might evolve in the future.
     return is_torchaudio_available()
 
 
@@ -1397,7 +1279,7 @@ def is_uroman_available() -> bool:
 
 @lru_cache
 def is_sudachi_available() -> bool:
-    return _is_package_available("sudachipy")[0]
+    pass
 
 
 @lru_cache
@@ -1413,7 +1295,7 @@ def is_jumanpp_available() -> bool:
 
 @lru_cache
 def is_cython_available() -> bool:
-    return _is_package_available("pyximport")[0]
+    pass
 
 
 @lru_cache
@@ -1456,7 +1338,7 @@ def is_rich_available() -> bool:
 
 @lru_cache
 def is_matplotlib_available() -> bool:
-    return _is_package_available("matplotlib")[0]
+    pass
 
 
 @lru_cache
@@ -1469,7 +1351,7 @@ def is_mistral_common_available(min_version: str = MISTRAL_COMMON_MIN_VERSION) -
 
 @lru_cache
 def is_pynvml_available() -> bool:
-    return _is_package_available("pynvml")[0]
+    pass
 
 
 def check_torch_load_is_safe() -> None:
@@ -1483,42 +1365,19 @@ def check_torch_load_is_safe() -> None:
 
 
 def torch_only_method(fn: Callable) -> Callable:
-    def wrapper(*args, **kwargs):
-        if not is_torch_available():
-            raise ImportError("You need to install pytorch to use this method or class")
-        else:
-            return fn(*args, **kwargs)
-
-    return wrapper
+    pass
 
 
 def is_torch_deterministic() -> bool:
-    """
-    Check whether pytorch uses deterministic algorithms by looking if torch.set_deterministic_debug_mode() is set to 1 or 2"
-    """
-    if is_torch_available():
-        import torch
-
-        if torch.get_deterministic_debug_mode() == 0:
-            return False
-        else:
-            return True
-
-    return False
+    pass
 
 
 @lru_cache
 def get_torch_major_and_minor_version() -> str:
-    torch_version = get_torch_version()
-    if torch_version == "N/A":
-        return "N/A"
-    parsed_version = version.parse(torch_version)
-    return str(parsed_version.major) + "." + str(parsed_version.minor)
+    pass
 
 
 def is_torchdynamo_compiling() -> bool:
-    # Importing torch._dynamo causes issues with PyTorch profiler (https://github.com/pytorch/pytorch/issues/130622)
-    # hence rather relying on `torch.compiler.is_compiling()` when possible (torch>=2.3)
     try:
         import torch
 
@@ -1530,14 +1389,7 @@ def is_torchdynamo_compiling() -> bool:
 
 
 def is_torchdynamo_exporting() -> bool:
-    try:
-        import torch
-
-        if hasattr(torch, "compiler"):
-            return torch.compiler.is_exporting()
-        return False
-    except Exception:
-        return False
+    pass
 
 
 def is_torch_fx_proxy(x) -> bool:
@@ -1608,8 +1460,6 @@ def is_tracing(tensor=None) -> bool:
     """Checks whether we are tracing a graph with dynamo (compile or export), torch.jit, torch.fx, jax.jit (with torchax) or
     CUDA stream capturing or FakeTensor"""
 
-    # Note that `is_torchdynamo_compiling` checks both compiling and exporting (the export check is stricter and
-    # only checks export)
     _is_tracing = is_torchdynamo_compiling() or is_jit_tracing() or is_cuda_stream_capturing()
     if tensor is not None:
         _is_tracing |= is_torch_fx_proxy(tensor)
@@ -1642,9 +1492,6 @@ def torch_compilable_check(cond: Any, msg: str | Callable[[], str], error_type: 
 
     import torch
 
-    # When tracing, msg may be an f-string with tensor values that dynamo can't trace
-    # (callable/isinstance on it breaks). Check compilation first and use torch._check
-    # without msg (it only serves as a compiler hint in that case).
     if is_tracing():
         if isinstance(cond, torch.Tensor):
             torch._check_tensor_all(cond)
@@ -1653,17 +1500,14 @@ def torch_compilable_check(cond: Any, msg: str | Callable[[], str], error_type: 
         return
 
     if not callable(msg):
-        # torch._check requires msg to be a callable but we want to keep the API simple for users
         def msg_callable():
-            return msg
+            pass
     else:
         msg_callable = msg
 
     if callable(cond):
         cond = cond()
 
-    # These checks are also compiler hints for TorchDynamo telling
-    # it that the condition is expected to be True during compilation
     if isinstance(cond, torch.Tensor):
         torch._check_tensor_all_with(error_type, cond, msg_callable)
     else:
@@ -1678,17 +1522,12 @@ def is_ipython_available() -> bool:
 @lru_cache
 def is_in_notebook() -> bool:
     try:
-        # Check if we are running inside Marimo
         if "marimo" in sys.modules:
             return True
-        # Test adapted from tqdm.autonotebook: https://github.com/tqdm/tqdm/blob/master/tqdm/autonotebook.py
         get_ipython = sys.modules["IPython"].get_ipython
         if "IPKernelApp" not in get_ipython().config:
             raise ImportError("console")
-        # Removed the lines to include VSCode
         if "DATABRICKS_RUNTIME_VERSION" in os.environ and os.environ["DATABRICKS_RUNTIME_VERSION"] < "11.0":
-            # Databricks Runtime 11.0 and above uses IPython kernel by default so it should be compatible with Jupyter notebook
-            # https://docs.microsoft.com/en-us/azure/databricks/notebooks/ipython-kernel
             raise ImportError("databricks")
 
         return importlib.util.find_spec("IPython") is not None
@@ -1697,40 +1536,32 @@ def is_in_notebook() -> bool:
 
 
 def is_sagemaker_dp_enabled() -> bool:
-    # Get the sagemaker specific env variable.
     sagemaker_params = os.getenv("SM_FRAMEWORK_PARAMS", "{}")
     try:
-        # Parse it and check the field "sagemaker_distributed_dataparallel_enabled".
         sagemaker_params = json.loads(sagemaker_params)
         if not sagemaker_params.get("sagemaker_distributed_dataparallel_enabled", False):
             return False
     except json.JSONDecodeError:
         return False
-    # Lastly, check if the `smdistributed` module is present.
     return _is_package_available("smdistributed")[0]
 
 
 def is_sagemaker_mp_enabled() -> bool:
-    # Get the sagemaker specific mp parameters from smp_options variable.
     smp_options = os.getenv("SM_HP_MP_PARAMETERS", "{}")
     try:
-        # Parse it and check the field "partitions" is included, it is required for model parallel.
         smp_options = json.loads(smp_options)
         if "partitions" not in smp_options:
             return False
     except json.JSONDecodeError:
         return False
 
-    # Get the sagemaker specific framework parameters from mpi_options variable.
     mpi_options = os.getenv("SM_FRAMEWORK_PARAMS", "{}")
     try:
-        # Parse it and check the field "sagemaker_distributed_dataparallel_enabled".
         mpi_options = json.loads(mpi_options)
         if not mpi_options.get("sagemaker_mpi_enabled", False):
             return False
     except json.JSONDecodeError:
         return False
-    # Lastly, check if the `smdistributed` module is present.
     return _is_package_available("smdistributed")[0]
 
 
@@ -1738,7 +1569,6 @@ def is_training_run_on_sagemaker() -> bool:
     return "SAGEMAKER_JOB_NAME" in os.environ
 
 
-# docstyle-ignore
 AV_IMPORT_ERROR = """
 {0} requires the PyAv library but it was not found in your environment. You can install it with:
 ```
@@ -1747,7 +1577,6 @@ pip install av
 Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 YT_DLP_IMPORT_ERROR = """
 {0} requires the YT-DLP library but it was not found in your environment. You can install it with:
 ```
@@ -1772,7 +1601,6 @@ pip install torchcodec
 Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 CV2_IMPORT_ERROR = """
 {0} requires the OpenCV library but it was not found in your environment. You can install it with:
 ```
@@ -1782,7 +1610,6 @@ Please note that you may need to restart your runtime after installation.
 """
 
 
-# docstyle-ignore
 DATASETS_IMPORT_ERROR = """
 {0} requires the 🤗 Datasets library but it was not found in your environment. You can install it with:
 ```
@@ -1800,7 +1627,6 @@ that python file if that's the case. Please note that you may need to restart yo
 """
 
 
-# docstyle-ignore
 TOKENIZERS_IMPORT_ERROR = """
 {0} requires the 🤗 Tokenizers library but it was not found in your environment. You can install it with:
 ```
@@ -1814,7 +1640,6 @@ Please note that you may need to restart your runtime after installation.
 """
 
 
-# docstyle-ignore
 SENTENCEPIECE_IMPORT_ERROR = """
 {0} requires the SentencePiece library but it was not found in your environment. Check out the instructions on the
 installation page of its repo: https://github.com/google/sentencepiece#installation and follow the ones
@@ -1822,7 +1647,6 @@ that match your environment. Please note that you may need to restart your runti
 """
 
 
-# docstyle-ignore
 PROTOBUF_IMPORT_ERROR = """
 {0} requires the protobuf library but it was not found in your environment. Check out the instructions on the
 installation page of its repo: https://github.com/protocolbuffers/protobuf/tree/master/python#installation and follow the ones
@@ -1830,7 +1654,6 @@ that match your environment. Please note that you may need to restart your runti
 """
 
 
-# docstyle-ignore
 FAISS_IMPORT_ERROR = """
 {0} requires the faiss library but it was not found in your environment. Check out the instructions on the
 installation page of its repo: https://github.com/facebookresearch/faiss/blob/master/INSTALL.md and follow the ones
@@ -1838,7 +1661,6 @@ that match your environment. Please note that you may need to restart your runti
 """
 
 
-# docstyle-ignore
 PYTORCH_IMPORT_ERROR = """
 {0} requires the PyTorch library but it was not found in your environment. Check out the instructions on the
 installation page: https://pytorch.org/get-started/locally/ and follow the ones that match your environment.
@@ -1846,21 +1668,18 @@ Please note that you may need to restart your runtime after installation.
 """
 
 
-# docstyle-ignore
 TORCHVISION_IMPORT_ERROR = """
 {0} requires the Torchvision library but it was not found in your environment. Check out the instructions on the
 installation page: https://pytorch.org/get-started/locally/ and follow the ones that match your environment.
 Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 BS4_IMPORT_ERROR = """
 {0} requires the Beautiful Soup library but it was not found in your environment. You can install it with pip:
 `pip install beautifulsoup4`. Please note that you may need to restart your runtime after installation.
 """
 
 
-# docstyle-ignore
 SKLEARN_IMPORT_ERROR = """
 {0} requires the scikit-learn library but it was not found in your environment. You can install it with:
 ```
@@ -1874,7 +1693,6 @@ Please note that you may need to restart your runtime after installation.
 """
 
 
-# docstyle-ignore
 DETECTRON2_IMPORT_ERROR = """
 {0} requires the detectron2 library but it was not found in your environment. Check out the instructions on the
 installation page: https://github.com/facebookresearch/detectron2/blob/master/INSTALL.md and follow the ones
@@ -1887,26 +1705,22 @@ LEVENSHTEIN_IMPORT_ERROR = """
 install python-Levenshtein`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 G2P_EN_IMPORT_ERROR = """
 {0} requires the g2p-en library but it was not found in your environment. You can install it with pip:
 `pip install g2p-en`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 PYTORCH_QUANTIZATION_IMPORT_ERROR = """
 {0} requires the pytorch-quantization library but it was not found in your environment. You can install it with pip:
 `pip install pytorch-quantization --extra-index-url https://pypi.ngc.nvidia.com`
 Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 TORCHAUDIO_IMPORT_ERROR = """
 {0} requires the torchaudio library but it was not found in your environment. Please install it and restart your
 runtime.
 """
 
-# docstyle-ignore
 PANDAS_IMPORT_ERROR = """
 {0} requires the pandas library but it was not found in your environment. You can install it with pip as
 explained here: https://pandas.pydata.org/pandas-docs/stable/getting_started/install.html.
@@ -1914,43 +1728,36 @@ Please note that you may need to restart your runtime after installation.
 """
 
 
-# docstyle-ignore
 PHONEMIZER_IMPORT_ERROR = """
 {0} requires the phonemizer library but it was not found in your environment. You can install it with pip:
 `pip install phonemizer`. Please note that you may need to restart your runtime after installation.
 """
-# docstyle-ignore
 UROMAN_IMPORT_ERROR = """
 {0} requires the uroman library but it was not found in your environment. You can install it with pip:
 `pip install uroman`. Please note that you may need to restart your runtime after installation.
 """
 
 
-# docstyle-ignore
 SACREMOSES_IMPORT_ERROR = """
 {0} requires the sacremoses library but it was not found in your environment. You can install it with pip:
 `pip install sacremoses`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 SCIPY_IMPORT_ERROR = """
 {0} requires the scipy library but it was not found in your environment. You can install it with pip:
 `pip install scipy`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 SPEECH_IMPORT_ERROR = """
 {0} requires the torchaudio library but it was not found in your environment. You can install it with pip:
 `pip install torchaudio`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 TIMM_IMPORT_ERROR = """
 {0} requires the timm library but it was not found in your environment. You can install it with pip:
 `pip install timm`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 NATTEN_IMPORT_ERROR = """
 {0} requires the natten library but it was not found in your environment. You can install it by referring to:
 shi-labs.com/natten . You can also install it with pip (may take longer to build):
@@ -1963,84 +1770,71 @@ https://numexpr.readthedocs.io/en/latest/index.html.
 """
 
 
-# docstyle-ignore
 NLTK_IMPORT_ERROR = """
 {0} requires the NLTK library but it was not found in your environment. You can install it by referring to:
 https://www.nltk.org/install.html. Please note that you may need to restart your runtime after installation.
 """
 
 
-# docstyle-ignore
 VISION_IMPORT_ERROR = """
 {0} requires the PIL library but it was not found in your environment. You can install it with pip:
 `pip install pillow`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 PYDANTIC_IMPORT_ERROR = """
 {0} requires the pydantic library but it was not found in your environment. You can install it with pip:
 `pip install pydantic`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 FASTAPI_IMPORT_ERROR = """
 {0} requires the fastapi library but it was not found in your environment. You can install it with pip:
 `pip install fastapi`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 UVICORN_IMPORT_ERROR = """
 {0} requires the uvicorn library but it was not found in your environment. You can install it with pip:
 `pip install uvicorn`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 OPENAI_IMPORT_ERROR = """
 {0} requires the openai library but it was not found in your environment. You can install it with pip:
 `pip install openai`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 PYTESSERACT_IMPORT_ERROR = """
 {0} requires the PyTesseract library but it was not found in your environment. You can install it with pip:
 `pip install pytesseract`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 PYCTCDECODE_IMPORT_ERROR = """
 {0} requires the pyctcdecode library but it was not found in your environment. You can install it with pip:
 `pip install pyctcdecode`. Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 ACCELERATE_IMPORT_ERROR = """
 {0} requires the accelerate library >= {ACCELERATE_MIN_VERSION} it was not found in your environment.
 You can install or update it with pip: `pip install --upgrade accelerate`. Please note that you may need to restart your
 runtime after installation.
 """
 
-# docstyle-ignore
 ESSENTIA_IMPORT_ERROR = """
 {0} requires essentia library. But that was not found in your environment. You can install them with pip:
 `pip install essentia==2.1b6.dev1034`
 Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 LIBROSA_IMPORT_ERROR = """
 {0} requires the librosa library. But that was not found in your environment. You can install them with pip:
 `pip install librosa`
 Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 SOUNDFILE_IMPORT_ERROR = """
 {0} requires the soundfile library. But that was not found in your environment. You can install it with pip:
 `pip install soundfile`
 Please note that you may need to restart your runtime after installation.
 """
 
-# docstyle-ignore
 PRETTY_MIDI_IMPORT_ERROR = """
 {0} requires the pretty_midi library. But that was not found in your environment. You can install them with pip:
 `pip install pretty_midi`
@@ -2165,10 +1959,6 @@ def requires_backends(obj, backends):
 
 
 class DummyObject(type):
-    """
-    Metaclass for the dummy objects. Any class inheriting from it will return the ImportError generated by
-    `requires_backend` each time a user tries to access any method of that class.
-    """
 
     is_dummy = True
 
@@ -2183,12 +1973,7 @@ IMPORT_STRUCTURE_T = dict[BACKENDS_T, dict[str, set[str]]]
 
 
 class _LazyModule(ModuleType):
-    """
-    Module class that surfaces all objects but only performs associated imports when the objects are requested.
-    """
 
-    # Very heavily inspired by optuna.integration._IntegrationModule
-    # https://github.com/optuna/optuna/blob/master/optuna/integration/__init__.py
     def __init__(
         self,
         name: str,
@@ -2213,20 +1998,6 @@ class _LazyModule(ModuleType):
             for backends, module in import_structure.items():
                 missing_backends = []
 
-                # This ensures that if a module is importable, then all other keys of the module are importable.
-                # As an example, in module.keys() we might have the following:
-                #
-                # dict_keys(['models.nllb_moe.configuration_nllb_moe', 'models.sew_d.configuration_sew_d'])
-                #
-                # with this, we don't only want to be able to import these explicitly, we want to be able to import
-                # every intermediate module as well. Therefore, this is what is returned:
-                #
-                # {
-                #     'models.nllb_moe.configuration_nllb_moe',
-                #     'models.sew_d.configuration_sew_d',
-                #     'models',
-                #     'models.sew_d', 'models.nllb_moe'
-                # }
 
                 module_keys = set(
                     chain(*[[k.rsplit(".", i)[0] for i in range(k.count(".") + 1)] for k in list(module.keys())])
@@ -2262,7 +2033,6 @@ class _LazyModule(ModuleType):
                             self._object_missing_backend[value] = missing_backends
                     _import_structure.setdefault(key, []).extend(values)
 
-                # Needed for autocompletion in an IDE
                 self.__all__.extend(module_keys | set(chain(*module.values())))
 
             self.__file__ = module_file
@@ -2272,14 +2042,12 @@ class _LazyModule(ModuleType):
             self._name = name
             self._import_structure = _import_structure
 
-        # This can be removed once every exportable object has a `require()` require.
         else:
             self._modules = set(import_structure.keys())
             self._class_to_module = {}
             for key, values in import_structure.items():
                 for value in values:
                     self._class_to_module[value] = key
-            # Needed for autocompletion in an IDE
             self.__all__ = list(import_structure.keys()) + list(chain(*import_structure.values()))
             self.__file__ = module_file
             self.__spec__ = module_spec
@@ -2288,11 +2056,8 @@ class _LazyModule(ModuleType):
             self._name = name
             self._import_structure = import_structure
 
-    # Needed for autocompletion in an IDE
     def __dir__(self):
         result = list(super().__dir__())
-        # The elements of self.__all__ that are submodules may or may not be in the dir already, depending on whether
-        # they have been accessed or not. So we only add the elements of self.__all__ that are not already in the dir.
         for attr in self.__all__:
             if attr not in result:
                 result.append(attr)
@@ -2304,10 +2069,6 @@ class _LazyModule(ModuleType):
         if name in self._object_missing_backend:
             missing_backends = self._object_missing_backend[name]
 
-            # Backward-compat fallback: before the image processor refactoring, the base
-            # `<Model>ImageProcessor` name referred to the PIL/slow backend. After the refactoring
-            # it refers to the TorchvisionBackend (which requires torchvision). So if torchvision
-            # is not installed, transparently fall back to `<Model>ImageProcessorPil` and warn once.
             if "torchvision" in missing_backends and name.endswith("ImageProcessor"):
                 pil_name = f"{name}Pil"
                 if pil_name in self._class_to_module and pil_name not in self._object_missing_backend:
@@ -2350,12 +2111,8 @@ class _LazyModule(ModuleType):
                 module = self._get_module(self._class_to_module[name])
                 value = getattr(module, name)
             except (ModuleNotFoundError, RuntimeError, AttributeError) as e:
-                # V5: If trying to import a *TokenizerFast symbol, transparently fall back to the
-                # non-Fast symbol from the same module when available. This lets us keep only one
-                # backend tokenizer class while preserving legacy public names.
                 if name.endswith("TokenizerFast"):
                     fallback_name = name[:-4]
-                    # Prefer importing the module that declares the fallback symbol if known
                     try:
                         if fallback_name in self._class_to_module:
                             fb_module = self._get_module(self._class_to_module[fallback_name])
@@ -2366,10 +2123,7 @@ class _LazyModule(ModuleType):
                         setattr(self, fallback_name, fallback_value)
                         value = fallback_value
                     except Exception:
-                        # If we can't find the fallback here, try converter logic as a last resort
-                        # before giving up
                         value = None
-                        # Try converter mapping for Fast tokenizers that don't exist
                         if value is None and name.endswith("TokenizerFast"):
                             lookup_name = name[:-4]
                             try:
@@ -2386,14 +2140,11 @@ class _LazyModule(ModuleType):
                                             if tokenizer_name not in candidate_names:
                                                 candidate_names.append(tokenizer_name)
 
-                                    # Try to import the preferred candidate directly
                                     import importlib
 
                                     for candidate_name in candidate_names:
                                         base_tokenizer_class = None
 
-                                        # Try to derive module path from tokenizer name (e.g., "AlbertTokenizer" -> "albert")
-                                        # Remove "Tokenizer" suffix and convert to lowercase
                                         if candidate_name.endswith("Tokenizer"):
                                             model_name = candidate_name[:-10].lower()  # Remove "Tokenizer"
                                             module_path = f"transformers.models.{model_name}.tokenization_{model_name}"
@@ -2403,7 +2154,6 @@ class _LazyModule(ModuleType):
                                             except Exception:
                                                 logger.debug(f"{module_path} does not have {candidate_name} defined.")
 
-                                        # Fallback: try via _class_to_module
                                         if base_tokenizer_class is None and candidate_name in self._class_to_module:
                                             try:
                                                 alias_module_name = self._class_to_module[candidate_name]
@@ -2414,12 +2164,10 @@ class _LazyModule(ModuleType):
                                                     f"{alias_module_name} does not have {candidate_name} defined"
                                                 )
 
-                                        # If we still don't have base_tokenizer_class, skip this candidate
                                         if base_tokenizer_class is None:
                                             logger.debug(f"skipping candidate {candidate_name}")
                                             continue
 
-                                        # If we got here, we have base_tokenizer_class
                                         value = base_tokenizer_class
 
                                         setattr(self, candidate_name, base_tokenizer_class)
@@ -2447,8 +2195,6 @@ class _LazyModule(ModuleType):
                     f"Could not import module '{name}'. Are this object's requirements defined correctly?"
                 ) from e
         else:
-            # V5: If a *TokenizerFast symbol is requested but not present in the import structure,
-            # try to resolve to the corresponding non-Fast symbol's module if available.
             if name.endswith("TokenizerFast"):
                 fallback_name = name[:-4]
                 if fallback_name in self._class_to_module:
@@ -2460,8 +2206,6 @@ class _LazyModule(ModuleType):
                         return value
                     except Exception as e:
                         logger.debug(f"Could not load fallback {fallback_name}: {e}")
-            # V5: Handle *ImageProcessorFast backward compatibility
-            # Similar to TokenizerFast, but for image processors
             if name.endswith("ImageProcessorFast"):
                 fallback_name = name[:-4]  # Remove "Fast"
                 if fallback_name in self._class_to_module:
@@ -2470,10 +2214,6 @@ class _LazyModule(ModuleType):
                         f"use `{fallback_name}` instead."
                     )
                     if fallback_name in self._object_missing_backend:
-                        # The Fast alias has no entry in the import structure, so `requires_backends` on
-                        # the real class never runs. Handle the missing backend explicitly here, otherwise
-                        # `_get_module` swallows the ImportError and the caller gets an AttributeError.
-                        # Do not fall through to the PIL fallback since a legacy "Fast" image processor was explicitly requested.
                         missing_backends = self._object_missing_backend[fallback_name]
 
                         class Placeholder(metaclass=DummyObject):
@@ -2500,36 +2240,25 @@ class _LazyModule(ModuleType):
                         return value
                     except Exception as e:
                         logger.debug(f"Could not load fallback {fallback_name}: {e}")
-            # V5: If a tokenizer class doesn't exist, check if it should alias to another tokenizer
-            # via the converter mapping (e.g., FNetTokenizer -> AlbertTokenizer via AlbertConverter)
             value = None
             if name.endswith("Tokenizer") or name.endswith("TokenizerFast"):
-                # Strip "Fast" suffix for converter lookup if present
                 lookup_name = name[:-4] if name.endswith("TokenizerFast") else name
 
                 try:
-                    # Lazy import to avoid circular dependencies
                     from ..convert_slow_tokenizer import SLOW_TO_FAST_CONVERTERS
 
-                    # Check if this tokenizer has a converter mapping
                     if lookup_name in SLOW_TO_FAST_CONVERTERS:
                         converter_class = SLOW_TO_FAST_CONVERTERS[lookup_name]
 
-                        # Find which tokenizer class uses the same converter (reverse lookup)
-                        # Prefer the tokenizer that matches the converter name pattern
-                        # (e.g., AlbertConverter -> AlbertTokenizer)
                         converter_base_name = converter_class.__name__.replace("Converter", "")
                         preferred_tokenizer_name = f"{converter_base_name}Tokenizer"
 
-                        # Try preferred tokenizer first
                         candidate_names = [preferred_tokenizer_name]
-                        # Then try all other tokenizers with the same converter
                         for tokenizer_name, tokenizer_converter in SLOW_TO_FAST_CONVERTERS.items():
                             if tokenizer_converter is converter_class and tokenizer_name != lookup_name:
                                 if tokenizer_name not in candidate_names:
                                     candidate_names.append(tokenizer_name)
 
-                        # Try to import one of the candidate tokenizers
                         for candidate_name in candidate_names:
                             if candidate_name in self._class_to_module:
                                 try:
@@ -2537,20 +2266,15 @@ class _LazyModule(ModuleType):
                                     base_tokenizer_class = getattr(alias_module, candidate_name)
                                     value = base_tokenizer_class
 
-                                    # Cache both names for future imports
                                     setattr(self, candidate_name, base_tokenizer_class)
                                     if lookup_name != candidate_name:
                                         setattr(self, lookup_name, value)
                                     setattr(self, name, value)
                                     break
                                 except Exception:
-                                    # If this candidate fails, try the next one
                                     continue
                             else:
-                                # Candidate not in _class_to_module - might need recursive resolution
-                                # Try importing it directly to trigger lazy loading
                                 try:
-                                    # Try to get it from transformers module to trigger lazy loading
                                     transformers_module = sys.modules.get("transformers")
                                     if transformers_module and hasattr(transformers_module, candidate_name):
                                         base_tokenizer_class = getattr(transformers_module, candidate_name)
@@ -2588,7 +2312,7 @@ class _LazyModule(ModuleType):
 
 
 class OptionalDependencyNotAvailable(BaseException):
-    """Internally used error class for signalling an optional dependency was not found."""
+    pass
 
 
 def direct_transformers_import(path: str, file="__init__.py") -> ModuleType:
@@ -2655,26 +2379,17 @@ class Backend:
             )
 
     def get_installed_version(self) -> str:
-        """Return the currently installed version of the backend"""
-        is_available, current_version = _is_package_available(self.package_name, return_version=True)
-        if not is_available:
-            raise RuntimeError(f"Backend {self.package_name} is not available.")
-        return current_version
+        pass
 
     def is_satisfied(self) -> bool:
-        return VersionComparison.from_string(self.version_comparison).value(
-            version.parse(self.get_installed_version()), version.parse(self.version)
-        )
+        pass
 
     def __repr__(self) -> str:
         return f'Backend("{self.package_name}", {VersionComparison[self.version_comparison]}, "{self.version}")'
 
     @property
     def error_message(self):
-        return (
-            f"{{0}} requires the {self.package_name} library version {self.version_comparison}{self.version}. That"
-            f" library was not found with this version in your environment."
-        )
+        pass
 
 
 def requires(*, backends=()):
@@ -2700,19 +2415,7 @@ def requires(*, backends=()):
                 raise ValueError(f"Backend should be defined in the BACKENDS_MAPPING. Offending backend: {backend}")
 
     def inner_fn(fun):
-        if isinstance(fun, type):
-            # For classes, just attach the metadata — don't wrap, as that would
-            # turn the class into a plain function and break isinstance checks.
-            fun.__backends = applied_backends
-            return fun
-
-        @functools.wraps(fun)
-        def wrapper(*args, **kwargs):
-            requires_backends(fun, applied_backends)
-            return fun(*args, **kwargs)
-
-        wrapper.__backends = applied_backends  # type: ignore [unresolved-attribute]
-        return wrapper
+        pass
 
     return inner_fn
 
@@ -2727,7 +2430,6 @@ BASE_FILE_REQUIREMENTS = {
     ),
     lambda name, content: "image_processing_" in name: ("vision",),
     lambda name, content: "video_processing_" in name: ("vision", "torch", "torchvision"),
-    # Some models have specific generation and it always depends on torch (guard if importable via main module)
     lambda name, content: "generation_" in name: ("torch",),
 }
 
@@ -2747,7 +2449,6 @@ def fetch__all__(file_content) -> list[str]:
         if line.startswith("__all__"):
             start_index = index
 
-    # There is no line starting with `__all__`
     if start_index is None:
         return []
 
@@ -2758,11 +2459,9 @@ def fetch__all__(file_content) -> list[str]:
             "fetch__all__ accepts a list of lines, with the first line being the __all__ variable declaration"
         )
 
-    # __all__ is defined on a single line
     if lines[0].endswith("]"):
         return [obj.strip("\"' ") for obj in lines[0].split("=")[1].strip(" []").split(",")]
 
-    # __all__ is defined on multiple lines
     else:
         _all: list[str] = []
         for __all__line_index in range(1, len(lines)):
@@ -2843,56 +2542,40 @@ def create_import_structure_from_path(module_path):
             elif not entry.name.startswith(("convert_", "modular_")):
                 adjacent_modules.append(entry.name)
 
-    # We're only taking a look at files different from __init__.py
-    # We could theoretically require things directly from the __init__.py
-    # files, but this is not supported at this time.
     if "__init__.py" in adjacent_modules:
         adjacent_modules.remove("__init__.py")
 
     module_requirements = {}
     for module_name in adjacent_modules:
-        # Only modules ending in `.py` are accepted here.
         if not module_name.endswith(".py"):
             continue
 
         with open(os.path.join(module_path, module_name), encoding="utf-8") as f:
             file_content = f.read()
 
-        # Remove the .py suffix
         module_name = module_name[:-3]
 
         previous_line = ""
         previous_index = 0
 
-        # Some files have some requirements by default.
-        # For example, any file named `modeling_xxx.py`
-        # should have torch as a required backend.
         base_requirements = ()
         for check, requirements in BASE_FILE_REQUIREMENTS.items():
             if check(module_name, file_content):
                 base_requirements = requirements
                 break
 
-        # Objects that have a `@require` assigned to them will get exported
-        # with the backends specified in the decorator as well as the file backends.
         exported_objects = set()
         if "@requires" in file_content:
             lines = file_content.split("\n")
             for index, line in enumerate(lines):
-                # This allows exporting items with other decorators. We'll take a look
-                # at the line that follows at the same indentation level.
                 if line.startswith((" ", "\t", "@", ")")) and not line.startswith("@requires"):
                     continue
 
-                # Skipping line enables putting whatever we want between the
-                # requires() call and the actual class/method definition.
-                # This is what enables having # Copied from statements, docs, etc.
                 skip_line = False
 
                 if "@requires" in previous_line:
                     skip_line = False
 
-                    # Backends are defined on the same line as requires
                     if "backends" in previous_line:
                         try:
                             backends_string = previous_line.split("backends=")[1].split("(")[1].split(")")[0]
@@ -2902,21 +2585,6 @@ def create_import_structure_from_path(module_path):
                             )
                         backends = tuple(sorted([b.strip("'\",") for b in backends_string.split(", ") if b]))
 
-                    # Backends are defined in the lines following requires, for example such as:
-                    # @requires(
-                    #     backends=(
-                    #             "sentencepiece",
-                    #             "torch",
-                    #     )
-                    # )
-                    #
-                    # or
-                    #
-                    # @requires(
-                    #     backends=(
-                    #             "sentencepiece",
-                    #     )
-                    # )
                     elif "backends" in lines[previous_index + 1]:
                         backends = []
                         for backend_line in lines[previous_index:index]:
@@ -2928,12 +2596,10 @@ def create_import_structure_from_path(module_path):
                                 else:
                                     backends.append(backend_line.strip("()\"', "))
 
-                            # If the line is only a ')', then we reached the end of the backends and we break.
                             if backend_line.strip() == ")":
                                 break
                         backends = tuple(backends)
 
-                    # No backends are registered for requires
                     else:
                         backends = ()
 
@@ -2955,8 +2621,6 @@ def create_import_structure_from_path(module_path):
                     previous_line = line
                     previous_index = index
 
-        # All objects that are in __all__ should be exported by default.
-        # These objects are exported with the file backends.
         if "__all__" in file_content:
             for _all_object in fetch__all__(file_content):
                 if _all_object not in exported_objects:
@@ -3022,14 +2686,12 @@ def spread_import_structure(nested_import_structure):
     def propagate_frozenset(unordered_import_structure):
         frozenset_first_import_structure = {}
         for _key, _value in unordered_import_structure.items():
-            # If the value is not a dict but a string, no need for custom manipulation
             if not isinstance(_value, dict):
                 frozenset_first_import_structure[_key] = _value
 
             elif any(isinstance(v, frozenset) for v in _value):
                 for k, v in _value.items():
                     if isinstance(k, frozenset):
-                        # Here we want to switch around _key and k to propagate k upstream if it is a frozenset
                         if k not in frozenset_first_import_structure:
                             frozenset_first_import_structure[k] = {}
                         if _key not in frozenset_first_import_structure[k]:
@@ -3038,12 +2700,6 @@ def spread_import_structure(nested_import_structure):
                         frozenset_first_import_structure[k][_key].update(v)
 
                     else:
-                        # If k is not a frozenset, it means that the dictionary is not "level": some keys (top-level)
-                        # are frozensets, whereas some are not -> frozenset keys are at an unknown depth-level of the
-                        # dictionary.
-                        #
-                        # We recursively propagate the frozenset for this specific dictionary so that the frozensets
-                        # are at the top-level when we handle them.
                         propagated_frozenset = propagate_frozenset({k: v})
                         for r_k, r_v in propagated_frozenset.items():
                             if isinstance(_key, frozenset):
@@ -3052,7 +2708,6 @@ def spread_import_structure(nested_import_structure):
                                 if _key not in frozenset_first_import_structure[r_k]:
                                     frozenset_first_import_structure[r_k][_key] = {}
 
-                                # _key is a frozenset -> we switch around the r_k and _key
                                 frozenset_first_import_structure[r_k][_key].update(r_v)
                             else:
                                 if _key not in frozenset_first_import_structure:
@@ -3060,7 +2715,6 @@ def spread_import_structure(nested_import_structure):
                                 if r_k not in frozenset_first_import_structure[_key]:
                                     frozenset_first_import_structure[_key][r_k] = {}
 
-                                # _key is not a frozenset -> we keep the order of r_k and _key
                                 frozenset_first_import_structure[_key][r_k].update(r_v)
 
             else:
@@ -3078,16 +2732,11 @@ def spread_import_structure(nested_import_structure):
                 items.append((_key, _value))
         return dict(items)
 
-    # The tuples contain the necessary backends. We want these first, so we propagate them up the
-    # import structure.
     ordered_import_structure = nested_import_structure
 
-    # 6 is a number that gives us sufficient depth to go through all files and foreseeable folder depths
-    # while not taking too long to parse.
     for i in range(6):
         ordered_import_structure = propagate_frozenset(ordered_import_structure)
 
-    # We then flatten the dict so that it references a module path.
     flattened_import_structure = {}
     for key, value in ordered_import_structure.copy().items():
         if isinstance(key, str):
@@ -3138,18 +2787,14 @@ def clear_import_cache() -> None:
 
     This is useful when actively developing/modifying Transformers code.
     """
-    # Get all transformers modules
     transformers_modules = [mod_name for mod_name in sys.modules if mod_name.startswith("transformers.")]
 
-    # Remove them from sys.modules
     for mod_name in transformers_modules:
         module = sys.modules[mod_name]
-        # Clear _LazyModule caches if applicable
         if isinstance(module, _LazyModule):
             module._objects = {}  # Clear cached objects
         del sys.modules[mod_name]
 
-    # Force reload main transformers module
     if "transformers" in sys.modules:
         main_module = sys.modules["transformers"]
         if isinstance(main_module, _LazyModule):

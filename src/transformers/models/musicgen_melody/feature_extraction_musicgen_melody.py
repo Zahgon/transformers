@@ -1,19 +1,3 @@
-# Copyright 2024 Meta AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Feature extractor class for Musicgen Melody
-"""
 
 import copy
 from typing import Any
@@ -38,45 +22,6 @@ logger = logging.get_logger(__name__)
 
 @requires(backends=("torchaudio",))
 class MusicgenMelodyFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a MusicgenMelody feature extractor.
-
-    This feature extractor inherits from [`~feature_extraction_sequence_utils.SequenceFeatureExtractor`] which contains
-    most of the main methods. Users should refer to this superclass for more information regarding those methods.
-
-    This class extracts chroma features from audio processed by [Demucs](https://github.com/adefossez/demucs/tree/main) or
-    directly from raw audio waveform.
-
-    Args:
-        feature_size (`int`, *optional*, defaults to 12):
-            The feature dimension of the extracted features.
-        sampling_rate (`int`, *optional*, defaults to 32000):
-            The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
-        hop_length (`int`, *optional*, defaults to 4096):
-            Length of the overlapping windows for the STFT used to obtain the Mel Frequency coefficients.
-        chunk_length (`int`, *optional*, defaults to 30):
-            The maximum number of chunks of `sampling_rate` samples used to trim and pad longer or shorter audio
-            sequences.
-        n_fft (`int`, *optional*, defaults to 16384):
-            Size of the Fourier transform.
-        num_chroma (`int`, *optional*, defaults to 12):
-            Number of chroma bins to use.
-        padding_value (`float`, *optional*, defaults to 0.0):
-            Padding value used to pad the audio.
-        return_attention_mask (`bool`, *optional*, defaults to `False`):
-            Whether to return the attention mask. Can be overwritten when calling the feature extractor.
-
-            [What are attention masks?](../glossary#attention-mask)
-
-            <Tip>
-
-            For Whisper models, `attention_mask` should always be passed for batched inference, to avoid subtle
-            bugs.
-
-            </Tip>
-        stem_indices (`list[int]`, *optional*, defaults to `[3, 2]`):
-            Stem channels to extract if demucs outputs are passed.
-    """
 
     model_input_names = ["input_features"]
 
@@ -114,70 +59,10 @@ class MusicgenMelodyFeatureExtractor(SequenceFeatureExtractor):
         self.stem_indices = stem_indices
 
     def _torch_extract_fbank_features(self, waveform: torch.Tensor) -> torch.Tensor:
-        """
-        Compute the chroma spectrogram of the provided audio using the torchaudio spectrogram implementation and the librosa chroma features.
-        """
-
-        # if wav length is not long enough, pad it
-        wav_length = waveform.shape[-1]
-        if wav_length < self.n_fft:
-            pad = self.n_fft - wav_length
-            rest = 0 if pad % 2 == 0 else 1
-            waveform = torch.nn.functional.pad(waveform, (pad // 2, pad // 2 + rest), "constant", 0)
-
-        # squeeze alongside channel dimension
-        spec = self.spectrogram(waveform).squeeze(1)
-
-        # sum along the frequency dimension
-        raw_chroma = torch.einsum("cf, ...ft->...ct", self.chroma_filters, spec)
-
-        # normalise with max value
-        norm_chroma = torch.nn.functional.normalize(raw_chroma, p=float("inf"), dim=-2, eps=1e-6)
-
-        # transpose time and chroma dimension -> (batch, time, chroma)
-        norm_chroma = norm_chroma.transpose(1, 2)
-
-        # replace max value alongside chroma dimension with 1 and replace the rest with 0
-        idx = norm_chroma.argmax(-1, keepdim=True)
-        norm_chroma[:] = 0
-        norm_chroma.scatter_(dim=-1, index=idx, value=1)
-
-        return norm_chroma
+        pass
 
     def _extract_stem_indices(self, audio, sampling_rate=None):
-        """
-        Extracts stems from the output of the [Demucs](https://github.com/adefossez/demucs/tree/main) audio separation model,
-        then converts to mono-channel and resample to the feature extractor sampling rate.
-
-        Args:
-            audio (`torch.Tensor` of shape `(batch_size, num_stems, channel_size, audio_length)`):
-                The output of the Demucs model to be processed.
-            sampling_rate (`int`, *optional*):
-                Demucs sampling rate. If not specified, defaults to `44000`.
-        """
-        sampling_rate = 44000 if sampling_rate is None else sampling_rate
-
-        # extract "vocals" and "others" sources from audio encoder (demucs) output
-        # [batch_size, num_stems, channel_size, audio_length]
-        wav = audio[:, torch.tensor(self.stem_indices)]
-
-        # merge extracted stems to single waveform
-        wav = wav.sum(1)
-
-        # convert to mono-channel waveform
-        wav = wav.mean(dim=1, keepdim=True)
-
-        # resample to model sampling rate
-        # not equivalent to julius.resample
-        if sampling_rate != self.sampling_rate:
-            wav = torchaudio.functional.resample(
-                wav, sampling_rate, self.sampling_rate, rolloff=0.945, lowpass_filter_width=24
-            )
-
-        # [batch_size, 1, audio_length] -> [batch_size, audio_length]
-        wav = wav.squeeze(1)
-
-        return wav
+        pass
 
     def __call__(
         self,
@@ -274,7 +159,6 @@ class MusicgenMelodyFeatureExtractor(SequenceFeatureExtractor):
         if isinstance(audio[0], torch.Tensor) and audio[0].dtype is torch.float64:
             audio = [speech.to(torch.float32) for speech in audio]
 
-        # always return batch
         if not is_batched:
             audio = [audio]
 
@@ -285,7 +169,6 @@ class MusicgenMelodyFeatureExtractor(SequenceFeatureExtractor):
                 "to correct `audio` to get the right behaviour."
                 "Link to the docstrings: https://huggingface.co/docs/transformers/main/en/model_doc/musicgen_melody"
             )
-            # convert to mono-channel waveform
             audio = [stereo.mean(dim=0) for stereo in audio]
 
         batched_speech = BatchFeature({"input_features": audio})
@@ -305,7 +188,6 @@ class MusicgenMelodyFeatureExtractor(SequenceFeatureExtractor):
         padded_inputs["input_features"] = input_features
 
         if return_attention_mask:
-            # rescale from raw audio length to spectrogram length
             padded_inputs["attention_mask"] = padded_inputs["attention_mask"][:, :: self.hop_length]
 
         if return_tensors is not None:

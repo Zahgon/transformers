@@ -1,17 +1,3 @@
-# Copyright 2025 Meta AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch DINOv3 model."""
 
 import math
 from collections.abc import Callable
@@ -55,19 +41,11 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class DINOv3ViTBackboneOutput(BackboneOutput):
-    r"""
-    cls_tokens (`tuple(torch.FloatTensor)`, *optional*):
-        CLS token from each selected feature stage, each of shape `(batch_size, hidden_size)`.
-        Only present when `config.return_class_token=True`.
-    """
 
     cls_tokens: tuple[torch.FloatTensor] | None = None
 
 
 class DINOv3ViTEmbeddings(nn.Module):
-    """
-    Construct the CLS token, mask token, position and patch embeddings.
-    """
 
     def __init__(self, config: DINOv3ViTConfig):
         super().__init__()
@@ -83,7 +61,6 @@ class DINOv3ViTEmbeddings(nn.Module):
         batch_size = pixel_values.shape[0]
         target_dtype = self.patch_embeddings.weight.dtype
 
-        # (batch_size, num_channels, height, width) -> (batch_size, num_patches, hidden_size)
         patch_embeddings = self.patch_embeddings(pixel_values.to(dtype=target_dtype))
         patch_embeddings = patch_embeddings.flatten(2).transpose(1, 2)
 
@@ -91,7 +68,6 @@ class DINOv3ViTEmbeddings(nn.Module):
             mask_token = self.mask_token.to(patch_embeddings.dtype)
             patch_embeddings = torch.where(bool_masked_pos.unsqueeze(-1), mask_token, patch_embeddings)
 
-        # Add CLS and register tokens
         cls_token = self.cls_token.expand(batch_size, -1, -1)
         register_tokens = self.register_tokens.expand(batch_size, -1, -1)
         embeddings = torch.cat([cls_token, register_tokens, patch_embeddings], dim=1)
@@ -120,10 +96,8 @@ def get_patches_center_coordinates(
     coords_w = torch.arange(0.5, num_patches_w, dtype=dtype, device=device)
     coords_h = coords_h / num_patches_h
     coords_w = coords_w / num_patches_w
-    # (height, width, 2) -> (height * width, 2)
     coords = torch.stack(torch.meshgrid(coords_h, coords_w, indexing="ij"), dim=-1)
     coords = coords.flatten(0, 1)
-    # Shift range [0, 1] to [-1, +1]
     coords = 2.0 * coords - 1.0
     return coords
 
@@ -134,20 +108,17 @@ def augment_patches_center_coordinates(
     jitter: float | None = None,
     rescale: float | None = None,
 ) -> torch.Tensor:
-    # Shift coords by adding a uniform value in [-shift, shift]
     if shift is not None:
         shift_hw = torch.empty((1, 2), device=coords.device, dtype=coords.dtype)
         shift_hw = shift_hw.uniform_(-shift, shift)
         coords = coords + shift_hw
 
-    # Jitter coords by multiplying the range [-1, 1] by a log-uniform value in [1/jitter, jitter]
     if jitter is not None:
         jitter_range = np.log(jitter)
         jitter_hw = torch.empty((1, 2), device=coords.device, dtype=coords.dtype)
         jitter_hw = jitter_hw.uniform_(-jitter_range, jitter_range).exp()
         coords = coords * jitter_hw
 
-    # Rescale coords by multiplying the range [-1, 1] by a log-uniform value in [1/rescale, rescale]
     if rescale is not None:
         rescale_range = np.log(rescale)
         rescale_hw = torch.empty(1, device=coords.device, dtype=coords.dtype)
@@ -181,9 +152,6 @@ class DINOv3ViTRopePositionEmbedding(nn.Module):
         device_type = device.type if isinstance(device.type, str) and device.type != "mps" else "cpu"
 
         with maybe_autocast(device_type=device_type, enabled=False):  # Force float32
-            # Although we could precompute static patch_coords from image_size and patch_size in the config,
-            # the model was trained with random_scale, so it can process images of varying sizes.
-            # Therefore, it's better to compute patch_coords dynamically (with lru_cache).
             patch_coords = get_patches_center_coordinates(
                 num_patches_h, num_patches_w, dtype=torch.float32, device=device
             )
@@ -195,7 +163,6 @@ class DINOv3ViTRopePositionEmbedding(nn.Module):
                     rescale=self.config.pos_embed_rescale,
                 )
 
-            # (height * width, 2, head_dim / 4) -> (height * width, head_dim / 2) -> (height * width, head_dim)
             angles = 2 * math.pi * patch_coords[:, :, None] * self.inv_freq[None, None, :]
             angles = angles.flatten(1, 2)
             angles = angles.tile(2)
@@ -230,7 +197,6 @@ def apply_rotary_pos_emb(
     q_prefix_tokens, q_patches = q.split((num_prefix_tokens, num_patches), dim=-2)
     k_prefix_tokens, k_patches = k.split((num_prefix_tokens, num_patches), dim=-2)
 
-    # apply rope only to patch tokens
     q_patches = (q_patches * cos) + (rotate_half(q_patches) * sin)
     k_patches = (k_patches * cos) + (rotate_half(k_patches) * sin)
 
@@ -309,7 +275,6 @@ class Dinov3ViTDropPath(SwinDropPath):
 
 
 class DINOv3ViTLayer(GradientCheckpointingLayer):
-    """This corresponds to the Block class in the original implementation."""
 
     def __init__(self, config: DINOv3ViTConfig):
         super().__init__()
@@ -334,7 +299,6 @@ class DINOv3ViTLayer(GradientCheckpointingLayer):
         position_embeddings: tuple[torch.Tensor, torch.Tensor] | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> torch.Tensor:
-        # Attention with residual connection
         residual = hidden_states
         hidden_states = self.norm1(hidden_states)
         hidden_states, _ = self.attention(
@@ -346,7 +310,6 @@ class DINOv3ViTLayer(GradientCheckpointingLayer):
         hidden_states = self.layer_scale1(hidden_states)
         hidden_states = self.drop_path(hidden_states) + residual
 
-        # MLP with residual connection
         residual = hidden_states
         hidden_states = self.norm2(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -388,7 +351,6 @@ class DINOv3ViTEncoder(DINOv3ViTPreTrainedModel):
     def __init__(self, config: DINOv3ViTConfig):
         super().__init__(config)
         self.layer = nn.ModuleList([DINOv3ViTLayer(config) for _ in range(config.num_hidden_layers)])
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -414,7 +376,6 @@ class DINOv3ViTModel(DINOv3ViTPreTrainedModel):
         self.model = DINOv3ViTEncoder(config)
         self.norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):

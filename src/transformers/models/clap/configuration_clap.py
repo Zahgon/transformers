@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""CLAP model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -25,21 +11,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="laion/clap-htsat-fused")
 @strict
 class ClapTextConfig(PreTrainedConfig):
-    r"""
-    Examples:
-
-    ```python
-    >>> from transformers import ClapTextConfig, ClapTextModel
-
-    >>> # Initializing a CLAP text configuration
-    >>> configuration = ClapTextConfig()
-
-    >>> # Initializing a model (with random weights) from the configuration
-    >>> model = ClapTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "clap_text_model"
     base_config_key = "text_config"
@@ -66,47 +37,6 @@ class ClapTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="laion/clap-htsat-fused")
 @strict
 class ClapAudioConfig(PreTrainedConfig):
-    r"""
-    window_size (`int`, *optional*, defaults to 8):
-        Image size of the spectrogram
-    spec_size (`int`, *optional*, defaults to 256):
-        Desired input size of the spectrogram that the model supports. It can be different from the output of the
-        `ClapFeatureExtractor`, in which case the input features will be resized. Corresponds to the `image_size`
-        of the audio models.
-    patch_stride (`list`, *optional*, defaults to `[4, 4]`):
-        Patch stride for the audio spectrogram
-    num_classes (`int`, *optional*, defaults to 527):
-        Number of classes used for the head training
-    enable_fusion (`bool`, *optional*, defaults to `False`):
-        Whether or not to enable patch fusion. This is the main contribution of the authors, and should give the
-        best results.
-    fusion_type (`[type]`, *optional*):
-        Fusion type used for the patch fusion.
-    patch_embed_input_channels (`int`, *optional*, defaults to 1):
-        Number of channels used for the input spectrogram
-    flatten_patch_embeds (`bool`, *optional*, defaults to `True`):
-        Whether or not to flatten the patch embeddings
-    patch_embeds_hidden_size (`int`, *optional*, defaults to 96):
-        Hidden size of the patch embeddings. It is used as the number of output channels.
-    enable_patch_layer_norm (`bool`, *optional*, defaults to `True`):
-        Whether or not to enable layer normalization for the patch embeddings
-    aff_block_r (`int`, *optional*, defaults to 4):
-        downsize_ratio used in the AudioFF block
-
-    Example:
-
-    ```python
-    >>> from transformers import ClapAudioConfig, ClapAudioModel
-
-    >>> # Initializing a ClapAudioConfig with laion/clap-htsat-fused style configuration
-    >>> configuration = ClapAudioConfig()
-
-    >>> # Initializing a ClapAudioModel (with random weights) from the laion/clap-htsat-fused style configuration
-    >>> model = ClapAudioModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "clap_audio_model"
     base_config_key = "audio_config"
@@ -143,30 +73,6 @@ class ClapAudioConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="laion/clap-htsat-fused")
 @strict
 class ClapConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import ClapConfig, ClapModel
-
-    >>> # Initializing a ClapConfig with laion-ai/base style configuration
-    >>> configuration = ClapConfig()
-
-    >>> # Initializing a ClapModel (with random weights) from the laion-ai/base style configuration
-    >>> model = ClapModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-
-    >>> # We can also initialize a ClapConfig from a ClapTextConfig and a ClapAudioConfig
-    >>> from transformers import ClapTextConfig, ClapAudioConfig
-
-    >>> # Initializing a ClapText and ClapAudioConfig configuration
-    >>> config_text = ClapTextConfig()
-    >>> config_audio = ClapAudioConfig()
-
-    >>> config = ClapConfig(text_config=config_text, audio_config=config_audio)
-    ```"""
 
     model_type = "clap"
     sub_configs = {"text_config": ClapTextConfig, "audio_config": ClapAudioConfig}

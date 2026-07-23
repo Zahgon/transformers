@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Feature extractor class for Pop2Piano"""
 
 import warnings
 
@@ -47,34 +33,6 @@ logger = logging.get_logger(__name__)
 
 @requires(backends=("essentia", "librosa", "scipy", "torch"))
 class Pop2PianoFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a Pop2Piano feature extractor.
-
-    This feature extractor inherits from [`~feature_extraction_sequence_utils.SequenceFeatureExtractor`] which contains
-    most of the main methods. Users should refer to this superclass for more information regarding those methods.
-
-    This class extracts rhythm and preprocesses the audio before it is passed to the model. First the audio is passed
-    to `RhythmExtractor2013` algorithm which extracts the beat_times, beat positions and estimates their confidence as
-    well as tempo in bpm, then beat_times is interpolated and to get beatsteps. Later we calculate
-    extrapolated_beatsteps from it to be used in tokenizer. On the other hand audio is resampled to self.sampling_rate
-    and preprocessed and then log mel spectogram is computed from that to be used in our transformer model.
-
-    Args:
-        sampling_rate (`int`, *optional*, defaults to 22050):
-            Target Sampling rate of audio signal. It's the sampling rate that we forward to the model.
-        padding_value (`int`, *optional*, defaults to 0):
-            Padding value used to pad the audio. Should correspond to silences.
-        window_size (`int`, *optional*, defaults to 4096):
-            Length of the window in samples to which the Fourier transform is applied.
-        hop_length (`int`, *optional*, defaults to 1024):
-            Step size between each window of the waveform, in samples.
-        min_frequency (`float`, *optional*, defaults to 10.0):
-            Lowest frequency that will be used in the log-mel spectrogram.
-        feature_size (`int`, *optional*, defaults to 512):
-            The feature dimension of the extracted features.
-        num_bars (`int`, *optional*, defaults to 2):
-            Determines interval between each sequence.
-    """
 
     model_input_names = ["input_features", "beatsteps", "extrapolated_beatstep"]
 
@@ -113,136 +71,29 @@ class Pop2PianoFeatureExtractor(SequenceFeatureExtractor):
         )
 
     def mel_spectrogram(self, sequence: np.ndarray):
-        """
-        Generates MelSpectrogram.
-
-        Args:
-            sequence (`numpy.ndarray`):
-                The sequence of which the mel-spectrogram will be computed.
-        """
-        mel_specs = []
-        for seq in sequence:
-            window = np.hanning(self.window_size + 1)[:-1]
-            mel_specs.append(
-                spectrogram(
-                    waveform=seq,
-                    window=window,
-                    frame_length=self.window_size,
-                    hop_length=self.hop_length,
-                    power=2.0,
-                    mel_filters=self.mel_filters,
-                )
-            )
-        mel_specs = np.array(mel_specs)
-
-        return mel_specs
+        pass
 
     def extract_rhythm(self, audio: np.ndarray):
-        """
-        This algorithm(`RhythmExtractor2013`) extracts the beat positions and estimates their confidence as well as
-        tempo in bpm for an audio signal. For more information please visit
-        https://essentia.upf.edu/reference/std_RhythmExtractor2013.html .
-
-        Args:
-            audio(`numpy.ndarray`):
-                raw audio waveform which is passed to the Rhythm Extractor.
-        """
-        requires_backends(self, ["essentia"])
-        essentia_tracker = essentia.standard.RhythmExtractor2013(method="multifeature")
-        bpm, beat_times, confidence, estimates, essentia_beat_intervals = essentia_tracker(audio)
-
-        return bpm, beat_times, confidence, estimates, essentia_beat_intervals
+        pass
 
     def interpolate_beat_times(
         self, beat_times: numpy.ndarray, steps_per_beat: numpy.ndarray, n_extend: numpy.ndarray
     ):
-        """
-        This method takes beat_times and then interpolates that using `scipy.interpolate.interp1d` and the output is
-        then used to convert raw audio to log-mel-spectrogram.
-
-        Args:
-            beat_times (`numpy.ndarray`):
-                beat_times is passed into `scipy.interpolate.interp1d` for processing.
-            steps_per_beat (`int`):
-                used as an parameter to control the interpolation.
-            n_extend (`int`):
-                used as an parameter to control the interpolation.
-        """
-
-        requires_backends(self, ["scipy"])
-        beat_times_function = scipy.interpolate.interp1d(
-            np.arange(beat_times.size),
-            beat_times,
-            bounds_error=False,
-            fill_value="extrapolate",
-        )
-
-        ext_beats = beat_times_function(
-            np.linspace(0, beat_times.size + n_extend - 1, beat_times.size * steps_per_beat + n_extend)
-        )
-
-        return ext_beats
+        pass
 
     def preprocess_mel(self, audio: np.ndarray, beatstep: np.ndarray):
-        """
-        Preprocessing for log-mel-spectrogram
-
-        Args:
-            audio (`numpy.ndarray` of shape `(audio_length, )` ):
-                Raw audio waveform to be processed.
-            beatstep (`numpy.ndarray`):
-                Interpolated values of the raw audio. If beatstep[0] is greater than 0.0, then it will be shifted by
-                the value at beatstep[0].
-        """
-
-        if audio is not None and len(audio.shape) != 1:
-            raise ValueError(
-                f"Expected `audio` to be a single channel audio input of shape `(n, )` but found shape {audio.shape}."
-            )
-        if beatstep[0] > 0.0:
-            beatstep = beatstep - beatstep[0]
-
-        num_steps = self.num_bars * 4
-        num_target_steps = len(beatstep)
-        extrapolated_beatstep = self.interpolate_beat_times(
-            beat_times=beatstep, steps_per_beat=1, n_extend=(self.num_bars + 1) * 4 + 1
-        )
-
-        sample_indices = []
-        max_feature_length = 0
-        for i in range(0, num_target_steps, num_steps):
-            start_idx = i
-            end_idx = min(i + num_steps, num_target_steps)
-            start_sample = int(extrapolated_beatstep[start_idx] * self.sampling_rate)
-            end_sample = int(extrapolated_beatstep[end_idx] * self.sampling_rate)
-            sample_indices.append((start_sample, end_sample))
-            max_feature_length = max(max_feature_length, end_sample - start_sample)
-        padded_batch = []
-        for start_sample, end_sample in sample_indices:
-            feature = audio[start_sample:end_sample]
-            padded_feature = np.pad(
-                feature,
-                ((0, max_feature_length - feature.shape[0]),),
-                "constant",
-                constant_values=0,
-            )
-            padded_batch.append(padded_feature)
-
-        padded_batch = np.asarray(padded_batch)
-        return padded_batch, extrapolated_beatstep
+        pass
 
     def _pad(self, features: np.ndarray, add_zero_line=True):
         features_shapes = [each_feature.shape for each_feature in features]
         attention_masks, padded_features = [], []
         for i, each_feature in enumerate(features):
-            # To pad "input_features".
             if len(each_feature.shape) == 3:
                 features_pad_value = max([*zip(*features_shapes)][1]) - features_shapes[i][1]
                 attention_mask = np.ones(features_shapes[i][:2], dtype=np.int64)
                 feature_padding = ((0, 0), (0, features_pad_value), (0, 0))
                 attention_mask_padding = (feature_padding[0], feature_padding[1])
 
-            # To pad "beatsteps" and "extrapolated_beatstep".
             else:
                 each_feature = each_feature.reshape(1, -1)
                 features_pad_value = max([*zip(*features_shapes)][0]) - features_shapes[i][0]
@@ -255,10 +106,8 @@ class Pop2PianoFeatureExtractor(SequenceFeatureExtractor):
             )
 
             if add_zero_line:
-                # if it is batched then we separate each examples using zero array
                 zero_array_len = max([*zip(*features_shapes)][1])
 
-                # we concatenate the zero array line here
                 each_padded_feature = np.concatenate(
                     [each_padded_feature, np.zeros([1, zero_array_len, self.feature_size])], axis=0
                 )
@@ -329,8 +178,6 @@ class Pop2PianoFeatureExtractor(SequenceFeatureExtractor):
                 if return_attention_mask:
                     processed_features_dict[f"attention_mask_{feature_name}"] = attention_mask
 
-        # If we are processing only one example, we should remove the zero array line since we don't need it to
-        # separate examples from each other.
         if not is_batched and not return_attention_mask:
             processed_features_dict["input_features"] = processed_features_dict["input_features"][:-1, ...]
 
@@ -376,7 +223,6 @@ class Pop2PianoFeatureExtractor(SequenceFeatureExtractor):
         requires_backends(self, ["librosa"])
         is_batched = isinstance(audio, (list, tuple)) and isinstance(audio[0], (np.ndarray, tuple, list))
         if is_batched:
-            # This enables the user to process files of different sampling_rate at same time
             if not isinstance(sampling_rate, list):
                 raise ValueError(
                     "Please give sampling_rate of each audio separately when you are passing multiple raw_audios at the same time. "
@@ -397,7 +243,6 @@ class Pop2PianoFeatureExtractor(SequenceFeatureExtractor):
 
             if self.sampling_rate != single_sampling_rate and self.sampling_rate is not None:
                 if resample:
-                    # Change sampling_rate to self.sampling_rate
                     single_raw_audio = librosa.core.resample(
                         single_raw_audio,
                         orig_sr=single_sampling_rate,
@@ -422,7 +267,6 @@ class Pop2PianoFeatureExtractor(SequenceFeatureExtractor):
 
             mel_specs = self.mel_spectrogram(input_features.astype(np.float32))
 
-            # apply np.log to get log mel-spectrograms
             log_mel_specs = np.log(np.clip(mel_specs, a_min=1e-6, a_max=None))
 
             input_features = np.transpose(log_mel_specs, (0, -1, -2))

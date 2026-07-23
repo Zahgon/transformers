@@ -1,18 +1,4 @@
-# Copyright 2026 the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Convert DeepSeek-OCR-2 weights from HF Hub custom-code format to native transformers format."""
 
 import argparse
 import copy
@@ -80,15 +66,11 @@ def convert_config(config_dict: dict) -> dict:
 
     config_dict.pop("projector_config", None)
 
-    # Strip top-level junk inherited from the original custom-code config
-    # (everything `DeepseekOcr2Config` does not declare as a field).
     for dead_key in (
-        # Original-repo specific
         "auto_map",
         "candidate_resolutions",
         "global_view_pos",
         "tile_tag",
-        # text_config duplicates leaked to top-level
         "bos_token_id",
         "eos_token_id",
         "hidden_size",
@@ -105,9 +87,7 @@ def convert_config(config_dict: dict) -> dict:
         "topk_group",
         "topk_method",
         "vocab_size",
-        # Replaced by `text_config["mlp_layer_types"]`
         "first_k_dense_replace",
-        # Non-standard / MLA leftovers (port uses standard MHA)
         "lm_head",
         "rm_head",
         "kv_lora_rank",
@@ -131,7 +111,6 @@ def convert_weights(input_dir: str, output_dir: str, hub_repo_id: str | None = N
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # Config
     with open(os.path.join(input_dir, "config.json")) as f:
         raw_config = json.load(f)
 
@@ -139,7 +118,6 @@ def convert_weights(input_dir: str, output_dir: str, hub_repo_id: str | None = N
     config.save_pretrained(output_dir)
     print("Config saved to", output_dir)
 
-    # Load with conversion_mapping.py (key remapping + MoE expert fusing) and save in HF format
     print(f"Loading model from {input_dir} with automatic weight conversion ...")
     model = DeepseekOcr2ForConditionalGeneration.from_pretrained(input_dir, config=config)
 

@@ -1,19 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for Pix2Struct.
-"""
 
 from ...feature_extraction_utils import BatchFeature
 from ...processing_utils import ProcessingKwargs, ProcessorMixin, Unpack
@@ -65,7 +49,6 @@ class Pix2StructProcessor(ProcessorMixin):
             **kwargs,
         )
         add_special_tokens = output_kwargs["text_kwargs"].pop("add_special_tokens", None)
-        # Get only text
         if images is None and not self.image_processor.is_vqa:
             output_kwargs["text_kwargs"]["add_special_tokens"] = (
                 add_special_tokens if add_special_tokens is not None else True
@@ -74,10 +57,8 @@ class Pix2StructProcessor(ProcessorMixin):
             return text_encoding
 
         if not self.image_processor.is_vqa:
-            # add pixel_values
             encoding_image_processor = self.image_processor(images, **output_kwargs["images_kwargs"])
         else:
-            # add pixel_values and bbox
             output_kwargs["images_kwargs"].setdefault("header_text", text)
             encoding_image_processor = self.image_processor(images, **output_kwargs["images_kwargs"])
 
@@ -101,9 +82,7 @@ class Pix2StructProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        image_processor_input_names = self.image_processor.model_input_names
-        decoder_ids = ["decoder_attention_mask", "decoder_input_ids"]
-        return image_processor_input_names + decoder_ids
+        pass
 
 
 __all__ = ["Pix2StructProcessor"]

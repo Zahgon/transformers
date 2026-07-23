@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""SAM model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,12 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="facebook/sam-vit-huge")
 @strict
 class SamPromptEncoderConfig(PreTrainedConfig):
-    r"""
-    mask_input_channels (`int`, *optional*, defaults to 16):
-        The number of channels to be fed to the `MaskDecoder` module.
-    num_point_embeddings (`int`, *optional*, defaults to 4):
-        The number of point embeddings to be used.
-    """
 
     base_config_key = "prompt_encoder_config"
 
@@ -47,18 +27,6 @@ class SamPromptEncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/sam-vit-huge")
 @strict
 class SamMaskDecoderConfig(PreTrainedConfig):
-    r"""
-    mlp_dim (`int`, *optional*, defaults to 2048):
-        Dimensionality of the "intermediate" (i.e., feed-forward) layer in the Transformer encoder.
-    attention_downsample_rate (`int`, *optional*, defaults to 2):
-        The downsampling rate of the attention layer.
-    num_multimask_outputs (`int`, *optional*, defaults to 3):
-        The number of outputs from the `SamMaskDecoder` module. In the Segment Anything paper, this is set to 3.
-    iou_head_depth (`int`, *optional*, defaults to 3):
-        The number of layers in the IoU head module.
-    iou_head_hidden_dim (`int`, *optional*, defaults to 256):
-        The dimensionality of the hidden states in the IoU head module.
-    """
 
     base_config_key = "mask_decoder_config"
 
@@ -77,38 +45,6 @@ class SamMaskDecoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/sam-vit-huge")
 @strict
 class SamVisionConfig(PreTrainedConfig):
-    r"""
-    output_channels (`int`, *optional*, defaults to 256):
-        Dimensionality of the output channels in the Patch Encoder.
-    use_rel_pos (`bool`, *optional*, defaults to `True`):
-        Whether to use relative position embedding.
-    window_size (`int`, *optional*, defaults to 14):
-        Window size for relative position.
-    global_attn_indexes (`list[int]`, *optional*, defaults to `[2, 5, 8, 11]`):
-        The indexes of the global attention layers.
-    num_pos_feats (`int`, *optional*, defaults to 128):
-        The dimensionality of the position embedding.
-    mlp_dim (`int`, *optional*):
-        The dimensionality of the MLP layer in the Transformer encoder. If `None`, defaults to `mlp_ratio *
-        hidden_size`.
-
-    Example:
-
-    ```python
-    >>> from transformers import (
-    ...     SamVisionConfig,
-    ...     SamVisionModel,
-    ... )
-
-    >>> # Initializing a SamVisionConfig with `"facebook/sam-vit-huge"` style configuration
-    >>> configuration = SamVisionConfig()
-
-    >>> # Initializing a SamVisionModel (with random weights) from the `"facebook/sam-vit-huge"` style configuration
-    >>> model = SamVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     base_config_key = "vision_config"
     model_type = "sam_vision_model"
@@ -142,40 +78,6 @@ class SamVisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/sam-vit-huge")
 @strict
 class SamConfig(PreTrainedConfig):
-    r"""
-    prompt_encoder_config (Union[`dict`, `SamPromptEncoderConfig`], *optional*):
-        Dictionary of configuration options used to initialize [`SamPromptEncoderConfig`].
-    mask_decoder_config (Union[`dict`, `SamMaskDecoderConfig`], *optional*):
-        Dictionary of configuration options used to initialize [`SamMaskDecoderConfig`].
-
-    Example:
-
-    ```python
-    >>> from transformers import (
-    ...     SamVisionConfig,
-    ...     SamPromptEncoderConfig,
-    ...     SamMaskDecoderConfig,
-    ...     SamModel,
-    ... )
-
-    >>> # Initializing a SamConfig with `"facebook/sam-vit-huge"` style configuration
-    >>> configuration = SamConfig()
-
-    >>> # Initializing a SamModel (with random weights) from the `"facebook/sam-vit-huge"` style configuration
-    >>> model = SamModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-
-    >>> # We can also initialize a SamConfig from a SamVisionConfig, SamPromptEncoderConfig, and SamMaskDecoderConfig
-
-    >>> # Initializing SAM vision, SAM Q-Former and language model configurations
-    >>> vision_config = SamVisionConfig()
-    >>> prompt_encoder_config = SamPromptEncoderConfig()
-    >>> mask_decoder_config = SamMaskDecoderConfig()
-
-    >>> config = SamConfig(vision_config, prompt_encoder_config, mask_decoder_config)
-    ```"""
 
     model_type = "sam"
     sub_configs = {

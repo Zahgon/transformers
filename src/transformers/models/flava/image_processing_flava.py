@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Flava."""
 
 import math
 import random
@@ -40,7 +26,6 @@ from ...utils import (
 )
 
 
-# These values are taken from CLIP
 FLAVA_IMAGE_MEAN = OPENAI_CLIP_MEAN
 FLAVA_IMAGE_STD = OPENAI_CLIP_STD
 FLAVA_CODEBOOK_MEAN = [0.0, 0.0, 0.0]
@@ -49,67 +34,7 @@ LOGIT_LAPLACE_EPS: float = 0.1
 
 
 class FlavaImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    return_image_mask (`bool`, *optional*, defaults to `False`):
-        Whether to return the image mask. Can be overridden by the `return_image_mask` parameter in `preprocess`.
-    input_size_patches (`int`, *optional*, defaults to `14`):
-        Number of patches in the image in height and width direction. 14x14 = 196 total patches. Can be overridden
-        by the `input_size_patches` parameter in `preprocess`.
-    total_mask_patches (`int`, *optional*, defaults to `75`):
-        Total number of patches that should be masked. Can be overridden by the `total_mask_patches` parameter in
-        `preprocess`.
-    mask_group_min_patches (`int`, *optional*, defaults to `16`):
-        Minimum number of patches that should be masked. Can be overridden by the `mask_group_min_patches`
-        parameter in `preprocess`.
-    mask_group_max_patches (`int`, *optional*):
-        Maximum number of patches that should be masked. Can be overridden by the `mask_group_max_patches`
-        parameter in `preprocess`.
-    mask_group_min_aspect_ratio (`float`, *optional*, defaults to `0.3`):
-        Minimum aspect ratio of the mask window. Can be overridden by the `mask_group_min_aspect_ratio` parameter
-        in `preprocess`.
-    mask_group_max_aspect_ratio (`float`, *optional*):
-        Maximum aspect ratio of the mask window. Can be overridden by the `mask_group_max_aspect_ratio` parameter
-        in `preprocess`.
-    return_codebook_pixels (`bool`, *optional*, defaults to `False`):
-        Whether to return the codebook pixel values.
-    codebook_do_resize (`bool`, *optional*, defaults to `True`):
-        Whether to resize the input for codebook to a certain. Can be overridden by the `codebook_do_resize`
-        parameter in `preprocess`. `codebook_size`.
-    codebook_size (`dict[str, int]`, *optional*, defaults to `{"height": 224, "width": 224}`):
-        Resize the input for codebook to the given size. Can be overridden by the `codebook_size` parameter in
-        `preprocess`.
-    codebook_resample (`PILImageResampling`, *optional*, defaults to `PILImageResampling.LANCZOS`):
-        Resampling filter to use if resizing the codebook image. With torchvision < 0.27, LANCZOS is not
-        supported for torch Tensors and BICUBIC is used as the closest alternative. Can be overridden by the
-        `codebook_resample` parameter in `preprocess`.
-    codebook_do_center_crop (`bool`, *optional*, defaults to `True`):
-        Whether to crop the input for codebook at the center. If the input size is smaller than
-        `codebook_crop_size` along any edge, the image is padded with 0's and then center cropped. Can be
-        overridden by the `codebook_do_center_crop` parameter in `preprocess`.
-    codebook_crop_size (`dict[str, int]`, *optional*, defaults to `{"height": 224, "width": 224}`):
-        Desired output size for codebook input when applying center-cropping. Can be overridden by the
-        `codebook_crop_size` parameter in `preprocess`.
-    codebook_do_rescale (`bool`, *optional*, defaults to `True`):
-        Whether to rescale the input for codebook by the specified scale `codebook_rescale_factor`. Can be
-        overridden by the `codebook_do_rescale` parameter in `preprocess`.
-    codebook_rescale_factor (`int` or `float`, *optional*, defaults to `1/255`):
-        Defines the scale factor to use if rescaling the codebook image. Can be overridden by the
-        `codebook_rescale_factor` parameter in `preprocess`.
-    codebook_do_map_pixels (`bool`, *optional*, defaults to `True`):
-        Whether to map the pixel values of the codebook input to (1 - 2e)x + e. Can be overridden by the
-        `codebook_do_map_pixels` parameter in `preprocess`.
-    codebook_do_normalize (`bool`, *optional*, defaults to `True`):
-        Whether or not to normalize the input for codebook with `codebook_image_mean` and `codebook_image_std`. Can
-        be overridden by the `codebook_do_normalize` parameter in `preprocess`.
-    codebook_image_mean (`Optional[Union[float, Iterable[float]]]`, *optional*, defaults to `[0, 0, 0]`):
-        The sequence of means for each channel, to be used when normalizing images for codebook. Can be overridden
-        by the `codebook_image_mean` parameter in `preprocess`.
-    codebook_image_std (`Optional[Union[float, Iterable[float]]]`, *optional*, defaults to `[0.5, 0.5, 0.5]`):
-        The sequence of standard deviations for each channel, to be used when normalizing images for codebook. Can
-        be overridden by the `codebook_image_std` parameter in `preprocess`.
-    """
 
-    # Mask related params
     return_image_mask: bool
     input_size_patches: int
     total_mask_patches: int
@@ -117,7 +42,6 @@ class FlavaImageProcessorKwargs(ImagesKwargs, total=False):
     mask_group_max_patches: int
     mask_group_min_aspect_ratio: float
     mask_group_max_aspect_ratio: float
-    # Codebook related params
     return_codebook_pixels: bool
     codebook_do_resize: bool
     codebook_size: dict[str, int]
@@ -132,7 +56,6 @@ class FlavaImageProcessorKwargs(ImagesKwargs, total=False):
     codebook_image_std: float | Iterable[float]
 
 
-# Inspired from https://github.com/microsoft/unilm/blob/master/beit/masking_generator.py
 class FlavaMaskingGenerator:
     def __init__(
         self,
@@ -172,26 +95,7 @@ class FlavaMaskingGenerator:
         return self.height, self.width
 
     def _mask(self, mask, max_mask_patches):
-        delta = 0
-        for _attempt in range(10):
-            target_area = random.uniform(self.mask_group_min_patches, max_mask_patches)
-            aspect_ratio = math.exp(random.uniform(*self.log_aspect_ratio))
-            height = int(round(math.sqrt(target_area * aspect_ratio)))
-            width = int(round(math.sqrt(target_area / aspect_ratio)))
-            if width < self.width and height < self.height:
-                top = random.randint(0, self.height - height)
-                left = random.randint(0, self.width - width)
-
-                num_masked = mask[top : top + height, left : left + width].sum()
-                # Overlap
-                if 0 < height * width - num_masked <= max_mask_patches:
-                    zeros_pos = mask[top : top + height, left : left + width] == 0
-                    mask[top : top + height, left : left + width][zeros_pos] = 1
-                    delta += zeros_pos.sum()
-
-                if delta > 0:
-                    break
-        return delta
+        pass
 
     def __call__(self):
         mask = torch.zeros(self.get_shape(), dtype=torch.int)
@@ -222,7 +126,6 @@ class FlavaImageProcessor(TorchvisionBackend):
     do_rescale = True
     do_normalize = True
 
-    # Mask related params
     return_image_mask = False
     input_size_patches = 14
     total_mask_patches = 75
@@ -230,7 +133,6 @@ class FlavaImageProcessor(TorchvisionBackend):
     mask_group_max_patches = None
     mask_group_min_aspect_ratio = 0.3
     mask_group_max_aspect_ratio = None
-    # Codebook related params
     return_codebook_pixels = False
     codebook_do_resize = True
     codebook_size = {"height": 112, "width": 112}
@@ -327,7 +229,6 @@ class FlavaImageProcessor(TorchvisionBackend):
         kwargs["codebook_crop_size"] = codebook_crop_size
         kwargs["codebook_image_mean"] = codebook_image_mean
         kwargs["codebook_image_std"] = codebook_image_std
-        # Store codebook_resample as-is - resize() will handle conversion
         kwargs["codebook_resample"] = codebook_resample
 
         return kwargs
@@ -349,7 +250,6 @@ class FlavaImageProcessor(TorchvisionBackend):
         disable_grouping: bool | None,
         return_tensors: str | TensorType | None,
     ) -> "torch.Tensor":
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -358,14 +258,11 @@ class FlavaImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
             if do_center_crop:
                 stacked_images = self.center_crop(stacked_images, crop_size)
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -390,7 +287,6 @@ class FlavaImageProcessor(TorchvisionBackend):
         do_normalize: bool,
         image_mean: float | list[float] | None,
         image_std: float | list[float] | None,
-        # Mask related params
         return_image_mask: bool | None,
         input_size_patches: int | None,
         total_mask_patches: int | None,
@@ -398,7 +294,6 @@ class FlavaImageProcessor(TorchvisionBackend):
         mask_group_max_patches: int | None,
         mask_group_min_aspect_ratio: float | None,
         mask_group_max_aspect_ratio: float | None,
-        # Codebook related params
         return_codebook_pixels: bool | None,
         codebook_do_resize: bool | None,
         codebook_size: SizeDict | None,

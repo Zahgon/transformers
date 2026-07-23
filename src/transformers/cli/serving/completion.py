@@ -1,23 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Handler for the /v1/completions endpoint (OpenAI legacy Completions API).
-
-Accepts a freeform text prompt (no chat template) and returns generated text
-in choices[].text. Supports streaming and non-streaming modes, and suffix for
-fill-in-the-middle text insertion.
-"""
 
 import asyncio
 import time
@@ -48,7 +28,6 @@ class TransformersTextCompletionCreateParams(CompletionCreateParamsBase, total=F
     stream: bool
 
 
-# Fields accepted by the OpenAI schema but not yet supported.
 UNUSED_LEGACY_COMPLETION_FIELDS = {
     "best_of",
     "echo",
@@ -64,12 +43,6 @@ logger = logging.get_logger(__name__)
 
 
 class CompletionHandler(BaseHandler):
-    """Handler for the `/v1/completions` endpoint.
-
-    Takes a raw text ``prompt`` (no chat template) and generates text returned in
-    ``choices[].text``. Supports streaming (SSE) and non-streaming (JSON) responses,
-    and ``suffix`` for fill-in-the-middle insertion.
-    """
 
     _valid_params_class = TransformersTextCompletionCreateParams
     _unused_fields = UNUSED_LEGACY_COMPLETION_FIELDS
@@ -115,7 +88,6 @@ class CompletionHandler(BaseHandler):
                 request_id, model, processor, model_id, inputs, gen_config, gen_manager, suffix
             )
 
-    # ----- streaming -----
 
     def _streaming(
         self,
@@ -177,7 +149,6 @@ class CompletionHandler(BaseHandler):
 
         return StreamingResponse(sse_gen(), media_type="text/event-stream")
 
-    # ----- non-streaming -----
 
     async def _non_streaming(
         self,
@@ -226,7 +197,6 @@ class CompletionHandler(BaseHandler):
 
         return JSONResponse(result.model_dump(exclude_none=True), media_type="application/json")
 
-    # ----- helpers -----
 
     def _build_chunk_sse(
         self,
@@ -259,7 +229,6 @@ class CompletionHandler(BaseHandler):
         )
         return self.chunk_to_sse(chunk)
 
-    # ----- generation config -----
 
     def _build_generation_config(self, body: dict, model_generation_config: "GenerationConfig", use_cb: bool = False):
         """Apply legacy completion params (``max_tokens``, ``frequency_penalty``, ``stop``) on top of base config."""

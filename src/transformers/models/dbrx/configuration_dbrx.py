@@ -1,17 +1,3 @@
-# Copyright 2024 Databricks Mosaic Research and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""DBRX model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -26,14 +12,6 @@ from ...utils import auto_docstring
     checkpoint="transformers-community/dbrx-instruct",
 )
 class DbrxAttentionConfig(PreTrainedConfig):
-    r"""
-    attn_pdrop (`float`, *optional*, defaults to 0.0):
-        The dropout probability for the attention layers.
-    clip_qkv (`float`, *optional*):
-        If set, clip the queries, keys, and values in the attention layer to this value.
-    kv_n_heads (`int`, *optional*, defaults to 1):
-        For grouped_query_attention only, allow user to specify number of kv heads.
-    """
 
     base_config_key = "attn_config"
 
@@ -48,24 +26,6 @@ class DbrxAttentionConfig(PreTrainedConfig):
     checkpoint="transformers-community/dbrx-instruct",
 )
 class DbrxFFNConfig(PreTrainedConfig):
-    r"""
-    ffn_act_fn (`dict`, *optional*, defaults to `None`):
-        A dict specifying activation function for the FFN.
-        The dict should have a key 'name' with the value being the name of the activation function along with
-        any additional keyword arguments. If `None`, then set to `{"name": "silu"}`.
-    ffn_hidden_size (`int`, *optional*, defaults to 3584):
-        The hidden size of the feedforward network.
-    moe_num_experts (`int`, *optional*, defaults to 4):
-        The number of experts in the mixture of experts layer.
-    moe_top_k (`int`, *optional*, defaults to 1):
-        The number of experts to use in the mixture of experts layer.
-    moe_jitter_eps (`float`, *optional*, defaults to `None`):
-        If not `None`, the jitter epsilon for the mixture of experts layer.
-    moe_loss_weight (`float`, *optional*, defaults to 0.01):
-        The loss weight for the mixture of experts layer.
-    moe_normalize_expert_weights (`float`, *optional*, defaults to 1.0):
-        The normalization factor for the expert weights.
-    """
 
     base_config_key = "ffn_config"
 
@@ -102,28 +62,6 @@ class DbrxFFNConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="transformers-community/dbrx-instruct")
 @strict
 class DbrxConfig(PreTrainedConfig):
-    r"""
-    max_seq_len (`int`, *optional*, defaults to 2048):
-        The maximum sequence length of the model.
-    attn_config (`dict`, *optional*):
-        A dictionary used to configure the model's attention module.
-    ffn_config (`dict`, *optional*):
-        A dictionary used to configure the model's FFN module.
-
-    Example:
-    ```python
-    >>> from transformers import DbrxConfig, DbrxModel
-
-    >>> # Initializing a Dbrx configuration
-    >>> configuration = DbrxConfig(n_layers=2, d_model=256, n_heads=8, vocab_size=128)
-
-    >>> # Initializing a model (with random weights) from the configuration
-    >>> model = DbrxModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "dbrx"
     sub_configs = {"attn_config": DbrxAttentionConfig, "ffn_config": DbrxFFNConfig}
@@ -167,9 +105,7 @@ class DbrxConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.tie_word_embeddings:
-            raise ValueError("tie_word_embeddings is not supported for DBRX models.")
+        pass
 
 
 __all__ = ["DbrxConfig"]

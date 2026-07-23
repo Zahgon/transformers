@@ -1,16 +1,3 @@
-# Copyright 2023 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import inspect
 import json
 import os
@@ -43,7 +30,6 @@ if is_accelerate_available():
     from accelerate import dispatch_model
     from accelerate.utils import get_balanced_memory, infer_auto_device_map
 
-# Minimum PEFT version supported for the integration
 MIN_PEFT_VERSION = "0.19.1"
 
 
@@ -55,23 +41,6 @@ if TYPE_CHECKING:
 
 
 class PeftAdapterMixin:
-    """
-    A class containing all functions for loading and using adapters weights that are supported in PEFT library. For
-    more details about adapters and injecting them on a transformer-based model, check out the documentation of PEFT
-    library: https://huggingface.co/docs/peft/index
-
-    Currently supported PEFT methods are all non-prompt learning methods (LoRA, IA³, etc.). Other PEFT models such as
-    prompt tuning, prompt learning are out of scope as these adapters are not "injectable" into a torch module. For
-    using these methods, please refer to the usage guide of PEFT library.
-
-    With this mixin, if the correct PEFT version is installed (>= 0.19.1), it is possible to:
-
-    - Load an adapter stored on a local path or in a remote Hub repository, and inject it in the model
-    - Attach new adapters in the model and train them with Trainer or by your own.
-    - Attach multiple adapters and iteratively activate / deactivate them
-    - Activate / deactivate all adapters from the model.
-    - Get the `state_dict` of the active adapter.
-    """
 
     _hf_peft_config_loaded = False
     _prepare_peft_hotswap_kwargs: dict | None = None
@@ -168,7 +137,6 @@ class PeftAdapterMixin:
         peft_model_id = peft_model_id or load_config.pretrained_model_name_or_path
 
         if hotswap == "auto":
-            # if user called model.enable_peft_hotswap and this is not the first adapter, enable hotswap
             hotswap_enabled = getattr(self, "_hotswap_enabled", False)
             not_first_adapter = bool(self._hf_peft_config_loaded and (adapter_name in self.peft_config))
             hotswap = hotswap_enabled and not_first_adapter
@@ -218,18 +186,14 @@ class PeftAdapterMixin:
 
         from peft.utils.transformers_weight_conversion import build_peft_weight_mapping
 
-        # Reuse `from_pretrained`'s `weight_mapping` as recomputing here would drop any user-supplied `key_mapping`.
         weight_conversions = load_config.weight_mapping or get_model_conversion_mapping(self)
 
         if hasattr(peft_config, "inference_mode"):
             peft_config.inference_mode = not is_trainable
 
-        # The PEFT config conversion for v5 architecture changes (e.g. Mixtral MoE) is applied in-place by
-        # inject_adapter_in_model below, so it does not need to be done explicitly here.
         peft_weight_conversions = build_peft_weight_mapping(weight_conversions, adapter_name, peft_config=peft_config)
 
         if not hotswap:
-            # Create and add fresh new adapters into the model, unless the weights are hotswapped
             inject_adapter_in_model(peft_config, self, adapter_name)
 
         adapter_key_markers = {adapter_name}
@@ -274,8 +238,6 @@ class PeftAdapterMixin:
 
         device_map = getattr(self, "hf_device_map", {"": self.device})
 
-        # If the model is tensor parallel, we handle the sharding of the state dict here since the logic in `self._load_pretrained_model`
-        # is not compatible with the way PEFT adapter should be sharded.
         has_tp_adapters = False
         for module in self.modules():
             tp_info = getattr(module, "_tp_info", None)
@@ -298,7 +260,6 @@ class PeftAdapterMixin:
                     all_pointer.add(file_pointer)
                     for k in file_pointer.keys():
                         merged_state_dict[k] = file_pointer.get_tensor(k)
-            # Checkpoints are .bin
             elif checkpoint_files is not None:
                 merged_state_dict = {}
                 for ckpt_file in checkpoint_files:
@@ -326,8 +287,6 @@ class PeftAdapterMixin:
             state_dict=adapter_state_dict,
             checkpoint_files=checkpoint_files,
             load_config=load_config,
-            # Pass expected keys explicitly while excluding non-adapter parameters.
-            # Otherwise `caching_allocator_warmup` sizes for the full base model.
             expected_keys=[n for n, _ in self.named_parameters() if is_adapter_key(n)],
         )
 
@@ -353,79 +312,10 @@ class PeftAdapterMixin:
     def enable_peft_hotswap(
         self, target_rank: int = 128, check_compiled: Literal["error", "warn", "ignore"] = "error"
     ) -> None:
-        """Enables the possibility to hotswap PEFT adapters with different ranks, or, if the model is compiled, without
-        triggering recompilation.
-
-        Right now, hotswapping is only supported for LoRA.
-
-        Calling this method is only required when hotswapping adapters and if the model is compiled or if the ranks of
-        the loaded adapters differ. If the ranks are all identical and the model is not compiled, hotswapping works
-        without calling this method first.
-
-        Args:
-            target_rank (`int`, *optional*, defaults to `128`):
-                The highest rank among all the adapters that will be loaded.
-            check_compiled (`str`, *optional*, defaults to `"error"`):
-                How to handle the case when the model is already compiled, which should generally be avoided. The
-                options are:
-                  - "error" (default): raise an error
-                  - "warn": issue a warning
-                  - "ignore": do nothing
-        """
-        if getattr(self, "peft_config", {}):
-            if check_compiled == "error":
-                raise RuntimeError("Call `enable_peft_hotswap` before loading the first adapter.")
-            elif check_compiled == "warn":
-                logger.warning(
-                    "It is recommended to call `enable_peft_hotswap` before loading the first adapter to avoid recompilation."
-                )
-            elif check_compiled != "ignore":
-                raise ValueError(
-                    f"check_compiles should be one of 'error', 'warn', or 'ignore', got '{check_compiled}' instead."
-                )
-
-        self._hotswap_enabled = True
-        self._prepare_peft_hotswap_kwargs = {"target_rank": target_rank, "check_compiled": check_compiled}
+        pass
 
     def add_adapter(self, adapter_config, adapter_name: str | None = None) -> None:
-        r"""
-        If you are not familiar with adapters and PEFT methods, we invite you to read more about them on the PEFT
-        official documentation: https://huggingface.co/docs/peft
-
-        Adds a fresh new adapter to the current model for training purpose. If no adapter name is passed, a default
-        name is assigned to the adapter to follow the convention of PEFT library (in PEFT we use "default" as the
-        default adapter name).
-
-        Note that the newly added adapter is not automatically activated. To activate it, use `model.set_adapter`.
-
-        Args:
-            adapter_config (`~peft.PeftConfig`):
-                The configuration of the adapter to add, supported adapters are non-prompt learning methods (LoRA,
-                IA³, etc.).
-            adapter_name (`str`, *optional*, defaults to `"default"`):
-                The name of the adapter to add. If no name is passed, a default name is assigned to the adapter.
-        """
-        check_peft_version(min_version=MIN_PEFT_VERSION)
-
-        from peft import PeftConfig, inject_adapter_in_model
-
-        adapter_name = adapter_name or "default"
-
-        if not self._hf_peft_config_loaded:
-            self._hf_peft_config_loaded = True
-        elif adapter_name in self.peft_config:
-            raise ValueError(f"Adapter with name {adapter_name} already exists. Please use a different name.")
-
-        if not isinstance(adapter_config, PeftConfig):
-            raise TypeError(f"adapter_config should be an instance of PeftConfig. Got {type(adapter_config)} instead.")
-
-        # Retrieve the name or path of the model, one could also use self.config._name_or_path
-        # but to be consistent with what we do in PEFT: https://github.com/huggingface/peft/blob/6e783780ca9df3a623992cc4d1d665001232eae0/src/peft/mapping.py#L100
-        adapter_config.base_model_name_or_path = self.__dict__.get("name_or_path", None)
-        # TODO: WE NEED TOO APPLY OUR DYNAMIC WEIGHT CONVERSION AT SOME POINT HERE!
-        inject_adapter_in_model(adapter_config, self, adapter_name)
-
-        self.set_adapter(adapter_name)
+        pass
 
     def set_adapter(self, adapter_name: list[str] | str) -> None:
         """
@@ -528,7 +418,6 @@ class PeftAdapterMixin:
                 active_adapters = module.active_adapter
                 break
 
-        # For previous PEFT versions
         if isinstance(active_adapters, str):
             active_adapters = [active_adapters]
 
@@ -570,93 +459,10 @@ class PeftAdapterMixin:
         offload_folder: str | None = None,
         offload_index: int | None = None,
     ) -> None:
-        """
-        Optional re-dispatch the model and attach new hooks to the model in case the model has been loaded with
-        accelerate (i.e. with `device_map=xxx`)
-
-        Args:
-            device_map (`str` or `dict[str, Union[int, str, torch.device]]` or `int` or `torch.device`, *optional*):
-                A map that specifies where each submodule should go. It doesn't need to be refined to each
-                parameter/buffer name, once a given module name is inside, every submodule of it will be sent to the
-                same device. If we only pass the device (*e.g.*, `"cpu"`, `"cuda:1"`, `"mps"`, or a GPU ordinal rank
-                like `1`) on which the model will be allocated, the device map will map the entire model to this
-                device. Passing `device_map = 0` means put the whole model on GPU 0.
-
-                To have Accelerate compute the most optimized `device_map` automatically, set `device_map="auto"`. For
-                more information about each option see [designing a device
-                map](https://hf.co/docs/accelerate/main/en/usage_guides/big_modeling#designing-a-device-map).
-            max_memory (`Dict`, *optional*):
-                A dictionary device identifier to maximum memory. Will default to the maximum memory available for each
-                GPU and the available CPU RAM if unset.
-            offload_folder (`str` or `os.PathLike`, *optional*):
-                If the `device_map` contains any value `"disk"`, the folder where we will offload weights.
-            offload_index (`int`, *optional*):
-                The offload_index argument to be passed to `accelerate.dispatch_model` method.
-        """
-        dispatch_model_kwargs = {}
-        # Safety checker for previous `accelerate` versions
-        # `offload_index` was introduced in https://github.com/huggingface/accelerate/pull/873/
-        if "offload_index" in inspect.signature(dispatch_model).parameters:
-            dispatch_model_kwargs["offload_index"] = offload_index
-
-        no_split_module_classes = self._no_split_modules
-
-        if device_map != "sequential":
-            max_memory = get_balanced_memory(
-                self,
-                max_memory=max_memory,
-                no_split_module_classes=no_split_module_classes,
-                low_zero=(device_map == "balanced_low_0"),
-            )
-        if isinstance(device_map, str):
-            device_map = infer_auto_device_map(
-                self, max_memory=max_memory, no_split_module_classes=no_split_module_classes
-            )
-        dispatch_model(
-            self,
-            device_map=device_map,
-            offload_dir=offload_folder,
-            **dispatch_model_kwargs,
-        )
+        pass
 
     def delete_adapter(self, adapter_names: list[str] | str) -> None:
-        """
-        Delete a PEFT adapter from the underlying model.
-
-        Args:
-            adapter_names (`Union[list[str], str]`):
-                The name(s) of the adapter(s) to delete.
-        """
-
-        check_peft_version(min_version=MIN_PEFT_VERSION)
-
-        if not self._hf_peft_config_loaded:
-            raise ValueError("No adapter loaded. Please load an adapter first.")
-
-        from peft.functional import delete_adapter
-
-        if isinstance(adapter_names, str):
-            adapter_names = [adapter_names]
-
-        # Check that all adapter names are present in the config
-        missing_adapters = [name for name in adapter_names if name not in self.peft_config]
-        if missing_adapters:
-            raise ValueError(
-                f"The following adapter(s) are not present and cannot be deleted: {', '.join(missing_adapters)}"
-            )
-
-        prefixes = [f"{self.peft_config[adapter_name].peft_type.value.lower()}_" for adapter_name in adapter_names]
-        for adapter_name, prefix in zip(adapter_names, prefixes):
-            delete_adapter(self, adapter_name=adapter_name, prefix=prefix)
-            # For transformers integration - we need to pop the adapter from the config
-            if getattr(self, "_hf_peft_config_loaded", False) and hasattr(self, "peft_config"):
-                self.peft_config.pop(adapter_name, None)
-
-        # In case all adapters are deleted, we need to delete the config
-        # and make sure to set the flag to False
-        if len(self.peft_config) == 0:
-            del self.peft_config
-            self._hf_peft_config_loaded = False
+        pass
 
 
 def maybe_load_adapters(
@@ -708,10 +514,6 @@ def maybe_load_adapters(
     if _adapter_model_path is not None and os.path.isfile(_adapter_model_path):
         with open(_adapter_model_path, "r", encoding="utf-8") as f:
             _adapter_model_path = pretrained_model_name_or_path
-            # Only override the model name/path if the current value doesn't point to a
-            # complete model with an embedded adapter so that local models with embedded
-            # adapters will load from the local base model rather than pull the base
-            # model named in the adapter's config from the hub.
             if not os.path.exists(pretrained_model_name_or_path) or not os.path.exists(
                 os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
             ):

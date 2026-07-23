@@ -1,19 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for BLIP-2.
-"""
 
 from ...image_processing_utils import BatchFeature
 from ...image_utils import ImageInput
@@ -73,7 +57,6 @@ class Blip2Processor(ProcessorMixin):
             **kwargs,
         )
 
-        # BC for explicit return_tensors
         return_tensors = output_kwargs["text_kwargs"].pop("return_tensors", None)
         max_length = output_kwargs["text_kwargs"].pop("max_length", None)
         if max_length is not None:
@@ -86,11 +69,9 @@ class Blip2Processor(ProcessorMixin):
             elif not isinstance(text, list) and not isinstance(text[0], str):
                 raise ValueError("Invalid input text. Please provide a string, or a list of strings")
 
-            # We need this hacky manipulation because BLIP expects image tokens to be at the beginning even before BOS token
             text_encoding = self.tokenizer(text, **output_kwargs["text_kwargs"])
 
             if images is not None and self.num_query_tokens is not None:
-                # Image tokens should not be padded/truncated or prepended with special BOS token
                 image_tokens = self.image_token.content * self.num_query_tokens
                 output_kwargs["text_kwargs"]["add_special_tokens"] = False
                 output_kwargs["text_kwargs"]["padding"] = False
@@ -100,13 +81,10 @@ class Blip2Processor(ProcessorMixin):
                     text_encoding[k] = [image_text_encoding[k] + sample for sample in text_encoding[k]]
             encoding.update(text_encoding)
 
-        # Now add pixel_values encoding. If we also have text_encoding, update image encoding and return it.
-        # else, return the text encoding.
         if images is not None:
             image_encoding = self.image_processor(images, **output_kwargs["images_kwargs"])
             encoding.update(image_encoding)
 
-        # Cast to desired return tensors type
         encoding = BatchFeature(encoding, tensor_type=return_tensors)
         return encoding
 

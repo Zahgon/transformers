@@ -1,19 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for IDEFICS.
-"""
 
 from urllib.parse import urlparse
 
@@ -37,15 +21,6 @@ IMAGE_TOKEN = "<image>"
 
 
 class IdeficsTextKwargs(TextKwargs, total=False):
-    """
-    add_eos_token (`bool`, *optional*, defaults to `False`):
-        Whether to add an end-of-sequence token at the end of the text input. When enabled, an EOS token is
-        appended to mark the end of the text sequence, which is useful for generation tasks.
-    add_end_of_utterance_token (`bool`, *optional*):
-        Whether to add an end-of-utterance token to mark the end of a user's message in conversational contexts.
-        This token helps the model distinguish between different utterances in a multi-turn conversation and is
-        particularly important for chat-based models.
-    """
 
     add_eos_token: bool | None
     add_end_of_utterance_token: bool | None
@@ -63,83 +38,20 @@ class IdeficsProcessorKwargs(ProcessingKwargs, total=False):
     }
 
 
-# copied from m4.training.packing
 def incremental_to_binary_attention_mask(incremental_mask, return_tensors, num_classes=-1):
-    # Set elements >= num_classes to -1
-    if num_classes != -1:
-        if return_tensors == "pt":
-            incremental_mask[incremental_mask >= num_classes] = -1
-
-    # Create mask for negative values
-    if return_tensors == "pt":
-        negatives = incremental_mask == -1
-        incremental_mask[negatives] = 0
-        attn_mask = torch.nn.functional.one_hot(incremental_mask, num_classes=num_classes)
-        attn_mask[negatives, :] = 0
-
-    return attn_mask
+    pass
 
 
-# copied from m4.training.packing
 def image_attention_mask_for_packed_input_ids(input_ids, tokenizer, return_tensors):
-    if return_tensors == "pt":
-        return image_attention_mask_for_packed_input_ids_pt(input_ids, tokenizer)
+    pass
 
 
 def image_attention_mask_for_packed_input_ids_pt(input_ids, tokenizer):
-    image_attention_mask = torch.full_like(input_ids, fill_value=-1)
-    next_image_attention_mask = torch.full_like(input_ids, fill_value=-1)
-    image_token_id = tokenizer.convert_tokens_to_ids(IMAGE_TOKEN)
-    eod_token_id = tokenizer.eos_token_id
-    for batch_idx in range(input_ids.size(0)):
-        count = -1
-        seen_eod = False
-        for idx, token_id in enumerate(input_ids[batch_idx]):
-            if token_id == image_token_id:
-                count += 1
-                image_attention_mask[batch_idx][idx] = count
-                seen_eod = False
-            else:
-                image_attention_mask[batch_idx][idx] = count
-
-            if seen_eod:
-                image_attention_mask[batch_idx][idx] = -1
-
-            if token_id == eod_token_id:
-                seen_eod = True
-
-    for batch_idx in range(input_ids.size(0)):
-        count = -1
-        seen_eod = False
-        for idx in range(input_ids[batch_idx].size(0) - 1, -1, -1):
-            token_id = input_ids[batch_idx][idx]
-            if token_id == image_token_id:
-                count += 1
-                next_image_attention_mask[batch_idx][idx] = count
-                seen_eod = False
-            else:
-                next_image_attention_mask[batch_idx][idx] = count
-
-            if token_id == eod_token_id:
-                seen_eod = True
-
-            if seen_eod:
-                next_image_attention_mask[batch_idx][idx] = -1
-
-        non_negative_indices = next_image_attention_mask[batch_idx] != -1
-        next_image_attention_mask[batch_idx][non_negative_indices] -= count
-        next_image_attention_mask[batch_idx][non_negative_indices] *= -1
-
-    return image_attention_mask, next_image_attention_mask
+    pass
 
 
 def is_url(string):
-    """Checks if the passed string contains a valid url and nothing else. e.g. if space is included it's immediately
-    invalidated the url"""
-    if " " in string:
-        return False
-    result = urlparse(string)
-    return all([result.scheme, result.netloc])
+    pass
 
 
 @auto_docstring
@@ -253,26 +165,20 @@ class IdeficsProcessor(ProcessorMixin):
             raise ValueError("You need to specify either `text` or `images` and `text`.")
 
         if images is None:
-            # assuming the user wants to use the old behavior with prompts as the only argument
             prompts = text
         elif text is not None:
-            # Assuming image-text-to-text behavior:
-            # Check if batched images are provided
             if not isinstance(images, (list, tuple)):
                 images = [images]
             if isinstance(text, str):
                 text = [text]
-            # Check if batched images and text are in the correct format
             if isinstance(text, (list, tuple)) and len(text) != len(images):
                 raise ValueError(
                     "When providing both images and text arguments, the number of text prompts should be the same as the number of images."
                     "If you want to have several images per prompt, images should be nested as such: images=[[img1, img2], [img3, img4], ...] for text=[prompt1, prompt2, ...]."
                 )
-            # Check that only text is present in the prompts
             if not all(isinstance(i, str) for i in text):
                 raise ValueError("When using the image-text-to-text behavior, the prompts should only contain text.")
             if isinstance(images[0], (list, tuple)):
-                # if nested images, un-nest each sublist and create `prompts`
                 prompts = [[sample, *image_list] for image_list, sample in zip(images, text)]
             else:
                 prompts = list(zip(images, text))
@@ -286,10 +192,8 @@ class IdeficsProcessor(ProcessorMixin):
         add_eos_token = output_kwargs["text_kwargs"].pop("add_eos_token", False)
         add_end_of_utterance_token = output_kwargs["text_kwargs"].pop("add_end_of_utterance_token", None)
 
-        # if the value isn't overridden by the user, check if the tokenizer was trained with this token and then use it
         if add_end_of_utterance_token is None:
             add_end_of_utterance_token = self.tokenizer_was_trained_with_end_of_utterance_token
-        # turn non-batched prompts into batched
         if not any(isinstance(i, (list, tuple)) for i in prompts):
             prompts = [prompts]
 
@@ -298,18 +202,13 @@ class IdeficsProcessor(ProcessorMixin):
         end_of_utterance_token = "<end_of_utterance>"
 
         def image_tokens(last_was_image):
-            if last_was_image:
-                return image_token + fake_token
-            else:
-                return fake_token + image_token + fake_token
+            pass
 
         all_prompts = []
         all_images = []
         for sample in prompts:
-            # the model was trained on samples starting with <s>
             full_text = f"{self.tokenizer.bos_token}"
 
-            # an image can either be an image object in the item or the url, everything else is a verbatim prompt text
             image_objects = []
             last_was_image = False
             last_was_text = False
@@ -325,13 +224,11 @@ class IdeficsProcessor(ProcessorMixin):
                         image_objects.append(image)
                         last_was_image = True
                     else:
-                        # we add end_of_utterance_token between each subsequent text prompts (but not at the last one!)
                         if add_end_of_utterance_token and last_was_text:
                             full_text += end_of_utterance_token
                         full_text += item
                         last_was_image = False
                 else:
-                    # must be an image obj
                     full_text += image_tokens(last_was_image)
                     image_objects.append(item)
                     last_was_image = True
@@ -345,13 +242,11 @@ class IdeficsProcessor(ProcessorMixin):
             all_prompts.append(full_text)
             all_images.append(image_objects)
 
-        # For BC
         return_tensors = output_kwargs["text_kwargs"].pop("return_tensors", "pt")
         text_encoding = self.tokenizer(all_prompts, **output_kwargs["text_kwargs"])
         all_texts = text_encoding["input_ids"]
         all_attention_masks = text_encoding["attention_mask"]
 
-        # max_num_images has to be at least 1 even when there are no images
         max_num_images = max(len(x) for x in all_images)
         max_num_images = max(1, max_num_images)
 
@@ -392,7 +287,6 @@ class IdeficsProcessor(ProcessorMixin):
                 image_attention_mask, return_tensors, num_classes=max_num_images
             )
         else:
-            # in full language mode we set the image mask to all-0s
             if return_tensors == "pt":
                 image_attention_mask = torch.zeros(
                     output_input_ids.shape[0], output_input_ids.shape[1], 1, dtype=torch.bool
@@ -408,9 +302,7 @@ class IdeficsProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        image_processor_input_names = self.image_processor.model_input_names
-        return list(tokenizer_input_names + image_processor_input_names + ["image_attention_mask"])
+        pass
 
 
 __all__ = ["IdeficsProcessor"]

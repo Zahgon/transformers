@@ -1,16 +1,3 @@
-# Copyright 2021 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import subprocess
 from typing import Any
 
@@ -65,31 +52,6 @@ def ffmpeg_read(bpayload: bytes, sampling_rate: int) -> np.ndarray:
 
 @add_end_docstrings(build_pipeline_init_args(has_feature_extractor=True))
 class AudioClassificationPipeline(Pipeline):
-    # no-format
-    """
-    Audio classification pipeline using any `AutoModelForAudioClassification`. This pipeline predicts the class of a
-    raw waveform or an audio file. In case of an audio file, ffmpeg should be installed to support multiple audio
-    formats.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> classifier = pipeline(model="superb/wav2vec2-base-superb-ks")
-    >>> classifier("https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/1.flac")
-    [{'score': 0.997, 'label': '_unknown_'}, {'score': 0.002, 'label': 'left'}, {'score': 0.0, 'label': 'yes'}, {'score': 0.0, 'label': 'down'}, {'score': 0.0, 'label': 'stop'}]
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-
-    This pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"audio-classification"`.
-
-    See the list of available models on
-    [huggingface.co/models](https://huggingface.co/models?filter=audio-classification).
-    """
 
     _load_processor = False
     _load_image_processor = False
@@ -97,7 +59,6 @@ class AudioClassificationPipeline(Pipeline):
     _load_tokenizer = False
 
     def __init__(self, *args, **kwargs):
-        # Only set default top_k if explicitly provided
         if "top_k" in kwargs and kwargs["top_k"] is None:
             kwargs["top_k"] = None
         elif "top_k" not in kwargs:
@@ -145,7 +106,6 @@ class AudioClassificationPipeline(Pipeline):
     def _sanitize_parameters(self, top_k=None, function_to_apply=None, **kwargs):
         postprocess_params = {}
 
-        # If top_k is None, use all labels
         if top_k is None:
             postprocess_params["top_k"] = self.model.config.num_labels
         else:
@@ -167,8 +127,6 @@ class AudioClassificationPipeline(Pipeline):
     def preprocess(self, inputs):
         if isinstance(inputs, str):
             if inputs.startswith("http://") or inputs.startswith("https://"):
-                # We need to actually check for a real protocol, otherwise it's impossible to use a local file
-                # like http_huggingface_co.png
                 inputs = httpx.get(inputs, follow_redirects=True).content
             else:
                 with open(inputs, "rb") as f:
@@ -194,8 +152,6 @@ class AudioClassificationPipeline(Pipeline):
 
         if isinstance(inputs, dict):
             inputs = inputs.copy()  # So we don't mutate the original dictionary outside the pipeline
-            # Accepting `"array"` which is the key defined in `datasets` for
-            # better integration
             if not ("sampling_rate" in inputs and ("raw" in inputs or "array" in inputs)):
                 raise ValueError(
                     "When passing a dictionary to AudioClassificationPipeline, the dict needs to contain a "
@@ -205,7 +161,6 @@ class AudioClassificationPipeline(Pipeline):
 
             _inputs = inputs.pop("raw", None)
             if _inputs is None:
-                # Remove path which will not be used from `datasets`.
                 inputs.pop("path", None)
                 _inputs = inputs.pop("array", None)
             in_sampling_rate = inputs.pop("sampling_rate")

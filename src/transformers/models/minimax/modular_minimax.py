@@ -1,18 +1,3 @@
-# Copyright 2025 MiniMaxAI and HuggingFace Inc. teams. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch MiniMax model."""
 
 import torch
 import torch.nn.functional as F
@@ -55,35 +40,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="MiniMaxAI/MiniMax-Text-01-hf")
 @strict
 class MiniMaxConfig(PreTrainedConfig):
-    r"""
-    block_size (`int`, *optional*, defaults to 256):
-        The length of each attention block, determining how queries, keys, and values
-        are grouped and processed for intra- and inter-block attention.
-    full_attn_alpha_factor (`float`, *optional*, defaults to 1):
-        Weight for residual value in residual connection after normal attention.
-    full_attn_beta_factor (`float`, *optional*, defaults to 1):
-        Weight for hidden state value in residual connection after normal attention.
-    linear_attn_alpha_factor (`float`, *optional*, defaults to 1):
-        Weight for residual value in residual connection after lightning attention.
-    linear_attn_beta_factor (`float`, *optional*, defaults to 1):
-        Weight for hidden state value in residual connection after lightning attention.
-    mlp_alpha_factor (`float`, *optional*, defaults to 1):
-        Weight for residual value in residual connection after MLP.
-    mlp_beta_factor (`float`, *optional*, defaults to 1):
-        Weight for hidden state value in residual connection after MLP.
-
-    ```python
-    >>> from transformers import MiniMaxModel, MiniMaxConfig
-
-    >>> # Initializing a MiniMax style configuration
-    >>> configuration = MiniMaxConfig()
-
-    >>> # Initializing a model from the MiniMax style configuration
-    >>> model = MiniMaxModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "minimax"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -165,7 +121,6 @@ class MiniMaxCache(DynamicCache):
         self.linear_cache: list[torch.Tensor] = []
 
     def set_linear_cache(self, layer_idx, linear_cache):
-        # There may be skipped layers, fill them with empty lists
         for _ in range(len(self.linear_cache), layer_idx + 1):
             self.linear_cache.append([])
         self.linear_cache[layer_idx] = linear_cache
@@ -179,18 +134,10 @@ class MiniMaxCache(DynamicCache):
         return max(super().__len__(), len(self.linear_cache))
 
     def batch_repeat_interleave(self, repeats: int):
-        for layer_idx in range(len(self)):
-            if self.linear_cache[layer_idx] != []:
-                self.linear_cache[layer_idx] = self.linear_cache[layer_idx].repeat_interleave(repeats, dim=0)
-            else:
-                self.layers[layer_idx].batch_repeat_interleave(repeats)
+        pass
 
     def batch_select_indices(self, indices: torch.Tensor):
-        for layer_idx in range(len(self)):
-            if self.linear_cache[layer_idx] != []:
-                self.linear_cache[layer_idx] = self.linear_cache[layer_idx][indices, ...]
-            else:
-                self.layers[layer_idx].batch_select_indices(indices)
+        pass
 
     def crop(self, max_length: int):
         raise RuntimeError("MiniMaxCache doesnot support `crop` method")
@@ -267,7 +214,6 @@ class MiniMaxLightningAttention(nn.Module):
         key_states = key_states.transpose(1, 2)
         value_states = value_states.transpose(1, 2)
 
-        # calculated (K.T @ V) and saved as cache
         attn_weights_inter = None
         if past_key_values is not None:
             attn_weights_inter = past_key_values.get_linear_cache(self.layer_idx)
@@ -292,18 +238,14 @@ class MiniMaxLightningAttention(nn.Module):
                 current_diagonal_decay = self.diagonal_decay[:, :, :current_block_size, :current_block_size]
                 block_decay = torch.exp(-self.slope_rate * current_block_size)
 
-                # intra: ( Q @ K.T ) @ V -> QK * V
                 attn_weights_intra = torch.matmul(current_query_states, current_key_states.transpose(-1, -2))
                 attn_output_intra = torch.matmul(attn_weights_intra * current_diagonal_decay, current_value_states)
 
-                # inter: Q @ ( K.T @ V ) -> Q * KV
                 attn_output_inter = torch.matmul(current_query_states * current_query_decay, attn_weights_inter)
 
-                # final attention output
                 current_attn_output = attn_output_inter + attn_output_intra
                 attn_output.append(current_attn_output)
 
-                # calculate attn_weights_inter for next block or cache
                 next_attn_weights_inter = torch.matmul(
                     (current_key_states * current_key_decay).transpose(-1, -2), current_value_states
                 )
@@ -323,17 +265,14 @@ class MiniMaxLightningAttention(nn.Module):
 
                 attn_output.append(current_attn_output)
 
-        # concatenate attention outputs over all blocks
         attn_output = torch.cat(attn_output, dim=-2)
 
-        # final output projection
         attn_output = attn_output.transpose(1, 2)
         attn_output = attn_output.reshape(batch_size, seq_len, self.num_attention_heads * self.head_dim)
         attn_output = self.norm(attn_output)
         attn_output = F.sigmoid(self.output_gate(hidden_states)) * attn_output
         attn_output = self.out_proj(attn_output)
 
-        # update cache
         if past_key_values is not None:
             past_key_values.set_linear_cache(self.layer_idx, attn_weights_inter)
 

@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import json
 import os
@@ -196,8 +183,6 @@ class BaseVideoProcessor(TorchvisionBackend):
         if video.shape[-3] == 3 or not (video[..., 3, :, :] < 255).any():
             return video
 
-        # There is a transparency layer, blend it with a white background.
-        # Calculate the alpha proportion for blending.
         alpha = video[..., 3, :, :] / 255.0
         video = (1 - alpha[..., None, :, :]) * 255 + alpha[..., None, :, :] * video[..., :3, :, :]
         return video
@@ -209,51 +194,7 @@ class BaseVideoProcessor(TorchvisionBackend):
         fps: int | float | None = None,
         **kwargs,
     ):
-        """
-        Default sampling function which uniformly samples the desired number of frames between 0 and total number of frames.
-        If `fps` is passed along with metadata, `fps` frames per second are sampled uniformty. Arguments `num_frames`
-        and `fps` are mutually exclusive.
-
-        Args:
-            metadata (`VideoMetadata`):
-                Metadata of the video containing information about total duration, fps and total number of frames.
-            num_frames (`int`, *optional*):
-                Maximum number of frames to sample. Defaults to `self.num_frames`.
-            fps (`int` or `float`, *optional*):
-                Target frames to sample per second. Defaults to `self.fps`.
-
-        Returns:
-            np.ndarray:
-                Indices to sample video frames.
-        """
-        if fps is not None and num_frames is not None:
-            raise ValueError(
-                "`num_frames`, `fps`, and `sample_indices_fn` are mutually exclusive arguments, please use only one!"
-            )
-
-        num_frames = num_frames if num_frames is not None else self.num_frames
-        fps = fps if fps is not None else self.fps
-        total_num_frames = metadata.total_num_frames
-
-        # If num_frames is not given but fps is, calculate num_frames from fps
-        if num_frames is None and fps is not None:
-            if metadata is None or metadata.fps is None:
-                raise ValueError(
-                    "Asked to sample `fps` frames per second but no video metadata was provided which is required when sampling with `fps`. "
-                    "Please pass in `VideoMetadata` object or use a fixed `num_frames` per input video"
-                )
-            num_frames = int(total_num_frames / metadata.fps * fps)
-
-        if num_frames > total_num_frames:
-            raise ValueError(
-                f"Video can't be sampled. The `num_frames={num_frames}` exceeds `total_num_frames={total_num_frames}`. "
-            )
-
-        if num_frames is not None:
-            indices = torch.arange(0, total_num_frames, total_num_frames / num_frames).int()
-        else:
-            indices = torch.arange(0, total_num_frames).int()
-        return indices
+        pass
 
     def _decode_and_sample_videos(
         self,
@@ -268,7 +209,6 @@ class BaseVideoProcessor(TorchvisionBackend):
         videos = make_batched_videos(videos)
         video_metadata = make_batched_metadata(videos, video_metadata=video_metadata)
 
-        # Only sample frames if an array video is passed, otherwise first decode -> then sample
         if is_valid_video(videos[0]) and do_sample_frames:
             sampled_videos = []
             sampled_metadata = []
@@ -281,7 +221,6 @@ class BaseVideoProcessor(TorchvisionBackend):
             video_metadata = sampled_metadata
         elif not is_valid_video(videos[0]):
             if isinstance(videos[0], list):
-                # Videos sometimes are passed as a list of image URLs, especially through templates
                 videos = [
                     torch.stack([self.process_image(image) for image in images], dim=0)
                     for images in self.fetch_images(videos)
@@ -306,12 +245,9 @@ class BaseVideoProcessor(TorchvisionBackend):
         """
         processed_videos = []
         for video in videos:
-            # `make_batched_videos` always returns a 4D array per video
             if isinstance(video, np.ndarray):
-                # not using tvF.to_tensor as it doesn't handle (C, H, W) numpy arrays
                 video = torch.from_numpy(video).contiguous()
 
-            # Infer the channel dimension format if not provided
             if input_data_format is None:
                 input_data_format = infer_channel_dimension_format(video)
 
@@ -337,11 +273,8 @@ class BaseVideoProcessor(TorchvisionBackend):
             valid_processor_keys=list(self.valid_kwargs.__annotations__.keys()) + ["return_tensors"],
         )
 
-        # Perform type validation on received kwargs
         validate_typed_dict(self.valid_kwargs, kwargs)
 
-        # Set default kwargs from self. This ensures that if a kwarg is not provided
-        # by the user, it gets its default value from the instance, or is set to None.
         for kwarg_name in self.valid_kwargs.__annotations__:
             kwargs.setdefault(kwarg_name, getattr(self, kwarg_name, None))
 
@@ -362,7 +295,6 @@ class BaseVideoProcessor(TorchvisionBackend):
         kwargs = self._standardize_kwargs(**kwargs)
         self._validate_preprocess_kwargs(**kwargs)
 
-        # Pop kwargs that are not needed in _preprocess
         kwargs.pop("data_format")
         return_metadata = kwargs.pop("return_metadata")
 
@@ -388,7 +320,6 @@ class BaseVideoProcessor(TorchvisionBackend):
         return_tensors: str | TensorType | None = None,
         **kwargs,
     ) -> BatchFeature:
-        # Group videos by size for batched resizing
         grouped_videos, grouped_videos_index = group_videos_by_shape(videos)
         resized_videos_grouped = {}
         for shape, stacked_videos in grouped_videos.items():
@@ -399,14 +330,11 @@ class BaseVideoProcessor(TorchvisionBackend):
             resized_videos_grouped[shape] = stacked_videos
         resized_videos = reorder_videos(resized_videos_grouped, grouped_videos_index)
 
-        # Group videos by size for further processing
-        # Needed in case do_resize is False, or resize returns videos with different sizes
         grouped_videos, grouped_videos_index = group_videos_by_shape(resized_videos)
         processed_videos_grouped = {}
         for shape, stacked_videos in grouped_videos.items():
             if do_center_crop:
                 stacked_videos = self.center_crop(stacked_videos, crop_size)
-            # Fused rescale and normalize
             stacked_videos = self.rescale_and_normalize(
                 stacked_videos, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -541,12 +469,9 @@ class BaseVideoProcessor(TorchvisionBackend):
             repo_id = hf_api().create_repo(repo_id, exist_ok=True, **kwargs).repo_id
             files_timestamps = self._get_files_timestamps(save_directory)
 
-        # If we have a custom config, we copy the file defining it in the folder and set the attributes so it can be
-        # loaded from the Hub.
         if self._auto_class is not None:
             custom_object_save(self, save_directory, config=self)
 
-        # If we save using the predefined names, we can load using `from_pretrained`
         output_video_processor_file = os.path.join(save_directory, VIDEO_PROCESSOR_NAME)
 
         self.to_json_file(output_video_processor_file)
@@ -609,8 +534,6 @@ class BaseVideoProcessor(TorchvisionBackend):
         else:
             video_processor_file = VIDEO_PROCESSOR_NAME
             try:
-                # Try to load with a new config name first and if not successful try with the old file name
-                # NOTE: we save all processor configs as nested dict in PROCESSOR_NAME from v5, which is the standard
                 resolved_processor_file = cached_file(
                     pretrained_model_name_or_path,
                     filename=PROCESSOR_NAME,
@@ -648,11 +571,8 @@ class BaseVideoProcessor(TorchvisionBackend):
                     resolved_video_processor_files[0] if resolved_video_processor_files else None
                 )
             except OSError:
-                # Raise any OS error raise by `cached_file`. It will have a helpful error message adapted to
-                # the original exception.
                 raise
             except Exception:
-                # For any other exception, we throw a generic error.
                 raise OSError(
                     f"Can't load video processor for '{pretrained_model_name_or_path}'. If you were trying to load"
                     " it from 'https://huggingface.co/models', make sure you don't have a local directory with the"
@@ -660,9 +580,6 @@ class BaseVideoProcessor(TorchvisionBackend):
                     f" directory containing a {video_processor_file} file"
                 )
 
-        # Load video_processor dict. Priority goes as (nested config if found -> video processor config -> image processor config)
-        # We are downloading both configs because almost all models have a `processor_config.json` but
-        # not all of these are nested. We need to check if it was saved recebtly as nested or if it is legacy style
         video_processor_dict = None
         if resolved_processor_file is not None:
             processor_dict = safe_load_json_file(resolved_processor_file)
@@ -711,7 +628,6 @@ class BaseVideoProcessor(TorchvisionBackend):
         video_processor_dict.update({k: v for k, v in kwargs.items() if k in cls.valid_kwargs.__annotations__})
         video_processor = cls(**video_processor_dict)
 
-        # Apply extra kwargs to instance (BC for remote code, e.g. phi4_multimodal)
         extra_keys = []
         for key in reversed(list(kwargs.keys())):
             if hasattr(video_processor, key) and key not in cls.valid_kwargs.__annotations__:

@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import queue
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -26,7 +13,6 @@ from .requests import FutureRequestState, RequestState, RequestStatus
 
 
 class CudaGraphBuffer:
-    """A dict for CUDA graphs with a special __del__ method to make sure the graphs are properly reset."""
 
     def __init__(self) -> None:
         self._storage: dict[tuple[int, ...], torch.cuda.CUDAGraph] = {}
@@ -45,7 +31,6 @@ class CudaGraphBuffer:
 
 @dataclass
 class WorkloadHints:
-    """A tiny dataclass containing hints to help choose good continuous batching defaults"""
 
     max_prompt_length: int = 0
     max_generated_length: int = 0
@@ -148,7 +133,6 @@ def build_attention_mask(
             causal_diagonal = 1
         query_range = slice(cumulative_seqlens_q[i], cumulative_seqlens_q[i + 1])
         key_range = slice(cumulative_seqlens_k[i], cumulative_seqlens_k[i + 1])
-        # Apply causal mask
         minus_inf = torch.full(
             attention_mask[..., query_range, key_range].shape,
             min_value,
@@ -156,11 +140,9 @@ def build_attention_mask(
             device=attention_mask.device,
         )
         masked = torch.triu(minus_inf, diagonal=causal_diagonal)
-        # Apply sliding window mask if needed
         if sliding_window > 1:
             sliding_diagonal = seqlen_k - seqlen_q - sliding_window
             masked += torch.tril(minus_inf, diagonal=sliding_diagonal)
-        # Replace in attention mask
         attention_mask[..., query_range, key_range] = masked
 
 
@@ -172,18 +154,15 @@ def create_warmup_future_states(
     cache: Any,  # not annotated to avoid circular import
 ) -> list[FutureRequestState]:
     """A utility function to create a list of FutureRequestStates for the warmup of CB."""
-    # Setup
     request_ids = [f"__warmup_{status.name}_{i}__" for i in range(num)]
     total_tokens = num_q_tokens + max_kv_read
     blocks_needed = ceil(total_tokens / cache.block_size)
-    # Main loop
     future_states = []
     for req_id in request_ids:
         state = RequestState(request_id=req_id, initial_tokens=[0] * total_tokens, max_new_tokens=1)
         state._status = status  # bypass the property setter to avoid the lifecycle side effects
         state.tokens_to_process = [0] * num_q_tokens
         state.position_offset = max_kv_read
-        # Stop if allocation fails for any request
         allocated = cache.allocate_blocks(blocks_needed, state.request_id, 0)
         if allocated is None:
             return future_states
@@ -194,16 +173,7 @@ def create_warmup_future_states(
 
 
 def drain_queue(request_queue: queue.Queue) -> list[RequestState]:
-    """Drains a queue and returns a list of RequestStates."""
-    new_states: list[RequestState] = []
-    while not request_queue.empty():
-        try:
-            state = request_queue.get_nowait()
-            if state is not None:
-                new_states.append(state)
-        except queue.Empty:
-            break
-    return new_states
+    pass
 
 
 def get_cuda_pools():  # no type hint because it would make torch 2.4 crash

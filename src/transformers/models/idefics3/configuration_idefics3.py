@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Idefics3 model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -25,22 +12,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="HuggingFaceM4/Idefics3-8B-Llama3")
 @strict
 class Idefics3VisionConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers.models.idefics3.modeling_idefics3 import Idefics3VisionTransformer
-    >>> from transformers.models.idefics3.configuration_idefics3 import Idefics3VisionConfig
-
-    >>> # Initializing a Idefics3VisionConfig with google/siglip-base-patch16-224 style configuration
-    >>> configuration = Idefics3VisionConfig()
-
-    >>> # Initializing a Idefics3VisionTransformer (with random weights) from the google/siglip-base-patch16-224 style configuration
-    >>> model = Idefics3VisionTransformer(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "idefics3_vision"
     base_config_key = "vision_config"
@@ -61,20 +32,6 @@ class Idefics3VisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="HuggingFaceM4/Idefics3-8B-Llama3")
 @strict
 class Idefics3Config(PreTrainedConfig):
-    r"""
-    scale_factor (`int`, *optional*, defaults to 2):
-        The scale factor for the image encoder.
-
-    Example:
-    ```python
-    >>> from transformers import Idefics3Model, Idefics3Config
-    >>> # Initializing configuration
-    >>> configuration = Idefics3Config()
-    >>> # Initializing a model from the configuration
-    >>> model = Idefics3Model(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "idefics3"
     sub_configs = {"text_config": AutoConfig, "vision_config": Idefics3VisionConfig}

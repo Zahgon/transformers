@@ -1,4 +1,3 @@
-"""Convert Bark checkpoint."""
 
 import argparse
 import os
@@ -110,14 +109,12 @@ def _load_model(ckpt_path, device, use_small=False, model_type="text"):
         logger.info(f"{model_type} model not found, downloading into `{CACHE_DIR}`.")
         _download(model_info["repo_id"], model_info["file_name"])
     checkpoint = torch.load(ckpt_path, map_location=device, weights_only=True)
-    # this is a hack
     model_args = checkpoint["model_args"]
     if "input_vocab_size" not in model_args:
         model_args["input_vocab_size"] = model_args["vocab_size"]
         model_args["output_vocab_size"] = model_args["vocab_size"]
         del model_args["vocab_size"]
 
-    # convert Bark model arguments to HF Bark model arguments
     model_args["num_heads"] = model_args.pop("n_head")
     model_args["hidden_size"] = model_args.pop("n_embd")
     model_args["num_layers"] = model_args.pop("n_layer")
@@ -128,11 +125,9 @@ def _load_model(ckpt_path, device, use_small=False, model_type="text"):
 
     model.generation_config = model_generation_config
     state_dict = checkpoint["model"]
-    # fixup checkpoint
     unwanted_prefix = "_orig_mod."
     for k in state_dict:
         if k.startswith(unwanted_prefix):
-            # replace part of the key with corresponding layer name in HF implementation
             new_k = k[len(unwanted_prefix) :]
             for old_layer_name, new_layer_name in new_layer_name_dict.items():
                 new_k = new_k.replace(old_layer_name, new_layer_name)
@@ -167,7 +162,6 @@ def load_model(pytorch_dump_folder_path, use_small=False, model_type="text"):
     ckpt_path = _get_ckpt_path(model_type, use_small=use_small)
     model = _load_model(ckpt_path, device, model_type=model_type, use_small=use_small)
 
-    # load bark initial model
     bark_model = _bark_load_model(ckpt_path, "cpu", model_type=model_type, use_small=use_small)
 
     if model_type == "text":
@@ -176,7 +170,6 @@ def load_model(pytorch_dump_folder_path, use_small=False, model_type="text"):
     if model.num_parameters(exclude_embeddings=True) != bark_model.get_num_params():
         raise ValueError("initial and new models don't have the same number of parameters")
 
-    # check if same output as the bark model
     batch_size = 5
     sequence_length = 10
 
@@ -186,7 +179,6 @@ def load_model(pytorch_dump_folder_path, use_small=False, model_type="text"):
 
         output_new_model_total = model(vec)
 
-        # take last logits
         output_new_model = output_new_model_total.logits[:, [-1], :]
 
     else:
@@ -199,7 +191,6 @@ def load_model(pytorch_dump_folder_path, use_small=False, model_type="text"):
 
         output_new_model = output_new_model_total.logits
 
-    # output difference should come from the difference of self-attention implementation design
     if output_new_model.shape != output_old_model.shape:
         raise ValueError("initial and new outputs don't have the same shape")
     if (output_new_model - output_old_model).abs().max().item() > 1e-3:
@@ -217,40 +208,11 @@ def load_whole_bark_model(
     hub_path,
     folder_path,
 ):
-    pytorch_dump_folder_path = os.path.join(folder_path, append_text)
-
-    semanticConfig = BarkSemanticConfig.from_pretrained(os.path.join(semantic_path, "config.json"))
-    coarseAcousticConfig = BarkCoarseConfig.from_pretrained(os.path.join(coarse_path, "config.json"))
-    fineAcousticConfig = BarkFineConfig.from_pretrained(os.path.join(fine_path, "config.json"))
-    codecConfig = EncodecConfig.from_pretrained("facebook/encodec_24khz")
-
-    semantic = BarkSemanticModel.from_pretrained(semantic_path)
-    coarseAcoustic = BarkCoarseModel.from_pretrained(coarse_path)
-    fineAcoustic = BarkFineModel.from_pretrained(fine_path)
-    codec = EncodecModel.from_pretrained("facebook/encodec_24khz")
-
-    bark_config = BarkConfig(semanticConfig, coarseAcousticConfig, fineAcousticConfig, codecConfig)
-
-    bark_generation_config = BarkGenerationConfig(
-        semantic.generation_config, coarseAcoustic.generation_config, fineAcoustic.generation_config
-    )
-
-    bark = BarkModel(bark_config)
-
-    bark.semantic = semantic
-    bark.coarse_acoustics = coarseAcoustic
-    bark.fine_acoustics = fineAcoustic
-    bark.codec_model = codec
-
-    bark.generation_config = bark_generation_config
-
-    Path(pytorch_dump_folder_path).mkdir(exist_ok=True)
-    bark.save_pretrained(pytorch_dump_folder_path, repo_id=hub_path, push_to_hub=True)
+    pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Required parameters
 
     parser.add_argument("model_type", type=str, help="text, coarse or fine.")
     parser.add_argument("pytorch_dump_folder_path", default=None, type=str, help="Path to the output PyTorch model.")

@@ -1,17 +1,3 @@
-# Copyright 2024 Meta Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Chameleon model."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -50,21 +36,12 @@ logger = logging.get_logger(__name__)
 @auto_docstring
 @dataclass
 class ChameleonVQVAEModelOutput(BaseModelOutputWithPooling):
-    r"""
-    quantized_last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_channels, image_size, image_size)`):
-        Quantized last hidden state from the VQ-VAE model.
-    image_tokens (`torch.FloatTensor` of shape `(batch_size, config.vocab_size`):
-        Indices of the image tokens predicted by the VQ-VAE model.
-    embedding_loss (`torch.FloatTensor`):
-        The embedding loss computed during quantization.
-    """
 
     quantized_last_hidden_state: torch.FloatTensor | None = None
     image_tokens: torch.FloatTensor | None = None
     embedding_loss: torch.FloatTensor | None = None
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRMSNorm with Llama->Chameleon
 class ChameleonRMSNorm(nn.Module):
     def __init__(self, hidden_size, eps: float = 1e-6) -> None:
         """
@@ -82,10 +59,9 @@ class ChameleonRMSNorm(nn.Module):
         return self.weight * hidden_states.to(input_dtype)
 
     def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
+        pass
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->Chameleon
 class ChameleonRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
@@ -129,7 +105,6 @@ class ChameleonRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
@@ -151,7 +126,6 @@ class ChameleonRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-# Copied from transformers.models.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
@@ -159,7 +133,6 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-# Copied from transformers.models.llama.modeling_llama.apply_rotary_pos_emb
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
 
@@ -185,7 +158,6 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     return q_embed, k_embed
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaMLP with Llama->Chameleon
 class ChameleonMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -197,19 +169,12 @@ class ChameleonMLP(nn.Module):
         self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=config.mlp_bias)
         self.act_fn = ACT2FN[config.hidden_act]
 
-    # Ignore copy
     def forward(self, x):
         down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
         return down_proj
 
 
 class ChameleonLayerNorm(nn.LayerNorm):
-    """
-    LayerNorm but computes stats only over the last dim because Chameleon applies gamma and beta
-    from each shard separately to each head, instead of reducing. We can apply each head's own
-    gamma/beta by repeat-interleaving weights from each shard, but the stats have to be computed
-    in the last dimension. This module applies gamma/beta manually to fulfill this requirement.
-    """
 
     def __init__(self, hidden_size, *args, **kwargs):
         super().__init__(hidden_size, *args, **kwargs)
@@ -221,7 +186,6 @@ class ChameleonLayerNorm(nn.LayerNorm):
         return hidden_states
 
 
-# Copied from transformers.models.llama.modeling_llama.repeat_kv
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -234,7 +198,6 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
-# Copied from transformers.models.llama.modeling_llama.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -261,7 +224,6 @@ def eager_attention_forward(
 
 
 class ChameleonAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: ChameleonConfig, layer_idx: int | None = None):
         super().__init__()
@@ -353,7 +315,6 @@ class ChameleonAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# copied from transformers.models.llama.modeling_llama.LlamaDecoderLayer with Llama->Chameleon, LLAMA->CHAMELEON
 class ChameleonDecoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: ChameleonConfig, layer_idx: int):
         super().__init__()
@@ -397,7 +358,6 @@ class ChameleonDecoderLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         hidden_states, self_attn_weights = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -410,7 +370,6 @@ class ChameleonDecoderLayer(GradientCheckpointingLayer):
         )
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -466,7 +425,6 @@ class ChameleonSwinDecoderLayer(GradientCheckpointingLayer):
 
         residual = hidden_states
 
-        # Self Attention
         hidden_states, self_attn_weights = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -479,7 +437,6 @@ class ChameleonSwinDecoderLayer(GradientCheckpointingLayer):
         )
         hidden_states = self.input_layernorm(hidden_states)
         hidden_states = residual + hidden_states
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.mlp(hidden_states)
         hidden_states = self.post_attention_layernorm(hidden_states)
@@ -493,15 +450,6 @@ class ChameleonSwinDecoderLayer(GradientCheckpointingLayer):
 
 
 class ChameleonVQVAEVectorQuantizer(nn.Module):
-    """
-    A module for vector quantization using learned embedding vectors.
-
-    This module implements the quantization process similar to te one described in
-    the VQ-VAE (Vector Quantized Variational AutoEncoder) paper. It quantizes continuous
-    input vectors into discrete codebook vectors, which are learned during training.
-    Current implementation improves over previous ones by avoiding costly matrix multiplications
-    and allowing for post-hoc remapping of indices.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -515,7 +463,6 @@ class ChameleonVQVAEVectorQuantizer(nn.Module):
         hidden_state = hidden_state.permute(0, 2, 3, 1).contiguous()
         hidden_state_flattened = hidden_state.view(-1, self.embedding_dim)
 
-        # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
         distances = (
             torch.sum(hidden_state_flattened**2, dim=1, keepdim=True)
             + torch.sum(self.embedding.weight**2, dim=1)
@@ -525,15 +472,12 @@ class ChameleonVQVAEVectorQuantizer(nn.Module):
         min_encoding_indices = torch.argmin(distances, dim=1)
         hidden_state_quant = self.embedding(min_encoding_indices).view(hidden_state.shape)
 
-        # compute loss for embedding
         loss = torch.mean((hidden_state_quant.detach() - hidden_state) ** 2) + self.beta * torch.mean(
             (hidden_state_quant - hidden_state.detach()) ** 2
         )
 
-        # preserve gradients
         hidden_state_quant = hidden_state + (hidden_state_quant - hidden_state).detach()
 
-        # reshape back to match original input shape
         hidden_state_quant = hidden_state_quant.permute(0, 3, 1, 2).contiguous()
 
         return hidden_state_quant, loss, min_encoding_indices
@@ -545,7 +489,6 @@ class ChameleonVQVAEEncoderConvDownsample(nn.Module):
         self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=2, padding=0)
 
     def forward(self, hidden_states):
-        # no asymmetric padding in torch conv, must do it ourselves
         hidden_states = F.pad(hidden_states, pad=(0, 1, 0, 1), mode="constant", value=0)
         hidden_states = self.conv(hidden_states)
         return hidden_states
@@ -613,7 +556,6 @@ class ChameleonVQVAEEncoderAttnBlock(nn.Module):
         key_states = self.k(hidden_states)
         value_states = self.v(hidden_states)
 
-        # compute attention
         batch_size, channels, height, width = query_states.shape
         query_states = query_states.reshape(batch_size, channels, height * width).permute(0, 2, 1)
         key_states = key_states.reshape(batch_size, channels, height * width)
@@ -621,7 +563,6 @@ class ChameleonVQVAEEncoderAttnBlock(nn.Module):
         attn_weights = attn_weights * (int(channels) ** (-0.5))
         attn_weights = F.softmax(attn_weights, dim=2)
 
-        # attend to values
         value_states = value_states.reshape(batch_size, channels, height * width)
         attn_weights = attn_weights.permute(0, 2, 1)
         attn_output = torch.bmm(value_states, attn_weights).reshape(batch_size, channels, height, width)
@@ -701,7 +642,6 @@ class ChameleonVQVAEEncoder(nn.Module):
         )
 
     def forward(self, pixel_values: torch.LongTensor):
-        # downsampling
         hidden_states = [self.conv_in(pixel_values)]
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
@@ -714,13 +654,11 @@ class ChameleonVQVAEEncoder(nn.Module):
             if i_level != self.num_resolutions - 1:
                 hidden_states.append(self.down[i_level].downsample(hidden_states[-1]))
 
-        # middle
         last_hidden_state = hidden_states[-1]
         last_hidden_state = self.mid.block_1(last_hidden_state)
         last_hidden_state = self.mid.attn_1(last_hidden_state)
         last_hidden_state = self.mid.block_2(last_hidden_state)
 
-        # end
         last_hidden_state = self.norm_out(last_hidden_state)
         last_hidden_state *= torch.sigmoid(last_hidden_state)
         last_hidden_state = self.conv_out(last_hidden_state)
@@ -728,9 +666,6 @@ class ChameleonVQVAEEncoder(nn.Module):
 
 
 class ChameleonImageVocabularyMapping:
-    """
-    A class for mapping discrete image tokens from VQGAN to BPE tokens.
-    """
 
     def __init__(self, vocab_map):
         self.vocab_map = vocab_map
@@ -738,35 +673,27 @@ class ChameleonImageVocabularyMapping:
 
     @cached_property
     def val2name(self):
-        return {v: k for k, v in self.vocab_map.items()}
+        pass
 
     @cached_property
     def image_tokens(self):
-        return sorted([val for name, val in self.vocab_map.items() if name.startswith("IMGIMG")])
+        pass
 
     @cached_property
     def bpe2img(self):
-        img_tkn_chr_mapping = {chr(ord("A") + i): str(i) for i in range(10)}
-
-        def remap(old_name: str) -> str:
-            return "".join(img_tkn_chr_mapping.get(c, c) for c in old_name[len("IMGIMG") : -1])
-
-        return {tok: int(remap(self.val2name[tok])) for tok in self.image_tokens}
+        pass
 
     @cached_property
     def img2bpe(self):
-        return {v: k for k, v in self.bpe2img.items()}
+        pass
 
     @cached_property
     def bpe2img_search_tensors(self):
-        return torch.tensor(sorted(self.bpe2img.keys())), torch.tensor(sorted(self.bpe2img.values()))
+        pass
 
     @cached_property
     def img2bpe_mapping_tensor(self):
-        mapping = torch.zeros(max(self.img2bpe.keys()) + 1, dtype=torch.int)
-        for k, v in self.img2bpe.items():
-            mapping[k] = v
-        return mapping
+        pass
 
     def convert_img2bpe(self, img_batch: torch.Tensor) -> torch.Tensor:
         device = img_batch.device
@@ -858,7 +785,6 @@ class ChameleonModel(ChameleonPreTrainedModel):
         self.rotary_emb = ChameleonRotaryEmbedding(config=config)
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_image_tokens(self, pixel_values: torch.FloatTensor):
@@ -945,7 +871,6 @@ class ChameleonModel(ChameleonPreTrainedModel):
             )
             inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
 
-        # torch.jit.trace() doesn't support cache objects in the output
         if use_cache and past_key_values is None and not torch.jit.is_tracing():
             past_key_values = DynamicCache(config=self.config)
 
@@ -962,11 +887,9 @@ class ChameleonModel(ChameleonPreTrainedModel):
             position_ids=position_ids,
         )
 
-        # embed positions
         hidden_states = inputs_embeds
         position_embeddings = self.rotary_emb(hidden_states, position_ids=position_ids)
 
-        # decoder layers
         for decoder_layer in self.layers:
             layer_outputs = decoder_layer(
                 hidden_states,
@@ -1002,7 +925,6 @@ class ChameleonForConditionalGeneration(ChameleonPreTrainedModel, GenerationMixi
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_image_tokens(self, pixel_values):
@@ -1073,11 +995,9 @@ class ChameleonForConditionalGeneration(ChameleonPreTrainedModel, GenerationMixi
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
-        # Disallow image tokens which does not include special begin-image and end-image tokens
         image_tokens = self.model.vocabulary_mapping.image_tokens
         logits[:, :, image_tokens] = torch.finfo(logits.dtype).min
 
@@ -1105,7 +1025,6 @@ class ChameleonForConditionalGeneration(ChameleonPreTrainedModel, GenerationMixi
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -1120,10 +1039,6 @@ class ChameleonForConditionalGeneration(ChameleonPreTrainedModel, GenerationMixi
         )
 
         if not is_first_iteration and use_cache:
-            # Pixel values are used only in the first iteration if available
-            # In subsequent iterations, they are already merged with text and cached
-            # NOTE: first iteration doesn't have to be prefill, it can be the first
-            # iteration with a question and cached system prompt (continue generate from cache)
             model_inputs["pixel_values"] = None
 
         return model_inputs

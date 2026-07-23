@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for MobileViT."""
 
 from typing import TYPE_CHECKING
 
@@ -45,16 +31,7 @@ if is_torch_available():
 logger = logging.get_logger(__name__)
 
 
-# Adapted from transformers.models.mobilevit.image_processing_mobilevit.MobileVitImageProcessorKwargs
 class MobileVitImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    do_flip_channel_order (`bool`, *optional*, defaults to `self.do_flip_channel_order`):
-        Whether to flip the color channels from RGB to BGR or vice versa.
-    do_reduce_labels (`bool`, *optional*, defaults to `self.do_reduce_labels`):
-        Whether or not to reduce all label values of segmentation maps by 1. Usually used for datasets where 0
-        is used for background, and background itself is not included in all classes of a dataset (e.g.
-        ADE20k). The background label will be replaced by 255.
-    """
 
     do_flip_channel_order: bool
     do_reduce_labels: bool
@@ -62,7 +39,6 @@ class MobileVitImageProcessorKwargs(ImagesKwargs, total=False):
 
 @auto_docstring
 class MobileViTImageProcessorPil(PilBackend):
-    """PIL backend for MobileViT with flip_channel_order and reduce_label support."""
 
     valid_kwargs = MobileVitImageProcessorKwargs
 
@@ -128,7 +104,6 @@ class MobileViTImageProcessorPil(PilBackend):
                 {
                     "do_rescale": False,
                     "do_flip_channel_order": False,
-                    # Nearest interpolation is used for segmentation maps instead of BICUBIC.
                     "resample": PILImageResampling.NEAREST,
                 }
             )

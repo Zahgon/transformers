@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Classes to support Vision-Encoder-Text-Decoder architectures"""
 
 import torch
 from torch import nn
@@ -28,7 +14,6 @@ from ..auto.modeling_auto import AutoModel, AutoModelForCausalLM
 from .configuration_vision_encoder_decoder import VisionEncoderDecoderConfig
 
 
-# Copied from transformers.models.encoder_decoder.modeling_encoder_decoder.shift_tokens_right
 def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
     """
     Shift input ids one token to the right.
@@ -41,7 +26,6 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("Make sure to set the pad_token_id attribute of the model's configuration.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
@@ -52,12 +36,6 @@ logger = logging.get_logger(__name__)
 
 @auto_docstring
 class VisionEncoderDecoderModel(PreTrainedModel, GenerationMixin):
-    r"""
-    [`VisionEncoderDecoderModel`] is a generic model class that will be instantiated as a transformer architecture with
-    one of the base vision model classes of the library as encoder and another one as decoder when created with the
-    :meth*~transformers.AutoModel.from_pretrained* class method for the encoder and
-    :meth*~transformers.AutoModelForCausalLM.from_pretrained* class method for the decoder.
-    """
 
     config: VisionEncoderDecoderConfig
     base_model_prefix = "vision_encoder_decoder"
@@ -96,8 +74,6 @@ class VisionEncoderDecoderModel(PreTrainedModel, GenerationMixin):
                     " `config.encoder.hidden_size`."
                 )
 
-        # initialize with config
-        # make sure input & output embeddings is not tied
         config.tie_word_embeddings = False
         super().__init__(config)
 
@@ -122,14 +98,11 @@ class VisionEncoderDecoderModel(PreTrainedModel, GenerationMixin):
                 f" {self.config.decoder}"
             )
 
-        # make sure that the individual model's config refers to the shared config
-        # so that the updates to the config will be synced
         self.config.encoder._attn_implementation = self.encoder.config._attn_implementation
         self.config.decoder._attn_implementation = self.decoder.config._attn_implementation
         self.encoder.config = self.config.encoder
         self.decoder.config = self.config.decoder
 
-        # encoder outputs might need to be projected to different dimension for decoder
         if (
             self.encoder.config.hidden_size != self.decoder.config.hidden_size
             and getattr(self.decoder.config, "cross_attention_hidden_size", None) is None
@@ -160,143 +133,7 @@ class VisionEncoderDecoderModel(PreTrainedModel, GenerationMixin):
         *model_args,
         **kwargs,
     ) -> PreTrainedModel:
-        r"""
-        Instantiate an encoder and a decoder from one or two base classes of the library from pretrained model
-        checkpoints.
-
-
-        The model is set in evaluation mode by default using `model.eval()` (Dropout modules are deactivated). To train
-        the model, you need to first set it back in training mode with `model.train()`.
-
-        Params:
-            encoder_pretrained_model_name_or_path (`str`, *optional*):
-                Information necessary to initiate the image encoder. Can be either:
-
-                    - A string, the *model id* of a pretrained model hosted inside a model repo on huggingface.co. An
-                      example is `google/vit-base-patch16-224-in21k`.
-                    - A path to a *directory* containing model weights saved using
-                      [`~PreTrainedModel.save_pretrained`], e.g., `./my_model_directory/`.
-
-            decoder_pretrained_model_name_or_path (`str`, *optional*, defaults to `None`):
-                Information necessary to initiate the text decoder. Can be either:
-
-                    - A string, the *model id* of a pretrained model hosted inside a model repo on huggingface.co.
-                    - A path to a *directory* containing model weights saved using
-                      [`~PreTrainedModel.save_pretrained`], e.g., `./my_model_directory/`.
-
-            model_args (remaining positional arguments, *optional*):
-                All remaining positional arguments will be passed to the underlying model's `__init__` method.
-
-            kwargs (remaining dictionary of keyword arguments, *optional*):
-                Can be used to update the configuration object (after it being loaded) and initiate the model (e.g.,
-                `output_attentions=True`).
-
-                - To update the encoder configuration, use the prefix *encoder_* for each configuration parameter.
-                - To update the decoder configuration, use the prefix *decoder_* for each configuration parameter.
-                - To update the parent model configuration, do not use a prefix for each configuration parameter.
-
-                Behaves differently depending on whether a `config` is provided or automatically loaded.
-
-        Example:
-
-        ```python
-        >>> from transformers import VisionEncoderDecoderModel
-
-        >>> # initialize a vit-bert from a pretrained ViT and a pretrained BERT model. Note that the cross-attention layers will be randomly initialized
-        >>> model = VisionEncoderDecoderModel.from_encoder_decoder_pretrained(
-        ...     "google/vit-base-patch16-224-in21k", "google-bert/bert-base-uncased"
-        ... )
-        >>> # saving model after fine-tuning
-        >>> model.save_pretrained("./vit-bert")
-        >>> # load fine-tuned model
-        >>> model = VisionEncoderDecoderModel.from_pretrained("./vit-bert")
-        ```"""
-
-        kwargs_encoder = {
-            argument[len("encoder_") :]: value for argument, value in kwargs.items() if argument.startswith("encoder_")
-        }
-
-        kwargs_decoder = {
-            argument[len("decoder_") :]: value for argument, value in kwargs.items() if argument.startswith("decoder_")
-        }
-
-        # remove encoder, decoder kwargs from kwargs
-        for key in kwargs_encoder:
-            del kwargs["encoder_" + key]
-        for key in kwargs_decoder:
-            del kwargs["decoder_" + key]
-
-        # Load and initialize the encoder and decoder
-        # The distinction between encoder and decoder at the model level is made
-        # by the value of the flag `is_decoder` that we need to set correctly.
-        encoder = kwargs_encoder.pop("model", None)
-        if encoder is None:
-            if encoder_pretrained_model_name_or_path is None:
-                raise ValueError(
-                    "If `encoder_model` is not defined as an argument, a `encoder_pretrained_model_name_or_path` has "
-                    "to be defined."
-                )
-
-            if "config" not in kwargs_encoder:
-                encoder_config, kwargs_encoder = AutoConfig.from_pretrained(
-                    encoder_pretrained_model_name_or_path, **kwargs_encoder, return_unused_kwargs=True
-                )
-
-                if getattr(encoder_config, "is_decoder", False) or getattr(
-                    encoder_config, "add_cross_attention", False
-                ):
-                    logger.info(
-                        f"Initializing {encoder_pretrained_model_name_or_path} as a encoder model "
-                        "from a decoder model. Cross-attention and causal mask are disabled."
-                    )
-                    encoder_config.is_decoder = False
-                    encoder_config.add_cross_attention = False
-
-                kwargs_encoder["config"] = encoder_config
-
-            encoder = AutoModel.from_pretrained(encoder_pretrained_model_name_or_path, *model_args, **kwargs_encoder)
-
-        decoder = kwargs_decoder.pop("model", None)
-        if decoder is None:
-            if decoder_pretrained_model_name_or_path is None:
-                raise ValueError(
-                    "If `decoder_model` is not defined as an argument, a `decoder_pretrained_model_name_or_path` has "
-                    "to be defined."
-                )
-
-            if "config" not in kwargs_decoder:
-                decoder_config, kwargs_decoder = AutoConfig.from_pretrained(
-                    decoder_pretrained_model_name_or_path, **kwargs_decoder, return_unused_kwargs=True
-                )
-
-                if decoder_config.is_decoder is False or decoder_config.add_cross_attention is False:
-                    logger.info(
-                        f"Initializing {decoder_pretrained_model_name_or_path} as a decoder model. Cross attention"
-                        f" layers are added to {decoder_pretrained_model_name_or_path} and randomly initialized if"
-                        f" {decoder_pretrained_model_name_or_path}'s architecture allows for cross attention layers."
-                    )
-                    decoder_config.is_decoder = True
-                    decoder_config.add_cross_attention = True
-
-                kwargs_decoder["config"] = decoder_config
-
-            if kwargs_decoder["config"].is_decoder is False or kwargs_decoder["config"].add_cross_attention is False:
-                logger.warning(
-                    f"Decoder model {decoder_pretrained_model_name_or_path} is not initialized as a decoder. "
-                    f"In order to initialize {decoder_pretrained_model_name_or_path} as a decoder, "
-                    "make sure that the attributes `is_decoder` and `add_cross_attention` of `decoder_config` "
-                    "passed to `.from_encoder_decoder_pretrained(...)` are set to `True` or do not pass a "
-                    "`decoder_config` to `.from_encoder_decoder_pretrained(...)`"
-                )
-
-            decoder = AutoModelForCausalLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
-
-        # instantiate config with corresponding kwargs
-        config = VisionEncoderDecoderConfig.from_encoder_decoder_configs(encoder.config, decoder.config, **kwargs)
-
-        # make sure input & output embeddings is not tied
-        config.tie_word_embeddings = False
-        return cls(encoder=encoder, decoder=decoder, config=config)
+        pass
 
     @auto_docstring
     def forward(
@@ -396,14 +233,12 @@ class VisionEncoderDecoderModel(PreTrainedModel, GenerationMixin):
 
         encoder_hidden_states = encoder_outputs[0]
 
-        # optionally project encoder_hidden_states
         if (
             self.encoder.config.hidden_size != self.decoder.config.hidden_size
             and getattr(self.decoder.config, "cross_attention_hidden_size", None) is None
         ):
             encoder_hidden_states = self.enc_to_dec_proj(encoder_hidden_states)
 
-        # else:
         encoder_attention_mask = None
 
         if (labels is not None) and (decoder_input_ids is None and decoder_inputs_embeds is None):
@@ -411,7 +246,6 @@ class VisionEncoderDecoderModel(PreTrainedModel, GenerationMixin):
                 labels, self.config.pad_token_id, self.config.decoder_start_token_id
             )
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -426,7 +260,6 @@ class VisionEncoderDecoderModel(PreTrainedModel, GenerationMixin):
             **kwargs_decoder,
         )
 
-        # Compute loss independent from decoder (as some shift the logits inside them)
         loss = None
         if labels is not None:
             logits = decoder_outputs.logits if return_dict else decoder_outputs[0]

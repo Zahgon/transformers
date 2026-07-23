@@ -1,16 +1,3 @@
-# Copyright 2024 HuggingFace Inc. team. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Mllama model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -24,35 +11,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="meta-llama/Llama-3.2-11B-Vision")
 @strict
 class MllamaVisionConfig(PreTrainedConfig):
-    r"""
-    num_global_layers (`int`, *optional*, defaults to 8):
-        Number of global layers in the Transformer encoder. Vision model has a second transformer encoder, called global.
-    vision_output_dim (`int`, *optional*, defaults to 7680):
-        Dimensionality of the vision model output. Includes output of transformer
-        encoder with intermediate layers and global transformer encoder.
-    max_num_tiles (`int`, *optional*, defaults to 4):
-        Maximum number of tiles for image splitting.
-    intermediate_layers_indices (`list[int]`, *optional*, defaults to [3, 7, 15, 23, 30]):
-        Indices of intermediate layers of transformer encoder from which to extract and output features.
-        These output features are concatenated with final hidden state of transformer encoder.
-    supported_aspect_ratios (`list[list[int]]`, *optional*):
-        List of supported aspect ratios for image splitting. If not specified, the default supported aspect ratios
-        are [[1, 1], [1, 2], [1, 3], [1, 4], [2, 1], [2, 2], [3, 1], [4, 1]] for `max_num_tiles=4`.
-
-    Example:
-
-    ```python
-    >>> from transformers import MllamaVisionConfig, MllamaVisionModel
-
-    >>> # Initializing a Llama config
-    >>> config = MllamaVisionConfig()
-
-    >>> # Initializing a vision model from the mllama-11b style configuration
-    >>> model = MllamaVisionModel(config)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "mllama_vision_model"
     base_config_key = "vision_config"
@@ -83,39 +41,16 @@ class MllamaVisionConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if (
-            self.supported_aspect_ratios == [[1, 1], [1, 2], [1, 3], [1, 4], [2, 1], [2, 2], [3, 1], [4, 1]]
-            and self.max_num_tiles != 4
-        ):
-            raise ValueError("max_num_tiles must be 4 for default supported aspect ratios")
+        pass
 
     @property
     def max_aspect_ratio_id(self) -> int:
-        return len(self.supported_aspect_ratios)
+        pass
 
 
 @auto_docstring(checkpoint="meta-llama/Llama-3.2-11B-Vision")
 @strict
 class MllamaTextConfig(PreTrainedConfig):
-    r"""
-    cross_attention_layers (`list[int]`, *optional*):
-        Indices of the cross attention layers. If not specified, will default to [3, 8, 13, 18, 23, 28, 33, 38].
-
-    Example:
-
-    ```python
-    >>> from transformers import MllamaTextModel, MllamaTextConfig
-
-    >>> # Initializing a Mllama text config
-    >>> config = MllamaTextConfig()
-
-    >>> # Initializing a model from the Mllama text configuration
-    >>> model = MllamaTextModel(config)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "mllama_text_model"
     base_config_key = "text_config"
@@ -149,27 +84,6 @@ class MllamaTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="meta-llama/Llama-3.2-11B-Vision")
 @strict
 class MllamaConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import MllamaForConditionalGeneration, MllamaConfig, MllamaVisionConfig, MllamaTextConfig
-
-    >>> # Initializing a CLIP-vision config
-    >>> vision_config = MllamaVisionConfig()
-
-    >>> # Initializing a Llama config
-    >>> text_config = MllamaTextConfig()
-
-    >>> # Initializing a mllama-11b style configuration
-    >>> configuration = MllamaConfig(vision_config, text_config)
-
-    >>> # Initializing a model from the mllama-11b style configuration
-    >>> model = MllamaForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "mllama"
     attribute_map = {

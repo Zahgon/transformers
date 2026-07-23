@@ -1,17 +1,3 @@
-# Copyright 2023 Meta AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch DINOv2 model."""
 
 import collections.abc
 from collections.abc import Callable
@@ -36,9 +22,6 @@ logger = logging.get_logger(__name__)
 
 
 class Dinov2Embeddings(nn.Module):
-    """
-    Construct the CLS token, mask token, position and patch embeddings.
-    """
 
     def __init__(self, config: Dinov2Config) -> None:
         super().__init__()
@@ -67,7 +50,6 @@ class Dinov2Embeddings(nn.Module):
         num_patches = embeddings.shape[1] - 1
         num_positions = self.position_embeddings.shape[1] - 1
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
@@ -104,7 +86,6 @@ class Dinov2Embeddings(nn.Module):
                 bool_masked_pos.unsqueeze(-1), self.mask_token.to(embeddings.dtype).unsqueeze(0), embeddings
             )
 
-        # add the [CLS] token to the embedded patch tokens
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         embeddings = torch.cat((cls_tokens, embeddings), dim=1)
 
@@ -117,11 +98,6 @@ class Dinov2Embeddings(nn.Module):
 
 
 class Dinov2PatchEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
-    `hidden_states` (patch embeddings) of shape `(batch_size, seq_length, hidden_size)` to be consumed by a
-    Transformer.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -149,7 +125,6 @@ class Dinov2PatchEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -163,7 +138,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -178,7 +152,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->Dinov2
 class Dinov2SelfAttention(nn.Module):
     def __init__(self, config: Dinov2Config):
         super().__init__()
@@ -234,12 +207,7 @@ class Dinov2SelfAttention(nn.Module):
         return context_layer, attention_probs
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->Dinov2
 class Dinov2SelfOutput(nn.Module):
-    """
-    The residual connection is defined in Dinov2Layer instead of here (as is the case with other models), due to the
-    layernorm applied before each block.
-    """
 
     def __init__(self, config: Dinov2Config):
         super().__init__()
@@ -252,7 +220,6 @@ class Dinov2SelfOutput(nn.Module):
         return hidden_states
 
 
-# Todo - Refactor as part of vision refactor. Copied from transformers.models.vit.modeling_vit.ViTAttention with ViT->Dinov2
 class Dinov2Attention(nn.Module):
     def __init__(self, config: Dinov2Config):
         super().__init__()
@@ -314,13 +281,7 @@ class Dinov2SwiGLUFFN(nn.Module):
         return self.weights_out(hidden)
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->Dinov2DropPath
 class Dinov2DropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -336,11 +297,10 @@ class Dinov2DropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class Dinov2Layer(GradientCheckpointingLayer):
-    """This corresponds to the Block class in the original implementation."""
 
     def __init__(self, config: Dinov2Config) -> None:
         super().__init__()
@@ -366,15 +326,12 @@ class Dinov2Layer(GradientCheckpointingLayer):
         self_attention_output = self.attention(hidden_states_norm)
         self_attention_output = self.layer_scale1(self_attention_output)
 
-        # first residual connection
         hidden_states = self.drop_path(self_attention_output) + hidden_states
 
-        # in Dinov2, layernorm is also applied after self-attention
         layer_output = self.norm2(hidden_states)
         layer_output = self.mlp(layer_output)
         layer_output = self.layer_scale2(layer_output)
 
-        # second residual connection
         layer_output = self.drop_path(layer_output) + hidden_states
 
         return layer_output
@@ -440,7 +397,6 @@ class Dinov2Model(Dinov2PreTrainedModel):
 
         self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> Dinov2PatchEmbeddings:
@@ -490,12 +446,10 @@ class Dinov2ForImageClassification(Dinov2PreTrainedModel):
         self.num_labels = config.num_labels
         self.dinov2 = Dinov2Model(config)
 
-        # Classifier head
         self.classifier = (
             nn.Linear(config.hidden_size * 2, config.num_labels) if config.num_labels > 0 else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -548,7 +502,6 @@ class Dinov2Backbone(BackboneMixin, Dinov2PreTrainedModel):
 
         self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> Dinov2PatchEmbeddings:
@@ -601,8 +554,6 @@ class Dinov2Backbone(BackboneMixin, Dinov2PreTrainedModel):
                     hidden_state = self.layernorm(hidden_state)
                 if self.config.reshape_hidden_states:
                     hidden_state = hidden_state[:, 1:]
-                    # this was actually a bug in the original implementation that we copied here,
-                    # cause normally the order is height, width
                     batch_size, _, height, width = pixel_values.shape
                     patch_size = self.config.patch_size
                     hidden_state = hidden_state.reshape(batch_size, height // patch_size, width // patch_size, -1)

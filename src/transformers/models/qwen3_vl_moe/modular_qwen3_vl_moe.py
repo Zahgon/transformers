@@ -1,17 +1,3 @@
-# Copyright 2025 The Qwen Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Qwen3-VL-MOE model."""
 
 import torch
 import torch.nn as nn
@@ -56,32 +42,11 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="Qwen/Qwen3-VL-30B-A3B-Instruct")
 @strict
 class Qwen3VLMoeTextConfig(Qwen3MoeConfig):
-    r"""
-    decoder_sparse_step (`int`, *optional*, defaults to 1):
-        The frequency of the MoE layer.
-    mlp_only_layers (`List[int]`, *optional*, defaults to `[]`):
-        Indicate which layers use Qwen3VLMoeMLP rather than Qwen3VLMoeSparseMoeBlock
-        The list contains layer index, from 0 to num_layers-1 if we have num_layers layers
-        If `mlp_only_layers` is empty, `decoder_sparse_step` is used to determine the sparsity.
-
-    ```python
-    >>> from transformers import Qwen3VLMoeForConditionalGeneration, Qwen3VLMoeConfig
-
-    >>> # Initializing a Qwen3VLMoe style configuration
-    >>> configuration = Qwen3VLMoeConfig()
-
-    >>> # Initializing a model from the Qwen3-VL-30B-A3B style configuration
-    >>> model = Qwen3VLMoeForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qwen3_vl_moe_text"
     base_config_key = "text_config"
     keys_to_ignore_at_inference = ["past_key_values"]
     default_theta = 500000.0
-    # Default tensor parallel plan for base model `Qwen3VLMoe`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",
@@ -139,21 +104,6 @@ class Qwen3VLMoeVisionConfig(Qwen3VLVisionConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3-VL-30B-A3B-Instruct")
 @strict
 class Qwen3VLMoeConfig(Qwen3VLConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Qwen3VLMoeForConditionalGeneration, Qwen3VLMoeConfig
-
-    >>> # Initializing a Qwen3-VL-MOE style configuration
-    >>> configuration = Qwen3VLMoeConfig()
-
-    >>> # Initializing a model from the Qwen3-VL-30B-A3B style configuration
-    >>> model = Qwen3VLMoeForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     pass
 
@@ -249,7 +199,6 @@ class Qwen3VLMoeTextModel(Qwen3VLTextModel):
         past_key_values: Cache | None = None,
         inputs_embeds: torch.FloatTensor | None = None,
         use_cache: bool | None = None,
-        # args for deepstack
         visual_pos_masks: torch.Tensor | None = None,
         deepstack_visual_embeds: list[torch.Tensor] | None = None,
         **kwargs: Unpack[FlashAttentionKwargs],
@@ -265,14 +214,12 @@ class Qwen3VLMoeTextModel(Qwen3VLTextModel):
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        # torch.jit.trace() doesn't support cache objects in the output
         if use_cache and past_key_values is None and not torch.jit.is_tracing():
             past_key_values = DynamicCache(config=self.config)
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # the hard coded `4` is for text, temporal, height and width.
         if position_ids is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
@@ -296,10 +243,8 @@ class Qwen3VLMoeTextModel(Qwen3VLTextModel):
 
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-        # decoder layers
         for layer_idx, decoder_layer in enumerate(self.layers):
             layer_outputs = decoder_layer(
                 hidden_states,
@@ -311,7 +256,6 @@ class Qwen3VLMoeTextModel(Qwen3VLTextModel):
             )
             hidden_states = layer_outputs
 
-            # add visual features to the hidden states of first several layers
             if deepstack_visual_embeds is not None and layer_idx in range(len(deepstack_visual_embeds)):
                 hidden_states = self._deepstack_process(
                     hidden_states,
@@ -422,7 +366,6 @@ class Qwen3VLMoeForConditionalGeneration(Qwen3VLForConditionalGeneration):
 
         hidden_states = outputs[0]
 
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable
 
@@ -66,21 +53,6 @@ class GlmOcrVisionConfig(Glm4vVisionConfig):
 @auto_docstring(checkpoint="zai-org/GLM-OCR")
 @strict
 class GlmOcrTextConfig(Glm4vTextConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import GlmOcrTextModel, GlmOcrConfig
-
-    >>> # Initializing a GLM-OCR style configuration
-    >>> configuration = GlmOcrConfig()
-
-    >>> # Initializing a model from the GLM-OCR style configuration
-    >>> model = GlmOcrTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     vocab_size: int = 59392
     hidden_size: int = 1024
@@ -94,28 +66,6 @@ class GlmOcrTextConfig(Glm4vTextConfig):
 @auto_docstring(checkpoint="zai-org/GLM-OCR")
 @strict
 class GlmOcrConfig(Glm4vConfig):
-    r"""
-    image_start_token_id (`int`, *optional*, defaults to 59256):
-        The image start token index to encode the start of image.
-    image_end_token_id (`int`, *optional*, defaults to 59257):
-        The image end token index to encode the end of image.
-    video_start_token_id (`int`, *optional*, defaults to 59258):
-        The video start token index to encode the start of video.
-    video_end_token_id (`int`, *optional*, defaults to 59259):
-        The video end token index to encode the end of video.
-
-    ```python
-    >>> from transformers import GlmOcrForConditionalGeneration, GlmOcrConfig
-
-    >>> # Initializing a GLM-OCR style configuration
-    >>> configuration = GlmOcrConfig()
-
-    >>> # Initializing a model from the GLM-OCR style configuration
-    >>> model = GlmOcrForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     image_token_id: int = 59280
     video_token_id: int = 59281
@@ -181,7 +131,6 @@ class GlmOcrVisionAttention(Glm4vVisionAttention):
         )
 
         if is_flash_attention_requested(self.config):
-            # Flash Attention: Use cu_seqlens for variable length attention
             max_seqlen = get_max_seqlen(cu_seqlens, self.config, kwargs={"max_seqlen": max_seqlen})
             attn_output, _ = attention_interface(
                 self,
@@ -199,7 +148,6 @@ class GlmOcrVisionAttention(Glm4vVisionAttention):
                 **kwargs,
             )
         else:
-            # Other implementations: Process each chunk separately
             lengths = cu_seqlens[1:] - cu_seqlens[:-1]
             splits = [
                 torch.split(tensor, lengths.tolist(), dim=2) for tensor in (query_states, key_states, value_states)

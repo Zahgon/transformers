@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from collections.abc import Callable
 
 import torch
@@ -41,24 +28,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="DeepGlint-AI/mlcd-vit-bigG-patch14-336")
 @strict
 class MLCDVisionConfig(PreTrainedConfig):
-    r"""
-    num_key_value_groups (`int`, *optional*, defaults to 1):
-        Number of key-value groups used in Attention.
-
-    Example:
-
-    ```python
-    >>> from transformers import MLCDVisionConfig, MLCDVisionModel
-
-    >>> # Initializing a MLCDVisionConfig with DeepGlint-AI/mlcd-vit-bigG-patch14-336 style configuration
-    >>> configuration = MLCDVisionConfig()
-
-    >>> # Initializing a MLCDVisionModel (with random weights) from the DeepGlint-AI/mlcd-vit-bigG-patch14-336 style configuration
-    >>> model = MLCDVisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "mlcd_vision_model"
     base_config_key = "vision_config"
@@ -94,7 +63,6 @@ class MLCDVisionEmbeddings(CLIPVisionEmbeddings):
     def forward(self, pixel_values: torch.FloatTensor) -> torch.Tensor:
         batch_size = pixel_values.shape[0]
         target_dtype = self.patch_embedding.weight.dtype
-        # patch_embeds -> shape = [batch, width, grid, grid]
         patch_embeds = self.patch_embedding(pixel_values.to(dtype=target_dtype))
         patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
 
@@ -105,12 +73,6 @@ class MLCDVisionEmbeddings(CLIPVisionEmbeddings):
 
 
 class MLCDAttention(CLIPAttention):
-    """Multi-headed attention with RoPE. Refer to papers:
-    - Attention is all you need:
-        https://huggingface.co/papers/1706.03762
-    - RoFormer: Enhanced Transformer with Rotary Position Embedding:
-        https://huggingface.co/papers/2104.09864
-    """
 
     def __init__(self, config: MLCDVisionConfig):
         super().__init__(config)
@@ -126,17 +88,14 @@ class MLCDAttention(CLIPAttention):
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         batch_size, seq_length = hidden_states.shape[:-1]
 
-        # Each of shape: [batch_size, seq_length, num_heads, head_dim]
         query_states = self.q_proj(hidden_states).reshape((batch_size, seq_length, self.num_heads, self.head_dim))
         key_states = self.k_proj(hidden_states).reshape((batch_size, seq_length, self.num_heads, self.head_dim))
         value_states = self.v_proj(hidden_states).reshape((batch_size, seq_length, self.num_heads, self.head_dim))
 
-        # Apply positional embeddings
         cos = position_embeddings[0].unsqueeze(0).float()
         sin = position_embeddings[1].unsqueeze(0).float()
         query_states, key_states = apply_rotary_pos_emb_vision(query_states, key_states, cos, sin)
 
-        # Each of shape: [batch_size, num_heads, seq_length, head_dim]
         query_states = query_states.permute(0, 2, 1, 3).contiguous()
         key_states = key_states.permute(0, 2, 1, 3).contiguous()
         value_states = value_states.permute(0, 2, 1, 3).contiguous()
@@ -207,13 +166,6 @@ class MLCDEncoderLayer(CLIPEncoderLayer):
 
 
 class MLCDEncoder(CLIPEncoder):
-    """
-    Transformer encoder consisting of `config.num_hidden_layers` self attention layers. Each layer is a
-    [`MLCDEncoderLayer`].
-
-    Args:
-        config: MLCDVisionConfig
-    """
 
     def __init__(self, config: MLCDVisionConfig):
         """Overwrite dummy `MLCDConfig` to `MLCDVisionConfig`."""

@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SuperPoint model."""
 
 from dataclasses import dataclass
 
@@ -81,23 +67,6 @@ def simple_nms(scores: torch.Tensor, nms_radius: int) -> torch.Tensor:
 )
 @dataclass
 class SuperPointKeypointDescriptionOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*):
-        Loss computed during training.
-    keypoints (`torch.FloatTensor` of shape `(batch_size, num_keypoints, 2)`):
-        Relative (x, y) coordinates of predicted keypoints in a given image.
-    scores (`torch.FloatTensor` of shape `(batch_size, num_keypoints)`):
-        Scores of predicted keypoints.
-    descriptors (`torch.FloatTensor` of shape `(batch_size, num_keypoints, descriptor_size)`):
-        Descriptors of predicted keypoints.
-    mask (`torch.BoolTensor` of shape `(batch_size, num_keypoints)`):
-        Mask indicating which values in keypoints, scores and descriptors are keypoint information.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or
-    when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
-        one for the output of each stage) of shape `(batch_size, sequence_length, hidden_size)`. Hidden-states
-        (also called feature maps) of the model at the output of each stage.
-    """
 
     loss: torch.FloatTensor | None = None
     keypoints: torch.IntTensor | None = None
@@ -138,14 +107,9 @@ class SuperPointConvBlock(nn.Module):
 
 
 class SuperPointEncoder(nn.Module):
-    """
-    SuperPoint encoder module. It is made of 4 convolutional layers with ReLU activation and max pooling, reducing the
-     dimensionality of the image.
-    """
 
     def __init__(self, config: SuperPointConfig) -> None:
         super().__init__()
-        # SuperPoint uses 1 channel images
         self.input_dim = 1
 
         conv_blocks = []
@@ -188,13 +152,6 @@ class SuperPointEncoder(nn.Module):
 
 
 class SuperPointInterestPointDecoder(nn.Module):
-    """
-    The SuperPointInterestPointDecoder uses the output of the SuperPointEncoder to compute the keypoint with scores.
-    The scores are first computed by a convolutional layer, then a softmax is applied to get a probability distribution
-    over the 65 possible keypoint classes. The keypoints are then extracted from the scores by thresholding and
-    non-maximum suppression. Post-processing is then applied to remove keypoints too close to the image borders as well
-    as to keep only the k keypoints with highest score.
-    """
 
     def __init__(self, config: SuperPointConfig) -> None:
         super().__init__()
@@ -240,33 +197,22 @@ class SuperPointInterestPointDecoder(nn.Module):
         """
         _, height, width = scores.shape
 
-        # Threshold keypoints by score value
         keypoints = torch.nonzero(scores[0] > self.keypoint_threshold)
         scores = scores[0][tuple(keypoints.t())]
 
-        # Discard keypoints near the image borders
         keypoints, scores = remove_keypoints_from_borders(
             keypoints, scores, self.border_removal_distance, height * 8, width * 8
         )
 
-        # Keep the k keypoints with highest score
         if self.max_keypoints >= 0:
             keypoints, scores = top_k_keypoints(keypoints, scores, self.max_keypoints)
 
-        # Convert (y, x) to (x, y)
         keypoints = torch.flip(keypoints, [1]).to(scores.dtype)
 
         return keypoints, scores
 
 
 class SuperPointDescriptorDecoder(nn.Module):
-    """
-    The SuperPointDescriptorDecoder uses the outputs of both the SuperPointEncoder and the
-    SuperPointInterestPointDecoder to compute the descriptors at the keypoints locations.
-
-    The descriptors are first computed by a convolutional layer, then normalized to have a norm of 1. The descriptors
-    are then interpolated at the keypoints locations.
-    """
 
     def __init__(self, config: SuperPointConfig) -> None:
         super().__init__()
@@ -295,7 +241,6 @@ class SuperPointDescriptorDecoder(nn.Module):
 
         descriptors = self._sample_descriptors(keypoints[None], descriptors[0][None], 8)[0]
 
-        # [descriptor_dim, num_keypoints] -> [num_keypoints, descriptor_dim]
         descriptors = torch.transpose(descriptors, 0, 1)
 
         return descriptors
@@ -310,10 +255,8 @@ class SuperPointDescriptorDecoder(nn.Module):
         keypoints /= divisor
         keypoints = keypoints * 2 - 1  # normalize to (-1, 1)
         kwargs = {"align_corners": True}
-        # [batch_size, num_channels, num_keypoints, 2] -> [batch_size, num_channels, num_keypoints, 2]
         keypoints = keypoints.view(batch_size, 1, -1, 2)
         descriptors = nn.functional.grid_sample(descriptors, keypoints, mode="bilinear", **kwargs)
-        # [batch_size, descriptor_decoder_dim, num_channels, num_keypoints] -> [batch_size, descriptor_decoder_dim, num_keypoints]
         descriptors = descriptors.reshape(batch_size, num_channels, -1)
         descriptors = nn.functional.normalize(descriptors, p=2, dim=1)
         return descriptors
@@ -350,14 +293,6 @@ class SuperPointPreTrainedModel(PreTrainedModel):
     """
 )
 class SuperPointForKeypointDetection(SuperPointPreTrainedModel):
-    """
-    SuperPoint model. It consists of a SuperPointEncoder, a SuperPointInterestPointDecoder and a
-    SuperPointDescriptorDecoder. SuperPoint was proposed in `SuperPoint: Self-Supervised Interest Point Detection and
-    Description <https://huggingface.co/papers/1712.07629>`__ by Daniel DeTone, Tomasz Malisiewicz, and Andrew Rabinovich. It
-    is a fully convolutional neural network that extracts keypoints and descriptors from an image. It is trained in a
-    self-supervised manner, using a combination of a photometric loss and a loss based on the homographic adaptation of
-    keypoints. It is made of a convolutional encoder and two decoders: one for keypoints and one for descriptors.
-    """
 
     def __init__(self, config: SuperPointConfig) -> None:
         super().__init__(config)
@@ -448,7 +383,6 @@ class SuperPointForKeypointDetection(SuperPointPreTrainedModel):
             descriptors[i, : _descriptors.shape[0]] = _descriptors
             mask[i, : _scores.shape[0]] = 1
 
-        # Convert to relative coordinates
         keypoints = keypoints / torch.tensor([width, height], device=keypoints.device)
 
         hidden_states = encoder_outputs[1] if output_hidden_states else None

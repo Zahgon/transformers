@@ -1,18 +1,3 @@
-# Copyright 2025 IBM and the HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""GraniteMoeHybrid model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -24,31 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="ibm-granite/granite-speech-3.2-8b")
 @strict
 class GraniteMoeHybridConfig(PreTrainedConfig):
-    r"""
-    embedding_multiplier (`float`, *optional*, defaults to 1.0):
-        embedding multiplier.
-    logits_scaling (`float`, *optional*, defaults to 1.0):
-        divisor for output logits.
-    residual_multiplier (`float`, *optional*, defaults to 1.0):
-        residual multiplier.
-    attention_multiplier (`float`, *optional*, defaults to 1.0):
-        attention multiplier.
-    shared_intermediate_size (`int`, *optional*, defaults to 1024):
-        intermediate size for shared experts.
-    position_embedding_type (`str`, *optional*):
-        Positional embedding type to be used; defaults to None. Allowed options: `[None, "rope"]`
-
-    Example:
-
-    ```python
-    >>> from transformers import GraniteMoeHybridModel, GraniteMoeHybridConfig
-
-    >>> # Initializing a GraniteMoeHybrid config
-    >>> configuration = GraniteMoeHybridConfig()
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "granitemoehybrid"
     attribute_map = {"layers_block_type": "layer_types"}
@@ -113,14 +73,7 @@ class GraniteMoeHybridConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-
-        mamba_intermediate = self.mamba_expand * self.hidden_size
-        if mamba_intermediate % self.mamba_n_heads != 0:
-            raise ValueError("mamba_n_heads must divide mamba_expand * hidden_size")
-
-        if self.mamba_d_head * self.mamba_n_heads != mamba_intermediate:
-            raise ValueError("The dimensions for the Mamba head state do not match the model intermediate_size")
+        pass
 
 
 __all__ = ["GraniteMoeHybridConfig"]

@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -31,18 +18,6 @@ logger = logging.get_logger(__name__)
 
 
 class SinqHfQuantizer(HfQuantizer):
-    """
-    HF v5 quantizer for SINQ.
-
-    Modes:
-      - method="sinq" (default):
-          * weight-only SINQ
-          * param-level ConversionOps (`SinqQuantize`) during load for pure language models
-            (each Linear.weight is turned into a SINQLinear module)
-          * module-level quantization after load for multimodal models
-      - method="asinq":
-          * A-SINQ (activation-aware) SINQ quantization
-    """
 
     requires_parameters_quantization: bool = True
     quantization_config: SinqConfig
@@ -58,7 +33,7 @@ class SinqHfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self) -> bool:
-        return True
+        pass
 
     def update_device_map(self, device_map):
         if device_map is None:
@@ -144,7 +119,6 @@ class SinqHfQuantizer(HfQuantizer):
         if self.quantization_config.method == "asinq":
             return False
 
-        # SINQ param-level only if deemed safe
         if not self._do_param_level_sinq:
             return False
 
@@ -153,7 +127,6 @@ class SinqHfQuantizer(HfQuantizer):
         if tensor_name != "weight":
             return False
 
-        # Check if it's an unquantized SINQLinear
         is_sinq = isinstance(module, SINQLinear)
         is_ready = getattr(module, "ready", True)
         result = is_sinq and not is_ready
@@ -216,12 +189,10 @@ class SinqHfQuantizer(HfQuantizer):
             model, (self.quantization_config.modules_to_not_convert or []), keep_in_fp32_modules
         )
 
-        # Enable param-level quantization for SINQ method
         self._do_param_level_sinq = self.quantization_config.method == "sinq" and not self.pre_quantized
 
         sinq_quant_dict = None if self.pre_quantized else self._build_sinq_quant_dict(self.quantization_config)
 
-        # Extract device from device_map (guaranteed to be set by update_device_map)
         if isinstance(device_map, dict):
             first_device = next(iter(device_map.values()), 0)
             if isinstance(first_device, int):
@@ -256,7 +227,6 @@ class SinqHfQuantizer(HfQuantizer):
         """
         from sinq.hf_io import patch_hf_pretrained_io
 
-        # Patch HF save/load methods for SINQ serialization
         patch_hf_pretrained_io()
 
         return model

@@ -1,16 +1,3 @@
-# Copyright 2025 Deepseek AI and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -42,21 +29,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="deepseek-community/deepseek-vl-1.3b-chat")
 @strict
 class DeepseekVLConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import DeepseekVLConfig, DeepseekVLModel
-
-    >>> # Initializing a DeepseekVL deepseek-community/deepseek-vl-1.3b-chat style configuration
-    >>> configuration = DeepseekVLConfig()
-
-    >>> # Initializing a model (with random weights) from the deepseek-community/deepseek-vl-1.3b-chat style configuration
-    >>> model = DeepseekVLModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "deepseek_vl"
     sub_configs = {"text_config": AutoConfig, "vision_config": AutoConfig}
@@ -130,7 +102,6 @@ class DeepseekVLModel(JanusModel):
         self.language_model = AutoModel.from_config(config=config.text_config)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing.
         self.post_init()
 
         del self.vqmodel
@@ -227,7 +198,6 @@ class DeepseekVLProcessor(ProcessorMixin):
 
         data = self.tokenizer(prompt_strings, **output_kwargs["text_kwargs"])
 
-        # process images if pixel_values are provided
         if images is not None:
             data["pixel_values"] = self.image_processor(images, **output_kwargs["images_kwargs"])["pixel_values"]
 
@@ -249,9 +219,7 @@ class DeepseekVLProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        image_processor_input_names = self.image_processor.model_input_names
-        return list(dict.fromkeys(tokenizer_input_names + image_processor_input_names))
+        pass
 
 
 __all__ = [

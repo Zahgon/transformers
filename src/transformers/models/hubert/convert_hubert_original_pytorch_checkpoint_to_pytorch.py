@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert Hubert checkpoint."""
 
 import argparse
 import json
@@ -182,67 +168,7 @@ def load_conv_layer(full_name, value, feature_extractor, unused_weights, use_gro
 def convert_hubert_checkpoint(
     checkpoint_path, pytorch_dump_folder_path, config_path=None, dict_path=None, is_finetuned=True
 ):
-    """
-    Copy/paste/tweak model's weights to transformers design.
-    """
-    if config_path is not None:
-        config = HubertConfig.from_pretrained(config_path)
-    else:
-        config = HubertConfig()
-
-    if is_finetuned:
-        if dict_path:
-            target_dict = Dictionary.load(dict_path)
-
-            # important change bos & pad token id since CTC symbol is <pad> and
-            # not <s> as in fairseq
-            config.bos_token_id = target_dict.pad_index
-            config.pad_token_id = target_dict.bos_index
-            config.eos_token_id = target_dict.eos_index
-            config.vocab_size = len(target_dict.symbols)
-            vocab_path = os.path.join(pytorch_dump_folder_path, "vocab.json")
-            if not os.path.isdir(pytorch_dump_folder_path):
-                logger.error(f"--pytorch_dump_folder_path ({pytorch_dump_folder_path}) should be a directory")
-                return
-            os.makedirs(pytorch_dump_folder_path, exist_ok=True)
-            with open(vocab_path, "w", encoding="utf-8") as vocab_handle:
-                json.dump(target_dict.indices, vocab_handle)
-            tokenizer = Wav2Vec2CTCTokenizer(
-                vocab_path,
-                unk_token=target_dict.unk_word,
-                pad_token=target_dict.pad_word,
-                bos_token=target_dict.bos_word,
-                eos_token=target_dict.eos_word,
-                word_delimiter_token="|",
-                do_lower_case=False,
-            )
-            return_attention_mask = config.feat_extract_norm == "layer"
-            feature_extractor = Wav2Vec2FeatureExtractor(
-                feature_size=1,
-                sampling_rate=16000,
-                padding_value=0,
-                do_normalize=True,
-                return_attention_mask=return_attention_mask,
-            )
-            processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
-            processor.save_pretrained(pytorch_dump_folder_path)
-
-        hf_wav2vec = HubertForCTC(config)
-    else:
-        hf_wav2vec = HubertModel(config)
-
-    if is_finetuned:
-        model, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task(
-            [checkpoint_path], arg_overrides={"data": "/".join(dict_path.split("/")[:-1])}
-        )
-    else:
-        model, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task([checkpoint_path])
-
-    model = model[0].eval()
-
-    recursively_load_weights(model, hf_wav2vec, is_finetuned)
-
-    hf_wav2vec.save_pretrained(pytorch_dump_folder_path)
+    pass
 
 
 if __name__ == "__main__":

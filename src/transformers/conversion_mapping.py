@@ -1,16 +1,3 @@
-# Copyright (C) 2025 the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from __future__ import annotations
 
@@ -40,10 +27,8 @@ if TYPE_CHECKING:
 
 
 _MODEL_TO_CONVERSION_PATTERN = {
-    # Mixtral-style MoE
     "minimax": "mixtral",
     "minimax_m2": "mixtral",
-    # Qwen2-style MoE
     "afmoe": "qwen2_moe",
     "deepseek_v2": "qwen2_moe",
     "deepseek_v3": "qwen2_moe",
@@ -105,7 +90,6 @@ _MODEL_TO_CONVERSION_PATTERN = {
     "qwen3_5_moe_text": "qwen3_5_text",
     "llava_next_video": "llava_next",
     "llava_onevision": "llava_next",
-    # class-based mappings
     "AriaModel": "LlavaModel",
     "PaliGemmaModel": "LlavaModel",
     "AyaVisionModel": "LlavaModel",
@@ -130,7 +114,6 @@ _MODEL_TO_CONVERSION_PATTERN = {
     "Qwen2_5_VLModel": "Qwen2VLModel",
     "Qwen2_5_VLForConditionalGeneration": "Qwen2VLForConditionalGeneration",
     "Tipsv2VisionBackbone": "Tipsv2VisionModel",
-    # ViT-style vision models (old HuggingFace checkpoint format → new modular format)
     "ASTModel": "ViTModel",
     "BeitModel": "ViTModel",
     "DeiTModel": "ViTModel",
@@ -143,8 +126,6 @@ _MODEL_TO_CONVERSION_PATTERN = {
 
 def _build_checkpoint_conversion_mapping():
     mapping = {
-        # Cosmos3 Edge's composite checkpoint stores its dense reasoner text tower as conventional attention + MLP
-        # blocks. The visual/projector tensors already use their native module names and intentionally need no mapping.
         "cosmos3_edge": [
             WeightRenaming(r"^embed_tokens\.", "model.language_model.embed_tokens."),
             WeightRenaming(r"^norm\.", "model.language_model.norm."),
@@ -172,7 +153,6 @@ def _build_checkpoint_conversion_mapping():
             WeightRenaming(source_patterns=r"model\.llm\.unembed\.weight", target_patterns=r"lm_head.weight"),
             WeightRenaming(source_patterns=r"model\.audio\.", target_patterns=r"model.audio_tower."),
             WeightRenaming(source_patterns=r"model\.visual", target_patterns=r"model.vision_tower"),
-            # Vision encoder internals (run after the tower namespace renames)
             WeightRenaming(
                 source_patterns=r"vision_tower.layers.linear_(\d+)",
                 target_patterns=r"vision_tower.encoder_layers.\1.projection",
@@ -181,10 +161,6 @@ def _build_checkpoint_conversion_mapping():
                 source_patterns=r"vision_tower.layers.norm_(\d+)",
                 target_patterns=r"vision_tower.encoder_layers.\1.layer_norm",
             ),
-            # Audio tower internals. These run AFTER the generic `model.audio.` -> `model.audio_tower.`
-            # rename above and substring-match its output. The audio dMel embedding moved from
-            # `audio.encoder` to an `InklingAudioModelEmbeddings` submodule, and `final_norm` was
-            # renamed to `norm`.
             WeightRenaming(
                 source_patterns=r"audio_tower.encoder.weight",
                 target_patterns=r"audio_tower.embed_audio_tokens.embed_audio_tokens.weight",
@@ -192,9 +168,6 @@ def _build_checkpoint_conversion_mapping():
             WeightRenaming(
                 source_patterns=r"audio_tower.final_norm.weight", target_patterns=r"audio_tower.norm.weight"
             ),
-            # MoE and MLP
-            # no Transpose ops here: the TP loader shards the raw tensor but validates the shard
-            # shape on the target param, so dim-permuting conversions break sharded loads cc @cyril
             WeightConverter(
                 source_patterns="shared_w13_weight",
                 target_patterns=["gate_proj", "up_proj"],
@@ -214,7 +187,6 @@ def _build_checkpoint_conversion_mapping():
             ),
             WeightRenaming(source_patterns=r"mlp.w2_md.weight", target_patterns=r"mlp.down_proj.weight"),
             WeightRenaming(source_patterns=r"mlp.gate.bias", target_patterns=r"mlp.gate.e_score_correction_bias"),
-            # Attn
             WeightRenaming(source_patterns=r"attn\.wq_du", target_patterns=r"self_attn.q_proj"),
             WeightRenaming(source_patterns=r"attn\.wk_dv", target_patterns=r"self_attn.k_proj"),
             WeightRenaming(source_patterns=r"attn\.wv_dv", target_patterns=r"self_attn.v_proj"),
@@ -399,11 +371,8 @@ def _build_checkpoint_conversion_mapping():
             WeightRenaming(source_patterns=r"layer\.", target_patterns="layers."),
         ],
         "kimi_k25": [
-            # Same as llava, add `model` as prefix if needed
             WeightRenaming(source_patterns=r"language_model.model", target_patterns="model.language_model"),
             WeightRenaming(source_patterns=r"language_model.lm_head", target_patterns="lm_head"),
-            # norm/fc/wo renames come before encoder/blocks renames so their source
-            # patterns match the original checkpoint format (vision_tower.encoder.blocks.X.*)
             GroupWeightRename(
                 source_patterns=[
                     r"vision_tower.encoder.blocks.(\d+).norm0",
@@ -429,7 +398,6 @@ def _build_checkpoint_conversion_mapping():
                 target_patterns=r"vision_tower.encoder.blocks.\1.attn.proj",
             ),
             WeightRenaming(source_patterns=r"vision_tower.encoder", target_patterns="model.vision_tower"),
-            # Rename projection modules
             WeightRenaming(source_patterns=r"mm_projector.proj.0", target_patterns="model.mm_projector.in_proj"),
             WeightRenaming(source_patterns=r"mm_projector.proj.2", target_patterns="model.mm_projector.out_proj"),
             WeightRenaming(source_patterns=r"blocks", target_patterns="layers"),
@@ -437,7 +405,6 @@ def _build_checkpoint_conversion_mapping():
                 source_patterns=r"vision_tower.patch_embed.pos_emb.weight",
                 target_patterns="model.vision_tower.patch_embed.pos_emb.position_embeddings",
             ),
-            # Unfuse qkv and apply rope permutation
             WeightConverter(
                 source_patterns=[r"wqkv"],
                 target_patterns=[
@@ -449,32 +416,6 @@ def _build_checkpoint_conversion_mapping():
             ),
         ],
         "deepseek_v4": [
-            # Upstream V4-Flash checkpoint uses a flatter V3-style namespace: `attn` /
-            # `ffn` instead of `self_attn` / `mlp`, `attn_norm` / `ffn_norm`
-            # instead of `input_layernorm` / `post_attention_layernorm`, `hc_attn_*`
-            # / `hc_ffn_*` for the Hyper-Connection params (wrapped here as
-            # `attn_hc` / `ffn_hc` submodules), `embed` / `head` / bare `norm`
-            # for the model head, `hc_head_*` for the final HC collapse, and indexer
-            # weights nested under `attn.indexer.compressor.*` upstream but flattened
-            # onto the Indexer module here.
-            #
-            # All targets stay in the bare base-model namespace (no `model.` prefix).
-            # `convert_and_load_state_dict_in_model` consults
-            # :attr:`DeepseekV4PreTrainedModel.base_model_prefix = "model"` and adds /
-            # strips the `model.` prefix automatically based on whether the loader
-            # target is the base model or a head model.
-            #
-            # Ordering matters for save round-tripping: :func:`revert_weight_conversion`
-            # reverses the order *and* each transform, so a structural prefix-only rule
-            # placed before a specific in-prefix rename would steal the reverse match
-            # and emit `layers.X.attn.sinks` instead of `layers.X.attn.attn_sink`.
-            # We split into two passes: structural prefix renames first (so they apply
-            # last on save / first on load), then specific in-prefix renames that
-            # operate on the already-prefixed keys. FP8 `.scale` → `.weight_scale_inv`
-            # rename lives in the FP8 quantizer's `update_weight_conversions` (only
-            # active under FP8 dequant), so the V4 static mapping below stays free of
-            # FP8-only rules.
-            # ---- Pass 1: top-level + structural prefix renames ----
             WeightRenaming(source_patterns=r"^embed\.weight$", target_patterns="embed_tokens.weight"),
             WeightRenaming(source_patterns=r"^head\.weight$", target_patterns="lm_head.weight"),
             WeightRenaming(source_patterns=r"^norm\.weight$", target_patterns="norm.weight"),
@@ -509,11 +450,6 @@ def _build_checkpoint_conversion_mapping():
                 source_patterns=r"^layers\.(\d+)\.ffn\.",
                 target_patterns=r"layers.\1.mlp.",
             ),
-            # ---- Pass 2: in-prefix specific renames (operate on already-prefixed keys) ----
-            # These can safely run after the structural prefix renames because their
-            # source patterns include the `layers.X.self_attn.` / `layers.X.mlp.`
-            # prefix. On reverse the order flips so these undo first, restoring the
-            # specific upstream names *before* the structural rules strip the prefix.
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.self_attn\.attn_sink$",
                 target_patterns=r"layers.\1.self_attn.sinks",
@@ -546,11 +482,6 @@ def _build_checkpoint_conversion_mapping():
                 source_patterns=r"^layers\.(\d+)\.self_attn\.compressor\.ape$",
                 target_patterns=r"layers.\1.self_attn.compressor.position_bias",
             ),
-            # Attention / compressor / indexer leaf weights: upstream uses paper notation
-            # (`wq_a` / `wq_b` / `wkv` / `wo_a` / `wo_b` / `wgate`); we
-            # rename to the standard transformers `*_proj` form. Compressor / Indexer
-            # `wkv` / `wgate` are caught by the same patterns since they sit under
-            # `self_attn.` after the Pass 1 prefix rewrite.
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.self_attn\.(.*?)\.wq_a\.",
                 target_patterns=r"layers.\1.self_attn.\2.q_a_proj.",
@@ -595,16 +526,10 @@ def _build_checkpoint_conversion_mapping():
                 source_patterns=r"^layers\.(\d+)\.self_attn\.wo_b\.",
                 target_patterns=r"layers.\1.self_attn.o_b_proj.",
             ),
-            # Norm rename: upstream ships `q_norm` (the LoRA-rank RMSNorm sitting between
-            # q_a_proj and q_b_proj); we register it as `q_a_norm` so the suffix matches
-            # the surrounding `q_a_proj` / `q_b_proj` / `q_b_norm` symmetry. The
-            # unweighted `q_b_norm` has no learnable weight, so no upstream key.
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.self_attn\.q_norm\.",
                 target_patterns=r"layers.\1.self_attn.q_a_norm.",
             ),
-            # Aux-loss-free routing bias: upstream ships `gate.bias` (V3 convention);
-            # we register it as `e_score_correction_bias` (cross-model standard name).
             WeightRenaming(
                 source_patterns=r"^layers\.(\d+)\.mlp\.gate\.bias$",
                 target_patterns=r"layers.\1.mlp.gate.e_score_correction_bias",
@@ -645,18 +570,8 @@ def _build_checkpoint_conversion_mapping():
             WeightRenaming(source_patterns=r"^multi_modal_projector", target_patterns="model.multi_modal_projector"),
         ],
         "minimax_m3_vl": [
-            # Ordering matters for save round-tripping: the reverse mapping flips the order *and* each
-            # transform (see deepseek_v4 above). We therefore split into two passes: structural prefix
-            # renames first (so they apply last on save / first on load), then specific in-prefix renames
-            # that operate on the already-prefixed keys. Every target prefix here is distinct and anchored,
-            # so no reversed source pattern is broad enough to steal keys from another namespace.
-            # ---- Pass 1: top-level + structural prefix renames ----
             WeightRenaming(source_patterns=r"^language_model\.lm_head", target_patterns="lm_head"),
             WeightRenaming(source_patterns=r"^language_model\.model\.", target_patterns="model.language_model."),
-            # The vision tower flattens CLIP's `vision_model.{encoder.layers,embeddings.patch_embedding,
-            # pre_layrnorm}` nesting onto `vision_tower.{layers,embeddings.proj,pre_layrnorm}`. Each rule is
-            # anchored and leaf-specific so its reverse re-inserts `vision_model` only on the right keys (a
-            # blanket `.vision_model.` -> `.` rule reverses to "match any char" and mangles every key).
             WeightRenaming(
                 source_patterns=r"^vision_tower\.vision_model\.embeddings\.patch_embedding\.",
                 target_patterns="model.vision_tower.embeddings.proj.",
@@ -669,9 +584,6 @@ def _build_checkpoint_conversion_mapping():
                 source_patterns=r"^vision_tower\.vision_model\.pre_layrnorm\.",
                 target_patterns="model.vision_tower.pre_layrnorm.",
             ),
-            # The projector hosts both the upstream `multi_modal_projector.linear_{1,2}` and the
-            # `patch_merge_mlp.linear_{1,2}` (registered as `merge_linear_{1,2}`). Spell each leaf out so the
-            # reversed `linear_*` source never also matches `merge_linear_*` (or vice versa).
             WeightRenaming(
                 source_patterns=r"^multi_modal_projector\.linear_1\.",
                 target_patterns="model.multi_modal_projector.linear_1.",
@@ -688,12 +600,6 @@ def _build_checkpoint_conversion_mapping():
                 source_patterns=r"^patch_merge_mlp\.linear_2\.",
                 target_patterns="model.multi_modal_projector.merge_linear_2.",
             ),
-            # ---- Pass 2: specific in-prefix renames (operate on already-prefixed keys) ----
-            # MoE layers rename `block_sparse_moe.*` -> `mlp.*`, but dense layers already use `mlp.*`. A blanket
-            # `block_sparse_moe.` -> `mlp.` rule reverses to `mlp.` -> `block_sparse_moe.` and corrupts the dense
-            # layers on save, so we rename per MoE leaf (`experts` / `shared_experts` / `gate` / e-score). The
-            # reversed `mlp.experts.` / `mlp.shared_experts.` / `mlp.gate.weight` sources match only MoE
-            # sublayers, never the dense `mlp.gate_up_proj` / `mlp.down_proj`.
             WeightRenaming(
                 source_patterns=r"\.language_model\.layers\.(\d+)\.block_sparse_moe\.experts\.",
                 target_patterns=r".language_model.layers.\1.mlp.experts.",
@@ -768,7 +674,6 @@ def _build_checkpoint_conversion_mapping():
             WeightRenaming(source_patterns=r"^encoder", target_patterns="model.encoder"),
             WeightRenaming(source_patterns=r"^projector", target_patterns="model.projector"),
         ],
-        # Legacy MoE weight names → standard ``@use_experts_implementation`` interface.
         "granitemoe": [
             WeightRenaming(
                 source_patterns=r"block_sparse_moe\.input_linear\.weight",
@@ -807,7 +712,6 @@ def _build_checkpoint_conversion_mapping():
             WeightRenaming(source_patterns=r"^multi_modal_projector", target_patterns="model.multi_modal_projector"),
             WeightRenaming(source_patterns=r"^image_newline", target_patterns="model.image_newline"),
         ],
-        # Important to refer to classes by name, not model-type! Several classes share the same model type
         "CLIPVisionModel": [PrefixChange(prefix_to_remove="vision_model")],
         "CLIPTextModel": [PrefixChange(prefix_to_remove="text_model")],
         "VideoLlavaModel": [
@@ -960,7 +864,6 @@ def _build_checkpoint_conversion_mapping():
             ),
             WeightRenaming(source_patterns=r"^paligemma_with_expert.paligemma.model", target_patterns="model.vlm"),
             WeightRenaming(source_patterns=r"^paligemma_with_expert.gemma_expert.model", target_patterns="model.dit"),
-            # Weight on the hub have only `lm_head` saved, but PI0 doesn't create any lm-head initialized!
             WeightRenaming(
                 source_patterns=r"^paligemma_with_expert.gemma_expert.lm_head",
                 target_patterns="model.dit.embed_tokens",
@@ -992,7 +895,6 @@ def _build_checkpoint_conversion_mapping():
                 source_patterns=r"detector_model.vision_encoder.backbone.", target_patterns="vision_encoder.backbone."
             ),
             WeightRenaming(source_patterns=r"tracker_neck.", target_patterns="vision_encoder.neck."),
-            # the regex allows to remove the prefix, and add it back in revert mode
             WeightRenaming(source_patterns=r"tracker_model.(.+)", target_patterns=r"\1"),
         ],
         "t5gemma2_encoder": [
@@ -1055,11 +957,6 @@ def _build_checkpoint_conversion_mapping():
             ),
         ],
         "cosmos3_omni": [
-            # Cosmos3 unified checkpoints store the Reasoner LLM with the old `model.` prefix
-            # stripped off and the ViT under flat `blocks.*` / `merger.*` / `patch_embed.*` /
-            # `pos_embed.*` / `deepstack_merger_list.*`. Re-target both to the nested Qwen3-VL
-            # layout (`model.language_model.*` and `model.visual.*`). Newer checkpoints also
-            # use Diffusers-style attention names; map them back to Qwen3-VL module names.
             WeightRenaming(
                 source_patterns=r"^(layers\.|embed_tokens\.|norm\.)",
                 target_patterns=r"model.language_model.\1",
@@ -1108,16 +1005,13 @@ def _build_checkpoint_conversion_mapping():
             ),
         ],
         "ernie4_5_vl_moe": [
-            # vision
             WeightRenaming("vision_model", "vision_tower"),
-            # resampler
             WeightRenaming("spatial_linear.0", "spatial_linear.fc1"),
             WeightRenaming("spatial_linear.2", "spatial_linear.fc2"),
             WeightRenaming("spatial_linear.3", "spatial_linear.ln"),
             WeightRenaming("temporal_linear.0", "temporal_linear.fc1"),
             WeightRenaming("temporal_linear.2", "temporal_linear.fc2"),
             WeightRenaming("temporal_linear.3", "temporal_linear.ln"),
-            # language model
             WeightRenaming(r"(?<!language_model\.)embed_tokens", "language_model.embed_tokens"),
             WeightRenaming(r"(?<!language_model\.)layers", "language_model.layers"),
             WeightRenaming(r"(?<!_)(?<!\w)norm\.", "language_model.norm."),
@@ -1159,13 +1053,6 @@ def _build_checkpoint_conversion_mapping():
                 operations=[ErnieFuseAndSplitTextVisionExperts(stack_dim=0, concat_dim=1)],
             ),
         ],
-        # MaskFormer embeds both a Swin backbone (model_type="swin") and a DETR decoder
-        # (model_type="detr") as submodules. Both get their mappings collected automatically, but
-        # the Swin reverse mapping "mlp.fc1 → intermediate.dense" would corrupt DETR decoder keys
-        # if it runs before the DETR reverse "layers.N.mlp.fc1 → layers.N.fc1".
-        # By adding a "maskformer"-level mapping with the DETR fc1 rename, it is collected first
-        # (model-level before submodule-level), so its reverse runs first and removes "mlp.fc1"
-        # from DETR decoder paths before the Swin reverse can match them.
         "maskformer": [
             WeightRenaming(r"layers.(\d+).fc1", r"layers.\1.mlp.fc1"),
             WeightRenaming(r"layers.(\d+).fc2", r"layers.\1.mlp.fc2"),
@@ -1183,7 +1070,6 @@ def _build_checkpoint_conversion_mapping():
             WeightRenaming(r"encoder.encoder.(\d+).layers", r"encoder.aifi.\1.layers"),
         ],
         "RfDetrModel": [
-            # RfDetrConvEncoder — backbone checkpoint layout + projector stages
             WeightRenaming(r"backbone.0.encoder.encoder", r"backbone.backbone"),
             WeightRenaming(r"backbone.0.projector", r"backbone.projector"),
             WeightRenaming(r"projector.stages.0.0.cv1.conv", r"projector.projector_layer.conv1.conv"),
@@ -1203,7 +1089,6 @@ def _build_checkpoint_conversion_mapping():
             WeightRenaming(
                 r"projector.stages.0.0.m.(\d+).cv2.bn", r"projector.projector_layer.bottlenecks.\1.conv2.norm"
             ),
-            # RfDetrDecoder
             WeightRenaming(r"transformer.decoder", r"decoder"),
             WeightRenaming(r"decoder.layers.(\d+).norm1", r"decoder.layers.\1.self_attn_layer_norm"),
             WeightRenaming(r"decoder.layers.(\d+).norm2", r"decoder.layers.\1.cross_attn_layer_norm"),
@@ -1216,7 +1101,6 @@ def _build_checkpoint_conversion_mapping():
             WeightRenaming(r"transformer.enc_out_class_embed", r"enc_out_class_embed"),
             WeightRenaming(r"transformer.enc_out_bbox_embed", r"enc_out_bbox_embed"),
             WeightRenaming(r"refpoint_embed\.weight", r"reference_point_embed.weight"),
-            # RfDetrAttention
             WeightRenaming(r"self_attn.out_proj", r"self_attn.o_proj"),
             WeightConverter(
                 source_patterns=r"self_attn.in_proj_bias",
@@ -1250,13 +1134,11 @@ def _build_checkpoint_conversion_mapping():
             WeightRenaming("encoder_attn.out_proj", "encoder_attn.o_proj"),
             WeightRenaming(r"layers.(\d+).fc1", r"layers.\1.mlp.fc1"),
             WeightRenaming(r"layers.(\d+).fc2", r"layers.\1.mlp.fc2"),
-            # Decoder self-attention projections moved into self_attn module
             WeightRenaming(r"decoder.layers.(\d+).sa_qcontent_proj", r"decoder.layers.\1.self_attn.q_content_proj"),
             WeightRenaming(r"decoder.layers.(\d+).sa_qpos_proj", r"decoder.layers.\1.self_attn.q_pos_proj"),
             WeightRenaming(r"decoder.layers.(\d+).sa_kcontent_proj", r"decoder.layers.\1.self_attn.k_content_proj"),
             WeightRenaming(r"decoder.layers.(\d+).sa_kpos_proj", r"decoder.layers.\1.self_attn.k_pos_proj"),
             WeightRenaming(r"decoder.layers.(\d+).sa_v_proj", r"decoder.layers.\1.self_attn.v_proj"),
-            # Decoder cross-attention projections moved into encoder_attn module
             WeightRenaming(r"decoder.layers.(\d+).ca_qcontent_proj", r"decoder.layers.\1.encoder_attn.q_content_proj"),
             WeightRenaming(r"decoder.layers.(\d+).ca_qpos_proj", r"decoder.layers.\1.encoder_attn.q_pos_proj"),
             WeightRenaming(r"decoder.layers.(\d+).ca_kcontent_proj", r"decoder.layers.\1.encoder_attn.k_content_proj"),
@@ -1726,7 +1608,6 @@ def _build_checkpoint_conversion_mapping():
         for renaming in mapping["Tipsv2DptForDepthEstimation"]
     ]
 
-    # The legacy mapping is added to the esm model here since the extra weight renaming do not apply to the esm model.
     mapping["esm"] += mapping["legacy"].copy()
 
     mapping["legacy"] += [
@@ -1739,8 +1620,6 @@ def _build_checkpoint_conversion_mapping():
             target_patterns=".parametrizations.weight.original1",
         ),
     ]
-    # Base DetrModel/ConditionalDetrModel transforms are picked up automatically as
-    # scoped sub-module transforms; only the segmentation-specific patterns are needed here.
     mapping["DetrForSegmentation"] = [
         WeightRenaming("bbox_attention.q_linear", "bbox_attention.q_proj"),
         WeightRenaming("bbox_attention.k_linear", "bbox_attention.k_proj"),
@@ -1793,7 +1672,6 @@ def _build_checkpoint_conversion_mapping():
     mapping["mimo_v2_flash"] += [
         WeightRenaming("self_attn.attention_sink_bias", "self_attn.sinks"),
     ]
-    # HYV3: qwen2_moe expert fusion + attribute renames for MiniMaxM2-style inheritance
     mapping["hy_v3"] = mapping["qwen2_moe"].copy()
     mapping["hy_v3"] += [
         WeightRenaming(source_patterns=r"mlp\.router\.gate\.weight", target_patterns="mlp.gate.weight"),
@@ -1817,9 +1695,6 @@ def _build_checkpoint_conversion_mapping():
         WeightRenaming(source_patterns=".mtp_block.hnorm.", target_patterns=".hnorm."),
         WeightRenaming(source_patterns=".mtp_block.eh_proj.", target_patterns=".eh_proj."),
         WeightRenaming(source_patterns=".mtp_block.post_norm.", target_patterns=".post_norm."),
-        # Inkling checkpoint layout: per-depth extras sit at `layers.{k}.` while the decoder block
-        # is nested under `layers.{k}.transformer_block.`; the main-model conversions (applied after)
-        # rename the block internals
         WeightRenaming(source_patterns=r"\.hidden_norm\.", target_patterns=r".hnorm."),
         WeightRenaming(source_patterns=r"\.embed_norm\.", target_patterns=r".enorm."),
         WeightRenaming(source_patterns=r"\.input_proj\.", target_patterns=r".eh_proj."),
@@ -1869,28 +1744,13 @@ def register_checkpoint_conversion_mapping(
             f"Conversion mapping for '{model_type_or_class_name}' already exists. Pass overwrite=True to replace it."
         )
     _checkpoint_conversion_mapping_cache[model_type_or_class_name] = mapping
-    # Keep track of what was added manually by the user
     USER_REGISTERED_MAPPINGS.add(model_type_or_class_name)
 
 
 def extract_weight_conversions_for_model(
     model: PreTrainedModel,
 ) -> list[WeightTransform] | None:
-    """
-    Return the registered conversion list for `model`, or `None` if none exists.
-
-    Looks up by class name first (enables task-head-specific overrides), then
-    falls back to `model.config.model_type`.  Transforms are returned
-    unmodified; the caller sets `scope_prefix` on each transform for sub-module isolation.
-    """
-    class_name = type(model).__name__
-    model_type = model.config.model_type
-
-    # Class name takes priority — allows ForXxx-specific overrides
-    conversions = get_checkpoint_conversion_mapping(class_name)
-    if conversions is None and model_type:
-        conversions = get_checkpoint_conversion_mapping(model_type)
-    return conversions
+    pass
 
 
 def get_model_conversion_mapping(
@@ -1912,31 +1772,20 @@ def get_model_conversion_mapping(
     """
     from .modeling_utils import PreTrainedModel
 
-    # note: this function is used in PEFT, so changing the API requires coordination
     weight_conversions = []
 
-    # Load models with explicit, user-provided key mapping
     if key_mapping is not None:
         weight_conversions = [WeightRenaming(source_patterns=k, target_patterns=v) for k, v in key_mapping.items()]
 
-    # Maps each identifier (class name or model_type) to the module paths that have
-    # already claimed it.  A later module is skipped only when one of those paths is
-    # an ancestor of the current module path — siblings are never ancestors of each
-    # other, so two sibling sub-models with the same model_type both get their own
-    # scoped transforms.  A child is an ancestor of everything nested under it, which
-    # prevents a parent's transforms from being duplicated with a scoped copy for the child.
     seen_identifiers: defaultdict[str, list[str]] = defaultdict(list)
 
     for module_name, submodule in model.named_modules():
-        # Skip if it's not a submodel
         if not isinstance(submodule, PreTrainedModel):
             continue
 
         class_name = type(submodule).__name__
         model_type = submodule.config.model_type
 
-        # Skip it if it's custom code and it was NOT registered by the user directly: it may have the same `model_type`/ClassName
-        # as a native model inside the library, but it uses custom modeling so it should not share the conversions
         if (
             submodule.is_custom_code()
             and class_name not in USER_REGISTERED_MAPPINGS
@@ -1944,18 +1793,13 @@ def get_model_conversion_mapping(
         ):
             continue
 
-        # Skip if an ancestor already claimed this class (its unscoped transforms already cover this subtree).
         if any(seen == "" or module_name.startswith(seen + ".") for seen in seen_identifiers[class_name]):
             continue
 
-        # Class name takes priority — a class-specific mapping bypasses the model_type
-        # deduplication check (e.g. LlavaModel nested inside LlavaForConditionalGeneration
-        # must still get its own scoped mapping even after "llava" is marked seen).
         conversions = get_checkpoint_conversion_mapping(class_name)
         found_via_class = conversions is not None
 
         if not found_via_class:
-            # Same ancestor check as above, but via model_type for modules without a class-specific mapping.
             if model_type and any(
                 seen == "" or module_name.startswith(seen + ".") for seen in seen_identifiers[model_type]
             ):
@@ -1968,9 +1812,6 @@ def get_model_conversion_mapping(
 
         is_root_model = module_name == ""
         if not is_root_model:
-            # Scope each transform so it only matches keys under this sub-module's prefix - but we still allow to
-            # arbitrary add/remove base_model_prefix to load ForXXX model from BaseModel and the opposite
-            # Note that we need 2 removeprefix calls here, as only one level of nesting would not have the ending dot to module_name
             scope_prefix = module_name.removeprefix(model.base_model_prefix)
             scope_prefix = module_name.removeprefix(".")
             for transform in conversions:
@@ -1979,20 +1820,12 @@ def get_model_conversion_mapping(
         weight_conversions.extend(conversions)
 
         seen_identifiers[class_name].append(module_name)
-        # Only record model_type when the hit was via model_type. When the hit was via
-        # class name, other sub-modules sharing the same model_type but without a
-        # class-specific mapping (e.g. DetrModel under DetrForSegmentation) must still
-        # be reachable so their base transforms are picked up and scoped.
         if not found_via_class and model_type:
             seen_identifiers[model_type].append(module_name)
 
     if add_legacy:
         weight_conversions.extend(get_checkpoint_conversion_mapping("legacy"))
 
-    # Let the quantizer rewrite / augment the conversion pipeline. This is where the
-    # FP8 dequantizer (when `dequantize=True`) prepends a `Fp8Dequantize` op to
-    # every existing converter so that per-block scales are applied *before* any
-    # expert-merge / concat ops flatten the per-expert structure away.
     if hf_quantizer is not None:
         weight_conversions = hf_quantizer.update_weight_conversions(weight_conversions)
 

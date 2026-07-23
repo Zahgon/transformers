@@ -1,16 +1,3 @@
-# Copyright 2025 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable
 from typing import Optional
@@ -46,22 +33,6 @@ from ..olmo2.modeling_olmo2 import (
 @auto_docstring(checkpoint="allenai/Olmo-3-7B-Instruct")
 @strict
 class Olmo3Config(Olmo2Config):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Olmo3Model, Olmo3Config
-
-    >>> # Initializing a Olmo3 7B style configuration
-    >>> configuration = Olmo3Config()
-
-    >>> # Initializing a model from the Olmo3 7B style configuration
-    >>> model = Olmo3Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "olmo3"
     default_theta = 500000.0
@@ -98,8 +69,6 @@ class Olmo3Config(Olmo2Config):
     def convert_rope_params_to_dict(self, **kwargs):
         rope_scaling = kwargs.pop("rope_scaling", None)
 
-        # Try to set `rope_scaling` if available, otherwise use `rope_parameters`. If we find `rope_parameters`
-        # as arg in the inputs, we can safely assume that it is in the new format. New naming used -> new format
         default_rope_params = {
             "sliding_attention": {"rope_type": "default"},
             "full_attention": {"rope_type": "default"},
@@ -108,7 +77,6 @@ class Olmo3Config(Olmo2Config):
         if rope_scaling is not None:
             self.rope_parameters["full_attention"].update(rope_scaling)
 
-        # Set default values if not present
         if self.rope_parameters.get("full_attention") is None:
             self.rope_parameters["full_attention"] = {"rope_type": "default"}
         self.rope_parameters["full_attention"].setdefault("rope_theta", kwargs.pop("rope_theta", self.default_theta))
@@ -118,7 +86,6 @@ class Olmo3Config(Olmo2Config):
             "rope_theta", kwargs.pop("rope_theta", self.default_theta)
         )
 
-        # Standardize and validate the correctness of rotary position embeddings parameters
         self.standardize_rope_params()
         return kwargs
 
@@ -127,8 +94,6 @@ class Olmo3RMSNorm(Olmo2RMSNorm):
     pass
 
 
-# Olmo3 attention is identical to OLMo 2 attention except:
-# - Sliding window attention is used for 3 out of 4 layers.
 class Olmo3Attention(Olmo2Attention):
     def __init__(self, config: Olmo3Config, layer_idx: int):
         super().__init__(config, layer_idx=layer_idx)
@@ -199,7 +164,6 @@ class Olmo3RotaryEmbedding(Gemma3RotaryEmbedding):
         return super().compute_default_rope_parameters(config, device, seq_len, layer_type)
 
     def forward(self, x, position_ids, layer_type=None):
-        # diff -> returns cos/sin in fp32 without casting to `x.dtype`
         inv_freq = getattr(self, f"{layer_type}_inv_freq")
         attention_scaling = getattr(self, f"{layer_type}_attention_scaling")
 
@@ -229,9 +193,6 @@ class Olmo3PreTrainedModel(Olmo2PreTrainedModel):
                 init.copy_(getattr(module, f"{layer_type}_original_inv_freq"), curr_inv_freq)
 
 
-# The OLMo 3 model is identical to the OLMo 2 model, except:
-# - Sliding window attention is used for 3 out of 4 layers.
-# - RoPE scaling is not applied to sliding window attention layers.
 class Olmo3Model(Olmo2Model):
     def __init__(self, config: Olmo3Config):
         super().__init__(config)
@@ -265,9 +226,7 @@ class Olmo3Model(Olmo2Model):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -275,7 +234,6 @@ class Olmo3Model(Olmo2Model):
                 "past_key_values": past_key_values,
                 "position_ids": position_ids,
             }
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
                 "sliding_attention": create_sliding_window_causal_mask(**mask_kwargs),

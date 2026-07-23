@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -38,29 +25,6 @@ from ..pp_lcnet.modeling_pp_lcnet import (
 @auto_docstring(checkpoint="PaddlePaddle/Not_yet_released")
 @strict
 class PPLCNetV3Config(PPLCNetConfig):
-    r"""
-    scale (`float`, *optional*, defaults to 1.0):
-        The scaling factor for the model's channel dimensions, used to adjust the model size and computational cost
-        without changing the overall architecture (e.g., 0.25, 0.5, 1.0, 1.5).
-    block_configs (`list[list[tuple]]`, *optional*, defaults to `None`):
-        Configuration for each block in each stage. Each tuple contains:
-        (kernel_size, in_channels, out_channels, stride, use_squeeze_excitation).
-        If `None`, uses the default PP-LCNet configuration.
-    stem_channels (`int`, *optional*, defaults to 16):
-        The number of output channels for the stem layer.
-    stem_stride (`int`, *optional*, defaults to 2):
-        The stride for the stem convolution layer.
-    reduction (`int`, *optional*, defaults to 4):
-        The reduction factor for feature channel dimensions in the squeeze-and-excitation (SE) blocks, used to
-        reduce the number of model parameters and computational complexity while maintaining feature representability.
-    divisor (`int`, *optional*, defaults to 8):
-        The divisor used to ensure that various model parameters (e.g., channel dimensions, kernel sizes) are
-        multiples of this value, promoting efficient model implementation and resource utilization.
-    conv_symmetric_num (`int`, *optional*, defaults to `4`):
-        The number of kxk convolution branches in the learnable reparameterization layer, used to enhance feature
-        extraction capability through multi-branch architecture during training while enabling efficient inference
-        via structural reparameterization.
-    """
 
     model_type = "pp_lcnet_v3"
 
@@ -69,17 +33,11 @@ class PPLCNetV3Config(PPLCNetConfig):
     class_expand = AttributeError()
 
     def __post_init__(self, **kwargs):
-        # Default block configs for PP-LCNetV3
-        # Each tuple: (kernel_size, in_channels, out_channels, stride, use_squeeze_excitation)
         self.block_configs = (
             [
-                # Stage 1 (blocks2)
                 [[3, 16, 32, 1, False]],
-                # Stage 2 (blocks3)
                 [[3, 32, 64, 2, False], [3, 64, 64, 1, False]],
-                # Stage 3 (blocks4)
                 [[3, 64, 128, 2, False], [3, 128, 128, 1, False]],
-                # Stage 4 (blocks5)
                 [
                     [3, 128, 256, 2, False],
                     [5, 256, 256, 1, False],
@@ -87,7 +45,6 @@ class PPLCNetV3Config(PPLCNetConfig):
                     [5, 256, 256, 1, False],
                     [5, 256, 256, 1, False],
                 ],
-                # Stage 5 (blocks6)
                 [[5, 256, 512, 2, True], [5, 512, 512, 1, True], [5, 512, 512, 1, False], [5, 512, 512, 1, False]],
             ]
             if self.block_configs is None
@@ -110,9 +67,6 @@ class PPLCNetV3LearnableAffineBlock(HGNetV2LearnableAffineBlock):
 
 
 class PPLCNetV3ActLearnableAffineBlock(nn.Module):
-    """
-    Activation block with a trainable affine transformation applied after the non-linear activation.
-    """
 
     def __init__(self, activation="hardswish"):
         super().__init__()
@@ -124,11 +78,6 @@ class PPLCNetV3ActLearnableAffineBlock(nn.Module):
 
 
 class PPLCNetV3LearnableRepLayer(nn.Module):
-    """
-    Learnable Reparameterization Layer (RepLayer) that fuses multiple convolution branches
-    (kxk and 1x1) with an optional identity branch. This layer enables structural reparameterization
-    for efficient inference while maintaining training flexibility.
-    """
 
     def __init__(
         self,
@@ -197,11 +146,6 @@ class PPLCNetV3LearnableRepLayer(nn.Module):
 
 
 class PPLCNetV3DepthwiseSeparableConvLayer(PPLCNetDepthwiseSeparableConvLayer):
-    """
-    Depthwise Separable Convolution Layer: Depthwise Conv -> SE Module (optional) -> Pointwise Conv
-    Core component of lightweight models (e.g., MobileNet, PP-LCNet) that significantly reduces
-    the number of parameters and computational cost.
-    """
 
     def __init__(
         self,
@@ -250,7 +194,6 @@ class PPLCNetV3Encoder(PPLCNetEncoder):
         super().__init__(config)
         self.config = config
 
-        # stem
         self.convolution = PPLCNetV3ConvLayer(
             in_channels=3,
             kernel_size=3,

@@ -1,17 +1,3 @@
-# Copyright 2022 HuggingFace Inc. team and BigScience workshop.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch BLOOM model."""
 
 import math
 
@@ -75,12 +61,6 @@ def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int, dtype: torc
         extra_powers = torch.arange(1, 1 + 2 * num_remaining_heads, 2, device=attention_mask.device, dtype=torch.int32)
         slopes = torch.cat([slopes, torch.pow(extra_base, extra_powers)], dim=0)
 
-    # Note: alibi will added to the attention bias that will be applied to the query, key product of attention
-    # => therefore alibi will have to be of shape (batch_size, num_heads, query_length, key_length)
-    # => here we set (batch_size=1, num_heads=num_heads, query_length=1, key_length=max_length)
-    # => the query_length dimension will then be broadcasted correctly
-    # This is more or less identical to T5's relative position bias:
-    # https://github.com/huggingface/transformers/blob/f681437203baa7671de3174b0fa583c349d9d5e1/src/transformers/models/t5/modeling_t5.py#L527
     arange_tensor = ((attention_mask.cumsum(dim=-1) - 1) * attention_mask)[:, None, :]
     alibi = slopes[..., None] * arange_tensor
     return alibi.reshape(batch_size * num_heads, 1, seq_length).to(dtype)
@@ -118,21 +98,7 @@ def bloom_gelu_forward(x: torch.Tensor) -> torch.Tensor:
 
 
 def bloom_gelu_back(g: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-    """
-    gradient of tanh approximation of gelu gradient of actual gelu is: 0.5 * (1. + torch.erf(x * 0.70710678)) +
-    0.3989423 * x * torch.exp(-0.5 * x * x)
-
-    Args:
-        g (`torch.tensor`):
-            gradient output tensor
-        x (`torch.tensor`):
-            input tensor
-    """
-    x = x[0]  # x is a tuple of 1 element, needs to unpack it first
-    tanh_out = torch.tanh(0.79788456 * x * (1 + 0.044715 * x * x))
-    # sqrt(2/pi) * 3 * 0.044715 -> 0.1070322243
-    ff = 0.5 * x * ((1 - tanh_out * tanh_out) * (0.79788456 + 0.1070322243 * x * x)) + 0.5 * (1 + tanh_out)
-    return ff * g
+    pass
 
 
 class GeLUFunction(torch.autograd.Function):
@@ -143,15 +109,10 @@ class GeLUFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
-        input = ctx.saved_tensors
-        tmp = bloom_gelu_back(grad_output, input)
-        return tmp
+        pass
 
 
 class BloomGelu(nn.Module):
-    """
-    Partly copied from Megatron-DeepSpeed code and adapted for our needs
-    """
 
     def __init__(self):
         super().__init__()
@@ -179,7 +140,6 @@ class BloomAttention(nn.Module):
                 f" {self.num_heads})."
             )
 
-        # Layer-wise attention scaling
         self.inv_norm_factor = 1.0 / math.sqrt(self.head_dim)
         self.beta = 1.0
         self.layer_idx = layer_idx
@@ -224,19 +184,13 @@ class BloomAttention(nn.Module):
         Returns:
             torch.tensor: [batch_size, seq_length, num_heads * head_dim]
         """
-        # What we want to achieve is:
-        # batch_size * num_heads, seq_length, head_dim -> batch_size, seq_length, num_heads * head_dim
         batch_size_and_num_heads, seq_length, _ = x.shape
         batch_size = batch_size_and_num_heads // self.num_heads
 
-        # First view to decompose the batch size
-        # batch_size * num_heads, seq_length, head_dim -> batch_size, num_heads, seq_length, head_dim
         x = x.view(batch_size, self.num_heads, seq_length, self.head_dim)
 
-        # batch_size, num_heads, seq_length, head_dim -> batch_size, seq_length, num_heads, head_dim
         x = x.permute(0, 2, 1, 3)
 
-        # batch_size, seq_length, num_heads, head_dim -> batch_size, seq_length, num_heads * head_dim
         return x.reshape(batch_size, seq_length, self.num_heads * self.head_dim)
 
     def forward(
@@ -252,18 +206,15 @@ class BloomAttention(nn.Module):
     ):
         batch_size, q_length, _ = hidden_states.shape
         fused_qkv = self.query_key_value(hidden_states)  # [batch_size, seq_length, 3 x hidden_size]
-        # 3 x [batch_size, num_heads, seq_length, head_dim]
         query_layer, key_layer, value_layer = self._reshape(fused_qkv)
 
         if layer_past is not None:
             key_layer, value_layer = layer_past.update(key_layer, value_layer, self.layer_idx)
 
-        # reshape qkv for further computations
         query_layer = query_layer.reshape(batch_size * self.num_heads, -1, self.head_dim)
         key_layer = key_layer.reshape(batch_size * self.num_heads, -1, self.head_dim).transpose(-1, -2)
         value_layer = value_layer.reshape(batch_size * self.num_heads, -1, self.head_dim)
 
-        # [batch_size * num_heads, q_length, kv_length]
         attention_scores = alibi.baddbmm(
             batch1=query_layer,
             batch2=key_layer,
@@ -271,27 +222,20 @@ class BloomAttention(nn.Module):
             alpha=self.inv_norm_factor,
         )
 
-        # change view to [batch_size, num_heads, q_length, kv_length]
         attn_weights = attention_scores.view(batch_size, self.num_heads, q_length, -1)
         if attention_mask is not None:
             attn_weights = attn_weights + attention_mask
 
-        # cast attention scores to fp32, compute scaled softmax and cast back to initial dtype
         attention_probs = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_layer.dtype)
 
-        # [batch_size, num_heads, q_length, kv_length]
         attention_probs = self.attention_dropout(attention_probs)
 
-        # change view [batch_size x num_heads, q_length, kv_length]
         attention_probs_reshaped = attention_probs.view(batch_size * self.num_heads, q_length, -1)
 
-        # matmul: [batch_size * num_heads, q_length, head_dim]
         context_layer = torch.bmm(attention_probs_reshaped, value_layer)
 
-        # change view [batch_size, q_length, num_heads * head_dim]
         context_layer = self._merge_heads(context_layer)
 
-        # aggregate results across tp ranks. See here: https://github.com/pytorch/pytorch/issues/76232
         if self.pretraining_tp > 1 and self.slow_but_exact:
             slices = self.hidden_size / self.pretraining_tp
             output_tensor = torch.zeros_like(context_layer)
@@ -363,18 +307,14 @@ class BloomBlock(GradientCheckpointingLayer):
         output_attentions: bool = False,
         **kwargs,
     ):
-        # hidden_states: [batch_size, seq_length, hidden_size]
 
-        # Layer norm at the beginning of the transformer layer.
         layernorm_output = self.input_layernorm(hidden_states)
 
-        # Layer norm post the self attention.
         if self.apply_residual_connection_post_layernorm:
             residual = layernorm_output
         else:
             residual = hidden_states
 
-        # Self attention.
         attention_output, attn_weights = self.self_attention(
             layernorm_output,
             residual,
@@ -387,13 +327,11 @@ class BloomBlock(GradientCheckpointingLayer):
 
         layernorm_output = self.post_attention_layernorm(attention_output)
 
-        # Get residual
         if self.apply_residual_connection_post_layernorm:
             residual = layernorm_output
         else:
             residual = attention_output
 
-        # MLP.
         output = self.mlp(layernorm_output, residual)
 
         return output, attn_weights  # hidden_states, attentions
@@ -417,19 +355,15 @@ class BloomModel(BloomPreTrainedModel):
         self.embed_dim = config.hidden_size
         self.num_heads = config.n_head
 
-        # Embedding + LN Embedding
         self.word_embeddings = nn.Embedding(config.vocab_size, self.embed_dim)
         self.word_embeddings_layernorm = LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
-        # Transformer blocks
         self.h = nn.ModuleList([BloomBlock(config, layer_idx=i) for i in range(config.num_hidden_layers)])
 
-        # Final Layer Norm
         self.ln_f = LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def build_alibi_tensor(self, attention_mask: torch.Tensor, num_heads: int, dtype: torch.dtype) -> torch.Tensor:
@@ -498,7 +432,6 @@ class BloomModel(BloomPreTrainedModel):
         all_self_attentions = () if output_attentions else None
         all_hidden_states = () if output_hidden_states else None
 
-        # Compute alibi tensor: check build_alibi_tensor documentation
         if attention_mask is None:
             attention_mask = torch.ones((batch_size, seq_length_with_past), device=hidden_states.device)
         else:
@@ -529,7 +462,6 @@ class BloomModel(BloomPreTrainedModel):
             if output_attentions:
                 all_self_attentions = all_self_attentions + (outputs[1],)
 
-        # Add last hidden state
         hidden_states = self.ln_f(hidden_states)
 
         if output_hidden_states:
@@ -562,7 +494,6 @@ class BloomForCausalLM(BloomPreTrainedModel, GenerationMixin):
         self.transformer = BloomModel(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def set_output_embeddings(self, new_embeddings: torch.Tensor):
@@ -578,7 +509,6 @@ class BloomForCausalLM(BloomPreTrainedModel, GenerationMixin):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten because of the fixed-shape attention mask creation
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -590,8 +520,6 @@ class BloomForCausalLM(BloomPreTrainedModel, GenerationMixin):
             **kwargs,
         )
 
-        # This part differs from other models because BLOOM needs a 2D mask to construct alibi tensor
-        # The only difference is the usage of 2D instead of 4D mask, but the shape will be static
         if isinstance(past_key_values, StaticCache) and attention_mask is not None:
             target_length = past_key_values.get_max_length()
             batch_size, seq_length = attention_mask.shape
@@ -649,7 +577,6 @@ class BloomForCausalLM(BloomPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = transformer_outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -696,7 +623,6 @@ class BloomForSequenceClassification(BloomPreTrainedModel):
         self.transformer = BloomModel(config)
         self.score = nn.Linear(config.hidden_size, config.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -756,7 +682,6 @@ class BloomForSequenceClassification(BloomPreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)
@@ -820,7 +745,6 @@ class BloomForTokenClassification(BloomPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -873,7 +797,6 @@ class BloomForTokenClassification(BloomPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(logits.device)
             batch_size, seq_length = labels.shape
             loss_fct = CrossEntropyLoss()
@@ -900,7 +823,6 @@ class BloomForQuestionAnswering(BloomPreTrainedModel):
         self.transformer = BloomModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -949,12 +871,10 @@ class BloomForQuestionAnswering(BloomPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

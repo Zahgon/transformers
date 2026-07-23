@@ -1,17 +1,3 @@
-# Copyright 2023 Meta AI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ViTDet backbone."""
 
 import collections.abc
 import math
@@ -34,10 +20,6 @@ logger = logging.get_logger(__name__)
 
 
 class VitDetEmbeddings(nn.Module):
-    """
-    This class turns `pixel_values` of shape `(batch_size, num_channels, height, width)` into the initial
-    `hidden_states` (patch embeddings) to be consumed by a Transformer.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -53,7 +35,6 @@ class VitDetEmbeddings(nn.Module):
         self.num_patches = num_patches
 
         if config.use_absolute_position_embeddings:
-            # Initialize absolute positional embedding with pretrain image size.
             num_positions = num_patches + 1
             self.position_embeddings = nn.Parameter(torch.zeros(1, num_positions, config.hidden_size))
         else:
@@ -87,7 +68,6 @@ class VitDetEmbeddings(nn.Module):
             raise ValueError("Absolute position embeddings must be a square number.")
 
         if torch.jit.is_tracing() or (size != height or size != width):
-            # nn.functional.interpolate is a noop in case size == height and size == width - we need to always capture this path with jit.trace.
             new_abs_pos_embeddings = nn.functional.interpolate(
                 abs_pos_embeddings.reshape(1, size, size, -1).permute(0, 3, 1, 2),
                 size=(height, width),
@@ -109,13 +89,10 @@ class VitDetEmbeddings(nn.Module):
         embeddings = self.projection(pixel_values)
 
         if self.position_embeddings is not None:
-            # (batch_size, num_channels, height, width) -> (batch_size, height, width, num_channels)
             embeddings = embeddings.permute(0, 2, 3, 1)
-            # add position embeddings
             embeddings = embeddings + self.get_absolute_positions(
                 self.position_embeddings, True, embeddings.shape[1], embeddings.shape[2]
             )
-            # (batch_size, height, width, num_channels) -> (batch_size, num_channels, height, width)
             embeddings = embeddings.permute(0, 3, 1, 2)
 
         return embeddings
@@ -138,9 +115,7 @@ def get_rel_pos(q_size, k_size, rel_pos):
         Extracted positional embeddings according to relative positions.
     """
     max_rel_dist = int(2 * max(q_size, k_size) - 1)
-    # Interpolate rel pos if needed.
     if rel_pos.shape[0] != max_rel_dist:
-        # Interpolate rel position embeddings.
         rel_pos_resized = nn.functional.interpolate(
             rel_pos.reshape(1, rel_pos.shape[0], -1).permute(0, 2, 1),
             size=max_rel_dist,
@@ -150,7 +125,6 @@ def get_rel_pos(q_size, k_size, rel_pos):
     else:
         rel_pos_resized = rel_pos
 
-    # Scale the coords with short length if shapes for q and k are different.
     q_coords = torch.arange(q_size)[:, None] * max(k_size / q_size, 1.0)
     k_coords = torch.arange(k_size)[None, :] * max(q_size / k_size, 1.0)
     relative_coords = (q_coords - k_coords) + (k_size - 1) * max(q_size / k_size, 1.0)
@@ -200,7 +174,6 @@ def add_decomposed_relative_positions(attn, queries, rel_pos_h, rel_pos_w, q_siz
 
 
 class VitDetAttention(nn.Module):
-    """Multi-head Attention block with relative position embeddings."""
 
     def __init__(self, config, input_size=None):
         """
@@ -224,15 +197,12 @@ class VitDetAttention(nn.Module):
 
         self.use_relative_position_embeddings = config.use_relative_position_embeddings
         if self.use_relative_position_embeddings:
-            # initialize relative positional embeddings
             self.rel_pos_h = nn.Parameter(torch.zeros(2 * input_size[0] - 1, head_dim))
             self.rel_pos_w = nn.Parameter(torch.zeros(2 * input_size[1] - 1, head_dim))
 
     def forward(self, hidden_state, output_attentions=False):
         batch_size, height, width, _ = hidden_state.shape
-        # qkv with shape (3, batch_size, num_heads, height * width, num_channels)
         qkv = self.qkv(hidden_state).reshape(batch_size, height * width, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
-        # queries, keys and values have shape (batch_size * num_heads, height * width, num_channels)
         queries, keys, values = qkv.reshape(3, batch_size * self.num_heads, height * width, -1).unbind(0)
 
         attention_scores = (queries * self.scale) @ keys.transpose(-2, -1)
@@ -262,11 +232,6 @@ class VitDetAttention(nn.Module):
 
 
 class VitDetLayerNorm(nn.Module):
-    """
-    A LayerNorm variant, popularized by Transformers, that performs point-wise mean and variance normalization over the
-    channel dimension for inputs that have shape (batch_size, channels, height, width).
-    https://github.com/facebookresearch/ConvNeXt/blob/d1fa8f6fef0a165b27399986cc2bdacc92777e40/models/convnext.py#L119
-    """
 
     def __init__(self, normalized_shape, eps=1e-6):
         super().__init__()
@@ -284,10 +249,6 @@ class VitDetLayerNorm(nn.Module):
 
 
 class VitDetResBottleneckBlock(nn.Module):
-    """
-    The standard bottleneck residual block without the last activation layer. It contains 3 conv layers with kernels
-    1x1, 3x3, 1x1.
-    """
 
     def __init__(self, config, in_channels, out_channels, bottleneck_channels):
         """
@@ -357,8 +318,6 @@ def window_partition(hidden_state, window_size):
     """
     batch_size, height, width, num_channels = hidden_state.shape
 
-    # `(-height) % window_size` is the smallest non-negative pad that makes height divisible
-    # by window_size, in one modulo instead of two; same for width.
     pad_height = (-height) % window_size
     pad_width = (-width) % window_size
     hidden_state = nn.functional.pad(hidden_state, (0, 0, 0, pad_width, 0, pad_height))
@@ -396,17 +355,10 @@ def window_unpartition(windows, window_size, pad_height_width, height_width):
     hidden_state = windows.view(batch_size, n_h, n_w, window_size, window_size, -1)
     hidden_state = hidden_state.permute(0, 1, 3, 2, 4, 5).contiguous()
     hidden_state = hidden_state.view(batch_size, padded_height, padded_width, -1)
-    # We always have height <= padded_height and width <= padded_width
     return hidden_state[:, :height, :width, :].contiguous()
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->VitDetDropPath
 class VitDetDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -422,11 +374,10 @@ class VitDetDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class VitDetLayer(GradientCheckpointingLayer):
-    """This corresponds to the Block class in the original implementation."""
 
     def __init__(
         self, config: VitDetConfig, drop_path_rate: float = 0, window_size: int = 0, use_residual_block: bool = False
@@ -455,7 +406,6 @@ class VitDetLayer(GradientCheckpointingLayer):
 
         self.use_residual_block = use_residual_block
         if self.use_residual_block:
-            # Use a residual block with bottleneck channel as dim // 2
             self.residual = VitDetResBottleneckBlock(
                 config=config,
                 in_channels=dim,
@@ -474,7 +424,6 @@ class VitDetLayer(GradientCheckpointingLayer):
 
         hidden_states = self.norm1(hidden_states)
 
-        # Window partition
         if self.window_size > 0:
             height, width = hidden_states.shape[1], hidden_states.shape[2]
             hidden_states, pad_height_width = window_partition(hidden_states, self.window_size)
@@ -486,11 +435,9 @@ class VitDetLayer(GradientCheckpointingLayer):
         hidden_states = self_attention_outputs[0]
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
 
-        # Reverse window partition
         if self.window_size > 0:
             hidden_states = window_unpartition(hidden_states, self.window_size, pad_height_width, (height, width))
 
-        # first residual connection
         hidden_states = shortcut + self.drop_path(hidden_states)
 
         hidden_states = hidden_states + self.drop_path(self.mlp(self.norm2(hidden_states)))
@@ -511,7 +458,6 @@ class VitDetEncoder(nn.Module):
         self.config = config
         depth = config.num_hidden_layers
 
-        # stochastic depth decay rule
         drop_path_rate = [x.item() for x in torch.linspace(0, config.drop_path_rate, depth, device="cpu")]
 
         layers = []
@@ -591,7 +537,6 @@ class VitDetPreTrainedModel(PreTrainedModel):
             for layer in [module.norm1, module.norm2]:
                 init.ones_(layer.weight)
                 init.zeros_(layer.bias)
-            # zero init last norm layer.
             init.zeros_(module.norm3.weight)
             init.zeros_(module.norm3.bias)
 
@@ -605,7 +550,6 @@ class VitDetModel(VitDetPreTrainedModel):
         self.embeddings = VitDetEmbeddings(config)
         self.encoder = VitDetEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> VitDetEmbeddings:
@@ -681,7 +625,6 @@ class VitDetBackbone(BackboneMixin, VitDetPreTrainedModel):
         self.encoder = VitDetEncoder(config)
         self.num_features = [config.hidden_size for _ in range(config.num_hidden_layers + 1)]
 
-        # initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> VitDetEmbeddings:

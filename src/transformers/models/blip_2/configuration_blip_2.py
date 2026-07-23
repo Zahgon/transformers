@@ -1,17 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""BLIP-2 model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -27,21 +13,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="Salesforce/blip2-opt-2.7b")
 @strict
 class Blip2VisionConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Blip2VisionConfig, Blip2VisionModel
-
-    >>> # Initializing a Blip2VisionConfig with Salesforce/blip2-opt-2.7b style configuration
-    >>> configuration = Blip2VisionConfig()
-
-    >>> # Initializing a Blip2VisionModel (with random weights) from the Salesforce/blip2-opt-2.7b style configuration
-    >>> model = Blip2VisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "blip_2_vision_model"
     base_config_key = "vision_config"
@@ -62,25 +33,6 @@ class Blip2VisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Salesforce/blip2-opt-2.7b")
 @strict
 class Blip2QFormerConfig(PreTrainedConfig):
-    r"""
-    cross_attention_frequency (`int`, *optional*, defaults to 2):
-        The frequency of adding cross-attention to the Transformer layers.
-    use_qformer_text_input (`bool`, *optional*, defaults to `False`):
-        Whether to use BERT-style embeddings.
-
-    Examples:
-
-    ```python
-    >>> from transformers import Blip2QFormerConfig, Blip2QFormerModel
-
-    >>> # Initializing a BLIP-2 Salesforce/blip2-opt-2.7b style configuration
-    >>> configuration = Blip2QFormerConfig()
-
-    >>> # Initializing a model (with random weights) from the Salesforce/blip2-opt-2.7b style configuration
-    >>> model = Blip2QFormerModel(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "blip_2_qformer"
     base_config_key = "qformer_config"
@@ -105,43 +57,6 @@ class Blip2QFormerConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Salesforce/blip2-opt-2.7b")
 @strict
 class Blip2Config(PreTrainedConfig):
-    r"""
-    qformer_config (`dict`, *optional*):
-        Dictionary of configuration options used to initialize [`Blip2QFormerConfig`].
-    num_query_tokens (`int`, *optional*, defaults to 32):
-        The number of query tokens passed through the Transformer.
-    image_text_hidden_size (`int`, *optional*, defaults to 256):
-        Dimensionality of the hidden state of the image-text fusion layer.
-
-    Example:
-
-    ```python
-    >>> from transformers import (
-    ...     Blip2VisionConfig,
-    ...     Blip2QFormerConfig,
-    ...     OPTConfig,
-    ...     Blip2Config,
-    ...     Blip2ForConditionalGeneration,
-    ... )
-
-    >>> # Initializing a Blip2Config with Salesforce/blip2-opt-2.7b style configuration
-    >>> configuration = Blip2Config()
-
-    >>> # Initializing a Blip2ForConditionalGeneration (with random weights) from the Salesforce/blip2-opt-2.7b style configuration
-    >>> model = Blip2ForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-
-    >>> # We can also initialize a Blip2Config from a Blip2VisionConfig, Blip2QFormerConfig and any PreTrainedConfig
-
-    >>> # Initializing BLIP-2 vision, BLIP-2 Q-Former and language model configurations
-    >>> vision_config = Blip2VisionConfig()
-    >>> qformer_config = Blip2QFormerConfig()
-    >>> text_config = OPTConfig()
-
-    >>> config = Blip2Config(vision_config=vision_config, qformer_config=qformer_config, text_config=text_config)
-    ```"""
 
     model_type = "blip-2"
     attribute_map = {

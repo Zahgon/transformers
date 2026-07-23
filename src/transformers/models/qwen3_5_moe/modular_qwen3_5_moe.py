@@ -1,17 +1,3 @@
-# Copyright 2025 The Qwen Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Qwen3.5Moe model."""
 
 import torch
 from huggingface_hub.dataclasses import strict
@@ -57,31 +43,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="Qwen/Qwen3.5-35B-A3B")
 @strict
 class Qwen3_5MoeTextConfig(Qwen3NextConfig):
-    r"""
-    linear_conv_kernel_dim (`int`, *optional*, defaults to 4):
-        Kernel size of the convolution used in linear attention layers.
-    linear_key_head_dim (`int`, *optional*, defaults to 128):
-        Dimension of each key head in linear attention.
-    linear_value_head_dim (`int`, *optional*, defaults to 128):
-        Dimension of each value head in linear attention.
-    linear_num_key_heads (`int`, *optional*, defaults to 16):
-        Number of key heads used in linear attention layers.
-    linear_num_value_heads (`int`, *optional*, defaults to 32):
-        Number of value heads used in linear attention layers.
-
-    ```python
-    >>> from transformers import Qwen3_5MoeTextModel, Qwen3_5MoeTextConfig
-
-    >>> # Initializing a Qwen3.5-MoE style configuration
-    >>> configuration =  Qwen3_5MoeTextConfig()
-
-    >>> # Initializing a model from the Qwen3.5-35B-A3B style configuration
-    >>> model = Qwen3_5MoeTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "qwen3_5_moe_text"
     base_config_key = "text_config"
@@ -131,21 +92,6 @@ class Qwen3_5MoeVisionConfig(Qwen3_5VisionConfig):
 @auto_docstring(checkpoint="Qwen/Qwen3.5-35B-A3B")
 @strict
 class Qwen3_5MoeConfig(Qwen3VLConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Qwen3_5MoeForConditionalGeneration, Qwen3_5MoeConfig
-
-    >>> # Initializing a Qwen3.5-MoE style configuration
-    >>> configuration = Qwen3_5MoeConfig()
-
-    >>> # Initializing a model from the Qwen3.5-35B-A3B style configuration
-    >>> model = Qwen3_5MoeForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     image_token_id: int = 248056
     video_token_id: int = 248057
@@ -161,7 +107,6 @@ class Qwen3_5MoeTextRotaryEmbedding(Qwen3_5TextRotaryEmbedding):
     pass
 
 
-# Same GDN core as the dense variant, so it reuses the dense Hub kernel name.
 @use_kernel_forward_from_hub("Qwen3_5GatedDeltaNet")
 class Qwen3_5MoeGatedDeltaNet(Qwen3_5GatedDeltaNet):
     pass
@@ -214,7 +159,6 @@ class Qwen3_5MoePreTrainedModel(Qwen3NextPreTrainedModel):
         if isinstance(module, Qwen3_5MoeGatedDeltaNet):
             init.ones_(module.dt_bias)
             init.copy_(module.A_log, torch.empty_like(module.A_log).uniform_(0, 16).log_())
-        # We initialize with 0s to be 1 centered as the RMSNorm here does (1 + weight)
         elif isinstance(module, Qwen3_5MoeRMSNorm):
             init.zeros_(module.weight)
         elif isinstance(module, Qwen3_5MoeExperts):

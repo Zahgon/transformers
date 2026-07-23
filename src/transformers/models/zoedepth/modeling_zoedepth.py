@@ -1,17 +1,3 @@
-# Copyright 2024 Intel Labs and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ZoeDepth model."""
 
 import math
 from dataclasses import dataclass
@@ -38,12 +24,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class ZoeDepthDepthEstimatorOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Classification (or regression if config.num_labels==1) loss.
-    domain_logits (`torch.FloatTensor` of shape `(batch_size, num_domains)`):
-        Logits for each domain (e.g. NYU and KITTI) in case multiple metric heads are used.
-    """
 
     loss: torch.FloatTensor | None = None
     predicted_depth: torch.FloatTensor | None = None
@@ -53,20 +33,6 @@ class ZoeDepthDepthEstimatorOutput(ModelOutput):
 
 
 class ZoeDepthReassembleStage(nn.Module):
-    """
-    This class reassembles the hidden states of the backbone into image-like feature representations at various
-    resolutions.
-
-    This happens in 3 stages:
-    1. Map the N + 1 tokens to a set of N tokens, by taking into account the readout ([CLS]) token according to
-       `config.readout_type`.
-    2. Project the channel dimension of the hidden states according to `config.neck_hidden_sizes`.
-    3. Resizing the spatial dimensions (height, width).
-
-    Args:
-        config (`[ZoeDepthConfig]`):
-            Model configuration class defining the model architecture.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -93,22 +59,16 @@ class ZoeDepthReassembleStage(nn.Module):
         """
         batch_size = hidden_states[0].shape[0]
 
-        # stack along batch dimension
-        # shape (batch_size*num_stages, sequence_length + 1, hidden_size)
         hidden_states = torch.cat(hidden_states, dim=0)
 
         cls_token, hidden_states = hidden_states[:, 0], hidden_states[:, 1:]
-        # reshape hidden_states to (batch_size*num_stages, num_channels, height, width)
         total_batch_size, sequence_length, num_channels = hidden_states.shape
         hidden_states = hidden_states.reshape(total_batch_size, patch_height, patch_width, num_channels)
         hidden_states = hidden_states.permute(0, 3, 1, 2).contiguous()
 
         if self.readout_type == "project":
-            # reshape to (batch_size*num_stages, height*width, num_channels)
             hidden_states = hidden_states.flatten(2).permute((0, 2, 1))
             readout = cls_token.unsqueeze(dim=1).expand_as(hidden_states)
-            # concatenate the readout token to the hidden states
-            # to get (batch_size*num_stages, height*width, 2*num_channels)
             hidden_states = torch.cat((hidden_states, readout), -1)
         elif self.readout_type == "add":
             hidden_states = hidden_states + cls_token.unsqueeze(-1)
@@ -118,7 +78,6 @@ class ZoeDepthReassembleStage(nn.Module):
             if self.readout_type == "project":
                 hidden_state = self.readout_projects[stage_idx](hidden_state)
 
-            # reshape back to (batch_size, num_channels, height, width)
             hidden_state = hidden_state.permute(0, 2, 1).reshape(batch_size, -1, patch_height, patch_width)
             hidden_state = self.layers[stage_idx](hidden_state)
             out.append(hidden_state)
@@ -129,27 +88,22 @@ class ZoeDepthReassembleStage(nn.Module):
 class ZoeDepthReassembleLayer(nn.Module):
     def __init__(self, config, channels, factor):
         super().__init__()
-        # projection
         hidden_size = config.backbone_hidden_size
         self.projection = nn.Conv2d(in_channels=hidden_size, out_channels=channels, kernel_size=1)
 
-        # up/down sampling depending on factor
         if factor > 1:
             self.resize = nn.ConvTranspose2d(channels, channels, kernel_size=factor, stride=factor, padding=0)
         elif factor == 1:
             self.resize = nn.Identity()
         elif factor < 1:
-            # so should downsample
             self.resize = nn.Conv2d(channels, channels, kernel_size=3, stride=int(1 / factor), padding=1)
 
-    # Copied from transformers.models.dpt.modeling_dpt.DPTReassembleLayer.forward with DPT->ZoeDepth
     def forward(self, hidden_state):
         hidden_state = self.projection(hidden_state)
         hidden_state = self.resize(hidden_state)
         return hidden_state
 
 
-# Copied from transformers.models.dpt.modeling_dpt.DPTFeatureFusionStage with DPT->ZoeDepth
 class ZoeDepthFeatureFusionStage(nn.Module):
     def __init__(self, config: ZoeDepthConfig):
         super().__init__()
@@ -158,14 +112,12 @@ class ZoeDepthFeatureFusionStage(nn.Module):
             self.layers.append(ZoeDepthFeatureFusionLayer(config))
 
     def forward(self, hidden_states):
-        # reversing the hidden_states, we start from the last
         hidden_states = hidden_states[::-1]
 
         fused_hidden_states = []
         fused_hidden_state = None
         for hidden_state, layer in zip(hidden_states, self.layers):
             if fused_hidden_state is None:
-                # first layer only uses the last hidden_state
                 fused_hidden_state = layer(hidden_state)
             else:
                 fused_hidden_state = layer(fused_hidden_state, hidden_state)
@@ -174,17 +126,8 @@ class ZoeDepthFeatureFusionStage(nn.Module):
         return fused_hidden_states
 
 
-# Copied from transformers.models.dpt.modeling_dpt.DPTPreActResidualLayer with DPT->ZoeDepth
 class ZoeDepthPreActResidualLayer(nn.Module):
-    """
-    ResidualConvUnit, pre-activate residual unit.
 
-    Args:
-        config (`[ZoeDepthConfig]`):
-            Model configuration class defining the model architecture.
-    """
-
-    # Ignore copy
     def __init__(self, config):
         super().__init__()
 
@@ -237,16 +180,7 @@ class ZoeDepthPreActResidualLayer(nn.Module):
         return hidden_state + residual
 
 
-# Copied from transformers.models.dpt.modeling_dpt.DPTFeatureFusionLayer with DPT->ZoeDepth
 class ZoeDepthFeatureFusionLayer(nn.Module):
-    """Feature fusion layer, merges feature maps from different stages.
-
-    Args:
-        config (`[ZoeDepthConfig]`):
-            Model configuration class defining the model architecture.
-        align_corners (`bool`, *optional*, defaults to `True`):
-            The align_corner setting for bilinear upsample.
-    """
 
     def __init__(self, config: ZoeDepthConfig, align_corners: bool = True):
         super().__init__()
@@ -276,23 +210,11 @@ class ZoeDepthFeatureFusionLayer(nn.Module):
 
 
 class ZoeDepthNeck(nn.Module):
-    """
-    ZoeDepthNeck. A neck is a module that is normally used between the backbone and the head. It takes a list of tensors as
-    input and produces another list of tensors as output. For ZoeDepth, it includes 2 stages:
 
-    * ZoeDepthReassembleStage
-    * ZoeDepthFeatureFusionStage.
-
-    Args:
-        config (dict): config dict.
-    """
-
-    # Copied from transformers.models.dpt.modeling_dpt.DPTNeck.__init__ with DPT->ZoeDepth
     def __init__(self, config: ZoeDepthConfig):
         super().__init__()
         self.config = config
 
-        # postprocessing: only required in case of a non-hierarchical backbone (e.g. ViT, BEiT)
         if config.backbone_config is not None and config.backbone_config.model_type == "swinv2":
             self.reassemble_stage = None
         else:
@@ -302,7 +224,6 @@ class ZoeDepthNeck(nn.Module):
         for channel in config.neck_hidden_sizes:
             self.convs.append(nn.Conv2d(channel, config.fusion_hidden_size, kernel_size=3, padding=1, bias=False))
 
-        # fusion
         self.fusion_stage = ZoeDepthFeatureFusionStage(config)
 
     def forward(self, hidden_states: list[torch.Tensor], patch_height, patch_width) -> list[torch.Tensor]:
@@ -317,24 +238,17 @@ class ZoeDepthNeck(nn.Module):
         if len(hidden_states) != len(self.config.neck_hidden_sizes):
             raise ValueError("The number of hidden states should be equal to the number of neck hidden sizes.")
 
-        # postprocess hidden states
         if self.reassemble_stage is not None:
             hidden_states = self.reassemble_stage(hidden_states, patch_height, patch_width)
 
         features = [self.convs[i](feature) for i, feature in enumerate(hidden_states)]
 
-        # fusion blocks
         output = self.fusion_stage(features)
 
         return output, features[-1]
 
 
 class ZoeDepthRelativeDepthEstimationHead(nn.Module):
-    """
-    Relative depth estimation head consisting of 3 convolutional layers. It progressively halves the feature dimension and upsamples
-    the predictions to the input resolution after the first convolutional layer (details can be found in DPT's paper's
-    supplementary material).
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -352,7 +266,6 @@ class ZoeDepthRelativeDepthEstimationHead(nn.Module):
         self.conv3 = nn.Conv2d(config.num_relative_features, 1, kernel_size=1, stride=1, padding=0)
 
     def forward(self, hidden_states: list[torch.Tensor]) -> torch.Tensor:
-        # use last features
         hidden_states = hidden_states[self.head_in_index]
 
         if self.projection is not None:
@@ -363,7 +276,6 @@ class ZoeDepthRelativeDepthEstimationHead(nn.Module):
         hidden_states = self.upsample(hidden_states)
         hidden_states = self.conv2(hidden_states)
         hidden_states = nn.ReLU()(hidden_states)
-        # we need the features here (after second conv + ReLu)
         features = hidden_states
         hidden_states = self.conv3(hidden_states)
         hidden_states = nn.ReLU()(hidden_states)
@@ -452,7 +364,6 @@ class ZoeDepthConditionalLogBinomialSoftmax(nn.Module):
         self.mlp = nn.Sequential(
             nn.Conv2d(in_features + condition_dim, bottleneck, kernel_size=1, stride=1, padding=0),
             nn.GELU(),
-            # 2 for probabilities linear norm, 2 for temperature linear norm
             nn.Conv2d(bottleneck, 2 + 2, kernel_size=1, stride=1, padding=0),
             nn.Softplus(),
         )
@@ -533,11 +444,8 @@ class ZoeDepthSeedBinRegressor(nn.Module):
         if self.bin_centers_type == "normed":
             bin_centers = bin_centers + 1e-3
             bin_widths_normed = bin_centers / bin_centers.sum(dim=1, keepdim=True)
-            # shape (batch_size, num_channels, height, width)
             bin_widths = (self.max_depth - self.min_depth) * bin_widths_normed
-            # pad has the form (left, right, top, bottom, front, back)
             bin_widths = nn.functional.pad(bin_widths, (0, 0, 0, 0, 1, 0), mode="constant", value=self.min_depth)
-            # shape (batch_size, num_channels, height, width)
             bin_edges = torch.cumsum(bin_widths, dim=1)
 
             bin_centers = 0.5 * (bin_edges[:, :-1, ...] + bin_edges[:, 1:, ...])
@@ -592,7 +500,6 @@ class ZoeDepthAttractorLayer(nn.Module):
         self.max_depth = max_depth
         self.memory_efficient = memory_efficient
 
-        # MLP to predict attractor points
         in_features = mlp_dim = config.bin_embedding_dim
         self.conv1 = nn.Conv2d(in_features, mlp_dim, 1, 1, 0)
         self.act1 = nn.ReLU(inplace=True)
@@ -633,23 +540,17 @@ class ZoeDepthAttractorLayer(nn.Module):
         attractors = attractors + 1e-3
         batch_size, _, height, width = attractors.shape
         attractors = attractors.view(batch_size, self.n_attractors, 2, height, width)
-        # batch_size, num_attractors, 2, height, width
-        # note: original repo had a bug here: https://github.com/isl-org/ZoeDepth/blame/edb6daf45458569e24f50250ef1ed08c015f17a7/zoedepth/models/layers/attractor.py#L105C9-L106C50
-        # we include the bug to maintain compatibility with the weights
         attractors_normed = attractors[:, :, 0, ...]  # batch_size, batch_size*num_attractors, height, width
 
         bin_centers = nn.functional.interpolate(prev_bin, (height, width), mode="bilinear", align_corners=True)
 
-        # note: only attractor_type = "exp" is supported here, since no checkpoints were released with other attractor types
 
         if not self.memory_efficient:
             func = {"mean": torch.mean, "sum": torch.sum}[self.kind]
-            # shape (batch_size, num_bins, height, width)
             delta_c = func(inv_attractor(attractors_normed.unsqueeze(2) - bin_centers.unsqueeze(1)), dim=1)
         else:
             delta_c = torch.zeros_like(bin_centers, device=bin_centers.device)
             for i in range(self.n_attractors):
-                # shape (batch_size, num_bins, height, width)
                 delta_c += inv_attractor(attractors_normed[:, i, ...].unsqueeze(1) - bin_centers)
 
             if self.kind == "mean":
@@ -729,12 +630,10 @@ class ZoeDepthAttractorLayerUnnormed(nn.Module):
 
         if not self.memory_efficient:
             func = {"mean": torch.mean, "sum": torch.sum}[self.kind]
-            # shape batch_size, num_bins, height, width
             delta_c = func(inv_attractor(attractors.unsqueeze(2) - bin_centers.unsqueeze(1)), dim=1)
         else:
             delta_c = torch.zeros_like(bin_centers, device=bin_centers.device)
             for i in range(self.n_attractors):
-                # shape batch_size, num_bins, height, width
                 delta_c += inv_attractor(attractors[:, i, ...].unsqueeze(1) - bin_centers)
 
             if self.kind == "mean":
@@ -772,11 +671,8 @@ class ZoeDepthProjector(nn.Module):
         return hidden_state
 
 
-# Copied from transformers.models.grounding_dino.modeling_grounding_dino.GroundingDinoMultiheadAttention with GroundingDino->ZoeDepth
 class ZoeDepthMultiheadAttention(nn.Module):
-    """Equivalent implementation of nn.MultiheadAttention with `batch_first=True`."""
 
-    # Ignore copy
     def __init__(self, hidden_size, num_attention_heads, dropout):
         super().__init__()
         if hidden_size % num_attention_heads != 0:
@@ -818,19 +714,14 @@ class ZoeDepthMultiheadAttention(nn.Module):
             self.value(values).view(batch_size, -1, self.num_attention_heads, self.attention_head_size).transpose(1, 2)
         )
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in ZoeDepthModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -930,7 +821,6 @@ class ZoeDepthPatchTransformerEncoder(nn.Module):
             torch.Tensor - Transformer output embeddings of shape (batch_size, sequence_length, embedding_dim)
         """
         embeddings = self.embedding_convPxP(x).flatten(2)  # shape (batch_size, num_channels, sequence_length)
-        # add an extra special CLS token at the start for global accumulation
         embeddings = nn.functional.pad(embeddings, (1, 0))
 
         embeddings = embeddings.permute(0, 2, 1)
@@ -963,9 +853,6 @@ class ZoeDepthMLPClassifier(nn.Module):
 
 
 class ZoeDepthMultipleMetricDepthEstimationHeads(nn.Module):
-    """
-    Multiple metric depth estimation heads. A MLP classifier is used to route between 2 different heads.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -975,22 +862,16 @@ class ZoeDepthMultipleMetricDepthEstimationHeads(nn.Module):
         self.bin_configurations = config.bin_configurations
         self.bin_centers_type = config.bin_centers_type
 
-        # Bottleneck convolution
         bottleneck_features = config.bottleneck_features
         self.conv2 = nn.Conv2d(bottleneck_features, bottleneck_features, kernel_size=1, stride=1, padding=0)
 
-        # Transformer classifier on the bottleneck
         self.patch_transformer = ZoeDepthPatchTransformerEncoder(config)
-        # MLP classifier
         self.mlp_classifier = ZoeDepthMLPClassifier(in_features=128, out_features=2)
 
-        # Regressor and attractor
         if self.bin_centers_type == "normed":
             Attractor = ZoeDepthAttractorLayer
         elif self.bin_centers_type == "softplus":
             Attractor = ZoeDepthAttractorLayerUnnormed
-        # We have bins for each bin configuration
-        # Create a map (ModuleDict) of 'name' -> seed_bin_regressor
         self.seed_bin_regressors = nn.ModuleDict(
             {
                 conf["name"]: ZoeDepthSeedBinRegressor(
@@ -1018,7 +899,6 @@ class ZoeDepthMultipleMetricDepthEstimationHeads(nn.Module):
             ]
         )
 
-        # Create a map (ModuleDict) of 'name' -> attractors (ModuleList)
         self.attractors = nn.ModuleDict(
             {
                 configuration["name"]: nn.ModuleList(
@@ -1037,7 +917,6 @@ class ZoeDepthMultipleMetricDepthEstimationHeads(nn.Module):
         )
 
         last_in = config.num_relative_features
-        # conditional log binomial for each bin configuration
         self.conditional_log_binomial = nn.ModuleDict(
             {
                 configuration["name"]: ZoeDepthConditionalLogBinomialSoftmax(
@@ -1054,15 +933,11 @@ class ZoeDepthMultipleMetricDepthEstimationHeads(nn.Module):
     def forward(self, outconv_activation, bottleneck, feature_blocks, relative_depth):
         x = self.conv2(bottleneck)
 
-        # Predict which path to take
-        # Embedding is of shape (batch_size, hidden_size)
         embedding = self.patch_transformer(x)[:, 0, :]
 
-        # MLP classifier to get logits of shape (batch_size, 2)
         domain_logits = self.mlp_classifier(embedding)
         domain_vote = torch.softmax(domain_logits.sum(dim=0, keepdim=True), dim=-1)
 
-        # Get the path
         names = [configuration["name"] for configuration in self.bin_configurations]
         bin_configurations_name = names[torch.argmax(domain_vote, dim=-1).squeeze().item()]
 
@@ -1097,7 +972,6 @@ class ZoeDepthMultipleMetricDepthEstimationHeads(nn.Module):
         conditional_log_binomial = self.conditional_log_binomial[bin_configurations_name]
         x = conditional_log_binomial(last, bin_embedding)
 
-        # Now depth value is Sum px * cx , where cx are bin_centers from the last bin tensor
         out = torch.sum(x * bin_centers, dim=1, keepdim=True)
 
         return out, domain_logits
@@ -1119,11 +993,9 @@ class ZoeDepthMetricDepthEstimationHead(nn.Module):
         self.max_depth = max_depth
         self.bin_centers_type = bin_centers_type
 
-        # Bottleneck convolution
         bottleneck_features = config.bottleneck_features
         self.conv2 = nn.Conv2d(bottleneck_features, bottleneck_features, kernel_size=1, stride=1, padding=0)
 
-        # Regressor and attractor
         if self.bin_centers_type == "normed":
             Attractor = ZoeDepthAttractorLayer
         elif self.bin_centers_type == "softplus":
@@ -1155,7 +1027,6 @@ class ZoeDepthMetricDepthEstimationHead(nn.Module):
 
         last_in = config.num_relative_features + 1  # +1 for relative depth
 
-        # use log binomial instead of softmax
         self.conditional_log_binomial = ZoeDepthConditionalLogBinomialSoftmax(
             config,
             last_in,
@@ -1174,7 +1045,6 @@ class ZoeDepthMetricDepthEstimationHead(nn.Module):
 
         prev_bin_embedding = self.seed_projector(x)
 
-        # unroll this loop for better performance
         for projector, attractor, feature in zip(self.projectors, self.attractors, feature_blocks):
             bin_embedding = projector(feature)
             bin, bin_centers = attractor(bin_embedding, prev_bin, prev_bin_embedding, interpolate=True)
@@ -1183,7 +1053,6 @@ class ZoeDepthMetricDepthEstimationHead(nn.Module):
 
         last = outconv_activation
 
-        # concatenative relative depth with last. First interpolate relative depth to last size
         relative_conditioning = relative_depth.unsqueeze(1)
         relative_conditioning = nn.functional.interpolate(
             relative_conditioning, size=last.shape[2:], mode="bilinear", align_corners=True
@@ -1193,15 +1062,12 @@ class ZoeDepthMetricDepthEstimationHead(nn.Module):
         bin_embedding = nn.functional.interpolate(bin_embedding, last.shape[-2:], mode="bilinear", align_corners=True)
         x = self.conditional_log_binomial(last, bin_embedding)
 
-        # Now depth value is Sum px * cx , where cx are bin_centers from the last bin tensor
         bin_centers = nn.functional.interpolate(bin_centers, x.shape[-2:], mode="bilinear", align_corners=True)
         out = torch.sum(x * bin_centers, dim=1, keepdim=True)
 
         return out, None
 
 
-# Modified from transformers.models.dpt.modeling_dpt.DPTPreTrainedModel with DPT->ZoeDepth,dpt->zoedepth
-# avoiding sdpa and flash_attn_2 support, it's done int the backend
 @auto_docstring
 class ZoeDepthPreTrainedModel(PreTrainedModel):
     config: ZoeDepthConfig
@@ -1245,7 +1111,6 @@ class ZoeDepthForDepthEstimation(ZoeDepthPreTrainedModel):
             else ZoeDepthMetricDepthEstimationHead(config)
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

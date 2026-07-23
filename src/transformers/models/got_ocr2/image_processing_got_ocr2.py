@@ -1,17 +1,3 @@
-# Copyright 2025 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Got-OCR-2."""
 
 from functools import lru_cache
 
@@ -30,17 +16,6 @@ from ...utils import (
 
 
 class GotOcr2ImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    crop_to_patches (`bool`, *optional*, defaults to `self.crop_to_patches`):
-        Whether to crop the image to patches. Can be overridden by the `crop_to_patches` parameter in the
-        `preprocess` method.
-    min_patches (`int`, *optional*, defaults to `self.min_patches`):
-        The minimum number of patches to be extracted from the image. Only has an effect if `crop_to_patches` is
-        set to `True`. Can be overridden by the `min_patches` parameter in the `preprocess` method.
-    max_patches (`int`, *optional*, defaults to `self.max_patches`):
-        The maximum number of patches to be extracted from the image. Only has an effect if `crop_to_patches` is
-        set to `True`. Can be overridden by the `max_patches` parameter in the `preprocess` method.
-    """
 
     crop_to_patches: bool
     min_patches: int
@@ -103,7 +78,6 @@ def get_optimal_tiled_canvas(
     aspect_ratio = original_width / original_height
     area = original_width * original_height
 
-    # find the grid with the best aspect ratio
     best_ratio_diff = float("inf")
     best_grid = (1, 1)
     for grid in possible_tile_arrangements:
@@ -113,8 +87,6 @@ def get_optimal_tiled_canvas(
             best_ratio_diff = ratio_diff
             best_grid = grid
         elif ratio_diff == best_ratio_diff:
-            # if the aspect ratio difference is the same, we favor the grid with more patches
-            # until the area covered by the patches is more than twice the original image area
             if area > 0.5 * target_tile_height * target_tile_width * grid[0] * grid[1]:
                 best_grid = grid
 
@@ -170,19 +142,15 @@ class GotOcr2ImageProcessor(TorchvisionBackend):
         """
         patch_size_height, patch_size_width = patch_size.height, patch_size.width
         original_height, original_width = images.shape[-2:]
-        # find the closest aspect ratio to the target
         num_columns, num_rows = get_optimal_tiled_canvas(
             (original_height, original_width), (patch_size_height, patch_size_width), min_patches, max_patches
         )
 
-        # calculate the target width and height
         target_width = patch_size_width * num_columns
         target_height = patch_size_height * num_rows
         num_blocks = num_columns * num_rows
 
-        # resize the image so that each patch is of patch_size
         resized_image = self.resize(images, SizeDict(height=target_height, width=target_width), resample=resample)
-        # split the image into patches
         processed_images = []
         for i in range(num_blocks):
             column = i % num_columns
@@ -193,7 +161,6 @@ class GotOcr2ImageProcessor(TorchvisionBackend):
                 (column + 1) * patch_size_width,
                 (row + 1) * patch_size_height,
             )
-            # split the image
             patch_image = resized_image[..., box[1] : box[3], box[0] : box[2]]
             processed_images.append(patch_image)
 
@@ -243,7 +210,6 @@ class GotOcr2ImageProcessor(TorchvisionBackend):
         else:
             num_patches = [1] * len(images)
 
-        # Group images by size for batched resizing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -252,8 +218,6 @@ class GotOcr2ImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
 
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -269,39 +233,7 @@ class GotOcr2ImageProcessor(TorchvisionBackend):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs=None):
-        """
-        A utility that returns number patches for a given image size.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`, *optional*)
-                Any kwargs to override defaults of the image processor.
-        Returns:
-            `int`: Number of patches per image.
-        """
-        min_patches = images_kwargs.get("min_patches", self.min_patches) if images_kwargs else self.min_patches
-        max_patches = images_kwargs.get("max_patches", self.max_patches) if images_kwargs else self.max_patches
-        patch_size = images_kwargs.get("patch_size", self.size) if images_kwargs else self.size
-        crop_to_patches = (
-            images_kwargs.get("crop_to_patches", self.crop_to_patches) if images_kwargs else self.crop_to_patches
-        )
-
-        num_patches = 1
-        if crop_to_patches and max_patches > 1:
-            if isinstance(patch_size, dict):
-                patch_height, patch_width = patch_size["height"], patch_size["width"]
-            else:
-                patch_height, patch_width = patch_size.height, patch_size.width
-            num_columns, num_rows = get_optimal_tiled_canvas(
-                (height, width), (patch_height, patch_width), min_patches, max_patches
-            )
-            if num_columns * num_rows > 1:
-                num_patches += num_columns * num_rows
-
-        return num_patches
+        pass
 
 
 __all__ = ["GotOcr2ImageProcessor"]

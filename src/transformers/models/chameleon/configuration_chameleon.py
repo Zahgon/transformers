@@ -1,17 +1,3 @@
-# Copyright 2024 Meta Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""chameleon model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -26,22 +12,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="facebook/chameleon-7b")
 @strict
 class ChameleonVQVAEConfig(PreTrainedConfig):
-    r"""
-    resolution (`int`, *optional*, defaults to 512):
-        Resolution of the input images.
-    base_channels (`int`, *optional*, defaults to 128):
-        Base channel count.
-    channel_multiplier (`list[int]`, *optional*, defaults to `[1, 1, 2, 2, 4]`):
-        Channel multipliers for each resolution.
-    num_res_blocks (`int`, *optional*, defaults to 2):
-        Number of residual blocks.
-    attn_resolutions (`list[int]`, *optional*):
-        Resolutions to apply attention.
-    dropout (`float`, *optional*, defaults to 0.0):
-        Dropout rate.
-    attn_type (`str`, *optional*, defaults to `"vanilla"`):
-        Attention type used in VQ-GAN encoder. Can be "vanilla" or None
-    """
 
     model_type = "chameleon_vqgan"
     base_config_key = "vq_config"
@@ -64,28 +34,6 @@ class ChameleonVQVAEConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="facebook/chameleon-7b")
 @strict
 class ChameleonConfig(PreTrainedConfig):
-    r"""
-    model_parallel_size (`int`, *optional*, defaults to 1):
-        Number of shards used when training the model. This will be used in qk layernorm because the original Chameleon inference
-        doesn't do reduction in those layers and each rank has its own biases.
-    swin_norm (`bool`, *optional*, defaults to `False`):
-        Use Swin Transformer normalization.
-    vocabulary_map (`dict`, *optional*):
-        A dictionary containing the vocabulary map from the tokenizer. Used to obtain tokens from the image inputs.
-
-    ```python
-    >>> from transformers import ChameleonModel, ChameleonConfig
-
-    >>> # Initializing a chameleon chameleon-7b style configuration
-    >>> configuration = ChameleonConfig()
-
-    >>> # Initializing a model from the chameleon-7b style configuration
-    >>> model = ChameleonModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "chameleon"
     sub_configs = {"vq_config": ChameleonVQVAEConfig}

@@ -1,19 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Speech processor class for Wav2Vec2-BERT
-"""
 
 from ...processing_utils import ProcessingKwargs, ProcessorMixin, Unpack
 from ...tokenization_utils_base import AudioInput, PreTokenizedInput, TextInput
@@ -91,9 +75,7 @@ class Wav2Vec2BertProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        # The processor doesn't return text ids and the model seems to not need them
-        feature_extractor_input_names = self.feature_extractor.model_input_names
-        return feature_extractor_input_names + ["labels"]
+        pass
 
 
 __all__ = ["Wav2Vec2BertProcessor"]

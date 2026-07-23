@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Swin2SR."""
 
 import torch
 from torchvision.transforms.v2 import functional as tvF
@@ -29,17 +15,12 @@ from ...utils import TensorType, auto_docstring
 
 
 class Swin2SRImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    size_divisor (`int`, *optional*, defaults to `self.size_divisor`):
-        The size to make the height and width divisible by when padding.
-    """
 
     size_divisor: int
 
 
 @auto_docstring
 class Swin2SRImageProcessor(TorchvisionBackend):
-    """Torchvision backend for Swin2SR with custom pad."""
 
     valid_kwargs = Swin2SRImageProcessorKwargs
 
@@ -49,7 +30,6 @@ class Swin2SRImageProcessor(TorchvisionBackend):
     size_divisor = 8
 
     def __init__(self, **kwargs: Unpack[Swin2SRImageProcessorKwargs]):
-        # Handle legacy pad_size parameter
         pad_size = kwargs.pop("pad_size", None)
         if pad_size is not None:
             kwargs.setdefault("size_divisor", pad_size)

@@ -1,17 +1,3 @@
-# Copyright 2025 The Meta AI Authors and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SAM 2 model."""
 
 import torch
 from huggingface_hub.dataclasses import strict
@@ -40,24 +26,6 @@ from ..sam2.modeling_sam2 import (
 @auto_docstring(checkpoint="yonigozlan/EdgeTAM-hf")
 @strict
 class EdgeTamVisionConfig(PreTrainedConfig):
-    r"""
-    backbone_channel_list (`List[int]`, *optional*, defaults to `[384, 192, 96, 48]`):
-        The list of channel dimensions for the backbone.
-    backbone_feature_sizes (`List[List[int]]`, *optional*, defaults to `[[256, 256], [128, 128], [64, 64]]`):
-        The spatial sizes of the feature maps from the backbone.
-    fpn_hidden_size (`int`, *optional*, defaults to 256):
-        The hidden dimension of the FPN.
-    fpn_kernel_size (`int`, *optional*, defaults to 1):
-        The kernel size for the convolutions in the neck.
-    fpn_stride (`int`, *optional*, defaults to 1):
-        The stride for the convolutions in the neck.
-    fpn_padding (`int`, *optional*, defaults to 0):
-        The padding for the convolutions in the neck.
-    fpn_top_down_levels (`List[int]`, *optional*, defaults to `[2, 3]`):
-        The levels for the top-down FPN connections.
-    num_feature_levels (`int`, *optional*, defaults to 3):
-        The number of feature levels from the FPN to use.
-    """
 
     base_config_key = "vision_config"
     model_type = "edgetam_vision_model"
@@ -113,40 +81,6 @@ class EdgeTamMaskDecoderConfig(Sam2MaskDecoderConfig):
 @auto_docstring(checkpoint="yonigozlan/EdgeTAM-hf")
 @strict
 class EdgeTamConfig(Sam2Config):
-    r"""
-    prompt_encoder_config (Union[`dict`, `EdgeTamPromptEncoderConfig`], *optional*):
-        Dictionary of configuration options used to initialize [`EdgeTamPromptEncoderConfig`].
-    mask_decoder_config (Union[`dict`, `EdgeTamMaskDecoderConfig`], *optional*):
-        Dictionary of configuration options used to initialize [`EdgeTamMaskDecoderConfig`].
-
-     Example:
-
-     ```python
-     >>> from transformers import (
-     ...     EdgeTamVisionConfig,
-     ...     EdgeTamPromptEncoderConfig,
-     ...     EdgeTamMaskDecoderConfig,
-     ...     EdgeTamModel,
-     ... )
-
-     >>> # Initializing a EdgeTamConfig with `"facebook/edgetam.1_hiera_tiny"` style configuration
-     >>> configuration = EdgeTamConfig()
-
-     >>> # Initializing a EdgeTamModel (with random weights) from the `"facebook/edgetam.1_hiera_tiny"` style configuration
-     >>> model = EdgeTamModel(configuration)
-
-     >>> # Accessing the model configuration
-     >>> configuration = model.config
-
-     >>> # We can also initialize a EdgeTamConfig from a EdgeTamVisionConfig, EdgeTamPromptEncoderConfig, and EdgeTamMaskDecoderConfig
-     >>> # Initializing EDGETAM vision encoder, memory attention, and memory encoder configurations
-     >>> vision_config = EdgeTamVisionConfig()
-     >>> prompt_encoder_config = EdgeTamPromptEncoderConfig()
-     >>> mask_decoder_config = EdgeTamMaskDecoderConfig()
-
-     >>> config = EdgeTamConfig(vision_config, prompt_encoder_config, mask_decoder_config)
-     ```
-    """
 
     pass
 
@@ -193,8 +127,6 @@ class EdgeTamPreTrainedModel(Sam2PreTrainedModel):
 class EdgeTamVisionModel(Sam2VisionModel):
     config_class = EdgeTamVisionConfig
     main_input_name = "pixel_values"
-    # TODO: TimmWrapper models aren't compatible with _can_record_outputs yet. We specifically set this to
-    # an empty dict to avoid the _can_record_outputs from Sam2VisionModel being inherited here.
     _can_record_outputs = {}
 
     def get_input_embeddings(self):
@@ -210,13 +142,11 @@ class EdgeTamVisionModel(Sam2VisionModel):
         if pixel_values is None:
             raise ValueError("You have to specify pixel_values")
 
-        # Forward through backbone
         backbone_output = self.backbone(pixel_values, **kwargs)
         intermediate_hidden_states = backbone_output.last_hidden_state
         intermediate_hidden_states = [hidden_state.permute(0, 2, 3, 1) for hidden_state in intermediate_hidden_states]
 
         fpn_hidden_states, fpn_position_encoding = self.neck(intermediate_hidden_states)
-        # Select last `num_feature_levels` feature levels from FPN and reverse order to get features from high to low resolution
         fpn_hidden_states = fpn_hidden_states[-self.num_feature_levels :][::-1]
         fpn_position_encoding = fpn_position_encoding[-self.num_feature_levels :][::-1]
 

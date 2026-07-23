@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert VideoMAE checkpoints from the original repository: https://github.com/MCG-NJU/VideoMAE"""
 
 import argparse
 import json
@@ -30,61 +16,11 @@ from transformers import (
 
 
 def get_videomae_config(model_name):
-    config = VideoMAEConfig()
-
-    set_architecture_configs(model_name, config)
-
-    if "finetuned" not in model_name:
-        config.use_mean_pooling = False
-
-    if "finetuned" in model_name:
-        repo_id = "huggingface/label-files"
-        if "kinetics" in model_name:
-            config.num_labels = 400
-            filename = "kinetics400-id2label.json"
-        elif "ssv2" in model_name:
-            config.num_labels = 174
-            filename = "something-something-v2-id2label.json"
-        else:
-            raise ValueError("Model name should either contain 'kinetics' or 'ssv2' in case it's fine-tuned.")
-        id2label = json.load(open(hf_hub_download(repo_id, filename, repo_type="dataset"), "r"))
-        id2label = {int(k): v for k, v in id2label.items()}
-        config.id2label = id2label
-        config.label2id = {v: k for k, v in id2label.items()}
-
-    return config
+    pass
 
 
 def set_architecture_configs(model_name, config):
-    if "small" in model_name:
-        config.hidden_size = 384
-        config.intermediate_size = 1536
-        config.num_hidden_layers = 12
-        config.num_attention_heads = 16
-        config.decoder_num_hidden_layers = 12
-        config.decoder_num_attention_heads = 3
-        config.decoder_hidden_size = 192
-        config.decoder_intermediate_size = 768
-    elif "large" in model_name:
-        config.hidden_size = 1024
-        config.intermediate_size = 4096
-        config.num_hidden_layers = 24
-        config.num_attention_heads = 16
-        config.decoder_num_hidden_layers = 12
-        config.decoder_num_attention_heads = 8
-        config.decoder_hidden_size = 512
-        config.decoder_intermediate_size = 2048
-    elif "huge" in model_name:
-        config.hidden_size = 1280
-        config.intermediate_size = 5120
-        config.num_hidden_layers = 32
-        config.num_attention_heads = 16
-        config.decoder_num_hidden_layers = 12
-        config.decoder_num_attention_heads = 8
-        config.decoder_hidden_size = 640
-        config.decoder_intermediate_size = 2560
-    elif "base" not in model_name:
-        raise ValueError('Model name should include either "small", "base", "large", or "huge"')
+    pass
 
 
 def rename_key(name):
@@ -165,8 +101,6 @@ def convert_state_dict(orig_state_dict, config):
     return orig_state_dict
 
 
-# We will verify our results on a video of eating spaghetti
-# Frame indices used: [164 168 172 176 181 185 189 193 198 202 206 210 215 219 223 227]
 def prepare_video():
     file = hf_hub_download(
         repo_id="hf-internal-testing/spaghetti-video", filename="eating_spaghetti.npy", repo_type="dataset"
@@ -176,129 +110,11 @@ def prepare_video():
 
 
 def convert_videomae_checkpoint(checkpoint_url, pytorch_dump_folder_path, model_name, push_to_hub):
-    config = get_videomae_config(model_name)
-
-    if "finetuned" in model_name:
-        model = VideoMAEForVideoClassification(config)
-    else:
-        model = VideoMAEForPreTraining(config)
-
-    # download original checkpoint, hosted on Google Drive
-    output = "pytorch_model.bin"
-    gdown.cached_download(checkpoint_url, output, quiet=False)
-    files = torch.load(output, map_location="cpu", weights_only=True)
-    if "model" in files:
-        state_dict = files["model"]
-    else:
-        state_dict = files["module"]
-    new_state_dict = convert_state_dict(state_dict, config)
-
-    model.load_state_dict(new_state_dict)
-    model.eval()
-
-    # verify model on basic input
-    image_processor = VideoMAEImageProcessor(image_mean=[0.5, 0.5, 0.5], image_std=[0.5, 0.5, 0.5])
-    video = prepare_video()
-    inputs = image_processor(video, return_tensors="pt")
-
-    if "finetuned" not in model_name:
-        local_path = hf_hub_download(repo_id="hf-internal-testing/bool-masked-pos", filename="bool_masked_pos.pt")
-        inputs["bool_masked_pos"] = torch.load(local_path, weights_only=True)
-
-    outputs = model(**inputs)
-    logits = outputs.logits
-
-    model_names = [
-        "videomae-small-finetuned-kinetics",
-        "videomae-small-finetuned-ssv2",
-        # Kinetics-400 checkpoints (short = pretrained only for 800 epochs instead of 1600)
-        "videomae-base-short",
-        "videomae-base-short-finetuned-kinetics",
-        "videomae-base",
-        "videomae-base-finetuned-kinetics",
-        "videomae-large",
-        "videomae-large-finetuned-kinetics",
-        "videomae-huge-finetuned-kinetics",
-        # Something-Something-v2 checkpoints (short = pretrained only for 800 epochs instead of 2400)
-        "videomae-base-short-ssv2",
-        "videomae-base-short-finetuned-ssv2",
-        "videomae-base-ssv2",
-        "videomae-base-finetuned-ssv2",
-    ]
-
-    # NOTE: logits were tested with image_mean and image_std equal to [0.5, 0.5, 0.5] and [0.5, 0.5, 0.5]
-    if model_name == "videomae-small-finetuned-kinetics":
-        expected_shape = torch.Size([1, 400])
-        expected_slice = torch.tensor([-0.9291, -0.4061, -0.9307])
-    elif model_name == "videomae-small-finetuned-ssv2":
-        expected_shape = torch.Size([1, 174])
-        expected_slice = torch.tensor([0.2671, -0.4689, -0.8235])
-    elif model_name == "videomae-base":
-        expected_shape = torch.Size([1, 1408, 1536])
-        expected_slice = torch.tensor([[0.7739, 0.7968, 0.7089], [0.6701, 0.7487, 0.6209], [0.4287, 0.5158, 0.4773]])
-    elif model_name == "videomae-base-short":
-        expected_shape = torch.Size([1, 1408, 1536])
-        expected_slice = torch.tensor([[0.7994, 0.9612, 0.8508], [0.7401, 0.8958, 0.8302], [0.5862, 0.7468, 0.7325]])
-        # we verified the loss both for normalized and unnormalized targets for this one
-        expected_loss = torch.tensor([0.5142]) if config.norm_pix_loss else torch.tensor([0.6469])
-    elif model_name == "videomae-large":
-        expected_shape = torch.Size([1, 1408, 1536])
-        expected_slice = torch.tensor([[0.7149, 0.7997, 0.6966], [0.6768, 0.7869, 0.6948], [0.5139, 0.6221, 0.5605]])
-    elif model_name == "videomae-large-finetuned-kinetics":
-        expected_shape = torch.Size([1, 400])
-        expected_slice = torch.tensor([0.0771, 0.0011, -0.3625])
-    elif model_name == "videomae-huge-finetuned-kinetics":
-        expected_shape = torch.Size([1, 400])
-        expected_slice = torch.tensor([0.2433, 0.1632, -0.4894])
-    elif model_name == "videomae-base-short-finetuned-kinetics":
-        expected_shape = torch.Size([1, 400])
-        expected_slice = torch.tensor([0.6588, 0.0990, -0.2493])
-    elif model_name == "videomae-base-finetuned-kinetics":
-        expected_shape = torch.Size([1, 400])
-        expected_slice = torch.tensor([0.3669, -0.0688, -0.2421])
-    elif model_name == "videomae-base-short-ssv2":
-        expected_shape = torch.Size([1, 1408, 1536])
-        expected_slice = torch.tensor([[0.4712, 0.5296, 0.5786], [0.2278, 0.2729, 0.4026], [0.0352, 0.0730, 0.2506]])
-    elif model_name == "videomae-base-short-finetuned-ssv2":
-        expected_shape = torch.Size([1, 174])
-        expected_slice = torch.tensor([-0.0537, -0.1539, -0.3266])
-    elif model_name == "videomae-base-ssv2":
-        expected_shape = torch.Size([1, 1408, 1536])
-        expected_slice = torch.tensor([[0.8131, 0.8727, 0.8546], [0.7366, 0.9377, 0.8870], [0.5935, 0.8874, 0.8564]])
-    elif model_name == "videomae-base-finetuned-ssv2":
-        expected_shape = torch.Size([1, 174])
-        expected_slice = torch.tensor([0.1961, -0.8337, -0.6389])
-    else:
-        raise ValueError(f"Model name not supported. Should be one of {model_names}")
-
-    # verify logits
-    assert logits.shape == expected_shape
-    if "finetuned" in model_name:
-        assert torch.allclose(logits[0, :3], expected_slice, atol=1e-4)
-    else:
-        print("Logits:", logits[0, :3, :3])
-        assert torch.allclose(logits[0, :3, :3], expected_slice, atol=1e-4)
-    print("Logits ok!")
-
-    # verify loss, if applicable
-    if model_name == "videomae-base-short":
-        loss = outputs.loss
-        assert torch.allclose(loss, expected_loss, atol=1e-4)
-        print("Loss ok!")
-
-    if pytorch_dump_folder_path is not None:
-        print(f"Saving model and image processor to {pytorch_dump_folder_path}")
-        image_processor.save_pretrained(pytorch_dump_folder_path)
-        model.save_pretrained(pytorch_dump_folder_path)
-
-    if push_to_hub:
-        print("Pushing to the hub...")
-        model.push_to_hub(repo_id=f"nielsr/{model_name}")
+    pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--checkpoint_url",
         default="https://drive.google.com/u/1/uc?id=1tEhLyskjb755TJ65ptsrafUG2llSwQE1&amp;export=download&amp;confirm=t&amp;uuid=aa3276eb-fb7e-482a-adec-dc7171df14c4",

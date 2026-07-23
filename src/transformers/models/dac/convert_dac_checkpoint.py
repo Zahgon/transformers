@@ -1,16 +1,3 @@
-# Copyright 2024 Descript and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import argparse
 import fnmatch
 import re
@@ -27,34 +14,13 @@ from transformers import (
 )
 
 
-# checkpoints downloaded using:
-# pip install descript-audio-codec
-# python3 -m dac download # downloads the default 44kHz variant
-# python3 -m dac download --model_type 44khz # downloads the 44kHz variant
-# python3 -m dac download --model_type 24khz # downloads the 24kHz variant
-# python3 -m dac download --model_type 16khz # downloads the 16kHz variant
-# More information: https://github.com/descriptinc/descript-audio-codec/tree/main
 
 logging.set_verbosity_info()
 logger = logging.get_logger("transformers.models.dac")
 
 
 def match_pattern(string, pattern):
-    # Split the pattern into parts
-    pattern_parts = pattern.split(".")
-    string_parts = string.split(".")
-
-    pattern_block_count = string_block_count = 0
-
-    for part in pattern_parts:
-        if part.startswith("block"):
-            pattern_block_count += 1
-
-    for part in string_parts:
-        if part.startswith("block"):
-            string_block_count += 1
-
-    return fnmatch.fnmatch(string, pattern) and string_block_count == pattern_block_count
+    pass
 
 
 TOP_LEVEL_KEYS = []

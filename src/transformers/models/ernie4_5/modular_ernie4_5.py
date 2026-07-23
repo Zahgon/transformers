@@ -1,17 +1,3 @@
-# Copyright (c) 2025 Baidu, Inc. and HuggingFace Inc. team. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Ernie 4.5 model"""
 
 import torch
 from torch import nn
@@ -43,7 +29,6 @@ class Ernie4_5RotaryEmbedding(OlmoRotaryEmbedding):
             cos = emb.cos() * self.attention_scaling
             sin = emb.sin() * self.attention_scaling
 
-        # keeping it in full precision
         return cos, sin
 
 
@@ -65,13 +50,11 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     Returns:
         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
     """
-    # glm rope style (with full dim) and full precision
     original_dtype = q.dtype
 
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
 
-    # Interleave them instead of usual shape
     cos = cos[..., : cos.shape[-1] // 2].repeat_interleave(2, dim=-1)
     sin = sin[..., : sin.shape[-1] // 2].repeat_interleave(2, dim=-1)
 

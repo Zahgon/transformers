@@ -1,17 +1,3 @@
-# Copyright 2023 MBZUAI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SwiftFormer model."""
 
 import collections.abc
 
@@ -31,13 +17,6 @@ logger = logging.get_logger(__name__)
 
 
 class SwiftFormerPatchEmbedding(nn.Module):
-    """
-    Patch Embedding Layer constructed of two 2D convolutional layers.
-
-    Input: tensor of shape `[batch_size, in_channels, height, width]`
-
-    Output: tensor of shape `[batch_size, out_channels, height/4, width/4]`
-    """
 
     def __init__(self, config: SwiftFormerConfig):
         super().__init__()
@@ -58,13 +37,6 @@ class SwiftFormerPatchEmbedding(nn.Module):
 
 
 class SwiftFormerEmbeddings(nn.Module):
-    """
-    Embeddings layer consisting of a single 2D convolutional and batch normalization layer.
-
-    Input: tensor of shape `[batch_size, channels, height, width]`
-
-    Output: tensor of shape `[batch_size, channels, height/stride, width/stride]`
-    """
 
     def __init__(self, config: SwiftFormerConfig, index: int):
         super().__init__()
@@ -91,13 +63,6 @@ class SwiftFormerEmbeddings(nn.Module):
 
 
 class SwiftFormerConvEncoder(nn.Module):
-    """
-    `SwiftFormerConvEncoder` with 3*3 and 1*1 convolutions.
-
-    Input: tensor of shape `[batch_size, channels, height, width]`
-
-    Output: tensor of shape `[batch_size, channels, height, width]`
-    """
 
     def __init__(self, config: SwiftFormerConfig, dim: int):
         super().__init__()
@@ -123,13 +88,6 @@ class SwiftFormerConvEncoder(nn.Module):
 
 
 class SwiftFormerMlp(nn.Module):
-    """
-    MLP layer with 1*1 convolutions.
-
-    Input: tensor of shape `[batch_size, channels, height, width]`
-
-    Output: tensor of shape `[batch_size, channels, height, width]`
-    """
 
     def __init__(self, config: SwiftFormerConfig, in_features: int):
         super().__init__()
@@ -152,13 +110,6 @@ class SwiftFormerMlp(nn.Module):
 
 
 class SwiftFormerEfficientAdditiveAttention(nn.Module):
-    """
-    Efficient Additive Attention module for SwiftFormer.
-
-    Input: tensor of shape `[batch_size, channels, height, width]`
-
-    Output: tensor of shape `[batch_size, channels, height, width]`
-    """
 
     def __init__(self, config: SwiftFormerConfig, dim: int = 512):
         super().__init__()
@@ -192,13 +143,6 @@ class SwiftFormerEfficientAdditiveAttention(nn.Module):
 
 
 class SwiftFormerLocalRepresentation(nn.Module):
-    """
-    Local Representation module for SwiftFormer that is implemented by 3*3 depth-wise and point-wise convolutions.
-
-    Input: tensor of shape `[batch_size, channels, height, width]`
-
-    Output: tensor of shape `[batch_size, channels, height, width]`
-    """
 
     def __init__(self, config: SwiftFormerConfig, dim: int):
         super().__init__()
@@ -222,13 +166,7 @@ class SwiftFormerLocalRepresentation(nn.Module):
         return x
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->SwiftFormerDropPath
 class SwiftFormerDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -244,18 +182,10 @@ class SwiftFormerDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class SwiftFormerEncoderBlock(nn.Module):
-    """
-    SwiftFormer Encoder Block for SwiftFormer. It consists of (1) Local representation module, (2)
-    SwiftFormerEfficientAdditiveAttention, and (3) MLP block.
-
-    Input: tensor of shape `[batch_size, channels, height, width]`
-
-    Output: tensor of shape `[batch_size, channels,height, width]`
-    """
 
     def __init__(self, config: SwiftFormerConfig, dim: int, drop_path: float = 0.0) -> None:
         super().__init__()
@@ -291,14 +221,6 @@ class SwiftFormerEncoderBlock(nn.Module):
 
 
 class SwiftFormerStage(GradientCheckpointingLayer):
-    """
-    A Swiftformer stage consisting of a series of `SwiftFormerConvEncoder` blocks and a final
-    `SwiftFormerEncoderBlock`.
-
-    Input: tensor in shape `[batch_size, channels, height, width]`
-
-    Output: tensor in shape `[batch_size, channels, height, width]`
-    """
 
     def __init__(self, config: SwiftFormerConfig, index: int) -> None:
         super().__init__()
@@ -333,7 +255,6 @@ class SwiftFormerEncoder(nn.Module):
         downsamples = config.downsamples
         layer_depths = config.depths
 
-        # Transformer model
         network = []
         for i in range(len(layer_depths)):
             stage = SwiftFormerStage(config=config, index=i)
@@ -341,7 +262,6 @@ class SwiftFormerEncoder(nn.Module):
             if i >= len(layer_depths) - 1:
                 break
             if downsamples[i] or embed_dims[i] != embed_dims[i + 1]:
-                # downsampling between two stages
                 network.append(SwiftFormerEmbeddings(config, index=i))
         self.network = nn.ModuleList(network)
 
@@ -410,7 +330,6 @@ class SwiftFormerModel(SwiftFormerPreTrainedModel):
         self.patch_embed = SwiftFormerPatchEmbedding(config)
         self.encoder = SwiftFormerEncoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -455,12 +374,10 @@ class SwiftFormerForImageClassification(SwiftFormerPreTrainedModel):
         self.num_labels = config.num_labels
         self.swiftformer = SwiftFormerModel(config)
 
-        # Classifier head
         self.norm = nn.BatchNorm2d(embed_dims[-1], eps=config.batch_norm_eps)
         self.head = nn.Linear(embed_dims[-1], self.num_labels) if self.num_labels > 0 else nn.Identity()
         self.dist_head = nn.Linear(embed_dims[-1], self.num_labels) if self.num_labels > 0 else nn.Identity()
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -480,7 +397,6 @@ class SwiftFormerForImageClassification(SwiftFormerPreTrainedModel):
         """
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # run base model
         outputs = self.swiftformer(
             pixel_values,
             output_hidden_states=output_hidden_states,
@@ -489,14 +405,12 @@ class SwiftFormerForImageClassification(SwiftFormerPreTrainedModel):
 
         sequence_output = outputs.last_hidden_state if return_dict else outputs[0]
 
-        # run classification head
         sequence_output = self.norm(sequence_output)
         sequence_output = sequence_output.flatten(2).mean(-1)
         cls_out = self.head(sequence_output)
         distillation_out = self.dist_head(sequence_output)
         logits = (cls_out + distillation_out) / 2
 
-        # calculate loss
         loss = None
         if labels is not None:
             loss = self.loss_function(labels, logits, self.config)

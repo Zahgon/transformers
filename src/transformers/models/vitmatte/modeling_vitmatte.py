@@ -1,17 +1,3 @@
-# Copyright 2023 HUST-VL and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ViTMatte model."""
 
 from dataclasses import dataclass
 
@@ -32,16 +18,6 @@ from .configuration_vitmatte import VitMatteConfig
 )
 @dataclass
 class ImageMattingOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Loss.
-    alphas (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
-        Estimated alpha values.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
-        one for the output of each stage) of shape `(batch_size, sequence_length, hidden_size)`. Hidden-states
-        (also called feature maps) of the model at the output of each stage.
-    """
 
     loss: torch.FloatTensor | None = None
     alphas: torch.FloatTensor | None = None
@@ -71,9 +47,6 @@ class VitMattePreTrainedModel(PreTrainedModel):
 
 
 class VitMatteBasicConv3x3(nn.Module):
-    """
-    Basic convolution layers including: Conv3x3, BatchNorm2d, ReLU layers.
-    """
 
     def __init__(self, config, in_channels, out_channels, stride=2, padding=1):
         super().__init__()
@@ -97,15 +70,10 @@ class VitMatteBasicConv3x3(nn.Module):
 
 
 class VitMatteConvStream(nn.Module):
-    """
-    Simple ConvStream containing a series of basic conv3x3 layers to extract detail features.
-    """
 
     def __init__(self, config):
         super().__init__()
 
-        # We use a default in-case there isn't a backbone config set. This is for backwards compatibility and
-        # to enable loading HF backbone models.
         in_channels = 4
         if config.backbone_config is not None:
             in_channels = config.backbone_config.num_channels
@@ -132,9 +100,6 @@ class VitMatteConvStream(nn.Module):
 
 
 class VitMatteFusionBlock(nn.Module):
-    """
-    Simple fusion block to fuse features from ConvStream and Plain Vision Transformer.
-    """
 
     def __init__(self, config, in_channels, out_channels):
         super().__init__()
@@ -149,9 +114,6 @@ class VitMatteFusionBlock(nn.Module):
 
 
 class VitMatteHead(nn.Module):
-    """
-    Simple Matting Head, containing only conv3x3 and conv1x1 layers.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -173,9 +135,6 @@ class VitMatteHead(nn.Module):
 
 
 class VitMatteDetailCaptureModule(nn.Module):
-    """
-    Simple and lightweight Detail Capture Module for ViT Matting.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -226,7 +185,6 @@ class VitMatteForImageMatting(VitMattePreTrainedModel):
         self.backbone = load_backbone(config)
         self.decoder = VitMatteDetailCaptureModule(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring

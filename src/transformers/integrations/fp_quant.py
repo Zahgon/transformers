@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"FP-Quant integration file"
 
 import torch
 
@@ -43,20 +29,16 @@ class FpQuantQuantize(ConversionOps):
     ) -> dict[str, torch.Tensor]:
         target_key, value = tuple(input_dict.items())[0]
         value = value[0]
-        # Loading master weights or an unquantized checkpoint
         weight = torch.nn.Parameter(value)
         module, _ = get_module_from_name(model, target_key)
         module.weight = weight
 
-        # Let pre-forward handle the quantization and set None where necessary
-        # This operation will quantize the weights internally
         torch_accelerator_module = getattr(torch, value.device.type, torch.cuda)
         with torch_accelerator_module.device(value.device):
             module.pre_forward()
 
         prefix_target_key = target_key.rsplit(".", 1)[0]
 
-        # keys are set inside the module.pre_forward() method, we don't need remove them from the missing keys list
         missing_keys.discard(target_key)
         missing_keys.discard(f"{prefix_target_key}.backward_hadamard_matrix")
         missing_keys.discard(f"{prefix_target_key}.forward_hadamard_matrix")
@@ -83,12 +65,7 @@ class FpQuantDeserialize(ConversionOps):
         target_key, value = tuple(input_dict.items())[0]
         value = value[0] if isinstance(value, list) else value
         module, _ = get_module_from_name(model, target_key)
-        # The module holds either:
-        #  * `weight` when `store_master_weights=True`
-        #  * `qweight` and `scales` when `store_master_weights=False` and `pseudoquantization=False`
-        #  * `dqweight` when `store_master_weights=False` and `pseudoquantization=True`
         if target_key == ".qweight":
-            # Loading a real quantized checkpoint without master weights
             qweight = torch.nn.Parameter(
                 value,
                 requires_grad=False,
@@ -96,20 +73,15 @@ class FpQuantDeserialize(ConversionOps):
 
             return {
                 ".qweight": qweight,
-                # the way the FPQuantLinear module is designed, these parameters are expected in the model
-                # even though they are not used so we need to set them to zeros
                 ".weight": torch.nn.Parameter(torch.zeros(0)),
                 ".dqweight": torch.nn.Parameter(torch.zeros(0)),
             }
 
         if target_key == ".dqweight":
-            # Loading a pseudo-quantized checkpoint without master weights
             dqweight = torch.nn.Parameter(value)
 
             return {
                 ".dqweight": dqweight,
-                # the way the FPQuantLinear module ips designed, these parameters are expected in the model
-                # even though they are not used so we need to set them to zeros
                 ".weight": torch.nn.Parameter(torch.zeros(0)),
                 ".qweight": torch.nn.Parameter(torch.zeros(0)),
                 ".scales": torch.nn.Parameter(torch.zeros(0)),

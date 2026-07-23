@@ -1,18 +1,3 @@
-# Copyright 2018 The OpenAI Team Authors and HuggingFace Inc. team.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch OpenAI GPT-2 model."""
 
 import math
 from collections.abc import Callable
@@ -62,7 +47,6 @@ def eager_attention_forward(module, query, key, value, attention_mask, scaling=N
 
     attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
-    # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op otherwise
     attn_weights = attn_weights.type(value.dtype)
     attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
 
@@ -92,7 +76,6 @@ class GPT2Attention(nn.Module):
         self.is_cross_attention = is_cross_attention
         self.layer_idx = layer_idx
 
-        # Precompute unified scaling factor (accounts for both head_dim and layer-wise scaling)
         self.scaling = 1.0
         if self.scale_attn_weights:
             self.scaling = self.head_dim**-0.5
@@ -111,26 +94,21 @@ class GPT2Attention(nn.Module):
         self.is_causal = not is_cross_attention
 
     def _upcast_and_reordered_attn(self, query, key, value, attention_mask=None):
-        # Use `torch.baddbmm` (a bit more efficient w/ alpha param for scaling -- from Megatron-LM)
         bsz, num_heads, q_seq_len, dk = query.size()
         _, _, k_seq_len, _ = key.size()
 
-        # Preallocate attn_weights for `baddbmm`
         attn_weights = torch.empty(bsz * num_heads, q_seq_len, k_seq_len, dtype=torch.float32, device=query.device)
 
-        # Upcast (turn off autocast) and reorder (Scale K by 1 / root(dk))
         with maybe_autocast(query.device.type, enabled=False):
             q, k = query.reshape(-1, q_seq_len, dk), key.transpose(-1, -2).reshape(-1, dk, k_seq_len)
             attn_weights = torch.baddbmm(attn_weights, q.float(), k.float(), beta=0, alpha=self.scaling)
             attn_weights = attn_weights.reshape(bsz, num_heads, q_seq_len, k_seq_len)
 
         if attention_mask is not None:
-            # Apply the attention mask
             attn_weights = attn_weights + attention_mask
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
-        # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op if otherwise
         if attn_weights.dtype != torch.float32:
             raise RuntimeError("Error with upcasting, attn_weights does not have dtype torch.float32")
         attn_weights = attn_weights.type(value.dtype)
@@ -156,7 +134,6 @@ class GPT2Attention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_layer from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -172,7 +149,6 @@ class GPT2Attention(nn.Module):
             query_states = self.q_attn(hidden_states)
             attention_mask = encoder_attention_mask
 
-            # Try to get key/value states from cache if possible
             if past_key_values is not None and is_updated:
                 key_states = curr_past_key_values.layers[self.layer_idx].keys
                 value_states = curr_past_key_values.layers[self.layer_idx].values
@@ -194,7 +170,6 @@ class GPT2Attention(nn.Module):
             past_key_values is not None and is_cross_attention and not is_updated
         ):
             key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-            # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
             if is_cross_attention:
                 past_key_values.is_updated[self.layer_idx] = True
 
@@ -278,11 +253,9 @@ class GPT2Block(GradientCheckpointingLayer):
             use_cache=use_cache,
             **kwargs,
         )
-        # residual connection
         hidden_states = attn_output + residual
 
         if encoder_hidden_states is not None:
-            # add one self-attention block for cross-attention
             if not hasattr(self, "crossattention"):
                 raise ValueError(
                     f"If `encoder_hidden_states` are passed, {self} has to be instantiated with "
@@ -297,53 +270,23 @@ class GPT2Block(GradientCheckpointingLayer):
                 encoder_hidden_states=encoder_hidden_states,
                 encoder_attention_mask=encoder_attention_mask,
             )
-            # residual connection
             hidden_states = residual + cross_attn_output
 
         residual = hidden_states
         hidden_states = self.ln_2(hidden_states)
         feed_forward_hidden_states = self.mlp(hidden_states)
-        # residual connection
         hidden_states = residual + feed_forward_hidden_states
 
         return hidden_states
 
 
-# Copied from transformers.models.xlm.modeling_xlm.XLMSequenceSummary with XLM->GPT2
 class GPT2SequenceSummary(nn.Module):
-    r"""
-    Compute a single vector summary of a sequence hidden states.
-
-    Args:
-        config ([`GPT2Config`]):
-            The config used by the model. Relevant arguments in the config class of the model are (refer to the actual
-            config class of your model for the default values it uses):
-
-            - **summary_type** (`str`) -- The method to use to make this summary. Accepted values are:
-
-                - `"last"` -- Take the last token hidden state (like XLNet)
-                - `"first"` -- Take the first token hidden state (like Bert)
-                - `"mean"` -- Take the mean of all tokens hidden states
-                - `"cls_index"` -- Supply a Tensor of classification token position (GPT/GPT-2)
-                - `"attn"` -- Not implemented now, use multi-head attention
-
-            - **summary_use_proj** (`bool`) -- Add a projection after the vector extraction.
-            - **summary_proj_to_labels** (`bool`) -- If `True`, the projection outputs to `config.num_labels` classes
-              (otherwise to `config.hidden_size`).
-            - **summary_activation** (`Optional[str]`) -- Set to `"tanh"` to add a tanh activation to the output,
-              another string or `None` will add no activation.
-            - **summary_first_dropout** (`float`) -- Optional dropout probability before the projection and activation.
-            - **summary_last_dropout** (`float`)-- Optional dropout probability after the projection and activation.
-    """
 
     def __init__(self, config: GPT2Config):
         super().__init__()
 
         self.summary_type = getattr(config, "summary_type", "last")
         if self.summary_type == "attn":
-            # We should use a standard multi-head attention module with absolute positional embedding for that.
-            # Cf. https://github.com/zihangdai/xlnet/blob/master/modeling.py#L253-L276
-            # We can probably just use the multi-head attention module of PyTorch >=1.1.0
             raise NotImplementedError
 
         self.summary = nn.Identity()
@@ -396,7 +339,6 @@ class GPT2SequenceSummary(nn.Module):
             else:
                 cls_index = cls_index.unsqueeze(-1).unsqueeze(-1)
                 cls_index = cls_index.expand((-1,) * (cls_index.dim() - 1) + (hidden_states.size(-1),))
-            # shape of cls_index: (bsz, XX, 1, hidden_size) where XX are optional leading dim of hidden_states
             output = hidden_states.gather(-2, cls_index).squeeze(-2)  # shape (bsz, XX, hidden_size)
         elif self.summary_type == "attn":
             raise NotImplementedError
@@ -426,7 +368,6 @@ class GPT2PreTrainedModel(PreTrainedModel):
         "cross_attentions": OutputRecorder(GPT2Attention, layer_name=".crossattention", index=1),
     }
 
-    # No longer used as we directly use our masks instead
     _keys_to_ignore_on_load_unexpected = ["attn.bias", "crossattention.bias"]
 
     @torch.no_grad()
@@ -438,16 +379,9 @@ class GPT2PreTrainedModel(PreTrainedModel):
             if module.bias is not None:
                 init.zeros_(module.bias)
 
-        # Reinitialize selected weights subject to the OpenAI GPT-2 Paper Scheme:
-        #   > A modified initialization which accounts for the accumulation on the residual path with model depth. Scale
-        #   > the weights of residual layers at initialization by a factor of 1/√N where N is the # of residual layers.
-        #   >   -- GPT-2 :: https://openai.com/blog/better-language-models/
-        #
-        # Reference (Megatron-LM): https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/model/gpt_model.py
         if isinstance(module, PreTrainedModel):
             for name, p in module.named_parameters():
                 if name == "c_proj.weight":
-                    # Special Scaled Initialization --> There are 2 Layer Norms per Transformer Block
                     init.normal_(p, mean=0.0, std=self.config.initializer_range / math.sqrt(2 * self.config.n_layer))
 
 
@@ -458,21 +392,6 @@ class GPT2PreTrainedModel(PreTrainedModel):
 )
 @dataclass
 class GPT2DoubleHeadsModelOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss.
-    mc_loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `mc_labels` is provided):
-        Multiple choice classification loss.
-    logits (`torch.FloatTensor` of shape `(batch_size, num_choices, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    mc_logits (`torch.FloatTensor` of shape `(batch_size, num_choices)`):
-        Prediction scores of the multiple choice classification head (scores for each choice before SoftMax).
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    """
 
     loss: torch.FloatTensor | None = None
     mc_loss: torch.FloatTensor | None = None
@@ -500,7 +419,6 @@ class GPT2Model(GPT2PreTrainedModel):
         self.gradient_checkpointing = False
         self._attn_implementation = config._attn_implementation
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -558,7 +476,6 @@ class GPT2Model(GPT2PreTrainedModel):
         if token_type_ids is not None:
             token_type_ids = token_type_ids.view(-1, input_shape[-1])
 
-        # based on pattern from src/transformers/models/whisper/modeling_whisper.py::WhisperDecoder
         if use_cache:
             if past_key_values is None:
                 past_key_values = DynamicCache(config=self.config)
@@ -577,7 +494,6 @@ class GPT2Model(GPT2PreTrainedModel):
         position_embeds = self.wpe(position_ids)
         hidden_states = inputs_embeds + position_embeds.to(inputs_embeds.device)
 
-        # Attention mask.
         if attention_mask is not None and attention_mask.ndim < 4:
             attention_mask = attention_mask.view(batch_size, -1)
 
@@ -643,7 +559,6 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
         self.transformer = GPT2Model(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -700,7 +615,6 @@ class GPT2LMHeadModel(GPT2PreTrainedModel, GenerationMixin):
 
         loss = None
         if labels is not None:
-            # Flatten the tokens
             loss = self.loss_function(
                 logits,
                 labels,
@@ -736,7 +650,6 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel, GenerationMixin):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.multiple_choice_head = GPT2SequenceSummary(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -864,7 +777,6 @@ class GPT2ForSequenceClassification(GPT2PreTrainedModel):
         self.transformer = GPT2Model(config)
         self.score = nn.Linear(config.n_embd, self.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -922,7 +834,6 @@ class GPT2ForSequenceClassification(GPT2PreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)
@@ -982,7 +893,6 @@ class GPT2ForTokenClassification(GPT2PreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1054,7 +964,6 @@ class GPT2ForQuestionAnswering(GPT2PreTrainedModel):
         self.transformer = GPT2Model(config)
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1102,12 +1011,10 @@ class GPT2ForQuestionAnswering(GPT2PreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1).to(start_logits.device)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1).to(end_logits.device)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

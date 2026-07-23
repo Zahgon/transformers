@@ -1,17 +1,3 @@
-# Copyright 2024 the Fast authors and HuggingFace Inc. team.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""TextNet model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,38 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="czczup/textnet-base")
 @strict
 class TextNetConfig(BackboneConfigMixin, PreTrainedConfig):
-    r"""
-    stem_kernel_size (`int`, *optional*, defaults to 3):
-        The kernel size for the initial convolution layer.
-    stem_stride (`int`, *optional*, defaults to 2):
-        The stride for the initial convolution layer.
-    stem_num_channels (`int`, *optional*, defaults to 3):
-        The num of channels in input for the initial convolution layer.
-    stem_out_channels (`int`, *optional*, defaults to 64):
-        The num of channels in out for the initial convolution layer.
-    stem_act_func (`str`, *optional*, defaults to `"relu"`):
-        The activation function for the initial convolution layer.
-    conv_layer_kernel_sizes (`list[list[list[int]]]`, *optional*):
-        A list of stage-wise kernel sizes. If `None`, defaults to:
-        `[[[3, 3], [3, 3], [3, 3]], [[3, 3], [1, 3], [3, 3], [3, 1]], [[3, 3], [3, 3], [3, 1], [1, 3]], [[3, 3], [3, 1], [1, 3], [3, 3]]]`.
-    conv_layer_strides (`list[list[int]]`, *optional*):
-        A list of stage-wise strides. If `None`, defaults to:
-        `[[1, 2, 1], [2, 1, 1, 1], [2, 1, 1, 1], [2, 1, 1, 1]]`.
-
-    Examples:
-
-    ```python
-    >>> from transformers import TextNetConfig, TextNetBackbone
-
-    >>> # Initializing a TextNetConfig
-    >>> configuration = TextNetConfig()
-
-    >>> # Initializing a model (with random weights)
-    >>> model = TextNetBackbone(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "textnet"
 

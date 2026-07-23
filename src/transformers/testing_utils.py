@@ -1,16 +1,3 @@
-# Copyright 2020 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import ast
 import collections
@@ -210,17 +197,13 @@ else:
 SMALL_MODEL_IDENTIFIER = "julien-c/bert-xsmall-dummy"
 DUMMY_UNKNOWN_IDENTIFIER = "julien-c/dummy-unknown"
 DUMMY_DIFF_TOKENIZER_IDENTIFIER = "julien-c/dummy-diff-tokenizer"
-# Used to test Auto{Config, Model, Tokenizer} model_type detection.
 
-# Used to test the hub
 USER = "__DUMMY_TRANSFORMERS_USER__"
 ENDPOINT_STAGING = "https://hub-ci.huggingface.co"
 
-# Not critical, only usable on the sandboxed CI instance.
 TOKEN = "hf_94wBhPGp6KrrTH3KDchhKpRxZwd6dmHWLL"
 
 
-# Used in CausalLMModelTester (and related classes/methods) to infer the common model classes from the base model class
 _COMMON_MODEL_NAMES_MAP = {
     "config_class": "Config",
     "causal_lm_class": "ForCausalLM",
@@ -229,7 +212,6 @@ _COMMON_MODEL_NAMES_MAP = {
     "token_classification_class": "ForTokenClassification",
 }
 
-# Used in VLMModelTester (and related classes/methods) to infer the common model classes from the base model class
 _VLM_COMMON_MODEL_NAMES_MAP = {
     "config_class": "Config",
     "text_config_class": "TextConfig",
@@ -237,7 +219,6 @@ _VLM_COMMON_MODEL_NAMES_MAP = {
     "conditional_generation_class": "ForConditionalGeneration",
 }
 
-# Shared text-model defaults for CausalLMModelTester and MultiModalModelTester.
 _TEXT_MODEL_TESTER_DEFAULTS = {
     "batch_size": 13,
     "seq_length": 7,
@@ -289,29 +270,17 @@ def parse_flag_from_env(key, default=False):
     try:
         value = os.environ[key]
     except KeyError:
-        # KEY isn't set, default to `default`.
         _value = default
     else:
-        # KEY is set, convert it to True or False.
         try:
             _value = strtobool(value)
         except ValueError:
-            # More values are supported, but let's keep the message simple.
             raise ValueError(f"If set, {key} must be yes or no.")
     return _value
 
 
 def parse_int_from_env(key, default=None):
-    try:
-        value = os.environ[key]
-    except KeyError:
-        _value = default
-    else:
-        try:
-            _value = int(value)
-        except ValueError:
-            raise ValueError(f"If set, {key} must be a int.")
-    return _value
+    pass
 
 
 _run_slow_tests = parse_flag_from_env("RUN_SLOW", default=False)
@@ -358,18 +327,7 @@ def is_pipeline_test(test_case):
 
 
 def is_agent_test(test_case):
-    """
-    Decorator marking a test as an agent test. If RUN_TOOL_TESTS is set to a falsy value, those tests will be skipped.
-    """
-    if not _run_agent_tests:
-        return unittest.skip(reason="test is an agent test")(test_case)
-    else:
-        try:
-            import pytest  # We don't need a hard dependency on pytest in the main library
-        except ImportError:
-            return test_case
-        else:
-            return pytest.mark.is_agent_test()(test_case)
+    pass
 
 
 def is_training_test(test_case):
@@ -557,9 +515,7 @@ def require_triton(min_version: str = TRITON_MIN_VERSION):
     """
 
     def decorator(test_case):
-        return unittest.skipUnless(is_triton_available(min_version), f"test requires triton version >= {min_version}")(
-            test_case
-        )
+        pass
 
     return decorator
 
@@ -574,12 +530,7 @@ def require_gguf(test_case, min_version: str = GGUF_MIN_VERSION):
 
 
 def require_fsdp(test_case, min_version: str = "1.12.0"):
-    """
-    Decorator marking a test that requires fsdp. These tests are skipped when fsdp isn't installed.
-    """
-    return unittest.skipUnless(is_fsdp_available(min_version), f"test requires torch version >= {min_version}")(
-        test_case
-    )
+    pass
 
 
 def require_g2p_en(test_case):
@@ -664,26 +615,13 @@ def require_torch_greater_or_equal(version: str):
     """
 
     def decorator(test_case):
-        return unittest.skipUnless(is_torch_greater_or_equal(version), f"test requires PyTorch version >= {version}")(
-            test_case
-        )
+        pass
 
     return decorator
 
 
 def require_huggingface_hub_greater_or_equal(version: str):
-    """
-    Decorator marking a test that requires huggingface_hub version >= `version`.
-
-    These tests are skipped when huggingface_hub version is less than `version`.
-    """
-
-    def decorator(test_case):
-        return unittest.skipUnless(
-            is_huggingface_hub_greater_or_equal(version), f"test requires huggingface_hub version >= {version}"
-        )(test_case)
-
-    return decorator
+    pass
 
 
 def require_flash_attn(test_case):
@@ -784,9 +722,7 @@ def require_peft_greater_or_equal(version: str):
     """
 
     def decorator(test_case):
-        return unittest.skipUnless(is_peft_greater_or_equal(version), f"test requires PEFT version >= {version}")(
-            test_case
-        )
+        pass
 
     return decorator
 
@@ -833,10 +769,7 @@ def require_sacremoses(test_case):
 
 
 def require_seqio(test_case):
-    """
-    Decorator marking a test that requires SentencePiece. These tests are skipped when SentencePiece isn't installed.
-    """
-    return unittest.skipUnless(is_seqio_available(), "test requires Seqio")(test_case)
+    pass
 
 
 def require_scipy(test_case):
@@ -868,13 +801,7 @@ def require_pytesseract(test_case):
 
 
 def require_pytorch_quantization(test_case):
-    """
-    Decorator marking a test that requires PyTorch Quantization Toolkit. These tests are skipped when PyTorch
-    Quantization Toolkit isn't installed.
-    """
-    return unittest.skipUnless(is_pytorch_quantization_available(), "test requires PyTorch Quantization Toolkit")(
-        test_case
-    )
+    pass
 
 
 def require_vision(test_case):
@@ -886,10 +813,7 @@ def require_vision(test_case):
 
 
 def require_spacy(test_case):
-    """
-    Decorator marking a test that requires SpaCy. These tests are skipped when SpaCy isn't installed.
-    """
-    return unittest.skipUnless(is_spacy_available(), "test requires spacy")(test_case)
+    pass
 
 
 def require_torch_multi_gpu(test_case):
@@ -925,25 +849,13 @@ def require_torch_n_accelerators(n: int):
     """Decorator marking a test that requires at least `n` accelerators (in PyTorch)."""
 
     def decorator(test_case):
-        if not is_torch_available():
-            return unittest.skip(reason="test requires PyTorch")(test_case)
-        return unittest.skipUnless(backend_device_count(torch_device) >= n, f"test requires >= {n} accelerators")(
-            test_case
-        )
+        pass
 
     return decorator
 
 
 def require_torch_non_multi_gpu(test_case):
-    """
-    Decorator marking a test that requires 0 or 1 GPU setup (in PyTorch).
-    """
-    if not is_torch_available():
-        return unittest.skip(reason="test requires PyTorch")(test_case)
-
-    import torch
-
-    return unittest.skipUnless(torch.cuda.device_count() < 2, "test requires 0 or 1 GPU")(test_case)
+    pass
 
 
 def require_torch_non_multi_accelerator(test_case):
@@ -957,15 +869,7 @@ def require_torch_non_multi_accelerator(test_case):
 
 
 def require_torch_up_to_2_gpus(test_case):
-    """
-    Decorator marking a test that requires 0 or 1 or 2 GPU setup (in PyTorch).
-    """
-    if not is_torch_available():
-        return unittest.skip(reason="test requires PyTorch")(test_case)
-
-    import torch
-
-    return unittest.skipUnless(torch.cuda.device_count() < 3, "test requires 0 or 1 or 2 GPUs")(test_case)
+    pass
 
 
 def require_torch_up_to_2_accelerators(test_case):
@@ -981,46 +885,23 @@ def require_torch_up_to_2_accelerators(test_case):
 
 
 def require_torch_xla(test_case):
-    """
-    Decorator marking a test that requires TorchXLA (in PyTorch).
-    """
-    return unittest.skipUnless(is_torch_xla_available(), "test requires TorchXLA")(test_case)
+    pass
 
 
 def require_torch_neuroncore(test_case):
-    """
-    Decorator marking a test that requires NeuronCore (in PyTorch).
-    """
-    return unittest.skipUnless(is_torch_neuroncore_available(check_device=False), "test requires PyTorch NeuronCore")(
-        test_case
-    )
+    pass
 
 
 def require_torch_tpu(test_case):
-    """
-    Decorator marking a test that requires TPU (in PyTorch via torch_tpu).
-    """
-    return unittest.skipUnless(is_torch_tpu_available(), "test requires PyTorch TPU")(test_case)
+    pass
 
 
 def require_torch_npu(test_case):
-    """
-    Decorator marking a test that requires NPU (in PyTorch).
-    """
-    return unittest.skipUnless(is_torch_npu_available(), "test requires PyTorch NPU")(test_case)
+    pass
 
 
 def require_torch_multi_npu(test_case):
-    """
-    Decorator marking a test that requires a multi-NPU setup (in PyTorch). These tests are skipped on a machine without
-    multiple NPUs.
-
-    To run *only* the multi_npu tests, assuming all test names contain multi_npu: $ pytest -sv ./tests -k "multi_npu"
-    """
-    if not is_torch_npu_available():
-        return unittest.skip(reason="test requires PyTorch NPU")(test_case)
-
-    return unittest.skipUnless(torch.npu.device_count() > 1, "test requires multiple NPUs")(test_case)
+    pass
 
 
 def require_non_hpu(test_case):
@@ -1031,12 +912,7 @@ def require_non_hpu(test_case):
 
 
 def require_torch_xpu(test_case):
-    """
-    Decorator marking a test that requires XPU (in PyTorch).
-
-    These tests are skipped when XPU backend is not available.
-    """
-    return unittest.skipUnless(is_torch_xpu_available(), "test requires XPU device")(test_case)
+    pass
 
 
 def require_non_xpu(test_case):
@@ -1047,33 +923,14 @@ def require_non_xpu(test_case):
 
 
 def require_torch_multi_xpu(test_case):
-    """
-    Decorator marking a test that requires a multi-XPU setup (in PyTorch). These tests are skipped on a machine without
-    multiple XPUs.
-
-    To run *only* the multi_xpu tests, assuming all test names contain multi_xpu: $ pytest -sv ./tests -k "multi_xpu"
-    """
-    if not is_torch_xpu_available():
-        return unittest.skip(reason="test requires PyTorch XPU")(test_case)
-
-    return unittest.skipUnless(torch.xpu.device_count() > 1, "test requires multiple XPUs")(test_case)
+    pass
 
 
 def require_torch_multi_hpu(test_case):
-    """
-    Decorator marking a test that requires a multi-HPU setup (in PyTorch). These tests are skipped on a machine without
-    multiple HPUs.
-
-    To run *only* the multi_hpu tests, assuming all test names contain multi_hpu: $ pytest -sv ./tests -k "multi_hpu"
-    """
-    if not is_torch_hpu_available():
-        return unittest.skip(reason="test requires PyTorch HPU")(test_case)
-
-    return unittest.skipUnless(torch.hpu.device_count() > 1, "test requires multiple HPUs")(test_case)
+    pass
 
 
 if is_torch_available():
-    # Set env var CUDA_VISIBLE_DEVICES="" to force cpu-mode
     import torch
 
     if "TRANSFORMERS_TEST_BACKEND" in os.environ:
@@ -1110,7 +967,6 @@ if is_torch_available():
             )
 
         try:
-            # try creating device to see if provided device is valid
             _ = torch.device(torch_device)
         except RuntimeError as e:
             raise RuntimeError(
@@ -1138,20 +994,11 @@ def require_torchao(test_case):
 
 
 def require_torchao_version_greater_or_equal(torchao_version):
-    def decorator(test_case):
-        correct_torchao_version = is_torchao_available() and version.parse(
-            version.parse(importlib.metadata.version("torchao")).base_version
-        ) >= version.parse(torchao_version)
-        return unittest.skipUnless(
-            correct_torchao_version, f"Test requires torchao with the version greater than {torchao_version}."
-        )(test_case)
-
-    return decorator
+    pass
 
 
 def require_torch_tensorrt_fx(test_case):
-    """Decorator marking a test that requires Torch-TensorRT FX"""
-    return unittest.skipUnless(is_torch_tensorrt_fx_available(), "test requires Torch-TensorRT FX")(test_case)
+    pass
 
 
 def require_torch_gpu(test_case):
@@ -1224,10 +1071,7 @@ def require_torch_fp16(test_case):
 
 
 def require_fp8(test_case):
-    """Decorator marking a test that requires supports for fp8"""
-    return unittest.skipUnless(is_accelerate_available() and is_fp8_available(), "test requires fp8 support")(
-        test_case
-    )
+    pass
 
 
 def require_cuda_capability_at_least(major, minor):
@@ -1309,23 +1153,11 @@ def require_ray(test_case):
 
 
 def require_swanlab(test_case):
-    """
-    Decorator marking a test that requires swanlab.
-
-    These tests are skipped when swanlab isn't installed.
-
-    """
-    return unittest.skipUnless(is_swanlab_available(), "test requires swanlab")(test_case)
+    pass
 
 
 def require_trackio(test_case):
-    """
-    Decorator marking a test that requires trackio.
-
-    These tests are skipped when trackio isn't installed.
-
-    """
-    return unittest.skipUnless(is_trackio_available(), "test requires trackio")(test_case)
+    pass
 
 
 def require_wandb(test_case):
@@ -1339,13 +1171,7 @@ def require_wandb(test_case):
 
 
 def require_clearml(test_case):
-    """
-    Decorator marking a test requires clearml.
-
-    These tests are skipped when clearml isn't installed.
-
-    """
-    return unittest.skipUnless(is_clearml_available(), "test requires clearml")(test_case)
+    pass
 
 
 def require_deepspeed(test_case):
@@ -1356,10 +1182,7 @@ def require_deepspeed(test_case):
 
 
 def require_apex(test_case):
-    """
-    Decorator marking a test that requires apex
-    """
-    return unittest.skipUnless(is_apex_available(), "test requires apex")(test_case)
+    pass
 
 
 def require_aqlm(test_case):
@@ -1454,10 +1277,7 @@ def require_compressed_tensors(test_case):
 
 
 def require_fbgemm_gpu(test_case):
-    """
-    Decorator for fbgemm_gpu dependency
-    """
-    return unittest.skipUnless(is_fbgemm_gpu_available(), "test requires fbgemm-gpu")(test_case)
+    pass
 
 
 def require_quark(test_case):
@@ -1561,21 +1381,15 @@ def require_pretty_midi(test_case):
 
 
 def cmd_exists(cmd):
-    return shutil.which(cmd) is not None
+    pass
 
 
 def require_usr_bin_time(test_case):
-    """
-    Decorator marking a test that requires `/usr/bin/time`
-    """
-    return unittest.skipUnless(cmd_exists("/usr/bin/time"), "test requires /usr/bin/time")(test_case)
+    pass
 
 
 def require_sudachi(test_case):
-    """
-    Decorator marking a test that requires sudachi
-    """
-    return unittest.skipUnless(is_sudachi_available(), "test requires sudachi")(test_case)
+    pass
 
 
 def require_sudachi_projection(test_case):
@@ -1595,10 +1409,7 @@ def require_jumanpp(test_case):
 
 
 def require_cython(test_case):
-    """
-    Decorator marking a test that requires jumanpp
-    """
-    return unittest.skipUnless(is_cython_available(), "test requires cython")(test_case)
+    pass
 
 
 def require_tiktoken(test_case):
@@ -1616,10 +1427,7 @@ def require_speech(test_case):
 
 
 def require_openai(test_case):
-    """
-    Decorator marking a test that requires openai
-    """
-    return unittest.skipUnless(is_openai_available(), "test requires openai")(test_case)
+    pass
 
 
 def require_serve(test_case):
@@ -1660,7 +1468,6 @@ def get_tests_dir(append_path=None):
         joined after the `tests` dir the former is provided.
 
     """
-    # this function caller's __file__
     caller__file__ = inspect.stack()[1][1]
     tests_dir = os.path.abspath(os.path.dirname(caller__file__))
 
@@ -1696,29 +1503,14 @@ def evaluate_side_effect_factory(
         yield side_effect_values[-1]
 
 
-#
-# Helper functions for dealing with testing text outputs
-# The original code came from:
-# https://github.com/fastai/fastai/blob/master/tests/utils/text.py
 
 
-# When any function contains print() calls that get overwritten, like progress bars,
-# a special care needs to be applied, since under pytest -s captured output (capsys
-# or contextlib.redirect_stdout) contains any temporary printed strings, followed by
-# \r's. This helper function ensures that the buffer will contain the same output
-# with and without -s in pytest, by turning:
-# foo bar\r tar mar\r final message
-# into:
-# final message
-# it can handle a single string or a multiline buffer
 def apply_print_resets(buf):
     return re.sub(r"^.*\r", "", buf, 0, re.MULTILINE)
 
 
 def assert_screenout(out, what):
-    out_pr = apply_print_resets(out).lower()
-    match_str = out_pr.find(what.lower())
-    assert match_str != -1, f"expecting to find {what} in output: f{out_pr}"
+    pass
 
 
 def set_config_for_less_flaky_test(config):
@@ -1733,8 +1525,6 @@ def set_config_for_less_flaky_test(config):
     for target_attr in target_attrs:
         setattr(config, target_attr, 1.0)
 
-    # norm layers (layer/group norm, etc.) could cause flaky tests when the tensors have very small variance.
-    # (We don't need the original epsilon values to check eager/sdpa matches)
     attrs = ["text_config", "vision_config", "audio_config", "text_encoder", "audio_encoder", "decoder"]
     for attr in attrs:
         if hasattr(config, attr) and getattr(config, attr) is not None:
@@ -1743,7 +1533,6 @@ def set_config_for_less_flaky_test(config):
 
 
 def set_model_for_less_flaky_test(model):
-    # Another way to make sure norm layers have desired epsilon. (Some models don't set it from its config.)
     target_names = (
         "LayerNorm",
         "GroupNorm",
@@ -1764,53 +1553,6 @@ def set_model_for_less_flaky_test(model):
 
 
 class CaptureStd:
-    """
-    Context manager to capture:
-
-        - stdout: replay it, clean it up and make it available via `obj.out`
-        - stderr: replay it and make it available via `obj.err`
-
-    Args:
-        out (`bool`, *optional*, defaults to `True`): Whether to capture stdout or not.
-        err (`bool`, *optional*, defaults to `True`): Whether to capture stderr or not.
-        replay (`bool`, *optional*, defaults to `True`): Whether to replay or not.
-            By default each captured stream gets replayed back on context's exit, so that one can see what the test was
-            doing. If this is a not wanted behavior and the captured data shouldn't be replayed, pass `replay=False` to
-            disable this feature.
-
-    Examples:
-
-    ```python
-    # to capture stdout only with auto-replay
-    with CaptureStdout() as cs:
-        print("Secret message")
-    assert "message" in cs.out
-
-    # to capture stderr only with auto-replay
-    import sys
-
-    with CaptureStderr() as cs:
-        print("Warning: ", file=sys.stderr)
-    assert "Warning" in cs.err
-
-    # to capture both streams with auto-replay
-    with CaptureStd() as cs:
-        print("Secret message")
-        print("Warning: ", file=sys.stderr)
-    assert "message" in cs.out
-    assert "Warning" in cs.err
-
-    # to capture just one of the streams, and not the other, with auto-replay
-    with CaptureStd(err=False) as cs:
-        print("Secret message")
-    assert "message" in cs.out
-    # but best use the stream-specific subclasses
-
-    # to capture without auto-replay
-    with CaptureStd(replay=False) as cs:
-        print("Secret message")
-    assert "message" in cs.out
-    ```"""
 
     def __init__(self, out=True, err=True, replay=True):
         self.replay = replay
@@ -1864,50 +1606,21 @@ class CaptureStd:
         return msg
 
 
-# in tests it's the best to capture only the stream that's wanted, otherwise
-# it's easy to miss things, so unless you need to capture both streams, use the
-# subclasses below (less typing). Or alternatively, configure `CaptureStd` to
-# disable the stream you don't need to test.
 
 
 class CaptureStdout(CaptureStd):
-    """Same as CaptureStd but captures only stdout"""
 
     def __init__(self, replay=True):
         super().__init__(err=False, replay=replay)
 
 
 class CaptureStderr(CaptureStd):
-    """Same as CaptureStd but captures only stderr"""
 
     def __init__(self, replay=True):
         super().__init__(out=False, replay=replay)
 
 
 class CaptureLogger:
-    """
-    Context manager to capture `logging` streams
-
-    Args:
-        logger: 'logging` logger object
-
-    Returns:
-        The captured output is available via `self.out`
-
-    Example:
-
-    ```python
-    >>> from transformers import logging
-    >>> from transformers.testing_utils import CaptureLogger
-
-    >>> msg = "Testing 1, 2, 3"
-    >>> logging.set_verbosity_info()
-    >>> logger = logging.get_logger("transformers.models.bart.tokenization_bart")
-    >>> with CaptureLogger(logger) as cl:
-    ...     logger.info(msg)
-    >>> assert cl.out, msg + "\n"
-    ```
-    """
 
     def __init__(self, logger):
         self.logger = logger
@@ -1949,21 +1662,6 @@ def LoggingLevel(level):
 
 
 class TemporaryHubRepo:
-    """Create a temporary Hub repository and return its `RepoUrl` object. This is similar to
-    `tempfile.TemporaryDirectory` and can be used as a context manager. For example:
-
-        with TemporaryHubRepo(token=self._token) as temp_repo:
-            ...
-
-    Upon exiting the context, the repository and everything contained in it are removed.
-
-    Example:
-
-    ```python
-    with TemporaryHubRepo(token=self._token) as temp_repo:
-        model.push_to_hub(tmp_repo.repo_id, token=self._token)
-    ```
-    """
 
     def __init__(self, namespace: str | None = None, token: str | None = None) -> None:
         self.token = token
@@ -1981,7 +1679,6 @@ class TemporaryHubRepo:
 
 
 @contextlib.contextmanager
-# adapted from https://stackoverflow.com/a/64789046/9201239
 def ExtendSysPath(path: str | os.PathLike) -> Iterator[None]:
     """
     Temporary add given path to `sys.path`.
@@ -2003,286 +1700,69 @@ def ExtendSysPath(path: str | os.PathLike) -> Iterator[None]:
 
 
 class TestCasePlus(unittest.TestCase):
-    """
-    This class extends *unittest.TestCase* with additional features.
-
-    Feature 1: A set of fully resolved important file and dir path accessors.
-
-    In tests often we need to know where things are relative to the current test file, and it's not trivial since the
-    test could be invoked from more than one directory or could reside in sub-directories with different depths. This
-    class solves this problem by sorting out all the basic paths and provides easy accessors to them:
-
-    - `pathlib` objects (all fully resolved):
-
-       - `test_file_path` - the current test file path (=`__file__`)
-       - `test_file_dir` - the directory containing the current test file
-       - `tests_dir` - the directory of the `tests` test suite
-       - `examples_dir` - the directory of the `examples` test suite
-       - `repo_root_dir` - the directory of the repository
-       - `src_dir` - the directory of `src` (i.e. where the `transformers` sub-dir resides)
-
-    - stringified paths---same as above but these return paths as strings, rather than `pathlib` objects:
-
-       - `test_file_path_str`
-       - `test_file_dir_str`
-       - `tests_dir_str`
-       - `examples_dir_str`
-       - `repo_root_dir_str`
-       - `src_dir_str`
-
-    Feature 2: Flexible auto-removable temporary dirs which are guaranteed to get removed at the end of test.
-
-    1. Create a unique temporary dir:
-
-    ```python
-    def test_whatever(self):
-        tmp_dir = self.get_auto_remove_tmp_dir()
-    ```
-
-    `tmp_dir` will contain the path to the created temporary dir. It will be automatically removed at the end of the
-    test.
-
-
-    2. Create a temporary dir of my choice, ensure it's empty before the test starts and don't
-    empty it after the test.
-
-    ```python
-    def test_whatever(self):
-        tmp_dir = self.get_auto_remove_tmp_dir("./xxx")
-    ```
-
-    This is useful for debug when you want to monitor a specific directory and want to make sure the previous tests
-    didn't leave any data in there.
-
-    3. You can override the first two options by directly overriding the `before` and `after` args, leading to the
-        following behavior:
-
-    `before=True`: the temporary dir will always be cleared at the beginning of the test.
-
-    `before=False`: if the temporary dir already existed, any existing files will remain there.
-
-    `after=True`: the temporary dir will always be deleted at the end of the test.
-
-    `after=False`: the temporary dir will always be left intact at the end of the test.
-
-    Note 1: In order to run the equivalent of `rm -r` safely, only subdirs of the project repository checkout are
-    allowed if an explicit `tmp_dir` is used, so that by mistake no `/tmp` or similar important part of the filesystem
-    will get nuked. i.e. please always pass paths that start with `./`
-
-    Note 2: Each test can register multiple temporary dirs and they all will get auto-removed, unless requested
-    otherwise.
-
-    Feature 3: Get a copy of the `os.environ` object that sets up `PYTHONPATH` specific to the current test suite. This
-    is useful for invoking external programs from the test suite - e.g. distributed training.
-
-
-    ```python
-    def test_whatever(self):
-        env = self.get_env()
-    ```"""
 
     def setUp(self):
-        # get_auto_remove_tmp_dir feature:
-        self.teardown_tmp_dirs = []
-
-        # figure out the resolved paths for repo_root, tests, examples, etc.
-        self._test_file_path = inspect.getfile(self.__class__)
-        path = Path(self._test_file_path).resolve()
-        self._test_file_dir = path.parents[0]
-        for up in [1, 2, 3]:
-            tmp_dir = path.parents[up]
-            if (tmp_dir / "src").is_dir() and (tmp_dir / "tests").is_dir():
-                break
-        if tmp_dir:
-            self._repo_root_dir = tmp_dir
-        else:
-            raise ValueError(f"can't figure out the root of the repo from {self._test_file_path}")
-        self._tests_dir = self._repo_root_dir / "tests"
-        self._examples_dir = self._repo_root_dir / "examples"
-        self._src_dir = self._repo_root_dir / "src"
+        pass
 
     @property
     def test_file_path(self):
-        return self._test_file_path
+        pass
 
     @property
     def test_file_path_str(self):
-        return str(self._test_file_path)
+        pass
 
     @property
     def test_file_dir(self):
-        return self._test_file_dir
+        pass
 
     @property
     def test_file_dir_str(self):
-        return str(self._test_file_dir)
+        pass
 
     @property
     def tests_dir(self):
-        return self._tests_dir
+        pass
 
     @property
     def tests_dir_str(self):
-        return str(self._tests_dir)
+        pass
 
     @property
     def examples_dir(self):
-        return self._examples_dir
+        pass
 
     @property
     def examples_dir_str(self):
-        return str(self._examples_dir)
+        pass
 
     @property
     def repo_root_dir(self):
-        return self._repo_root_dir
+        pass
 
     @property
     def repo_root_dir_str(self):
-        return str(self._repo_root_dir)
+        pass
 
     @property
     def src_dir(self):
-        return self._src_dir
+        pass
 
     @property
     def src_dir_str(self):
-        return str(self._src_dir)
+        pass
 
     def get_env(self):
-        """
-        Return a copy of the `os.environ` object that sets up `PYTHONPATH` correctly, depending on the test suite it's
-        invoked from. This is useful for invoking external programs from the test suite - e.g. distributed training.
-
-        It always inserts `./src` first, then `./tests` or `./examples` depending on the test suite type and finally
-        the preset `PYTHONPATH` if any (all full resolved paths).
-
-        """
-        env = os.environ.copy()
-        paths = [self.repo_root_dir_str, self.src_dir_str]
-        if "/examples" in self.test_file_dir_str:
-            paths.append(self.examples_dir_str)
-        paths.append(env.get("PYTHONPATH", ""))
-
-        env["PYTHONPATH"] = ":".join(paths)
-        return env
+        pass
 
     def get_auto_remove_tmp_dir(self, tmp_dir=None, before=None, after=None, return_pathlib_obj=False):
-        """
-        Args:
-            tmp_dir (`string`, *optional*):
-                if `None`:
-
-                   - a unique temporary path will be created
-                   - sets `before=True` if `before` is `None`
-                   - sets `after=True` if `after` is `None`
-                else:
-
-                   - `tmp_dir` will be created
-                   - sets `before=True` if `before` is `None`
-                   - sets `after=False` if `after` is `None`
-            before (`bool`, *optional*):
-                If `True` and the `tmp_dir` already exists, make sure to empty it right away if `False` and the
-                `tmp_dir` already exists, any existing files will remain there.
-            after (`bool`, *optional*):
-                If `True`, delete the `tmp_dir` at the end of the test if `False`, leave the `tmp_dir` and its contents
-                intact at the end of the test.
-            return_pathlib_obj (`bool`, *optional*):
-                If `True` will return a pathlib.Path object
-
-        Returns:
-            tmp_dir(`string`): either the same value as passed via *tmp_dir* or the path to the auto-selected tmp dir
-        """
-        if tmp_dir is not None:
-            # defining the most likely desired behavior for when a custom path is provided.
-            # this most likely indicates the debug mode where we want an easily locatable dir that:
-            # 1. gets cleared out before the test (if it already exists)
-            # 2. is left intact after the test
-            if before is None:
-                before = True
-            if after is None:
-                after = False
-
-            # using provided path
-            path = Path(tmp_dir).resolve()
-
-            # to avoid nuking parts of the filesystem, only relative paths are allowed
-            if not tmp_dir.startswith("./"):
-                raise ValueError(
-                    f"`tmp_dir` can only be a relative path, i.e. `./some/path`, but received `{tmp_dir}`"
-                )
-
-            # ensure the dir is empty to start with
-            if before is True and path.exists():
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-
-            path.mkdir(parents=True, exist_ok=True)
-
-        else:
-            # defining the most likely desired behavior for when a unique tmp path is auto generated
-            # (not a debug mode), here we require a unique tmp dir that:
-            # 1. is empty before the test (it will be empty in this situation anyway)
-            # 2. gets fully removed after the test
-            if before is None:
-                before = True
-            if after is None:
-                after = True
-
-            # using unique tmp dir (always empty, regardless of `before`)
-            tmp_dir = tempfile.mkdtemp()
-
-        if after is True:
-            # register for deletion
-            self.teardown_tmp_dirs.append(tmp_dir)
-
-        return Path(tmp_dir).resolve() if return_pathlib_obj else tmp_dir
+        pass
 
     def python_one_liner_max_rss(self, one_liner_str):
-        """
-        Runs the passed python one liner (just the code) and returns how much max cpu memory was used to run the
-        program.
-
-        Args:
-            one_liner_str (`string`):
-                a python one liner code that gets passed to `python -c`
-
-        Returns:
-            max cpu memory bytes used to run the program. This value is likely to vary slightly from run to run.
-
-        Requirements:
-            this helper needs `/usr/bin/time` to be installed (`apt install time`)
-
-        Example:
-
-        ```
-        one_liner_str = 'from transformers import AutoModel; AutoModel.from_pretrained("google-t5/t5-large")'
-        max_rss = self.python_one_liner_max_rss(one_liner_str)
-        ```
-        """
-
-        if not cmd_exists("/usr/bin/time"):
-            raise ValueError("/usr/bin/time is required, install with `apt install time`")
-
-        cmd = shlex.split(f"/usr/bin/time -f %M python -c '{one_liner_str}'")
-        with CaptureStd() as cs:
-            execute_subprocess_async(cmd, env=self.get_env())
-        # returned data is in KB so convert to bytes
-        max_rss = int(cs.err.split("\n")[-2].replace("stderr: ", "")) * 1024
-        return max_rss
+        pass
 
     def tearDown(self):
-        # get_auto_remove_tmp_dir feature: remove registered temp dirs
-        for path in self.teardown_tmp_dirs:
-            shutil.rmtree(path, ignore_errors=True)
-        self.teardown_tmp_dirs = []
-        if is_accelerate_available():
-            AcceleratorState._reset_state()
-            PartialState._reset_state()
-
-            # delete all the env variables having `ACCELERATE` in them
-            for k in list(os.environ.keys()):
-                if "ACCELERATE" in k:
-                    del os.environ[k]
+        pass
 
 
 def mockenv(**kwargs):
@@ -2296,7 +1776,6 @@ def mockenv(**kwargs):
     return mock.patch.dict(os.environ, kwargs)
 
 
-# from https://stackoverflow.com/a/34333710/9201239
 @contextlib.contextmanager
 def mockenv_context(*remove, **update):
     """
@@ -2312,11 +1791,8 @@ def mockenv_context(*remove, **update):
     update = update or {}
     remove = remove or []
 
-    # List of environment variables being updated or removed.
     stomped = (set(update.keys()) | set(remove)) & set(env.keys())
-    # Environment variables and values to restore on exit.
     update_after = {k: env[k] for k in stomped}
-    # Environment variables and values to remove on exit.
     remove_after = frozenset(k for k in update if k not in env)
 
     try:
@@ -2328,167 +1804,19 @@ def mockenv_context(*remove, **update):
         [env.pop(k) for k in remove_after]
 
 
-# --- pytest conf functions --- #
 
-# to avoid multiple invocation from tests/conftest.py and examples/conftest.py - make sure it's called only once
 pytest_opt_registered = {}
 
 
 def pytest_addoption_shared(parser):
-    """
-    This function is to be called from `conftest.py` via `pytest_addoption` wrapper that has to be defined there.
-
-    It allows loading both `conftest.py` files at once without causing a failure due to adding the same `pytest`
-    option.
-
-    """
-    option = "--make-reports"
-    if option not in pytest_opt_registered:
-        parser.addoption(
-            option,
-            action="store",
-            default=False,
-            help="generate report files. The value of this option is used as a prefix to report names",
-        )
-        pytest_opt_registered[option] = 1
+    pass
 
 
 def pytest_terminal_summary_main(tr, id):
-    """
-    Generate multiple reports at the end of test suite run - each report goes into a dedicated file in the current
-    directory. The report files are prefixed with the test suite name.
-
-    This function emulates --duration and -rA pytest arguments.
-
-    This function is to be called from `conftest.py` via `pytest_terminal_summary` wrapper that has to be defined
-    there.
-
-    Args:
-    - tr: `terminalreporter` passed from `conftest.py`
-    - id: unique id like `tests` or `examples` that will be incorporated into the final reports filenames - this is
-      needed as some jobs have multiple runs of pytest, so we can't have them overwrite each other.
-
-    NB: this functions taps into a private _pytest API and while unlikely, it could break should pytest do internal
-    changes - also it calls default internal methods of terminalreporter which can be hijacked by various `pytest-`
-    plugins and interfere.
-
-    """
-    from _pytest.config import create_terminal_writer
-
-    if not len(id):
-        id = "tests"
-
-    config = tr.config
-    orig_writer = config.get_terminal_writer()
-    orig_tbstyle = config.option.tbstyle
-    orig_reportchars = tr.reportchars
-
-    dir = f"reports/{id}"
-    Path(dir).mkdir(parents=True, exist_ok=True)
-    report_files = {
-        k: f"{dir}/{k}.txt"
-        for k in [
-            "durations",
-            "errors",
-            "failures_long",
-            "failures_short",
-            "failures_line",
-            "passes",
-            "stats",
-            "summary_short",
-            "warnings",
-        ]
-    }
-
-    # custom durations report
-    # note: there is no need to call pytest --durations=XX to get this separate report
-    # adapted from https://github.com/pytest-dev/pytest/blob/897f151e/src/_pytest/runner.py#L66
-    dlist = []
-    for replist in tr.stats.values():
-        for rep in replist:
-            if hasattr(rep, "duration"):
-                dlist.append(rep)
-    if dlist:
-        dlist.sort(key=lambda x: x.duration, reverse=True)
-        with open(report_files["durations"], "w") as f:
-            durations_min = 0.05  # sec
-            f.write("slowest durations\n")
-            for i, rep in enumerate(dlist):
-                if rep.duration < durations_min:
-                    f.write(f"{len(dlist) - i} durations < {durations_min} secs were omitted")
-                    break
-                f.write(f"{rep.duration:02.2f}s {rep.when:<8} {rep.nodeid}\n")
-
-    def summary_failures_short(tr):
-        # expecting that the reports were --tb=long (default) so we chop them off here to the last frame
-        reports = tr.getreports("failed")
-        if not reports:
-            return
-        tr.write_sep("=", "FAILURES SHORT STACK")
-        for rep in reports:
-            msg = tr._getfailureheadline(rep)
-            tr.write_sep("_", msg, red=True, bold=True)
-            # chop off the optional leading extra frames, leaving only the last one
-            longrepr = re.sub(r".*_ _ _ (_ ){10,}_ _ ", "", rep.longreprtext, 0, re.MULTILINE | re.DOTALL)
-            tr._tw.line(longrepr)
-            # note: not printing out any rep.sections to keep the report short
-
-    # use ready-made report funcs, we are just hijacking the filehandle to log to a dedicated file each
-    # adapted from https://github.com/pytest-dev/pytest/blob/897f151e/src/_pytest/terminal.py#L814
-    # note: some pytest plugins may interfere by hijacking the default `terminalreporter` (e.g.
-    # pytest-instafail does that)
-
-    # report failures with line/short/long styles
-    config.option.tbstyle = "auto"  # full tb
-    with open(report_files["failures_long"], "w") as f:
-        tr._tw = create_terminal_writer(config, f)
-        tr.summary_failures()
-
-    # config.option.tbstyle = "short" # short tb
-    with open(report_files["failures_short"], "w") as f:
-        tr._tw = create_terminal_writer(config, f)
-        summary_failures_short(tr)
-
-    config.option.tbstyle = "line"  # one line per error
-    with open(report_files["failures_line"], "w") as f:
-        tr._tw = create_terminal_writer(config, f)
-        tr.summary_failures()
-
-    with open(report_files["errors"], "w") as f:
-        tr._tw = create_terminal_writer(config, f)
-        tr.summary_errors()
-
-    with open(report_files["warnings"], "w") as f:
-        tr._tw = create_terminal_writer(config, f)
-        tr.summary_warnings()  # normal warnings
-        tr.summary_warnings()  # final warnings
-
-    tr.reportchars = "wPpsxXEf"  # emulate -rA (used in summary_passes() and short_test_summary())
-
-    # Skip the `passes` report, as it starts to take more than 5 minutes, and sometimes it timeouts on CircleCI if it
-    # takes > 10 minutes (as this part doesn't generate any output on the terminal).
-    # (also, it seems there is no useful information in this report, and we rarely need to read it)
-    # with open(report_files["passes"], "w") as f:
-    #     tr._tw = create_terminal_writer(config, f)
-    #     tr.summary_passes()
-
-    with open(report_files["summary_short"], "w") as f:
-        tr._tw = create_terminal_writer(config, f)
-        tr.short_test_summary()
-
-    with open(report_files["stats"], "w") as f:
-        tr._tw = create_terminal_writer(config, f)
-        tr.summary_stats()
-
-    # restore:
-    tr._tw = orig_writer
-    tr.reportchars = orig_reportchars
-    config.option.tbstyle = orig_tbstyle
+    pass
 
 
-# --- distributed testing functions --- #
 
-# adapted from https://stackoverflow.com/a/59041913/9201239
 import asyncio  # noqa
 
 
@@ -2521,13 +1849,6 @@ async def _stream_subprocess(cmd, env=None, stdin=None, timeout=None, quiet=Fals
         env=env,
     )
 
-    # note: there is a warning for a possible deadlock when using `wait` with huge amounts of data in the pipe
-    # https://docs.python.org/3/library/asyncio-subprocess.html#asyncio.asyncio.subprocess.Process.wait
-    #
-    # If it starts hanging, will need to switch to the following code. The problem is that no data
-    # will be seen until it's done and if it hangs for example there will be no debug info.
-    # out, err = await p.communicate()
-    # return _RunOutput(p.returncode, out, err)
 
     out = []
     err = []
@@ -2538,7 +1859,6 @@ async def _stream_subprocess(cmd, env=None, stdin=None, timeout=None, quiet=Fals
         if not quiet:
             print(label, line, file=pipe)
 
-    # XXX: the timeout doesn't seem to make any difference here
     await asyncio.wait(
         [
             asyncio.create_task(_read_stream(p.stdout, lambda l: tee(l, out, sys.stdout, label="stdout:"))),
@@ -2563,8 +1883,6 @@ def execute_subprocess_async(cmd, env=None, stdin=None, timeout=180, quiet=False
             f"The combined stderr from workers follows:\n{stderr}"
         )
 
-    # check that the subprocess actually did run and produced some output, should the test rely on
-    # the remote side to do the testing
     if not result.stdout and not result.stderr:
         raise RuntimeError(f"'{cmd_str}' produced no output.")
 
@@ -2572,13 +1890,7 @@ def execute_subprocess_async(cmd, env=None, stdin=None, timeout=180, quiet=False
 
 
 def pytest_xdist_worker_id():
-    """
-    Returns an int value of worker's numerical id under `pytest-xdist`'s concurrent workers `pytest -n N` regime, or 0
-    if `-n 1` or `pytest-xdist` isn't being used.
-    """
-    worker = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
-    worker = re.sub(r"^gw", "", worker, 0, re.MULTILINE)
-    return int(worker)
+    pass
 
 
 def get_torch_dist_unique_port():
@@ -2626,12 +1938,9 @@ def check_json_file_has_correct_format(file_path):
     with open(file_path) as f:
         lines = f.readlines()
         if len(lines) == 1:
-            # length can only be 1 if dict is empty
             assert lines[0] == "{}"
         else:
-            # otherwise make sure json has correct format (at least 3 lines)
             assert len(lines) >= 3
-            # each key one line, ident should be 2, min length is 3
             assert lines[0].strip() == "{"
             for line in lines[1:-1]:
                 left_indent = len(lines[1]) - len(lines[1].lstrip())
@@ -2645,43 +1954,15 @@ def to_2tuple(x):
     return (x, x)
 
 
-# These utils relate to ensuring the right error message is received when running scripts
 class SubprocessCallException(Exception):
     pass
 
 
 def run_command(command: list[str], return_stdout=False):
-    """
-    Runs `command` with `subprocess.check_output` and will potentially return the `stdout`. Will also properly capture
-    if an error occurred while running `command`
-    """
-    try:
-        output = subprocess.check_output(command, stderr=subprocess.STDOUT)
-        if return_stdout:
-            if hasattr(output, "decode"):
-                output = output.decode("utf-8")
-            return output
-    except subprocess.CalledProcessError as e:
-        raise SubprocessCallException(
-            f"Command `{' '.join(command)}` failed with the following error:\n\n{e.output.decode()}"
-        ) from e
+    pass
 
 
 class RequestCounter:
-    """
-    Helper class that will count all requests made online.
-
-    Might not be robust if urllib3 changes its logging format but should be good enough for us.
-
-    Usage:
-    ```py
-    with RequestCounter() as counter:
-        _ = AutoTokenizer.from_pretrained("hf-internal-testing/tiny-random-bert")
-    assert counter["GET"] == 0
-    assert counter["HEAD"] == 1
-    assert counter.total_calls == 1
-    ```
-    """
 
     def __enter__(self):
         self._counter = defaultdict(int)
@@ -2689,11 +1970,7 @@ class RequestCounter:
         self._extra_info = []
 
         def patched_with_thread_info(func):
-            def wrap(*args, **kwargs):
-                self._extra_info.append(threading.get_ident())
-                return func(*args, **kwargs)
-
-            return wrap
+            pass
 
         import urllib3
 
@@ -2708,7 +1985,6 @@ class RequestCounter:
         for thread_id, call in zip(self._extra_info, self.mock.call_args_list):
             if thread_id != self._thread_id:
                 continue
-            # code 307: the URL being requested by the user has moved to a temporary location
             if call.args[-2] == 307:
                 continue
             log = call.args[0] % call.args[1:]
@@ -2723,7 +1999,7 @@ class RequestCounter:
 
     @property
     def total_calls(self) -> int:
-        return sum(self._counter.values())
+        pass
 
 
 def is_flaky(max_attempts: int = 5, wait_before_retry: float | None = None, description: str | None = None):
@@ -2746,23 +2022,7 @@ def is_flaky(max_attempts: int = 5, wait_before_retry: float | None = None, desc
     """
 
     def decorator(test_func_ref):
-        @functools.wraps(test_func_ref)
-        def wrapper(*args, **kwargs):
-            retry_count = 1
-
-            while retry_count < max_attempts:
-                try:
-                    return test_func_ref(*args, **kwargs)
-
-                except Exception as err:
-                    logger.error(f"Test failed with {err} at try {retry_count}/{max_attempts}.")
-                    if wait_before_retry is not None:
-                        time.sleep(wait_before_retry)
-                    retry_count += 1
-
-            return test_func_ref(*args, **kwargs)
-
-        return unittest.skipUnless(_run_flaky_tests, "test is flaky")(wrapper)
+        pass
 
     return decorator
 
@@ -2800,7 +2060,6 @@ def run_first(test_case):
     single process at a time. So we make sure all tests that run in a subprocess are launched first, to avoid device
     allocation conflicts.
     """
-    # Without this check, we get unwanted warnings when it's not installed
     if is_pytest_order_available():
         import pytest
 
@@ -2833,13 +2092,10 @@ def run_test_in_subprocess(test_case, target_func, inputs=None, timeout=None):
     input_queue = ctx.Queue(1)
     output_queue = ctx.JoinableQueue(1)
 
-    # We can't send `unittest.TestCase` to the child, otherwise we get issues regarding pickle.
     input_queue.put(inputs, timeout=timeout)
 
     process = ctx.Process(target=target_func, args=(input_queue, output_queue, timeout))
     process.start()
-    # Kill the child process if we can't get outputs from it in time: otherwise, the hanging subprocess prevents
-    # the test to exit properly.
     try:
         results = output_queue.get(timeout=timeout)
         output_queue.task_done()
@@ -2868,12 +2124,8 @@ def run_test_using_subprocess(func):
             try:
                 env = copy.deepcopy(os.environ)
                 env["_INSIDE_SUB_PROCESS"] = "1"
-                # This prevents the entries in `short test summary info` given by the subprocess being truncated. so the
-                # full information can be passed to the parent pytest process.
-                # See: https://docs.pytest.org/en/stable/explanation/ci.html
                 env["CI"] = "true"
 
-                # If not subclass of `unitTest.TestCase` and `pytestconfig` is used: try to grab and use the arguments
                 if "pytestconfig" in kwargs:
                     command = list(kwargs["pytestconfig"].invocation_params.args)
                     for idx, x in enumerate(command):
@@ -2882,7 +2134,6 @@ def run_test_using_subprocess(func):
                             command[idx] = "::".join([f"{func.__globals__['__file__']}"] + test)
                     command = [f"{sys.executable}", "-m", "pytest"] + command
                     command = [x for x in command if x != "--no-summary"]
-                # Otherwise, simply run the test with no option at all
                 else:
                     command = [f"{sys.executable}", "-m", "pytest", f"{test}"]
 
@@ -2890,8 +2141,6 @@ def run_test_using_subprocess(func):
             except subprocess.CalledProcessError as e:
                 exception_message = e.stdout.decode()
                 lines = exception_message.split("\n")
-                # Add a first line with more informative information instead of just `= test session starts =`.
-                # This makes the `short test summary info` section more useful.
                 if "= test session starts =" in lines[0]:
                     text = ""
                     for line in lines[1:]:
@@ -2950,20 +2199,7 @@ def preprocess_string(string, skip_cuda_tests):
 
 
 class HfDocTestParser(doctest.DocTestParser):
-    """
-    Overwrites the DocTestParser from doctest to properly parse the codeblocks that are formatted with black. This
-    means that there are no extra lines at the end of our snippets. The `# doctest: +IGNORE_RESULT` marker is also
-    added anywhere a `load_dataset` call is made as a print would otherwise fail the corresponding line.
 
-    Tests involving cuda are skipped base on a naive pattern that should be updated if it is not enough.
-    """
-
-    # This regular expression is used to find doctest examples in a
-    # string.  It defines three groups: `source` is the source code
-    # (including leading indentation and prompts); `indent` is the
-    # indentation of the first (PS1) line of the source code; and
-    # `want` is the expected output (including leading indentation).
-    # fmt: off
     _EXAMPLE_RE = re.compile(r'''
         # Source consists of a PS1 line followed by zero or more PS2 lines.
         (?P<source>
@@ -2980,11 +2216,8 @@ class HfDocTestParser(doctest.DocTestParser):
           )*)
         ''', re.MULTILINE | re.VERBOSE
     )
-    # fmt: on
 
-    # !!!!!!!!!!! HF Specific !!!!!!!!!!!
     skip_cuda_tests: bool = os.environ.get("SKIP_CUDA_DOCTEST", "0") == "1"
-    # !!!!!!!!!!! HF Specific !!!!!!!!!!!
 
     def parse(self, string, name="<string>"):
         """
@@ -2996,17 +2229,9 @@ class HfDocTestParser(doctest.DocTestParser):
 
 
 class HfDoctestModule(Module):
-    """
-    Overwrites the `DoctestModule` of the pytest package to make sure the HFDocTestParser is used when discovering
-    tests.
-    """
 
     def collect(self) -> Iterable[DoctestItem]:
         class MockAwareDocTestFinder(doctest.DocTestFinder):
-            """A hackish doctest finder that overrides stdlib internals to fix a stdlib bug.
-
-            https://github.com/pytest-dev/pytest/issues/3456 https://bugs.python.org/issue25532
-            """
 
             def _find_lineno(self, obj, source_lines):
                 """Doctest code does not take into account `@property`, this
@@ -3019,10 +2244,8 @@ class HfDoctestModule(Module):
                     obj = getattr(obj, "fget", obj)
 
                 if hasattr(obj, "__wrapped__"):
-                    # Get the main obj in case of it being wrapped
                     obj = inspect.unwrap(obj)
 
-                # Type ignored because this is a private function.
                 return super()._find_lineno(  # type:ignore[misc]
                     obj,
                     source_lines,
@@ -3032,7 +2255,6 @@ class HfDoctestModule(Module):
                 if _is_mocked(obj):
                     return
                 with _patch_unwrap_mock_aware():
-                    # Type ignored because this is a private function.
                     super()._find(  # type:ignore[misc]
                         tests, obj, name, module, source_lines, globs, seen
                     )
@@ -3056,9 +2278,7 @@ class HfDoctestModule(Module):
                 else:
                     raise
 
-        # !!!!!!!!!!! HF Specific !!!!!!!!!!!
         finder = MockAwareDocTestFinder(parser=HfDocTestParser())
-        # !!!!!!!!!!! HF Specific !!!!!!!!!!!
         optionflags = get_optionflags(self)
         runner = _get_runner(
             verbose=False,
@@ -3080,7 +2300,6 @@ def _device_agnostic_dispatch(device: str, dispatch_table: dict[str, Callable], 
 
     fn = dispatch_table[device]
 
-    # Some device agnostic functions return values or None, will return then directly.
     if not callable(fn):
         return fn
 
@@ -3088,8 +2307,6 @@ def _device_agnostic_dispatch(device: str, dispatch_table: dict[str, Callable], 
 
 
 if is_torch_available():
-    # Mappings from device names to callable functions to support device agnostic
-    # testing.
     BACKEND_MANUAL_SEED = {
         "cuda": torch.cuda.manual_seed,
         "cpu": torch.manual_seed,
@@ -3199,7 +2416,7 @@ def backend_reset_max_memory_allocated(device: str):
 
 
 def backend_reset_peak_memory_stats(device: str):
-    return _device_agnostic_dispatch(device, BACKEND_RESET_PEAK_MEMORY_STATS)
+    pass
 
 
 def backend_max_memory_allocated(device: str):
@@ -3219,8 +2436,6 @@ def backend_torch_accelerator_module(device: str):
 
 
 if is_torch_available():
-    # If `TRANSFORMERS_TEST_DEVICE_SPEC` is enabled we need to import extra entries
-    # into device to function mappings.
     if "TRANSFORMERS_TEST_DEVICE_SPEC" in os.environ:
         device_spec_path = os.environ["TRANSFORMERS_TEST_DEVICE_SPEC"]
         if not Path(device_spec_path).is_file():
@@ -3228,8 +2443,6 @@ if is_torch_available():
                 f"Specified path to device spec file is not a file or not found. Received '{device_spec_path}"
             )
 
-        # Try to strip extension for later import – also verifies we are importing a
-        # python file.
         device_spec_dir, _ = os.path.split(os.path.realpath(device_spec_path))
         sys.path.append(device_spec_dir)
         try:
@@ -3239,7 +2452,6 @@ if is_torch_available():
 
         device_spec_module = importlib.import_module(import_name)
 
-        # Imported file must contain `DEVICE_NAME`. If it doesn't, terminate early.
         try:
             device_name = device_spec_module.DEVICE_NAME
         except AttributeError as e:
@@ -3253,18 +2465,8 @@ if is_torch_available():
         torch_device = device_name
 
         def update_mapping_from_spec(device_fn_dict: dict[str, Callable], attribute_name: str):
-            try:
-                # Try to import the function directly
-                spec_fn = getattr(device_spec_module, attribute_name)
-                device_fn_dict[torch_device] = spec_fn
-            except AttributeError as e:
-                # If the function doesn't exist, and there is no default, throw an error
-                if "default" not in device_fn_dict:
-                    raise AttributeError(
-                        f"`{attribute_name}` not found in '{device_spec_path}' and no default fallback function found."
-                    ) from e
+            pass
 
-        # Add one entry here for each `BACKEND_*` dictionary.
         update_mapping_from_spec(BACKEND_MANUAL_SEED, "MANUAL_SEED_FN")
         update_mapping_from_spec(BACKEND_EMPTY_CACHE, "EMPTY_CACHE_FN")
         update_mapping_from_spec(BACKEND_DEVICE_COUNT, "DEVICE_COUNT_FN")
@@ -3276,12 +2478,10 @@ def compare_pipeline_output_to_hub_spec(output, hub_spec):
     all_field_names = {field.name for field in fields(hub_spec)}
     matching_keys = sorted([key for key in output if key in all_field_names])
 
-    # Fields with a MISSING default are required and must be in the output
     for field in fields(hub_spec):
         if field.default is MISSING and field.name not in output:
             missing_keys.append(field.name)
 
-    # All output keys must match either a required or optional field in the Hub spec
     for output_key in output:
         if output_key not in all_field_names:
             unexpected_keys.append(output_key)
@@ -3305,9 +2505,7 @@ def cleanup(device: str, gc_collect=False):
     torch.compiler.reset()
 
 
-# Type definition of key used in `Expectations` class.
 DeviceProperties = tuple[str | None, int | None, int | None]
-# Helper type. Makes creating instances of `Expectations` smoother.
 PackedDeviceProperties = tuple[str | None, None | int | tuple[int, int]]
 
 
@@ -3329,13 +2527,11 @@ def get_device_properties() -> DeviceProperties:
         import torch
 
         if torch.xpu.is_available():
-            # To get more info of the architecture meaning and bit allocation, refer to https://github.com/intel/llvm/blob/sycl/sycl/include/sycl/ext/oneapi/experimental/device_architecture.def
             arch = torch.xpu.get_device_capability()["architecture"]
             gen_mask = 0x000000FF00000000
             gen = (arch & gen_mask) >> 32
             return ("xpu", gen, None)
     if IS_NPU_SYSTEM:
-        # TODO: after torch 2.5.1, use `if hasattr(torch, "npu") and torch.npu.is_available()` here for consistency with CUDA/XPU blocks
         return ("npu", None, None)
     return (torch_device, None, None)
 
@@ -3360,12 +2556,7 @@ def unpack_device_properties(
 
 class Expectations(UserDict[PackedDeviceProperties, Any]):
     def get_expectation(self) -> Any:
-        """
-        Find best matching expectation based on environment device properties. We look at device_type, major and minor
-        versions of the drivers. Expectations are stored as a dictionary with keys of the form
-        (device_type, (major, minor)). If the major and minor versions are not provided, we use None.
-        """
-        return self.find_expectation(get_device_properties())
+        pass
 
     def unpacked(self) -> list[tuple[DeviceProperties, Any]]:
         return [(unpack_device_properties(k), v) for k, v in self.data.items()]
@@ -3395,18 +2586,15 @@ class Expectations(UserDict[PackedDeviceProperties, Any]):
         other_device_type, other_major, other_minor = other
 
         score = 0
-        # Matching device type, maybe major and minor
         if device_type is not None and device_type == other_device_type:
             score += 1
             if major is not None and major == other_major:
                 score += 1
                 if minor is not None and minor == other_minor:
                     score += 1
-        # Semi-matching device type, which carries less importance than the default expectation
         elif device_type in ["cuda", "rocm"] and other_device_type in ["cuda", "rocm"]:
             score = 0.1
 
-        # Default expectation
         if Expectations.is_default(other):
             score = 0.5
 
@@ -3437,800 +2625,55 @@ class Expectations(UserDict[PackedDeviceProperties, Any]):
 
 
 def patch_torch_compile_force_graph():
-    """
-    Patch `torch.compile` to always use `fullgraph=True`.
-
-    This is useful when some `torch.compile` tests are running with `fullgraph=False` and we want to be able to run
-    them with `fullgraph=True` in some occasion (without introducing new tests) to make sure there is no graph break.
-
-    After PR #40137, `CompileConfig.fullgraph` is `False` by default, this patch is necessary.
-    """
-
-    force_fullgraph = os.environ.get("TORCH_COMPILE_FORCE_FULLGRAPH", "")
-    force_fullgraph = force_fullgraph.lower() in ("yes", "true", "on", "t", "y", "1")
-
-    if force_fullgraph:
-        import torch
-
-        orig_method = torch.compile
-
-        def patched(*args, **kwargs):
-            # In `torch_compile`, all arguments except `model` is keyword only argument.
-            kwargs["fullgraph"] = True
-            return orig_method(*args, **kwargs)
-
-        torch.compile = patched
+    pass
 
 
 def _get_test_info():
-    """
-    Collect some information about the current test.
-
-    For example, test full name, line number, stack, traceback, etc.
-    """
-
-    full_test_name = os.environ.get("PYTEST_CURRENT_TEST", "").split(" ")[0]
-    test_file, test_class, test_name = full_test_name.split("::")
-
-    # from the most recent frame to the top frame
-    stack_from_inspect = inspect.stack()
-    # but visit from the top frame to the most recent frame
-
-    actual_test_file, _actual_test_class = test_file, test_class
-    test_frame, test_obj, test_method = None, None, None
-    for frame in reversed(stack_from_inspect):
-        # if test_file in str(frame).replace(r"\\", "/"):
-        # check frame's function + if it has `self` as locals; double check if self has the (function) name
-        # TODO: Question: How about expanded?
-        if (
-            test_name.startswith(frame.function)
-            and "self" in frame.frame.f_locals
-            and hasattr(frame.frame.f_locals["self"], test_name)
-        ):
-            # if test_name == frame.frame.f_locals["self"]._testMethodName:
-            test_frame = frame
-            # The test instance
-            test_obj = frame.frame.f_locals["self"]
-            # TODO: Do we get the (relative?) path or it's just a file name?
-            # TODO: Does `test_obj` always have `tearDown` object?
-            actual_test_file = frame.filename
-            # TODO: check `test_method` will work used at the several places!
-            test_method = getattr(test_obj, test_name)
-            break
-
-    if test_frame is not None:
-        line_number = test_frame.lineno
-
-    # The frame of `patched` being called (the one and the only one calling `_get_test_info`)
-    # This is used to get the original method being patched in order to get the context.
-    frame_of_patched_obj = None
-
-    captured_frames = []
-    to_capture = False
-    # From the most outer (i.e. python's `runpy.py`) frame to most inner frame (i.e. the frame of this method)
-    # Between `the test method being called` and `before entering `patched``.
-    for frame in reversed(stack_from_inspect):
-        if (
-            test_name.startswith(frame.function)
-            and "self" in frame.frame.f_locals
-            and hasattr(frame.frame.f_locals["self"], test_name)
-        ):
-            to_capture = True
-        # TODO: check simply with the name is not robust.
-        elif frame.frame.f_code.co_name == "patched":
-            frame_of_patched_obj = frame
-            to_capture = False
-            break
-        if to_capture:
-            captured_frames.append(frame)
-
-    tb_next = None
-    for frame_info in reversed(captured_frames):
-        tb = types.TracebackType(tb_next, frame_info.frame, frame_info.frame.f_lasti, frame_info.frame.f_lineno)
-        tb_next = tb
-    test_traceback = tb
-
-    origin_method_being_patched = frame_of_patched_obj.frame.f_locals["orig_method"]
-
-    # An iterable of type `traceback.StackSummary` with each element of type `FrameSummary`
-    stack = traceback.extract_stack()
-    # The frame which calls `the original method being patched`
-    caller_frame = None
-    # From the most inner (i.e. recent) frame to the most outer frame
-    for frame in reversed(stack):
-        if origin_method_being_patched.__name__ in frame.line:
-            caller_frame = frame
-
-    caller_path = os.path.relpath(caller_frame.filename)
-    caller_lineno = caller_frame.lineno
-
-    test_lineno = line_number
-
-    # Get the code context in the test function/method.
-    from _pytest._code.source import Source
-
-    with open(actual_test_file) as fp:
-        s = fp.read()
-        source = Source(s)
-        test_code_context = "\n".join(source.getstatement(test_lineno - 1).lines)
-
-    # Get the code context in the caller (to the patched function/method).
-    with open(caller_path) as fp:
-        s = fp.read()
-        source = Source(s)
-        caller_code_context = "\n".join(source.getstatement(caller_lineno - 1).lines)
-
-    test_info = f"test:\n\n{full_test_name}\n\n{'-' * 80}\n\ntest context: {actual_test_file}:{test_lineno}\n\n{test_code_context}"
-    test_info = f"{test_info}\n\n{'-' * 80}\n\ncaller context: {caller_path}:{caller_lineno}\n\n{caller_code_context}"
-
-    return (
-        full_test_name,
-        test_file,
-        test_lineno,
-        test_obj,
-        test_method,
-        test_frame,
-        test_traceback,
-        test_code_context,
-        caller_path,
-        caller_lineno,
-        caller_code_context,
-        test_info,
-    )
+    pass
 
 
 def _get_call_arguments(code_context):
-    """
-    Analyze the positional and keyword arguments in a call expression.
-
-    This will extract the expressions of the positional and kwyword arguments, and associate them to the positions and
-    the keyword argument names.
-    """
-
-    def get_argument_name(node):
-        """Extract the name/expression from an AST node"""
-        if isinstance(node, ast.Name):
-            return node.id
-        elif isinstance(node, ast.Attribute):
-            return ast.unparse(node)
-        elif isinstance(node, ast.Constant):
-            return repr(node.value)
-        else:
-            return ast.unparse(node)
-
-    indent = len(code_context) - len(code_context.lstrip())
-    code_context = code_context.replace(" " * indent, "")
-
-    try:
-        # Parse the line
-        tree = ast.parse(code_context, mode="eval")
-
-        assert isinstance(tree.body, ast.Call)
-        call_node = tree.body
-
-        if call_node:
-            result = {
-                "positional_args": [],
-                "keyword_args": {},
-                "starargs": None,  # *args
-                "kwargs": None,  # **kwargs
-            }
-
-            # Extract positional arguments
-            for arg in call_node.args:
-                arg_name = get_argument_name(arg)
-                result["positional_args"].append(arg_name)
-
-            # Extract keyword arguments
-            for keyword in call_node.keywords:
-                if keyword.arg is None:
-                    # This is **kwargs
-                    result["kwargs"] = get_argument_name(keyword.value)
-                else:
-                    # Regular keyword argument
-                    arg_name = get_argument_name(keyword.value)
-                    result["keyword_args"][keyword.arg] = arg_name
-
-            return result
-
-    except (SyntaxError, AttributeError) as e:
-        print(f"Error parsing: {e}")
-
-    return None
+    pass
 
 
 def _prepare_debugging_info(test_info, info):
-    """Combine the information about the test and the call information to a patched function/method within it."""
-
-    info = f"{test_info}\n\n{info}"
-    p = os.path.join(os.environ.get("_PATCHED_TESTING_METHODS_OUTPUT_DIR", ""), "captured_info.txt")
-    # TODO (ydshieh): This is not safe when we use pytest-xdist with more than 1 worker.
-    with open(p, "a") as fp:
-        fp.write(f"{info}\n\n{'=' * 120}\n\n")
-
-    return info
+    pass
 
 
 def _patched_tearDown(self, *args, **kwargs):
-    """Used to report a test that has failures captured and handled by patched functions/methods (without re-raise).
-
-    The patched functions/methods refer to the `patched` defined in `_patch_with_call_info`, which is applied to
-    `torch.testing.assert_close` and `unittest.case.TestCase.assertEqual`.
-
-    The objective is to avoid a failure being silence after being processed.
-
-    If there is any failure that is not handled by the patched functions/methods, we add custom error message for them
-    along with the usual pytest failure report.
-    """
-
-    # Check for regular failures before clearing:
-    # when `_patched_tearDown` is called, the current test fails due to an assertion error given by a method being
-    # patched by `_patch_with_call_info`. The patched method catches such an error and continue running the remaining
-    # statements within the test. If the test fails with another error not handled by the patched methods, we don't let
-    # pytest to fail and report it but the original failure (the first one that was processed) instead.
-    # We still record those failures not handled by the patched methods, and add custom messages along with the usual
-    # pytest failure report.
-    regular_failures_info = []
-
-    errors = None
-    if hasattr(self._outcome, "errors"):
-        errors = self._outcome.errors
-    elif hasattr(self._outcome, "result") and hasattr(self._outcome.result, "errors"):
-        errors = self._outcome.result.errors
-
-    if hasattr(self, "_outcome") and errors:
-        for error_entry in errors:
-            test_instance, (exc_type, exc_obj, exc_tb) = error_entry
-            # breakpoint()
-            regular_failures_info.append(
-                {
-                    "message": f"{str(exc_obj)}\n\n",
-                    "type": exc_type.__name__,
-                    "file": "test_modeling_vit.py",
-                    "line": 237,  # get_deepest_frame_line(exc_tb)  # Your helper function
-                }
-            )
-
-        # Clear the regular failure (i.e. that is not from any of our patched assertion methods) from pytest's records.
-        if hasattr(self._outcome, "errors"):
-            self._outcome.errors.clear()
-        elif hasattr(self._outcome, "result") and hasattr(self._outcome.result, "errors"):
-            self._outcome.result.errors.clear()
-
-    # reset back to the original tearDown method, so `_patched_tearDown` won't be run by the subsequent tests if they
-    # have only test failures that are not handle by the patched methods (or no test failure at all).
-    orig_tearDown = _patched_tearDown.orig_tearDown
-    type(self).tearDown = orig_tearDown
-
-    # Call the original tearDown
-    orig_tearDown(self, *args, **kwargs)
-
-    # Get the failure
-    test_method = getattr(self, self._testMethodName)
-    captured_failures = test_method.__func__.captured_failures[id(test_method)]
-
-    # TODO: How could we show several exceptions in a sinigle test on the terminal? (Maybe not a good idea)
-    captured_exceptions = captured_failures[0]["exception"]
-    captured_traceback = captured_failures[0]["traceback"]
-    # Show the captured information on the terminal.
-    capturued_info = [x["info"] for x in captured_failures]
-    capturued_info_str = f"\n\n{'=' * 80}\n\n".join(capturued_info)
-
-    # Enhance the exception message if there were suppressed failures
-    if regular_failures_info:
-        enhanced_message = f"""{str(captured_exceptions)}
-
-{"=" * 80}
-Handled Failures: ({len(capturued_info)} handled):
-{"-" * 80}\n
-{capturued_info_str}
-
-{"=" * 80}
-Unhandled Failures: ({len(regular_failures_info)} unhandled):
-{"-" * 80}\n
-{", ".join(f"{info['type']}: {info['message']}{info['file']}:{info['line']}" for info in regular_failures_info)}
-
-{"-" * 80}
-Note: This failure occurred after other failures analyzed by the patched assertion methods.
-To see the full details, temporarily disable assertion patching.
-{"=" * 80}"""
-
-        # Create new exception with enhanced message
-        enhanced_exception = type(captured_exceptions)(enhanced_message)
-        enhanced_exception.__cause__ = captured_exceptions.__cause__
-        enhanced_exception.__context__ = captured_exceptions.__context__
-
-        # Raise with your existing traceback reconstruction
-        captured_exceptions = enhanced_exception
-
-    # clean up the recorded status
-    del test_method.__func__.captured_failures
-
-    raise captured_exceptions.with_traceback(captured_traceback)
+    pass
 
 
 def _patch_with_call_info(module_or_class, attr_name, _parse_call_info_func, target_args):
-    """
-    Patch a callerable `attr_name` of a module or class `module_or_class`.
-
-    This will allow us to collect the call information, e.g. the argument names and values, also the literal expressions
-    passed as the arguments.
-    """
-    orig_method = getattr(module_or_class, attr_name)
-    if not callable(orig_method):
-        return
-
-    def patched(*args, **kwargs):
-        # If the target callable is not called within a test, simply call it without modification.
-        if not os.environ.get("PYTEST_CURRENT_TEST", ""):
-            return orig_method(*args, **kwargs)
-
-        try:
-            orig_method(*args, **kwargs)
-        except AssertionError as e:
-            captured_exception = e
-            # captured_traceback = e.__traceback__
-            (
-                full_test_name,
-                test_file,
-                test_lineno,
-                test_obj,
-                test_method,
-                test_frame,
-                test_traceback,
-                test_code_context,
-                caller_path,
-                caller_lineno,
-                caller_code_context,
-                test_info,
-            ) = _get_test_info()
-            test_info = f"{test_info}\n\n{'-' * 80}\n\npatched method: {orig_method.__module__}.{orig_method.__name__}"
-            call_argument_expressions = _get_call_arguments(caller_code_context)
-
-            # This is specific
-            info = _parse_call_info_func(orig_method, args, kwargs, call_argument_expressions, target_args)
-            info = _prepare_debugging_info(test_info, info)
-
-            # If the test is running in a CI environment (e.g. not a manual run), let's raise and fail the test, so it
-            # behaves as usual.
-            # On Github Actions or CircleCI, this is set automatically.
-            # When running manually, it's the user to determine if to set it.
-            # This is to avoid the patched function being called `with self.assertRaises(AssertionError):` and fails
-            # because of the missing expected `AssertionError`.
-            # TODO (ydshieh): If there is way to raise only when we are inside such context managers?
-            # TODO (ydshieh): How not to record the failure if it happens inside `self.assertRaises(AssertionError)`?
-            if os.getenv("CI") == "true":
-                raise captured_exception.with_traceback(test_traceback)
-
-            # Save this, so we can raise at the end of the current test
-            captured_failure = {
-                "result": "failed",
-                "exception": captured_exception,
-                "traceback": test_traceback,
-                "info": info,
-            }
-
-            # Record the failure status and its information, so we can raise it later.
-            # We are modifying the (unbound) function at class level: not its logic but only adding a new extra
-            # attribute.
-            if getattr(test_method.__func__, "captured_failures", None) is None:
-                test_method.__func__.captured_failures = {}
-            if id(test_method) not in test_method.__func__.captured_failures:
-                test_method.__func__.captured_failures[id(test_method)] = []
-            test_method.__func__.captured_failures[id(test_method)].append(captured_failure)
-
-            # This modifies the `tearDown` which will be called after every tests, but we reset it back inside
-            # `_patched_tearDown`.
-            if not hasattr(type(test_obj).tearDown, "orig_tearDown"):
-                orig_tearDown = type(test_obj).tearDown
-                _patched_tearDown.orig_tearDown = orig_tearDown
-                type(test_obj).tearDown = _patched_tearDown
-
-    setattr(module_or_class, attr_name, patched)
+    pass
 
 
 def _parse_call_info(func, args, kwargs, call_argument_expressions, target_args):
-    """
-    Prepare a string containing the call info to `func`, e.g. argument names/values/expressions.
-    """
-    signature = inspect.signature(func)
-    signature_names = [param.name for param_name, param in signature.parameters.items()]
-
-    # called as `self.method_name()` or `xxx.method_name()`.
-    if len(args) == len(call_argument_expressions["positional_args"]) + 1:
-        # We simply add "self" as the expression despite it might not be the actual argument name.
-        # (This part is very unlikely what a user would be interest to know)
-        call_argument_expressions["positional_args"] = ["self"] + call_argument_expressions["positional_args"]
-
-    param_position_mapping = {param_name: idx for idx, param_name in enumerate(signature_names)}
-
-    arg_info = {}
-    for arg_name in target_args:
-        if arg_name in kwargs:
-            arg_value = kwargs[arg_name]
-            arg_expr = call_argument_expressions["keyword_args"][arg_name]
-        else:
-            arg_pos = param_position_mapping[arg_name]
-            arg_value = args[arg_pos]
-            arg_expr = call_argument_expressions["positional_args"][arg_pos]
-
-        arg_value_str = _format_py_obj(arg_value)
-        arg_info[arg_name] = {"arg_expr": arg_expr, "arg_value_str": arg_value_str}
-
-    info = ""
-    for arg_name in arg_info:
-        arg_expr, arg_value_str = arg_info[arg_name]["arg_expr"], arg_info[arg_name]["arg_value_str"]
-        info += f"{'-' * 80}\n\nargument name: `{arg_name}`\nargument expression: `{arg_expr}`\n\nargument value:\n\n{arg_value_str}\n\n"
-
-    # remove the trailing \n\n
-    info = info[:-2]
-
-    return info
+    pass
 
 
 def patch_testing_methods_to_collect_info():
-    """
-    Patch some methods (`torch.testing.assert_close`, `unittest.case.TestCase.assertEqual`, etc).
-
-    This will allow us to collect the call information, e.g. the argument names and values, also the literal expressions
-    passed as the arguments.
-    """
-    p = os.path.join(os.environ.get("_PATCHED_TESTING_METHODS_OUTPUT_DIR", ""), "captured_info.txt")
-    Path(p).unlink(missing_ok=True)
-
-    if is_torch_available():
-        import torch
-
-        _patch_with_call_info(torch.testing, "assert_close", _parse_call_info, target_args=("actual", "expected"))
-
-    _patch_with_call_info(unittest.case.TestCase, "assertEqual", _parse_call_info, target_args=("first", "second"))
-    _patch_with_call_info(unittest.case.TestCase, "assertListEqual", _parse_call_info, target_args=("list1", "list2"))
-    _patch_with_call_info(
-        unittest.case.TestCase, "assertTupleEqual", _parse_call_info, target_args=("tuple1", "tuple2")
-    )
-    _patch_with_call_info(unittest.case.TestCase, "assertSetEqual", _parse_call_info, target_args=("set1", "set1"))
-    _patch_with_call_info(unittest.case.TestCase, "assertDictEqual", _parse_call_info, target_args=("d1", "d2"))
-    _patch_with_call_info(unittest.case.TestCase, "assertIn", _parse_call_info, target_args=("member", "container"))
-    _patch_with_call_info(unittest.case.TestCase, "assertNotIn", _parse_call_info, target_args=("member", "container"))
-    _patch_with_call_info(unittest.case.TestCase, "assertLess", _parse_call_info, target_args=("a", "b"))
-    _patch_with_call_info(unittest.case.TestCase, "assertLessEqual", _parse_call_info, target_args=("a", "b"))
-    _patch_with_call_info(unittest.case.TestCase, "assertGreater", _parse_call_info, target_args=("a", "b"))
-    _patch_with_call_info(unittest.case.TestCase, "assertGreaterEqual", _parse_call_info, target_args=("a", "b"))
+    pass
 
 
 def torchrun(script: str, nproc_per_node: int, is_torchrun: bool = True, env: dict | None = None):
-    """Run the `script` using `torchrun` command for multi-processing in a subprocess. Captures errors as necessary."""
-    with tempfile.NamedTemporaryFile(mode="w+", suffix=".py") as tmp:
-        tmp.write(script)
-        tmp.flush()
-        tmp.seek(0)
-        if is_torchrun:
-            cmd = (
-                f"torchrun --nproc_per_node {nproc_per_node} --master_port {get_torch_dist_unique_port()} {tmp.name}"
-            ).split()
-        else:
-            cmd = ["python3", tmp.name]
-
-        # Note that the subprocess will be waited for here, and raise an error if not successful
-        try:
-            _ = subprocess.run(cmd, capture_output=True, env=env, text=True, check=True)
-        except subprocess.CalledProcessError as e:
-            raise Exception(f"The following error was captured: {e.stderr}")
+    pass
 
 
 def _format_tensor(t, indent_level=0, sci_mode=None):
-    """Format torch's tensor in a pretty way to be shown 👀 in the test report."""
-
-    # `torch.testing.assert_close` could accept python int/float numbers.
-    if not isinstance(t, torch.Tensor):
-        t = torch.tensor(t)
-
-    # Simply make the processing below simpler (not to handle both cases)
-    is_scalar = False
-    if t.ndim == 0:
-        t = torch.tensor([t])
-        is_scalar = True
-
-    # For scalar or one-dimensional tensor, keep it as one-line. If there is only one element along any dimension except
-    # the last one, we also keep it as one-line.
-    if t.ndim <= 1 or set(t.shape[0:-1]) == {1}:
-        # Use `detach` to remove `grad_fn=<...>`, and use `to("cpu")` to remove `device='...'`
-        t = t.detach().to("cpu")
-
-        # We work directly with the string representation instead the tensor itself
-        t_str = str(t)
-
-        # remove `tensor( ... )` so keep only the content
-        t_str = t_str.replace("tensor(", "").replace(")", "")
-
-        # Sometimes there are extra spaces between `[` and the first digit of the first value (for alignment).
-        # For example `[[ 0.06, -0.51], [-0.76, -0.49]]`. It may have multiple consecutive spaces.
-        # Let's remove such extra spaces.
-        while "[ " in t_str:
-            t_str = t_str.replace("[ ", "[")
-
-        # Put everything in a single line. We replace `\n` by a space ` ` so we still keep `,\n` as `, `.
-        t_str = t_str.replace("\n", " ")
-
-        # Remove repeated spaces (introduced by the previous step)
-        while "  " in t_str:
-            t_str = t_str.replace("  ", " ")
-
-        # remove leading `[` and `]` for scalar tensor
-        if is_scalar:
-            t_str = t_str[1:-1]
-
-        t_str = " " * 4 * indent_level + t_str
-
-        return t_str
-
-    # Otherwise, we separate the representations of each element along an outer dimension by new lines (after a `,`).
-    # The representation of each element is obtained by calling this function recursively with current `indent_level`.
-    else:
-        t_str = str(t)
-
-        # (For the recursive calls should receive this value)
-        if sci_mode is None:
-            sci_mode = "e+" in t_str or "e-" in t_str
-
-        # Use the original content to determine the scientific mode to use. This is required as the representation of
-        # t[index] (computed below) maybe have different format regarding scientific notation.
-        torch.set_printoptions(sci_mode=sci_mode)
-
-        t_str = " " * 4 * indent_level + "[\n"
-        # Keep the ending `,` for all outer dimensions whose representations are not put in one-line, even if there is
-        # only one element along that dimension.
-        t_str += ",\n".join(_format_tensor(x, indent_level=indent_level + 1, sci_mode=sci_mode) for x in t)
-        t_str += ",\n" + " " * 4 * indent_level + "]"
-
-        torch.set_printoptions(sci_mode=None)
-
-    return t_str
+    pass
 
 
 def _quote_string(s):
-    """Given a string `s`, return a python literal expression that give `s` when it is used in a python source code.
-
-    For example, if `s` is the string `abc`, the return value is `"abc"`.
-
-    We choice double quotes over single quote despite `str(s)` would give `'abc'` instead of `"abc"`.
-    """
-    has_single_quote = "'" in s
-    has_double_quote = '"' in s
-
-    if has_single_quote and has_double_quote:
-        # replace any double quote by the raw string r'\"'.
-        s = s.replace('"', r"\"")
-        return f'"{s}"'
-    elif has_single_quote:
-        return f'"{s}"'
-    elif has_double_quote:
-        return f"'{s}'"
-    else:
-        return f'"{s}"'
+    pass
 
 
 def _format_py_obj(obj, indent=0, mode="", cache=None, prefix=""):
-    """Format python objects of basic built-in type in a pretty way so we could copy-past them to code editor easily.
-
-    Currently, this support int, float, str, list, tuple, and dict.
-
-    It also works with `torch.Tensor` via calling `format_tesnor`.
-    """
-
-    if cache is None:
-        cache = {}
-    else:
-        if (id(obj), indent, mode, prefix) in cache:
-            return cache[(id(obj), indent, mode, prefix)]
-
-    # special format method for `torch.Tensor`
-    if str(obj.__class__) == "<class 'torch.Tensor'>":
-        return _format_tensor(obj)
-
-    elif obj.__class__.__name__ == "str":
-        quoted_string = _quote_string(obj)
-        # we don't want the newline being interpreted
-        quoted_string = quoted_string.replace("\n", r"\n")
-        output = quoted_string
-
-    elif obj.__class__.__name__ in ["int", "float"]:
-        # for float like `1/3`, we will get `0.3333333333333333`
-        output = str(obj)
-
-    elif obj.__class__.__name__ in ["list", "tuple", "dict"]:
-        parenthesis = {
-            "list": "[]",
-            "tuple": "()",
-            "dict": "{}",
-        }
-        p1, p2 = parenthesis[obj.__class__.__name__]
-
-        elements_without_indent = []
-        if isinstance(obj, dict):
-            for idx, (k, v) in enumerate(obj.items()):
-                last_element = idx == len(obj) - 1
-                ok = _format_py_obj(k, indent=indent + 1, mode="one-line", cache=cache)
-                ov = _format_py_obj(
-                    v,
-                    indent=indent + 1,
-                    mode=mode,
-                    cache=cache,
-                    prefix=ok.lstrip() + ": " + "," if not last_element else "",
-                )
-                # Each element could be multiple-line, but the indent of its first line is removed
-                elements_without_indent.append(f"{ok.lstrip()}: {ov.lstrip()}")
-
-        else:
-            for idx, x in enumerate(obj):
-                last_element = idx == len(obj) - 1
-                o = _format_py_obj(
-                    x, indent=indent + 1, mode=mode, cache=cache, prefix="," if not last_element else ""
-                )
-                # Each element could be multiple-line, but the indent of its first line is removed
-                elements_without_indent.append(o.lstrip())
-
-        groups = []
-        buf = []
-        for idx, x in enumerate(elements_without_indent):
-            buf.append(x)
-
-            x_expanded = "\n" in buf[-1]
-            not_last_element = idx != len(elements_without_indent) - 1
-            # if `x` should be separated from subsequent elements
-            should_finalize_x = x_expanded or len(f"{' ' * (4 * (indent + 1))}") + len(
-                ", ".join(buf[-1:])
-            ) > 120 - int(not_last_element)
-
-            # if `buf[:-1]` (i.e. without `x`) should be combined together (into one line)
-            should_finalize_buf = x_expanded
-
-            # the recursive call returns single line, so we can use it to determine if we can fit the width limit
-            if not should_finalize_buf:
-                buf_not_fit_into_one_line = len(f"{' ' * (4 * (indent + 1))}") + len(", ".join(buf)) > 120 - int(
-                    not_last_element
-                )
-                should_finalize_buf = buf_not_fit_into_one_line
-
-            # any element of iterable type need to be on its own line
-            if (type(obj[idx]) if type(obj) is not dict else type(list(obj.values())[idx])) in [list, tuple, dict]:
-                should_finalize_x = True
-                should_finalize_buf = True
-
-            # any type change --> need to be added after a new line
-            prev_type = None
-            current_type = type(obj[idx]) if type(obj) is not dict else type(list(obj.values())[idx])
-            if len(buf) > 1:
-                prev_type = type(obj[idx - 1]) if type(obj) is not dict else type(list(obj.values())[idx - 1])
-                type_changed = current_type != prev_type
-                if type_changed:
-                    should_finalize_buf = True
-
-            # all elements in the buf are string --> don't finalize the buf by width limit
-            if prev_type is None or (prev_type is str and current_type is str):
-                should_finalize_buf = False
-
-            # collect as many elements of string type as possible (without width limit).
-            # These will be examined as a whole (if not fit into the width, each element would be in its own line)
-            if current_type is str:
-                should_finalize_x = False
-                # `len(buf) == 1` or `obj[idx-1]` is a string
-                if prev_type in [None, str]:
-                    should_finalize_buf = False
-
-            if should_finalize_buf:
-                orig_buf_len = len(buf)
-
-                if orig_buf_len > 1:
-                    not_fit_into_one_line = None
-
-                    # all elements in `obj` that give `buf[:-1]` are string.
-                    if prev_type is str:
-                        # `-1` at the end: because buf[-2] is not the last element
-                        not_fit_into_one_line = len(f"{' ' * (4 * (indent + 1))}") + len(", ".join(buf[:-1])) > 120 - 1
-
-                    if not_fit_into_one_line:
-                        for x in buf[:-1]:
-                            groups.append([x])
-                    else:
-                        groups.append(buf[:-1])
-
-                    buf = buf[-1:]
-
-                if should_finalize_x:
-                    groups.append(buf)
-                    buf = []
-
-        # The last buf
-        if len(buf) > 0:
-            not_fit_into_one_line = None
-            if current_type is str:
-                # no `-1` at the end: because buf[-1] is the last element
-                not_fit_into_one_line = len(f"{' ' * (4 * (indent + 1))}") + len(", ".join(buf)) > 120
-
-            if not_fit_into_one_line:
-                for x in buf:
-                    groups.append([x])
-            else:
-                groups.append(buf)
-
-        output = f"{' ' * 4 * indent}{p1}\n"
-        element_strings = [f"{' ' * (4 * (indent + 1))}" + ", ".join(buf) for buf in groups]
-        output += ",\n".join(element_strings)
-        output += f"\n{' ' * 4 * indent}{p2}"
-
-        # if all elements are in one-line
-        no_new_line_in_elements = all("\n" not in x for x in element_strings)
-        # if yes, we can form a one-line representation of `obj`
-        could_use_one_line = no_new_line_in_elements
-
-        # if mode == "one-line", this function always returns one-line representation, so `no_new_line_in_elements`
-        # will be `True`.
-        if could_use_one_line:
-            one_line_form = ", ".join([x.lstrip() for x in element_strings])
-            one_line_form = f"{p1}{one_line_form}{p2}"
-
-            if mode == "one-line":
-                return output
-
-            # check with the width limit
-            could_use_one_line = len(f"{' ' * 4 * indent}") + len(prefix) + len(one_line_form) <= 120
-
-            # extra conditions for returning one-line representation
-            def use_one_line_repr(obj):
-                # iterable types
-                if type(obj) in (list, tuple, dict):
-                    # get all types
-                    element_types = []
-                    if type(obj) is dict:
-                        element_types.extend(type(x) for x in obj.values())
-                    elif type(obj) in [list, tuple]:
-                        element_types.extend(type(x) for x in obj)
-
-                    # At least one element is of iterable type
-                    if any(x in (list, tuple, dict) for x in element_types):
-                        # If `obj` has more than one element and at least one of them is iterable --> no one line repr.
-                        if len(obj) > 1:
-                            return False
-
-                        # only one element that is iterable, but not the same type as `obj` --> no one line repr.
-                        if type(obj) is not type(obj[0]):
-                            return False
-
-                        # one-line repr. if possible, without width limit
-                        return no_new_line_in_elements
-
-                    # all elements are of simple types, but more than one type --> no one line repr.
-                    if len(set(element_types)) > 1:
-                        return False
-
-                    # all elements are of the same simple type
-                    if element_types[0] in [int, float]:
-                        # one-line repr. without width limit
-                        return no_new_line_in_elements
-                    elif element_types[0] is str:
-                        if len(obj) == 1:
-                            # one single string element --> one-line repr. without width limit
-                            return no_new_line_in_elements
-                        else:
-                            # multiple string elements --> one-line repr. if fit into width limit
-                            return could_use_one_line
-
-                # simple types (int, flat, string)
-                return True
-
-            # width condition combined with specific mode conditions
-            if use_one_line_repr(obj):
-                output = f"{' ' * 4 * indent}{one_line_form}"
-
-    cache[(id(obj), indent, mode, prefix)] = output
-
-    return output
+    pass
 
 
 def write_file(file, content):
-    with open(file, "w") as f:
-        f.write(content)
+    pass
 
 
 def read_json_file(file):
@@ -4238,20 +2681,14 @@ def read_json_file(file):
         return json.load(fh)
 
 
-# =============================================================================
-# Training CI Utilities - Logging and Memory Monitoring
-# =============================================================================
 
 
-# ANSI color codes for terminal output
 class Colors:
-    """ANSI color codes for terminal output formatting."""
 
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
 
-    # Foreground colors
     RED = "\033[31m"
     GREEN = "\033[32m"
     YELLOW = "\033[33m"
@@ -4260,7 +2697,6 @@ class Colors:
     CYAN = "\033[36m"
     WHITE = "\033[37m"
 
-    # Bright variants
     BRIGHT_RED = "\033[91m"
     BRIGHT_GREEN = "\033[92m"
     BRIGHT_YELLOW = "\033[93m"
@@ -4269,7 +2705,6 @@ class Colors:
 
 
 class ColoredFormatter(logging.Formatter):
-    """Custom formatter that adds colors based on log level."""
 
     LEVEL_COLORS = {
         logging.DEBUG: Colors.DIM + Colors.CYAN,
@@ -4279,39 +2714,13 @@ class ColoredFormatter(logging.Formatter):
         logging.CRITICAL: Colors.BOLD + Colors.BRIGHT_RED,
     }
 
-    # Loggers that should be dimmed (less important/verbose)
     DIMMED_LOGGERS = {"httpx", "httpcore", "urllib3", "requests"}
 
     def __init__(self, fmt: str | None = None, datefmt: str | None = None):
         super().__init__(fmt, datefmt)
 
     def format(self, record: logging.LogRecord) -> str:
-        # Check if this logger should be dimmed
-        is_dimmed = record.name in self.DIMMED_LOGGERS
-
-        if is_dimmed:
-            # Dim the entire log line for httpx and similar
-            timestamp = self.formatTime(record, self.datefmt)
-            message = record.getMessage()
-            return f"{Colors.DIM}{timestamp} - {record.name} - {record.levelname:8} - {message}{Colors.RESET}"
-
-        # Get color for this level
-        color = self.LEVEL_COLORS.get(record.levelno, Colors.RESET)
-
-        # Color the level name
-        levelname = record.levelname
-        colored_levelname = f"{color}{levelname:8}{Colors.RESET}"
-
-        # Color the timestamp
-        colored_time = f"{Colors.DIM}{self.formatTime(record, self.datefmt)}{Colors.RESET}"
-
-        # Color the logger name
-        colored_name = f"{Colors.BLUE}{record.name}{Colors.RESET}"
-
-        # Get message
-        message = record.getMessage()
-
-        return f"{colored_time} - {colored_name} - {colored_levelname} - {message}"
+        pass
 
 
 _warn_once_logged: set[str] = set()
@@ -4326,13 +2735,10 @@ def init_test_logger() -> logging.Logger:
     logger = logging.getLogger("transformers.training_test")
     logger.setLevel(logging.INFO)
 
-    # Only add handler if not already present (avoid duplicate handlers on repeated calls)
     if not logger.handlers:
-        # Use stderr instead of stdout - pytest-xdist captures stdout which can cause deadlocks
         ch = logging.StreamHandler(sys.stderr)
         ch.setLevel(logging.INFO)
 
-        # Use colored formatter if terminal supports it, plain otherwise
         if sys.stderr.isatty():
             formatter = ColoredFormatter(datefmt="%Y-%m-%d %H:%M:%S")
         else:
@@ -4348,21 +2754,9 @@ def init_test_logger() -> logging.Logger:
 
 
 def warn_once(logger_instance: logging.Logger, msg: str) -> None:
-    """Log a warning message only once per unique message.
-
-    Uses a global set to track messages that have already been logged
-    to prevent duplicate warning messages from cluttering the output.
-
-    Args:
-        logger_instance: The logger instance to use for warning.
-        msg: The warning message to log.
-    """
-    if msg not in _warn_once_logged:
-        logger_instance.warning(msg)
-        _warn_once_logged.add(msg)
+    pass
 
 
-# Named tuple for passing memory stats for logging
 MemoryStats = collections.namedtuple(
     "MemoryStats",
     [
@@ -4378,7 +2772,6 @@ MemoryStats = collections.namedtuple(
 
 
 class CPUMemoryMonitor:
-    """Monitor CPU memory usage for the current process."""
 
     def __init__(self):
         self.device_name = "CPU"
@@ -4400,43 +2793,16 @@ class CPUMemoryMonitor:
         return memory_in_bytes / (1024 * 1024 * 1024)
 
     def _to_pct(self, memory_in_bytes: int) -> float:
-        """Convert bytes to percentage of total memory."""
-        if self.total_memory == 0:
-            return 0.0
-        return 100.0 * memory_in_bytes / self.total_memory
+        pass
 
     def _update_peak(self) -> None:
-        """Update peak memory tracking."""
-        if self._process is not None:
-            current_rss = self._process.memory_info().rss
-            self._peak_rss = max(self._peak_rss, current_rss)
+        pass
 
     def get_stats(self) -> MemoryStats:
-        """Get current memory statistics."""
-        if not is_psutil_available():
-            return MemoryStats(0, 0, 0, 0, 0, 0, 0)
-
-        import psutil
-
-        self._update_peak()
-
-        mem_info = self._process.memory_info()
-        sys_mem = psutil.virtual_memory()
-
-        return MemoryStats(
-            rss_gib=self._to_gib(mem_info.rss),
-            rss_pct=self._to_pct(mem_info.rss),
-            vms_gib=self._to_gib(mem_info.vms),
-            peak_rss_gib=self._to_gib(self._peak_rss),
-            peak_rss_pct=self._to_pct(self._peak_rss),
-            available_gib=self._to_gib(sys_mem.available),
-            total_gib=self._to_gib(sys_mem.total),
-        )
+        pass
 
     def reset_peak_stats(self) -> None:
-        """Reset peak memory tracking."""
-        if self._process is not None:
-            self._peak_rss = self._process.memory_info().rss
+        pass
 
 
 def build_cpu_memory_monitor(logger_instance: logging.Logger | None = None) -> CPUMemoryMonitor:
@@ -4467,7 +2833,6 @@ def convert_all_safetensors_to_bins(folder: str):
             state_dict = load_file(path)
             os.remove(path)
             torch.save(state_dict, new_path)
-        # Adapt the index as well
         elif file == SAFE_WEIGHTS_INDEX_NAME:
             new_path = os.path.join(folder, WEIGHTS_INDEX_NAME)
             with open(path) as f:
@@ -4488,12 +2853,10 @@ def force_serialization_as_bin_files():
     """Since we don't support saving with torch `.bin` files anymore, but still support loading them, we use this context
     to easily create the bin files and try to load them back"""
     try:
-        # Monkey patch the method to save as bin files
         original_save = PreTrainedModel.save_pretrained
 
         def new_save(self, save_directory, *args, **kwargs):
-            original_save(self, save_directory, *args, **kwargs)
-            convert_all_safetensors_to_bins(save_directory)
+            pass
 
         PreTrainedModel.save_pretrained = new_save
 

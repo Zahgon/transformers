@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Team and Microsoft Research AI4Science All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch BioGPT model."""
 
 import math
 
@@ -110,7 +96,6 @@ class BioGptDecoderLayer(BartDecoderLayer):
 
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             past_key_values=past_key_values,
@@ -121,7 +106,6 @@ class BioGptDecoderLayer(BartDecoderLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.fc1(hidden_states)
@@ -169,7 +153,6 @@ class BioGptModel(BioGptPreTrainedModel):
         self.layer_norm = nn.LayerNorm(self.embed_dim)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -191,7 +174,6 @@ class BioGptModel(BioGptPreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        # initialize past_key_values
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache(config=self.config)
 
@@ -199,7 +181,6 @@ class BioGptModel(BioGptPreTrainedModel):
         past_key_values_length = past_key_values.get_seq_length() if past_key_values is not None else 0
 
         if attention_mask is None:
-            # required mask seq length can be calculated via length of past cache
             mask_seq_length = past_key_values_length + seq_length
             attention_mask = torch.ones(batch_size, mask_seq_length, device=inputs_embeds.device)
 
@@ -212,7 +193,6 @@ class BioGptModel(BioGptPreTrainedModel):
             past_key_values=self_attn_cache,
         )
 
-        # embed positions
         if position_ids is None:
             position_ids = torch.arange(seq_length, device=inputs_embeds.device) + past_key_values_length
             position_ids = position_ids.unsqueeze(0)
@@ -258,7 +238,6 @@ class BioGptForCausalLM(BioGptPreTrainedModel, GenerationMixin):
         self.biogpt = BioGptModel(config)
         self.output_projection = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -407,7 +386,6 @@ class BioGptForSequenceClassification(BioGptPreTrainedModel):
         self.biogpt = BioGptModel(config)
         self.score = nn.Linear(config.hidden_size, self.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -453,7 +431,6 @@ class BioGptForSequenceClassification(BioGptPreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)

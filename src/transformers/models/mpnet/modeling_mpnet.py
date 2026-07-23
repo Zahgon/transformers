@@ -1,18 +1,3 @@
-# Copyright 2018 The HuggingFace Inc. team, Microsoft Corporation.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch MPNet model."""
 
 import math
 
@@ -148,18 +133,15 @@ class MPNetSelfAttention(nn.Module):
         k = self.k(hidden_states).view(hidden_shape).transpose(1, 2)
         v = self.v(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(q, k.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
-        # Apply relative position embedding (precomputed in MPNetEncoder) if provided.
         if position_bias is not None:
             attention_scores += position_bias
 
         if attention_mask is not None:
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
         attention_probs = self.dropout(attention_probs)
@@ -202,7 +184,6 @@ class MPNetAttention(nn.Module):
         return outputs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate
 class MPNetIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -218,7 +199,6 @@ class MPNetIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput
 class MPNetOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -299,7 +279,6 @@ class MPNetEncoder(nn.Module):
             if output_attentions:
                 all_attentions = all_attentions + (layer_outputs[1],)
 
-        # Add last layer
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -350,7 +329,6 @@ class MPNetEncoder(nn.Module):
         return ret
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler
 class MPNetPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -358,8 +336,6 @@ class MPNetPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -380,7 +356,6 @@ class MPNetModel(MPNetPreTrainedModel):
         self.encoder = MPNetEncoder(config)
         self.pooler = MPNetPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -453,7 +428,6 @@ class MPNetForMaskedLM(MPNetPreTrainedModel):
         self.mpnet = MPNetModel(config, add_pooling_layer=False)
         self.lm_head = MPNetLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -515,7 +489,6 @@ class MPNetForMaskedLM(MPNetPreTrainedModel):
 
 
 class MPNetLMHead(nn.Module):
-    """MPNet Head for masked and permuted language modeling."""
 
     def __init__(self, config):
         super().__init__()
@@ -530,7 +503,6 @@ class MPNetLMHead(nn.Module):
         x = gelu(x)
         x = self.layer_norm(x)
 
-        # project back to size of vocabulary with bias
         x = self.decoder(x)
 
         return x
@@ -550,7 +522,6 @@ class MPNetForSequenceClassification(MPNetPreTrainedModel):
         self.mpnet = MPNetModel(config, add_pooling_layer=False)
         self.classifier = MPNetClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -630,7 +601,6 @@ class MPNetForMultipleChoice(MPNetPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -723,7 +693,6 @@ class MPNetForTokenClassification(MPNetPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -779,7 +748,6 @@ class MPNetForTokenClassification(MPNetPreTrainedModel):
 
 
 class MPNetClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config):
         super().__init__()
@@ -806,7 +774,6 @@ class MPNetForQuestionAnswering(MPNetPreTrainedModel):
         self.mpnet = MPNetModel(config, add_pooling_layer=False)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -844,12 +811,10 @@ class MPNetForQuestionAnswering(MPNetPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)
@@ -877,7 +842,6 @@ def create_position_ids_from_input_ids(input_ids, padding_idx):
     Replace non-padding symbols with their position numbers. Position numbers begin at padding_idx+1. Padding symbols
     are ignored. This is modified from fairseq's `utils.make_positions`. :param torch.Tensor x: :return torch.Tensor:
     """
-    # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
     mask = input_ids.ne(padding_idx).int()
     incremental_indices = torch.cumsum(mask, dim=1).type_as(mask) * mask
     return incremental_indices.long() + padding_idx

@@ -41,36 +41,6 @@ class ClassificationFunction(ExplicitEnum):
             - `"none"`: Does not apply any function on the output.""",
 )
 class TextClassificationPipeline(Pipeline):
-    """
-    Text classification pipeline using any `ModelForSequenceClassification`. See the [sequence classification
-    examples](../task_summary#sequence-classification) for more information.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> classifier = pipeline(model="distilbert/distilbert-base-uncased-finetuned-sst-2-english")
-    >>> classifier("This movie is disgustingly good !")
-    [{'label': 'POSITIVE', 'score': 1.0}]
-
-    >>> classifier("Director tried too much.")
-    [{'label': 'NEGATIVE', 'score': 0.996}]
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This text classification pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"sentiment-analysis"` (for classifying sequences according to positive or negative sentiments).
-
-    If multiple classification labels are available (`model.config.num_labels >= 2`), the pipeline will run a softmax
-    over the results. If there is a single label, the pipeline will run a sigmoid over the result. In case of regression
-    tasks (`model.config.problem_type == "regression"`), will not apply any function on the output.
-
-    The models that this pipeline can use are models that have been fine-tuned on a sequence classification task. See
-    the up-to-date list of available models on
-    [huggingface.co/models](https://huggingface.co/models?filter=text-classification).
-    """
 
     _load_processor = False
     _load_image_processor = False
@@ -85,8 +55,6 @@ class TextClassificationPipeline(Pipeline):
         self.check_model_type(MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES)
 
     def _sanitize_parameters(self, function_to_apply=None, top_k="", **tokenizer_kwargs):
-        # Using "" as default argument because we're going to use `top_k=None` in user code to declare
-        # "No top_k"
         preprocess_params = tokenizer_kwargs
 
         postprocess_params = {}
@@ -143,10 +111,8 @@ class TextClassificationPipeline(Pipeline):
         """
         inputs = (inputs,)
         result = super().__call__(*inputs, **kwargs)
-        # TODO try and retrieve it in a nicer way from _sanitize_parameters.
         _legacy = "top_k" not in kwargs
         if isinstance(inputs[0], str) and _legacy:
-            # This pipeline is odd, and return a list when single item is run
             return [result]
         else:
             return result
@@ -156,12 +122,10 @@ class TextClassificationPipeline(Pipeline):
         if isinstance(inputs, dict):
             return self.tokenizer(**inputs, return_tensors=return_tensors, **tokenizer_kwargs)
         elif isinstance(inputs, list) and len(inputs) == 1 and isinstance(inputs[0], list) and len(inputs[0]) == 2:
-            # It used to be valid to use a list of list of list for text pairs, keeping this path for BC
             return self.tokenizer(
                 text=inputs[0][0], text_pair=inputs[0][1], return_tensors=return_tensors, **tokenizer_kwargs
             )
         elif isinstance(inputs, list):
-            # This is likely an invalid usage of the pipeline attempting to pass text pairs.
             raise ValueError(
                 "The pipeline received invalid inputs, if you are trying to send text pairs, you can try to send a"
                 ' dictionary `{"text": "My text", "text_pair": "My pair"}` in order to send a text pair.'
@@ -169,17 +133,12 @@ class TextClassificationPipeline(Pipeline):
         return self.tokenizer(inputs, return_tensors=return_tensors, **tokenizer_kwargs)
 
     def _forward(self, model_inputs):
-        # `XXXForSequenceClassification` models should not use `use_cache=True` even if it's supported
         model_forward = self.model.forward
         if "use_cache" in inspect.signature(model_forward).parameters:
             model_inputs["use_cache"] = False
         return self.model(**model_inputs)
 
     def postprocess(self, model_outputs, function_to_apply=None, top_k=1, _legacy=True):
-        # `_legacy` is used to determine if we're running the naked pipeline and in backward
-        # compatibility mode, or if running the pipeline with `pipeline(..., top_k=1)` we're running
-        # the more natural result containing the list.
-        # Default value before `set_parameters`
         if function_to_apply is None:
             if self.model.config.problem_type == "regression":
                 function_to_apply = ClassificationFunction.NONE
@@ -194,7 +153,6 @@ class TextClassificationPipeline(Pipeline):
 
         outputs = model_outputs["logits"][0]
 
-        # To enable using fp16 and bf16
         outputs = outputs.float().numpy()
 
         if function_to_apply == ClassificationFunction.SIGMOID:

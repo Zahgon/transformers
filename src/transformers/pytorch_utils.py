@@ -1,16 +1,3 @@
-# Copyright 2022 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from __future__ import annotations
 
 import inspect
@@ -36,7 +23,6 @@ logger = logging.get_logger(__name__)
 is_torch_greater_or_equal_than_2_8 = is_torch_greater_or_equal("2.8", accept_dev=True)
 is_torch_greater_or_equal_than_2_6 = is_torch_greater_or_equal("2.6", accept_dev=True)
 
-# For backwards compatibility (e.g. some remote codes on Hub using those variables).
 is_torch_greater_or_equal_than_2_4 = is_torch_greater_or_equal("2.4", accept_dev=True)
 is_torch_greater_or_equal_than_2_3 = is_torch_greater_or_equal("2.3", accept_dev=True)
 is_torch_greater_or_equal_than_2_2 = is_torch_greater_or_equal("2.2", accept_dev=True)
@@ -45,19 +31,11 @@ is_torch_greater_or_equal_than_2_0 = is_torch_greater_or_equal("2.0", accept_dev
 is_torch_greater_or_equal_than_1_13 = is_torch_greater_or_equal("1.13", accept_dev=True)
 is_torch_greater_or_equal_than_1_12 = is_torch_greater_or_equal("1.12", accept_dev=True)
 
-# Cache this result has it's a C FFI call which can be pretty time-consuming
 _torch_distributed_available = torch.distributed.is_available()
 
 
 def softmax_backward_data(parent, grad_output, output):
-    """
-    A function that calls the internal `_softmax_backward_data` PyTorch method and that adjusts the arguments according
-    to the torch version detected.
-    """
-
-    from torch import _softmax_backward_data
-
-    return _softmax_backward_data(grad_output, output, parent.dim, output.dtype)
+    pass
 
 
 def prune_linear_layer(layer: nn.Linear, index: torch.LongTensor, dim: int = 0) -> nn.Linear:
@@ -95,15 +73,6 @@ def prune_linear_layer(layer: nn.Linear, index: torch.LongTensor, dim: int = 0) 
 
 
 class Conv1D(nn.Module):
-    """
-    1D-convolutional layer as defined by Radford et al. for OpenAI GPT (and also used in GPT-2).
-
-    Basically works like a linear layer but the weights are transposed.
-
-    Args:
-        nf (`int`): The number of output features.
-        nx (`int`): The number of input features.
-    """
 
     def __init__(self, nf, nx):
         super().__init__()
@@ -166,7 +135,6 @@ def apply_chunking_to_forward(
 
     assert len(input_tensors) > 0, f"{input_tensors} has to be a tuple/list of tensors"
 
-    # inspect.signature exist since python 3.5 and is a python method -> no problem with backward compatibility
     num_args_in_forward_chunk_fn = len(inspect.signature(forward_fn).parameters)
     if num_args_in_forward_chunk_fn != len(input_tensors):
         raise ValueError(
@@ -191,11 +159,8 @@ def apply_chunking_to_forward(
 
         num_chunks = input_tensors[0].shape[chunk_dim] // chunk_size
 
-        # chunk input tensor into tuples
         input_tensors_chunks = tuple(input_tensor.chunk(num_chunks, dim=chunk_dim) for input_tensor in input_tensors)
-        # apply forward fn to every tuple
         output_chunks = tuple(forward_fn(*input_tensors_chunk) for input_tensors_chunk in zip(*input_tensors_chunks))
-        # concatenate output at same dimension
         return torch.cat(output_chunks, dim=chunk_dim)
 
     return forward_fn(*input_tensors)
@@ -225,10 +190,6 @@ def id_tensor_storage(tensor: torch.Tensor) -> tuple[torch.device, int, int]:
             return tensor.device, local_tensor.storage().data_ptr(), tensor.nbytes
 
     if tensor.device.type == "xla" and is_torch_xla_available():
-        # NOTE: xla tensors dont have storage
-        # use some other unique id to distinguish.
-        # this is a XLA tensor, it must be created using torch_xla's
-        # device. So the following import is safe:
         import torch_xla
 
         unique_id = torch_xla._XLAC._xla_get_tensor_id(tensor)
@@ -246,15 +207,6 @@ def compile_compatible_method_lru_cache(*lru_args, **lru_kwargs):
     """
 
     def decorator(func):
-        func_with_cache = lru_cache(*lru_args, **lru_kwargs)(func)
-
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            if is_torchdynamo_compiling():
-                return func(*args, **kwargs)
-            else:
-                return func_with_cache(*args, **kwargs)
-
-        return wrapper
+        pass
 
     return decorator

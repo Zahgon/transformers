@@ -12,49 +12,7 @@ from transformers import AutoImageProcessor, SwinConfig, SwinForImageClassificat
 
 
 def get_swin_config(swin_name):
-    config = SwinConfig()
-    name_split = swin_name.split("_")
-
-    model_size = name_split[1]
-    img_size = int(name_split[4])
-    window_size = int(name_split[3][-1])
-
-    if model_size == "tiny":
-        embed_dim = 96
-        depths = (2, 2, 6, 2)
-        num_heads = (3, 6, 12, 24)
-    elif model_size == "small":
-        embed_dim = 96
-        depths = (2, 2, 18, 2)
-        num_heads = (3, 6, 12, 24)
-    elif model_size == "base":
-        embed_dim = 128
-        depths = (2, 2, 18, 2)
-        num_heads = (4, 8, 16, 32)
-    else:
-        embed_dim = 192
-        depths = (2, 2, 18, 2)
-        num_heads = (6, 12, 24, 48)
-
-    if "in22k" in swin_name:
-        num_classes = 21841
-    else:
-        num_classes = 1000
-        repo_id = "huggingface/label-files"
-        filename = "imagenet-1k-id2label.json"
-        id2label = json.load(open(hf_hub_download(repo_id, filename, repo_type="dataset"), "r"))
-        id2label = {int(k): v for k, v in id2label.items()}
-        config.id2label = id2label
-        config.label2id = {v: k for k, v in id2label.items()}
-
-    config.image_size = img_size
-    config.num_labels = num_classes
-    config.embed_dim = embed_dim
-    config.depths = depths
-    config.num_heads = num_heads
-    config.window_size = window_size
-
-    return config
+    pass
 
 
 def rename_key(name):
@@ -129,38 +87,11 @@ def convert_state_dict(orig_state_dict, model):
 
 
 def convert_swin_checkpoint(swin_name, pytorch_dump_folder_path):
-    timm_model = timm.create_model(swin_name, pretrained=True)
-    timm_model.eval()
-
-    config = get_swin_config(swin_name)
-    model = SwinForImageClassification(config)
-    model.eval()
-
-    new_state_dict = convert_state_dict(timm_model.state_dict(), model)
-    model.load_state_dict(new_state_dict)
-
-    url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-
-    image_processor = AutoImageProcessor.from_pretrained(f"microsoft/{swin_name.replace('_', '-')}")
-    with httpx.stream("GET", url) as response:
-        image = Image.open(BytesIO(response.read()))
-    inputs = image_processor(images=image, return_tensors="pt")
-
-    timm_outs = timm_model(inputs["pixel_values"])
-    hf_outs = model(**inputs).logits
-
-    assert torch.allclose(timm_outs, hf_outs, atol=1e-3)
-
-    print(f"Saving model {swin_name} to {pytorch_dump_folder_path}")
-    model.save_pretrained(pytorch_dump_folder_path)
-
-    print(f"Saving image processor to {pytorch_dump_folder_path}")
-    image_processor.save_pretrained(pytorch_dump_folder_path)
+    pass
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Required parameters
     parser.add_argument(
         "--swin_name",
         default="swin_tiny_patch4_window7_224",

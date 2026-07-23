@@ -1,17 +1,3 @@
-# Copyright 2022 The OpenBMB Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for CPMAnt."""
 
 import collections
 import os
@@ -75,29 +61,6 @@ class WordpieceTokenizer:
 
 
 class CpmAntTokenizer(PreTrainedTokenizer):
-    """
-    Construct a CPMAnt tokenizer. Based on byte-level Byte-Pair-Encoding.
-
-    Args:
-        vocab_file (`str`):
-            Path to the vocabulary file.
-        bod_token (`str`, *optional*, defaults to `"<d>"`):
-            The beginning of document token.
-        eod_token (`str`, *optional*, defaults to `"</d>"`):
-            The end of document token.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token.
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token.
-        line_token (`str`, *optional*, defaults to `"</n>"`):
-            The line token.
-        space_token (`str`, *optional*, defaults to `"</_>"`):
-            The space token.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -155,19 +118,19 @@ class CpmAntTokenizer(PreTrainedTokenizer):
 
     @property
     def bod_token_id(self):
-        return self.encoder[self.bod_token]
+        pass
 
     @property
     def eod_token_id(self):
-        return self.encoder[self.eod_token]
+        pass
 
     @property
     def newline_id(self):
-        return self.encoder["\n"]
+        pass
 
     @property
     def vocab_size(self) -> int:
-        return len(self.encoder)
+        pass
 
     def get_vocab(self):
         return dict(self.encoder, **self.added_tokens_encoder)

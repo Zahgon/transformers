@@ -1,17 +1,3 @@
-# Copyright 2026 NVIDIA Corporation and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Cosmos3 Edge reasoner model."""
 
 import math
 import re
@@ -138,26 +124,12 @@ class Cosmos3EdgeTextConfig(LlamaConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        super().validate_architecture()
-        rope_type = self.rope_parameters["rope_type"]
-        if rope_type != "default":
-            raise ValueError(f"Cosmos3 Edge requires `rope_type='default'`, got {rope_type!r}.")
-
-        mrope_section = self.rope_parameters["mrope_section"]
-        if len(mrope_section) != 3 or sum(mrope_section) != self.head_dim // 2:
-            raise ValueError(
-                "`rope_parameters.mrope_section` must contain three sections whose sum equals half of `head_dim`, "
-                f"got {mrope_section} for head_dim={self.head_dim}."
-            )
+        pass
 
 
 @auto_docstring(checkpoint="nvidia/Cosmos3-Edge-Reasoner")
 @strict
 class Cosmos3EdgeVisionConfig(Siglip2VisionConfig):
-    r"""
-    num_patches (`int`, *optional*, defaults to 256):
-        Number of patches in the learned reference positional-embedding grid.
-    """
 
     model_type = "cosmos3_edge_vision"
     hidden_size: int = 1152
@@ -171,19 +143,6 @@ class Cosmos3EdgeVisionConfig(Siglip2VisionConfig):
 @auto_docstring(checkpoint="nvidia/Cosmos3-Edge-Reasoner")
 @strict
 class Cosmos3EdgeConfig(PreTrainedConfig):
-    r"""
-    projector_hidden_size (`int`, *optional*, defaults to 11520):
-        Intermediate hidden size of the vision-to-language projector MLP.
-
-    Example:
-
-    ```python
-    >>> from transformers import Cosmos3EdgeConfig, Cosmos3EdgeForConditionalGeneration
-
-    >>> configuration = Cosmos3EdgeConfig()
-    >>> model = Cosmos3EdgeForConditionalGeneration(configuration)
-    ```
-    """
 
     model_type = "cosmos3_edge"
     sub_configs = {
@@ -215,15 +174,10 @@ class Cosmos3EdgeConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
     def validate_architecture(self):
-        super().validate_architecture()
-        if not isinstance(self.text_config, Cosmos3EdgeTextConfig):
-            raise TypeError("`text_config` must be a `Cosmos3EdgeTextConfig` or a dictionary.")
-        if not isinstance(self.vision_config, Cosmos3EdgeVisionConfig):
-            raise TypeError("`vision_config` must be a `Cosmos3EdgeVisionConfig` or a dictionary.")
+        pass
 
 
 class Cosmos3EdgeTextRotaryEmbedding(LlamaRotaryEmbedding):
-    """Interleaved M-RoPE used for Cosmos3 Edge text and visual tokens."""
 
     @staticmethod
     def compute_default_rope_parameters(
@@ -265,15 +219,13 @@ class Cosmos3EdgeTextRotaryEmbedding(LlamaRotaryEmbedding):
 
 
 class Cosmos3EdgeTextAttention(LlamaAttention):
-    """Dense GQA attention with Cosmos3 Edge M-RoPE."""
+    pass
 
 
 class Cosmos3EdgeTextMLP(CLIPMLP):
-    """The dense two-projection ReLU-squared MLP used by Cosmos3 Edge."""
 
     def __init__(self, config: Cosmos3EdgeTextConfig):
         super().__init__(config)
-        # CLIPMLP has the same fc1 -> activation -> fc2 structure, but Edge checkpoints omit MLP biases.
         self.fc1 = nn.Linear(config.hidden_size, config.intermediate_size, bias=config.mlp_bias)
         self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size, bias=config.mlp_bias)
 
@@ -305,7 +257,6 @@ _COSMOS3_EDGE_DROPPED_GENERATOR_KEYS = [
 
 
 class Cosmos3EdgeVisionEmbeddings(Siglip2VisionEmbeddings):
-    """SigLIP2 patch and learned-position embeddings for packed Edge vision inputs."""
 
     @staticmethod
     def resize_positional_embeddings(
@@ -326,10 +277,8 @@ class Cosmos3EdgeVisionEmbeddings(Siglip2VisionEmbeddings):
         Returns:
             `torch.Tensor`: Positional embeddings packed in the same block-major order as the input patches.
         """
-        # The checkpoint uses a learned square reference grid, interpolated independently for every packed frame.
         positional_embeddings = positional_embeddings.permute(2, 0, 1).unsqueeze(0)
         source_dtype = positional_embeddings.dtype
-        # Upcast to float32 on CPU because antialias is not supported for bfloat16/float16 on CPU.
         if positional_embeddings.device.type == "cpu":
             positional_embeddings = positional_embeddings.float()
 
@@ -350,18 +299,15 @@ class Cosmos3EdgeVisionEmbeddings(Siglip2VisionEmbeddings):
                 spatial_merge_size,
                 -1,
             )
-            # Preserve the processor's block-major 2x2 patch order before the projector groups adjacent patches.
             resized_embeddings = resized_embeddings.transpose(1, 2).reshape(height * width, -1)
             position_chunks.append(resized_embeddings.repeat(temporal, 1))
 
         return torch.cat(position_chunks, dim=0)
 
     def forward(self, pixel_values: torch.FloatTensor, grid_thw: torch.LongTensor) -> torch.Tensor:
-        # Apply patch embeddings to already patchified pixel values.
         target_dtype = self.patch_embedding.weight.dtype
         patch_embeds = self.patch_embedding(pixel_values.to(dtype=target_dtype))
 
-        # Get image-specific positional embeddings in the packed block-major order expected by the checkpoint.
         positional_embeddings = self.position_embedding.weight.reshape(
             self.position_embedding_size, self.position_embedding_size, -1
         )
@@ -376,7 +322,6 @@ class Cosmos3EdgeVisionEmbeddings(Siglip2VisionEmbeddings):
 
 
 class Cosmos3EdgeVisionAttention(Siglip2Attention):
-    """Packed non-causal SigLIP2 attention with one sequence per image or video frame."""
 
     def __init__(self, config: Cosmos3EdgeVisionConfig):
         super().__init__(config)
@@ -495,7 +440,6 @@ class Cosmos3EdgeEncoder(Siglip2Encoder):
 class Cosmos3EdgePreTrainedModel(Qwen2VLPreTrainedModel):
     config_class = Cosmos3EdgeConfig
     input_modalities = ("image", "video", "text")
-    # Packed, variable-length visual inputs use Python-level per-grid reshaping and cannot be compiled fullgraph.
     _can_compile_fullgraph = False
     _no_split_modules = ["Cosmos3EdgeTextDecoderLayer", "Cosmos3EdgeVisionEncoderLayer"]
     _can_record_outputs = {
@@ -533,7 +477,6 @@ class Cosmos3EdgeTextModel(LlamaModel, Cosmos3EdgePreTrainedModel):
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        # torch.jit.trace() doesn't support cache objects in the output.
         if use_cache and past_key_values is None and not torch.jit.is_tracing():
             past_key_values = DynamicCache(config=self.config)
 
@@ -576,7 +519,6 @@ class Cosmos3EdgeTextModel(LlamaModel, Cosmos3EdgePreTrainedModel):
 
 
 class Cosmos3EdgeVisionModel(Cosmos3EdgePreTrainedModel):
-    """Packed variable-resolution SigLIP2 vision tower used by Cosmos3 Edge."""
 
     config_class = Cosmos3EdgeVisionConfig
     main_input_name = "pixel_values"
@@ -627,8 +569,6 @@ class Cosmos3EdgeModel(Qwen2VLModel, Cosmos3EdgePreTrainedModel):
     accepts_loss_kwargs = False
 
     def __init__(self, config: Cosmos3EdgeConfig):
-        # Qwen2VLModel's constructor instantiates its Qwen-specific submodels. Cosmos3 Edge uses the same
-        # multimodal API, but its checkpoint has distinct packed vision and Llama-derived text components.
         Cosmos3EdgePreTrainedModel.__init__(self, config)
         self.visual = Cosmos3EdgeVisionModel._from_config(config.vision_config)
         self.projector = Cosmos3EdgePatchMerger(config)
@@ -674,7 +614,6 @@ class Cosmos3EdgeModel(Qwen2VLModel, Cosmos3EdgePreTrainedModel):
         video_grid_thw (`torch.LongTensor` of shape `(num_videos, 3)`, *optional*):
             The temporal, height, and width dimensions of every packed video patch grids.
         """
-        # Video frames use the same vision tower and projector path as images.
         return self.get_image_features(pixel_values_videos, video_grid_thw, **kwargs)
 
     def get_rope_index(
@@ -686,8 +625,6 @@ class Cosmos3EdgeModel(Qwen2VLModel, Cosmos3EdgePreTrainedModel):
         attention_mask: torch.Tensor | None = None,
         **super_kwargs,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # Edge's processor emits one timestamped visual span per frame, so split each video's temporal grid before
-        # applying Qwen2-VL's common multimodal position-index routine.
         if video_grid_thw is not None:
             video_grid_thw = torch.repeat_interleave(video_grid_thw, video_grid_thw[:, 0], dim=0).clone()
             video_grid_thw[:, 0] = 1
@@ -777,11 +714,8 @@ class Cosmos3EdgeForConditionalGeneration(Qwen2VLForConditionalGeneration, Cosmo
     accepts_loss_kwargs = False
 
     def _prepare_position_ids_for_generation(self, inputs_tensor, model_kwargs):
-        # Qwen2-VL exposes four axes (text plus three visual axes). Edge's interleaved M-RoPE consumes the three
-        # visual axes directly, so start from the common 2D text positions rather than Qwen2-VL's four-axis helper.
         text_positions = GenerationMixin._prepare_position_ids_for_generation(self, inputs_tensor, model_kwargs)
 
-        # Early exit in case we are continuing generation from past kv.
         past_length = 0
         if (cache := model_kwargs.get("past_key_values")) is not None:
             past_length = cache.get_seq_length()
@@ -789,7 +723,6 @@ class Cosmos3EdgeForConditionalGeneration(Qwen2VLForConditionalGeneration, Cosmo
             position_ids = text_positions[None, ...] + self.model.rope_deltas
             return position_ids
 
-        # Otherwise compute 3D position ids for vision tokens.
         if "input_ids" in model_kwargs and model_kwargs["input_ids"].shape[1] > 0:
             inputs_tensor = model_kwargs["input_ids"]
 
@@ -823,9 +756,6 @@ class Cosmos3EdgeForConditionalGeneration(Qwen2VLForConditionalGeneration, Cosmo
         input_ids: torch.LongTensor | None = None,
         **model_kwargs,
     ) -> tuple[torch.LongTensor, dict[str, Any]]:
-        # Video placeholders are emitted once per frame, while `video_grid_thw` has one row per source video.
-        # `_get_image_nums_and_video_nums` cannot do this conversion because it does not receive `video_grid_thw`,
-        # so convert frame-span counts back to source-video counts here before repeating packed tensors for beams.
         if expand_size == 1:
             return input_ids, model_kwargs
 
@@ -991,16 +921,9 @@ class Cosmos3EdgeForConditionalGeneration(Qwen2VLForConditionalGeneration, Cosmo
         )
 
 
-# Processor implementations live in the modular source so the fast/PIL/video/generated modules stay synchronized.
 
 
 class Cosmos3EdgeImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    patch_size (`int`, *optional*, defaults to `16`):
-        Spatial patch size of the vision encoder.
-    merge_size (`int`, *optional*, defaults to `2`):
-        Number of adjacent patches merged along each spatial axis by the projector.
-    """
 
     patch_size: int
     merge_size: int
@@ -1008,7 +931,6 @@ class Cosmos3EdgeImageProcessorKwargs(ImagesKwargs, total=False):
 
 @auto_docstring
 class Cosmos3EdgeImageProcessor(TorchvisionBackend):
-    """Dynamically resize images and return packed, unpadded SigLIP2 patches."""
 
     do_resize = True
     resample = PILImageResampling.BICUBIC
@@ -1097,8 +1019,6 @@ class Cosmos3EdgeImageProcessor(TorchvisionBackend):
                 merge_size,
                 patch_size,
             )
-            # The projector expects block-major patches with HWC values within each flattened patch:
-            # (group_h, group_w, merge_h, merge_w, patch_h, patch_w, channel).
             patches = patches.permute(1, 4, 2, 5, 3, 6, 0).reshape(grid_height * grid_width, -1)
 
             pixel_values.append(patches)
@@ -1113,34 +1033,10 @@ class Cosmos3EdgeImageProcessor(TorchvisionBackend):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs: dict | None = None) -> int:
-        """Return the number of pre-projector vision patches for an image size."""
-        images_kwargs = images_kwargs or {}
-        size = images_kwargs.get("size", self.size)
-        if isinstance(size, SizeDict):
-            min_pixels, max_pixels = size.shortest_edge, size.longest_edge
-        else:
-            min_pixels, max_pixels = size["shortest_edge"], size["longest_edge"]
-        patch_size = images_kwargs.get("patch_size", self.patch_size)
-        merge_size = images_kwargs.get("merge_size", self.merge_size)
-        resized_height, resized_width = smart_resize(
-            height,
-            width,
-            factor=patch_size * merge_size,
-            min_pixels=min_pixels,
-            max_pixels=max_pixels,
-        )
-        return (resized_height // patch_size) * (resized_width // patch_size)
+        pass
 
 
 class Cosmos3EdgeImageProcessorPil(PilBackend):
-    r"""
-    Dynamically resize images and return packed, unpadded SigLIP2 patches.
-
-    patch_size (`int`, *optional*, defaults to `16`):
-        Spatial patch size of the vision encoder.
-    merge_size (`int`, *optional*, defaults to `2`):
-        Number of adjacent patches merged along each spatial axis by the projector.
-    """
 
     do_resize = True
     resample = PILImageResampling.BICUBIC
@@ -1232,8 +1128,6 @@ class Cosmos3EdgeImageProcessorPil(PilBackend):
                 merge_size,
                 patch_size,
             )
-            # The projector expects block-major patches with HWC values within each flattened patch:
-            # (group_h, group_w, merge_h, merge_w, patch_h, patch_w, channel).
             patches = patches.transpose(1, 4, 2, 5, 3, 6, 0).reshape(grid_height * grid_width, -1)
 
             pixel_values.append(patches)
@@ -1248,23 +1142,7 @@ class Cosmos3EdgeImageProcessorPil(PilBackend):
         )
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs: dict | None = None) -> int:
-        """Return the number of pre-projector vision patches for an image size."""
-        images_kwargs = images_kwargs or {}
-        size = images_kwargs.get("size", self.size)
-        if isinstance(size, SizeDict):
-            min_pixels, max_pixels = size.shortest_edge, size.longest_edge
-        else:
-            min_pixels, max_pixels = size["shortest_edge"], size["longest_edge"]
-        patch_size = images_kwargs.get("patch_size", self.patch_size)
-        merge_size = images_kwargs.get("merge_size", self.merge_size)
-        resized_height, resized_width = smart_resize(
-            height,
-            width,
-            factor=patch_size * merge_size,
-            min_pixels=min_pixels,
-            max_pixels=max_pixels,
-        )
-        return (resized_height // patch_size) * (resized_width // patch_size)
+        pass
 
 
 def smart_resize_video(
@@ -1304,18 +1182,6 @@ def smart_resize_video(
 
 
 class Cosmos3EdgeVideoProcessorInitKwargs(VideosKwargs, total=False):
-    r"""
-    patch_size (`int`, *optional*, defaults to `16`):
-        Spatial patch size of the vision encoder.
-    temporal_patch_size (`int`, *optional*, defaults to `1`):
-        Temporal patch size. Cosmos3 Edge processes every sampled frame independently, so only `1` is supported.
-    merge_size (`int`, *optional*, defaults to `2`):
-        Number of adjacent patches merged along each spatial axis by the projector.
-    min_frames (`int`, *optional*, defaults to `4`):
-        Minimum number of frames sampled from a video.
-    max_frames (`int`, *optional*, defaults to `768`):
-        Maximum number of frames sampled from a video.
-    """
 
     patch_size: int
     temporal_patch_size: int
@@ -1381,26 +1247,7 @@ class Cosmos3EdgeVideoProcessor(BaseVideoProcessor):
         fps: int | float | None = None,
         **kwargs,
     ) -> np.ndarray:
-        """Uniformly sample frames with the checkpoint's default two frames per second policy."""
-        if fps is not None and num_frames is not None:
-            raise ValueError("`num_frames` and `fps` are mutually exclusive arguments, please use only one!")
-
-        total_num_frames = metadata.total_num_frames
-        fps = self.fps if fps is None else fps
-        if num_frames is None and fps is not None:
-            if metadata.fps is None:
-                metadata.fps = 24
-                logger.warning_once(
-                    "Cosmos3 Edge samples video frames using fps, but input video metadata did not provide an fps. "
-                    "Defaulting to fps=24. Pass `video_metadata` for accurate timestamps."
-                )
-            num_frames = int(total_num_frames / metadata.fps * fps)
-            num_frames = min(max(num_frames, self.min_frames), self.max_frames, total_num_frames)
-
-        if num_frames is None:
-            num_frames = min(max(total_num_frames, self.min_frames), self.max_frames)
-
-        return np.linspace(0, total_num_frames - 1, num_frames).round().astype(int)
+        pass
 
     def _preprocess(
         self,
@@ -1479,8 +1326,6 @@ class Cosmos3EdgeVideoProcessor(BaseVideoProcessor):
                 merge_size,
                 patch_size,
             )
-            # Preserve time-major, block-major patches with HWC values within each flattened patch:
-            # (batch, time, group_h, group_w, merge_h, merge_w, patch_h, patch_w, channel).
             patches = patches.permute(0, 1, 3, 6, 4, 7, 5, 8, 2)
             processed_videos_grouped[shape] = patches.reshape(
                 batch_size, grid_t * grid_height * grid_width, channels * patch_size * patch_size
@@ -1500,66 +1345,19 @@ class Cosmos3EdgeVideoProcessor(BaseVideoProcessor):
     def get_number_of_video_patches(
         self, num_frames: int, height: int, width: int, videos_kwargs: dict | None = None
     ) -> int:
-        """Return the number of pre-projector vision patches for a video size."""
-        videos_kwargs = videos_kwargs or {}
-        size = videos_kwargs.get("size", self.size)
-        if isinstance(size, SizeDict):
-            min_pixels, max_pixels = size.shortest_edge, size.longest_edge
-        else:
-            min_pixels, max_pixels = size["shortest_edge"], size["longest_edge"]
-        patch_size = videos_kwargs.get("patch_size", self.patch_size)
-        merge_size = videos_kwargs.get("merge_size", self.merge_size)
-        temporal_patch_size = videos_kwargs.get("temporal_patch_size", self.temporal_patch_size)
-        resized_height, resized_width = smart_resize_video(
-            num_frames=num_frames,
-            height=height,
-            width=width,
-            temporal_factor=temporal_patch_size,
-            factor=patch_size * merge_size,
-            min_pixels=min_pixels,
-            max_pixels=max_pixels,
-        )
-        grid_t = math.ceil(num_frames / temporal_patch_size)
-        return grid_t * (resized_height // patch_size) * (resized_width // patch_size)
+        pass
 
 
 @auto_docstring
 class Cosmos3EdgeProcessor(Qwen3VLProcessor):
-    """Construct a Cosmos3 Edge multimodal prompt from image, video, and text inputs."""
 
     valid_processor_kwargs = ProcessingKwargs
 
     def replace_image_token(self, image_inputs: dict, image_idx: int) -> str:
-        """Expand an image placeholder to one text token per projected 2×2 patch group."""
-        merge_length = self.image_processor.merge_size**2
-        num_image_tokens = int(image_inputs["image_grid_thw"][image_idx].prod()) // merge_length
-        return self.image_token * num_image_tokens
+        pass
 
     def replace_video_token(self, video_inputs: dict, video_idx: int) -> str:
-        """Expand a video into timestamped, frame-level vision segments."""
-        grid_thw = video_inputs["video_grid_thw"][video_idx]
-        merge_length = self.video_processor.merge_size**2
-        num_tokens_per_frame = int(grid_thw[1:].prod()) // merge_length
-        metadata = video_inputs["video_metadata"][video_idx]
-
-        if metadata.fps is None:
-            logger.warning_once(
-                "Cosmos3 Edge requires frame timestamps to construct prompts, but the input video's fps could not "
-                "be inferred. Defaulting to fps=24. Pass `video_metadata` for accurate timestamps."
-            )
-        metadata.fps = 24 if metadata.fps is None else metadata.fps
-
-        timestamps = self._calculate_timestamps(
-            metadata.frames_indices,
-            metadata.fps,
-            merge_size=self.video_processor.temporal_patch_size,
-        )
-
-        return "".join(
-            f"<{timestamp:.1f} seconds>{self.vision_start_token}"
-            f"{self.video_token * num_tokens_per_frame}{self.vision_end_token}"
-            for timestamp in timestamps
-        )
+        pass
 
     @staticmethod
     def _calculate_timestamps(
@@ -1567,13 +1365,7 @@ class Cosmos3EdgeProcessor(Qwen3VLProcessor):
         video_fps: float,
         merge_size: int = 1,
     ) -> list[float]:
-        """Compute one timestamp per temporal patch, using the center frame's time."""
-        if not isinstance(indices, list):
-            indices = indices.tolist()
-        if len(indices) % merge_size != 0:
-            indices.extend(indices[-1] for _ in range(merge_size - len(indices) % merge_size))
-        timestamps = [idx / video_fps for idx in indices]
-        return [(timestamps[i] + timestamps[i + merge_size - 1]) / 2 for i in range(0, len(timestamps), merge_size)]
+        pass
 
     def get_text_with_replacements(
         self,
@@ -1582,88 +1374,14 @@ class Cosmos3EdgeProcessor(Qwen3VLProcessor):
         videos_replacements: list[str] = [],
         audio_replacements: list[str] = [],
     ) -> tuple[list[str], list[dict]]:
-        """Replace placeholders while treating the template's full video wrapper as one unit.
-
-        The Edge chat template emits ``<|vision_start|><|video_pad|><|vision_end|>``. Each video must become a
-        separate timestamped vision segment for every frame, so replacing only ``<|video_pad|>`` would leave an
-        invalid outer vision wrapper around all frames.
-        """
-        token_groups = []
-        if images_replacements:
-            token_groups.append(f"(?P<image>{re.escape(self.image_token)})")
-        if videos_replacements:
-            video_wrapper = re.escape(self.vision_start_token + self.video_token + self.vision_end_token)
-            token_groups.append(f"(?P<video>{video_wrapper}|{re.escape(self.video_token)})")
-        if audio_replacements and getattr(self, "audio_token", None) is not None:
-            token_groups.append(f"(?P<audio>{re.escape(self.audio_token)})")
-        if not token_groups:
-            return text, []
-
-        replacements = {
-            "image": iter(images_replacements),
-            "video": iter(videos_replacements),
-            "audio": iter(audio_replacements),
-        }
-        pattern = "|".join(token_groups)
-        batch_replacement_offsets = []
-
-        for batch_index, sample in enumerate(text):
-            last_end = 0
-            offset = 0
-            expanded_sample = []
-            replacement_offsets = []
-            for match in re.finditer(pattern, sample):
-                start, end = match.span()
-                expanded_sample.append(sample[last_end:start])
-                modality = match.lastgroup
-                replacement = next(replacements[modality])
-                start_with_offset = start + offset
-                replacement_offsets.append(
-                    {
-                        "type": modality,
-                        "span": (start, end),
-                        "new_span": (start_with_offset, start_with_offset + len(replacement)),
-                        "text": match.group(),
-                        "replacement": replacement,
-                    }
-                )
-                expanded_sample.append(replacement)
-                offset += len(replacement) - (end - start)
-                last_end = end
-
-            expanded_sample.append(sample[last_end:])
-            text[batch_index] = "".join(expanded_sample)
-            batch_replacement_offsets.append(replacement_offsets)
-        return text, batch_replacement_offsets
+        pass
 
     def _get_num_multimodal_tokens(self, image_sizes=None, video_sizes=None, **kwargs):
-        """Compute placeholder counts for serving frameworks without materializing pixels."""
-        vision_data = {}
-        images_kwargs = dict(kwargs.get("images_kwargs", kwargs))
-        videos_kwargs = dict(kwargs.get("videos_kwargs", kwargs))
-
-        if image_sizes is not None:
-            merge_size = images_kwargs.get("merge_size", self.image_processor.merge_size)
-            num_image_patches = [
-                self.image_processor.get_number_of_image_patches(height, width, images_kwargs)
-                for height, width in image_sizes
-            ]
-            vision_data["num_image_patches"] = num_image_patches
-            vision_data["num_image_tokens"] = [num_patches // merge_size**2 for num_patches in num_image_patches]
-
-        if video_sizes is not None:
-            merge_size = videos_kwargs.get("merge_size", self.video_processor.merge_size)
-            num_video_patches = [
-                self.video_processor.get_number_of_video_patches(num_frames, height, width, videos_kwargs)
-                for num_frames, height, width in video_sizes
-            ]
-            vision_data["num_video_tokens"] = [num_patches // merge_size**2 for num_patches in num_video_patches]
-
-        return MultiModalData(**vision_data)
+        pass
 
     @property
     def model_input_names(self):
-        return super().model_input_names + ["mm_token_type_ids"]
+        pass
 
 
 __all__ = [

@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import numpy as np
@@ -74,8 +61,6 @@ def get_resize_output_image_size(
     """
     height, width = video.size()[-2:]
 
-    # Find the output size, when rescaling the longest edge to max_len and preserving the aspect ratio
-    # The output size must be below the MAX_IMAGE_SIZE
     resolution_max_side = min(MAX_IMAGE_SIZE, resolution_max_side)
     resolution_max_side = max(height, width) if resolution_max_side is None else resolution_max_side
     aspect_ratio = width / height
@@ -118,8 +103,6 @@ class SmolVLMVideoProcessor(BaseVideoProcessor):
 
     def __init__(self, **kwargs: Unpack[SmolVLMVideoProcessorInitKwargs]):
         super().__init__(**kwargs)
-        # For BC pop values from `config.video_sampling`. In official config `video_sampling` is guaranteed to be present
-        # We check for `Noneness` only for certain tests such as `test_init_without_params`
         if "size" in kwargs and "video_sampling" in kwargs:
             kwargs["video_sampling"]["video_size"] = kwargs["size"]
 
@@ -149,8 +132,6 @@ class SmolVLMVideoProcessor(BaseVideoProcessor):
             `torch.Tensor`: The resized video.
         """
         if size.longest_edge:
-            # Resize the image so that the shortest edge or the longest edge is of the given size
-            # while maintaining the aspect ratio of the original image.
             new_size = get_resize_output_image_size(
                 video,
                 resolution_max_side=size.longest_edge,
@@ -164,8 +145,6 @@ class SmolVLMVideoProcessor(BaseVideoProcessor):
             video, SizeDict(height=new_size[0], width=new_size[1]), resample=resample, antialias=antialias
         )
 
-        # Resize again to match image processor when `do_image_splitting=False`. Frames have to be squared to `max_image_size`
-        # NOTE: videos are always processed without image splitting
         max_size = SizeDict(height=self.max_image_size["longest_edge"], width=self.max_image_size["longest_edge"])
         video = super().resize(video, max_size, resample=resample, antialias=antialias)
         return video
@@ -206,8 +185,6 @@ class SmolVLMVideoProcessor(BaseVideoProcessor):
             padding = [0, padding_width, 0, padding_height, 0, 0, 0, padding_frame]
             video = F.pad(video, padding, value=fill)
 
-        # Make a pixel mask for the video, where 1 indicates a valid pixel and 0 indicates padding.
-        # Mask shape is (num_frames, height, width) so we omit the channel dim
         pixel_mask = None
         if return_pixel_mask:
             pixel_mask = torch.zeros_like(video[..., 0, :, :], dtype=torch.int64)
@@ -223,62 +200,7 @@ class SmolVLMVideoProcessor(BaseVideoProcessor):
         skip_secs: int | None = 1,
         **kwargs,
     ):
-        """
-        Video sampling function which:
-            - Uses `num_frames` (if provided) or calculates it from `fps` and metadata.
-            - Applies a basic center-skip if fewer frames than available, otherwise
-                optionally skips `skip_secs` from both the start and end.
-            - Uniformly samples the desired number of frames between the start and end indices.
-
-        Args:
-            metadata (`VideoMetadata`):
-                Metadata of the video containing information about total duration, fps and total number of frames.
-            num_frames (`int`, *optional*):
-                Maximum number of frames to sample. Defaults to `self.num_frames`.
-            fps (`int` or `float`, *optional*):
-                Target frames to sample per second. Defaults to `self.fps`.
-            skip_secs (`float`, *optional*, defaults to `1`):
-                Number of seconds to skip from the start and end if the video is long enough.
-
-        Returns:
-            np.ndarray:
-                Indices to sample video frames.
-        """
-        if metadata is None or getattr(metadata, "fps", None) is None:
-            raise ValueError(
-                "Asked to sample frames per second but no video metadata was provided which is required when sampling in SmolVLM. "
-                "Please pass in `VideoMetadata` object or set `do_sample_frames=False`"
-            )
-
-        num_frames = num_frames if num_frames is not None else self.num_frames
-        fps = fps if fps is not None else self.fps
-        total_num_frames = metadata.total_num_frames
-
-        # Step 1) Estimate how many frames we'd sample at `target_fps`, fallback if target_fps <= 0
-        estimated_frames = int(round(fps * metadata["duration"]))
-
-        # Step 2) desired_frames
-        desired_frames = min(estimated_frames, num_frames)
-        if desired_frames < 1:
-            desired_frames = 1
-
-        # Step 3) center skip logic
-        start_idx = 0
-        end_idx = total_num_frames - 1
-
-        if skip_secs > 0 and (metadata["duration"] - 2 * skip_secs) > (num_frames * fps):
-            start_idx = int(skip_secs * metadata["fps"])
-            end_idx = int(total_num_frames - skip_secs * metadata["fps"])
-
-        start_idx = max(0, start_idx)
-        end_idx = min(end_idx, total_num_frames - 1)
-        if start_idx >= end_idx:
-            start_idx, end_idx = 0, total_num_frames - 1
-
-        indices = np.linspace(start_idx, end_idx, desired_frames, dtype=int)
-        indices = np.unique(indices)
-
-        return indices
+        pass
 
     def _preprocess(
         self,

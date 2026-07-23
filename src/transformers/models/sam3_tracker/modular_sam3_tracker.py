@@ -1,16 +1,3 @@
-# Copyright 2025 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -46,14 +33,6 @@ from ..sam2.processing_sam2 import Sam2Processor
 @auto_docstring(checkpoint="facebook/sam3")
 @strict
 class Sam3TrackerPromptEncoderConfig(Sam2PromptEncoderConfig):
-    r"""
-    mask_input_channels (`int`, *optional*, defaults to 16):
-        The number of channels to be fed to the `MaskDecoder` module.
-    num_point_embeddings (`int`, *optional*, defaults to 4):
-        The number of point embeddings to be used.
-    scale (`float`, *optional*, defaults to 1):
-        The scale factor for the prompt encoder.
-    """
 
     base_config_key = "prompt_encoder_config"
 
@@ -74,40 +53,6 @@ class Sam3TrackerMaskDecoderConfig(Sam2MaskDecoderConfig):
 @auto_docstring(checkpoint="facebook/sam3")
 @strict
 class Sam3TrackerConfig(Sam2Config):
-    r"""
-    prompt_encoder_config (Union[`dict`, `Sam3TrackerPromptEncoderConfig`], *optional*):
-        Dictionary of configuration options used to initialize [`Sam3TrackerPromptEncoderConfig`].
-    mask_decoder_config (Union[`dict`, `Sam3TrackerMaskDecoderConfig`], *optional*):
-        Dictionary of configuration options used to initialize [`Sam3TrackerMaskDecoderConfig`].
-
-    Example:
-
-    ```python
-    >>> from transformers import (
-    ...     Sam3TrackerVisionConfig,
-    ...     Sam3TrackerPromptEncoderConfig,
-    ...     Sam3TrackerMaskDecoderConfig,
-    ...     Sam3TrackerModel,
-    ... )
-
-    >>> # Initializing a Sam3TrackerConfig with `"facebook/sam3_tracker.1_hiera_tiny"` style configuration
-    >>> configuration = Sam3TrackerConfig()
-
-    >>> # Initializing a Sam3TrackerModel (with random weights) from the `"facebook/sam3_tracker.1_hiera_tiny"` style configuration
-    >>> model = Sam3TrackerModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-
-    >>> # We can also initialize a Sam3TrackerConfig from a Sam3TrackerVisionConfig, Sam3TrackerPromptEncoderConfig, and Sam3TrackerMaskDecoderConfig
-    >>> # Initializing SAM3_TRACKER vision encoder, memory attention, and memory encoder configurations
-    >>> vision_config = Sam3TrackerVisionConfig()
-    >>> prompt_encoder_config = Sam3TrackerPromptEncoderConfig()
-    >>> mask_decoder_config = Sam3TrackerMaskDecoderConfig()
-
-    >>> config = Sam3TrackerConfig(vision_config, prompt_encoder_config, mask_decoder_config)
-    ```
-    """
 
     def __post_init__(self, **kwargs):
         if isinstance(self.vision_config, dict):
@@ -202,7 +147,6 @@ class Sam3TrackerModel(Sam2Model):
     ]
 
     def __init__(self, config: Sam3TrackerConfig):
-        # loading from a sam3_video config
         if hasattr(config, "tracker_config") and config.tracker_config is not None:
             if isinstance(config.tracker_config, dict):
                 config.tracker_config = Sam3TrackerConfig(**config.tracker_config)
@@ -211,12 +155,10 @@ class Sam3TrackerModel(Sam2Model):
         self.shared_image_embedding = Sam3TrackerPositionalEmbedding(config.prompt_encoder_config)
         self.vision_encoder = AutoModel.from_config(config.vision_config)
         self.prompt_encoder = Sam3TrackerPromptEncoder(config.prompt_encoder_config)
-        # The module using it is not a PreTrainedModel subclass so we need this
         config.mask_decoder_config._attn_implementation = config._attn_implementation
         self.mask_decoder = Sam3TrackerMaskDecoder(config.mask_decoder_config)
 
         self.backbone_feature_sizes = config.vision_config.backbone_feature_sizes
-        # a single token to indicate no memory embedding from previous frames
         self.hidden_dim = config.vision_config.fpn_hidden_size
         self.no_memory_embedding = torch.nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
 

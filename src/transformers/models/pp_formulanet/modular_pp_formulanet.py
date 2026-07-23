@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import re
 from dataclasses import dataclass
@@ -64,24 +51,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="PaddlePaddle/PPFormulaNet_plus-L_safetensors")
 @strict
 class PPFormulaNetVisionConfig(SLANeXtVisionConfig):
-    r"""
-    output_channels (`int`, *optional*, defaults to 256):
-        Dimensionality of the output channels in the Patch Encoder.
-    window_size (`int`, *optional*, defaults to 14):
-        Window size for relative position.
-    global_attn_indexes (`list[int]`, *optional*, defaults to `[2, 5, 8, 11]`):
-        The indexes of the global attention layers.
-    mlp_dim (`int`, *optional*, defaults to 3072):
-        The dimensionality of the MLP layer in the Transformer encoder.
-    post_conv_in_channels (`int`, *optional*, defaults to 256):
-        Number of input channels for the post-encoder convolution layer.
-    post_conv_out_channels (`int`, *optional*, defaults to 1024):
-        Number of output channels for the post-encoder convolution layer.
-    post_conv_mid_channels (`int`, *optional*, defaults to 512):
-        Number of intermediate channels for the post-encoder convolution layer.
-    decoder_hidden_size (`int`, *optional*, defaults to 512):
-        The hidden size of the decoder that the encoder features are projected to.
-    """
 
     post_conv_in_channels: int = 256
     post_conv_out_channels: int = 1024
@@ -144,15 +113,10 @@ class PPFormulaNetImageProcessor(NougatImageProcessor):
 
 @auto_docstring
 class PPFormulaNetProcessor(NougatProcessor):
-    r"""
-    [`PPFormulaNetProcessor`] offers all the functionalities of [`PPFormulaNetImageProcessor`] and [`NougatTokenizer`]. See the
-    [`~PPFormulaNetProcessor.__call__`] and [`~PPFormulaNetProcessor.decode`] for more information.
-    """
 
     def __init__(self, image_processor, tokenizer):
         super().__init__(image_processor, tokenizer)
 
-        # normalize() regex
         self._text_reg = re.compile(r"(\\(operatorname|mathrm|text|mathbf)\s?\*? {.*?})")
         self._macro_pattern = re.compile(r"(\\[a-zA-Z]+)\s(?=\w)|\\[a-zA-Z]+\s(?=})")
         self._protected_macros = {"\\operatorname", "\\mathrm", "\\text", "\\mathbf"}
@@ -163,7 +127,6 @@ class PPFormulaNetProcessor(NougatProcessor):
         self._rule_noletter_letter = re.compile(r"(?!\\ )(%s)\s+?(%s)" % (noletter, letter))
         self._rule_letter_noletter = re.compile(r"(%s)\s+?(%s)" % (letter, noletter))
 
-        # remove_chinese_text_wrapping() regex
         self._chinese_text_wrapping_pattern = re.compile(r"\\text\s*{([^{}]*[\u4e00-\u9fff]+[^{}]*)}")
 
     def __call__(
@@ -217,7 +180,7 @@ class PPFormulaNetProcessor(NougatProcessor):
 
     def remove_chinese_text_wrapping(self, formula: str) -> str:
         def replacer(match):
-            return match.group(1)
+            pass
 
         replaced_formula = self._chinese_text_wrapping_pattern.sub(replacer, formula)
         return replaced_formula.replace('"', "")
@@ -245,29 +208,12 @@ class PPFormulaNetProcessor(NougatProcessor):
         return text
 
     def post_process(self, generated_outputs, skip_special_tokens=True, **kwargs):
-        """
-        Post-process the output of the model to decode the text.
-
-        Args:
-            generated_outputs (`torch.Tensor` or `np.ndarray`):
-                The output of the model `generate` function. The output is expected to be a tensor of shape `(batch_size, sequence_length)`
-                or `(sequence_length,)`.
-            skip_special_tokens (`bool`, *optional*, defaults to `True`):
-                Whether or not to remove special tokens in the output. Argument passed to the tokenizer's `batch_decode` method.
-            **kwargs:
-                Additional arguments to be passed to the tokenizer's `batch_decode method`.
-
-        Returns:
-            `list[str]`: The decoded text.
-        """
-        generated_texts = self.batch_decode(generated_outputs, skip_special_tokens=skip_special_tokens, **kwargs)
-        return [self.post_process_generation(text) for text in generated_texts]
+        pass
 
 
 class PPFormulaNetPreTrainedModel(SLANeXtPreTrainedModel):
     _keep_in_fp32_modules_strict = []
     base_model_prefix = "model"
-    # Note this goes for the decoder only, the encoder will inherently always use eager attention
     _supports_sdpa = True
 
     @torch.no_grad()
@@ -275,19 +221,16 @@ class PPFormulaNetPreTrainedModel(SLANeXtPreTrainedModel):
         """Initialize the weights"""
         PreTrainedModel._init_weights(module)
 
-        # Initialize positional embeddings to zero (PPFormulaNetVisionModel holds pos_embed)
         if isinstance(module, PPFormulaNetVisionModel):
             if module.pos_embed is not None:
                 init.constant_(module.pos_embed, 0.0)
 
-        # Initialize relative positional embeddings to zero (PPFormulaNetVisionAttention holds rel_pos_h/w)
         if isinstance(module, PPFormulaNetVisionAttention):
             if module.use_rel_pos:
                 init.constant_(module.rel_pos_h, 0.0)
                 init.constant_(module.rel_pos_w, 0.0)
 
 
-# overrider for PPFormulaNetModel's encoder output
 @dataclass
 class PPFormulaNetVisionEncoderOutput(BaseModelOutputWithPooling):
     pass
@@ -482,7 +425,6 @@ class PPFormulaNetForConditionalGeneration(Florence2ForConditionalGeneration):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -504,7 +446,6 @@ class PPFormulaNetForConditionalGeneration(Florence2ForConditionalGeneration):
             encoder_attentions=outputs.encoder_attentions,
         )
 
-    # override this function to compatible with `_prepare_encoder_decoder_kwargs_for_generation`
     def get_encoder(self, modality: str | None = None):
         return self.model.get_encoder(modality=modality)
 

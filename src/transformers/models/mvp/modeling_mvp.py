@@ -1,17 +1,3 @@
-# Copyright 2022 The Fairseq Authors and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch MVP model."""
 
 import math
 
@@ -42,7 +28,6 @@ from .configuration_mvp import MvpConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.bart.modeling_bart.shift_tokens_right
 def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
     """
     Shift input ids one token to the right.
@@ -53,21 +38,14 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("self.model.config.pad_token_id has to be defined.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
 
 
-# Copied from transformers.models.bart.modeling_bart.BartLearnedPositionalEmbedding with Bart->Mvp
 class MvpLearnedPositionalEmbedding(nn.Embedding):
-    """
-    This module learns positional embeddings up to a fixed maximum size.
-    """
 
     def __init__(self, num_embeddings: int, embedding_dim: int):
-        # Mvp is set up so that if padding_idx is specified then offset the embedding ids by 2
-        # and adjust num_embeddings appropriately. Other models don't have this hack
         self.offset = 2
         super().__init__(num_embeddings + self.offset, embedding_dim)
 
@@ -88,7 +66,6 @@ class MvpLearnedPositionalEmbedding(nn.Embedding):
 
 
 class MvpAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(
         self,
@@ -131,13 +108,10 @@ class MvpAttention(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
         bsz, tgt_len, _ = hidden_states.size()
 
-        # get query proj
         query_states = self.q_proj(hidden_states) * self.scaling
 
         is_updated = False
@@ -145,7 +119,6 @@ class MvpAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -154,7 +127,6 @@ class MvpAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -164,9 +136,7 @@ class MvpAttention(nn.Module):
             value_states = value_states.view(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all key/value_states to cache to be re-used for fast auto-regressive generation
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -203,10 +173,6 @@ class MvpAttention(nn.Module):
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
         if output_attentions:
-            # this operation is a bit awkward, but it's required to
-            # make sure that attn_weights keeps its gradient.
-            # In order to do so, attn_weights have to be reshaped
-            # twice and have to be reused in the following
             attn_weights_reshaped = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
             attn_weights = attn_weights_reshaped.view(bsz * self.num_heads, tgt_len, src_len)
         else:
@@ -225,8 +191,6 @@ class MvpAttention(nn.Module):
         attn_output = attn_output.view(bsz, self.num_heads, tgt_len, self.head_dim)
         attn_output = attn_output.transpose(1, 2)
 
-        # Use the `embed_dim` from the config (stored in the class) rather than `hidden_state` because `attn_output` can be
-        # partitioned across GPUs when using tensor-parallelism.
         attn_output = attn_output.reshape(bsz, tgt_len, self.embed_dim)
 
         attn_output = self.out_proj(attn_output)
@@ -357,7 +321,6 @@ class MvpDecoderLayer(GradientCheckpointingLayer):
         """
         residual = hidden_states
 
-        # Self Attention
         hidden_states, self_attn_weights = self.self_attn(
             hidden_states=hidden_states,
             past_key_values=past_key_values,
@@ -369,7 +332,6 @@ class MvpDecoderLayer(GradientCheckpointingLayer):
         hidden_states = residual + hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
 
-        # Cross-Attention Block
         cross_attn_weights = None
         if encoder_hidden_states is not None:
             residual = hidden_states
@@ -386,7 +348,6 @@ class MvpDecoderLayer(GradientCheckpointingLayer):
             hidden_states = residual + hidden_states
             hidden_states = self.encoder_attn_layer_norm(hidden_states)
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.activation_fn(self.fc1(hidden_states))
         hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
@@ -403,9 +364,7 @@ class MvpDecoderLayer(GradientCheckpointingLayer):
         return outputs
 
 
-# Copied from transformers.models.bart.modeling_bart.BartClassificationHead with Bart->MVP
 class MvpClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(
         self,
@@ -429,7 +388,6 @@ class MvpClassificationHead(nn.Module):
 
 
 class MvpPrompt(nn.Module):
-    """Layer-wise prompt for encoder or decoder."""
 
     def __init__(self, config, num_layers, num_heads):
         super().__init__()
@@ -466,25 +424,10 @@ class MvpPreTrainedModel(PreTrainedModel):
 
     @property
     def dummy_inputs(self):
-        pad_token = self.config.pad_token_id
-        input_ids = torch.tensor([[0, 6, 10, 4, 2], [0, 8, 12, 2, pad_token]], device=self.device)
-        dummy_inputs = {
-            "attention_mask": input_ids.ne(pad_token),
-            "input_ids": input_ids,
-        }
-        return dummy_inputs
+        pass
 
 
 class MvpEncoder(MvpPreTrainedModel):
-    """
-    Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a
-    [`MvpEncoderLayer`].
-
-    Args:
-        config: MvpConfig
-        embed_tokens (nn.Embedding): output embedding
-        use_prompt (bool): whether to use prompt
-    """
 
     def __init__(self, config: MvpConfig, embed_tokens: nn.Embedding | None = None, use_prompt: bool | None = False):
         super().__init__(config)
@@ -516,7 +459,6 @@ class MvpEncoder(MvpPreTrainedModel):
             )
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -565,7 +507,6 @@ class MvpEncoder(MvpPreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
         elif input_ids is not None:
@@ -587,12 +528,10 @@ class MvpEncoder(MvpPreTrainedModel):
         hidden_states = self.layernorm_embedding(hidden_states)
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
-        # layer-wise prompt
         if self.use_prompt:
             prompt_ids = torch.arange(self.prompt_length).to(self.device)
             self_attn_prompt = self.self_attn_prompt(prompt_ids)
 
-        # expand attention_mask
         if attention_mask is not None:
             attention_mask = create_bidirectional_mask(
                 config=self.config,
@@ -606,7 +545,6 @@ class MvpEncoder(MvpPreTrainedModel):
         for idx, encoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 encoder_states = encoder_states + (hidden_states,)
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -639,14 +577,6 @@ class MvpEncoder(MvpPreTrainedModel):
 
 
 class MvpDecoder(MvpPreTrainedModel):
-    """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer is a [`MvpDecoderLayer`]
-
-    Args:
-        config: MvpConfig
-        embed_tokens (nn.Embedding): output embedding
-        use_prompt (bool): whether to use prompt
-    """
 
     def __init__(self, config: MvpConfig, use_prompt: bool | None = False):
         super().__init__(config)
@@ -679,7 +609,6 @@ class MvpDecoder(MvpPreTrainedModel):
             )
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -753,7 +682,6 @@ class MvpDecoder(MvpPreTrainedModel):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError("You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
         elif input_ids is not None:
@@ -792,7 +720,6 @@ class MvpDecoder(MvpPreTrainedModel):
             past_key_values=past_key_values,
         )
 
-        # expand encoder attention mask
         if encoder_hidden_states is not None and encoder_attention_mask is not None:
             encoder_attention_mask = create_bidirectional_mask(
                 config=self.config,
@@ -801,7 +728,6 @@ class MvpDecoder(MvpPreTrainedModel):
                 encoder_hidden_states=encoder_hidden_states,
             )
 
-        # embed positions
         positions = self.embed_positions(input, past_key_values_length)
 
         hidden_states = inputs_embeds + positions
@@ -809,19 +735,16 @@ class MvpDecoder(MvpPreTrainedModel):
 
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
-        # layer-wise prompt
         if self.use_prompt:
             prompt_ids = torch.arange(self.prompt_length).to(self.device)
             self_attn_prompt = self.self_attn_prompt(prompt_ids)
             cross_attn_prompt = self.cross_attn_prompt(prompt_ids)
 
-        # decoder layers
         all_hidden_states = () if output_hidden_states else None
         all_self_attns = () if output_attentions else None
         all_cross_attentions = () if (output_attentions and encoder_hidden_states is not None) else None
 
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
             if self.training:
@@ -847,7 +770,6 @@ class MvpDecoder(MvpPreTrainedModel):
                 if encoder_hidden_states is not None:
                     all_cross_attentions += (layer_outputs[2],)
 
-        # add hidden states from the last decoder layer
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
 
@@ -884,7 +806,6 @@ class MvpModel(MvpPreTrainedModel):
         self.encoder = MvpEncoder(config, config.use_prompt)
         self.decoder = MvpDecoder(config, config.use_prompt)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -896,12 +817,7 @@ class MvpModel(MvpPreTrainedModel):
         self.decoder.embed_tokens = self.shared
 
     def set_lightweight_tuning(self):
-        assert self.use_prompt, "If you want to use lightweight tuning, make sure that `use_prompt=True`."
-
-        self.requires_grad_(False)
-        self.encoder.self_attn_prompt.requires_grad_(True)
-        self.decoder.self_attn_prompt.requires_grad_(True)
-        self.decoder.cross_attn_prompt.requires_grad_(True)
+        pass
 
     @auto_docstring
     def forward(
@@ -943,8 +859,6 @@ class MvpModel(MvpPreTrainedModel):
             and modify to your needs. See diagram 1 in [the paper](https://huggingface.co/papers/1910.13461) for more
             information on the default strategy.
         """
-        # different to other models, Mvp automatically creates decoder_input_ids from
-        # input_ids if no decoder_input_ids are provided
         if decoder_input_ids is None and decoder_inputs_embeds is None:
             if input_ids is None:
                 raise ValueError(
@@ -973,7 +887,6 @@ class MvpModel(MvpPreTrainedModel):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -981,7 +894,6 @@ class MvpModel(MvpPreTrainedModel):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        # decoder outputs consists of (dec_features, past_key_values, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -1026,7 +938,6 @@ class MvpForConditionalGeneration(MvpPreTrainedModel, GenerationMixin):
         self.register_buffer("final_logits_bias", torch.zeros((1, self.model.shared.num_embeddings)))
         self.lm_head = nn.Linear(config.d_model, self.model.shared.num_embeddings, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def resize_token_embeddings(
@@ -1046,8 +957,7 @@ class MvpForConditionalGeneration(MvpPreTrainedModel, GenerationMixin):
         self.register_buffer("final_logits_bias", new_bias)
 
     def set_lightweight_tuning(self):
-        self.model.set_lightweight_tuning()
-        self.lm_head.requires_grad_(False)
+        pass
 
     @auto_docstring
     def forward(
@@ -1191,12 +1101,10 @@ class MvpForSequenceClassification(MvpPreTrainedModel):
             config.classifier_dropout,
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def set_lightweight_tuning(self):
-        self.model.set_lightweight_tuning()
-        self.classification_head.requires_grad_(False)
+        pass
 
     @auto_docstring
     def forward(
@@ -1355,12 +1263,10 @@ class MvpForQuestionAnswering(MvpPreTrainedModel):
         self.model = MvpModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def set_lightweight_tuning(self):
-        self.model.set_lightweight_tuning()
-        self.qa_outputs.requires_grad_(False)
+        pass
 
     @auto_docstring
     def forward(
@@ -1464,12 +1370,10 @@ class MvpForQuestionAnswering(MvpPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)
@@ -1500,12 +1404,7 @@ class MvpForQuestionAnswering(MvpPreTrainedModel):
         )
 
 
-# Copied from transformers.models.bart.modeling_bart.BartDecoderWrapper with Bart->Mvp
 class MvpDecoderWrapper(MvpPreTrainedModel):
-    """
-    This wrapper class is a helper class to correctly load pretrained checkpoints when the causal language model is
-    used in combination with the [`EncoderDecoderModel`] framework.
-    """
 
     def __init__(self, config):
         super().__init__(config)
@@ -1527,7 +1426,6 @@ class MvpForCausalLM(MvpPreTrainedModel, GenerationMixin):
 
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1537,8 +1435,7 @@ class MvpForCausalLM(MvpPreTrainedModel, GenerationMixin):
         self.model.decoder.embed_tokens = value
 
     def set_lightweight_tuning(self):
-        self.model.set_lightweight_tuning()
-        self.lm_head.requires_grad_(False)
+        pass
 
     @auto_docstring
     def forward(
@@ -1585,7 +1482,6 @@ class MvpForCausalLM(MvpPreTrainedModel, GenerationMixin):
         )
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model.decoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -1600,7 +1496,6 @@ class MvpForCausalLM(MvpPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

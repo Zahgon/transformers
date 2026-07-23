@@ -1,23 +1,8 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""AutoFeatureExtractor class."""
 
 import importlib
 import os
 from collections import OrderedDict
 
-# Build the list of all feature extractors
 from ...configuration_utils import PreTrainedConfig
 from ...dynamic_module_utils import get_class_from_dynamic_module, resolve_trust_remote_code
 from ...feature_extraction_utils import FeatureExtractionMixin
@@ -93,8 +78,6 @@ def feature_extractor_class_from_name(class_name: str):
         if getattr(extractor, "__name__", None) == class_name:
             return extractor
 
-    # We did not find the class, but maybe it's because a dep is missing. In that case, the class will be in the main
-    # init and we return the proper dummy to get an appropriate error message.
     main_module = importlib.import_module("transformers")
     if hasattr(main_module, class_name):
         return getattr(main_module, class_name)
@@ -167,7 +150,6 @@ def get_feature_extractor_config(
     feature_extractor.save_pretrained("feature-extractor-test")
     feature_extractor_config = get_feature_extractor_config("feature-extractor-test")
     ```"""
-    # Load with a priority given to the nested processor config, if available in repo
     resolved_processor_file = cached_file(
         pretrained_model_name_or_path,
         filename=PROCESSOR_NAME,
@@ -193,14 +175,10 @@ def get_feature_extractor_config(
         _raise_exceptions_for_missing_entries=False,
     )
 
-    # An empty list if none of the possible files is found in the repo
     if not resolved_feature_extractor_file and not resolved_processor_file:
         logger.info("Could not locate the feature extractor configuration file.")
         return {}
 
-    # Load feature_extractor dict. Priority goes as (nested config if found -> feature extractor config)
-    # We are downloading both configs because almost all models have a `processor_config.json` but
-    # not all of these are nested. We need to check if it was saved recently as nested or if it is legacy style
     feature_extractor_dict = {}
     if resolved_processor_file is not None:
         processor_dict = safe_load_json_file(resolved_processor_file)
@@ -213,12 +191,6 @@ def get_feature_extractor_config(
 
 
 class AutoFeatureExtractor:
-    r"""
-    This is a generic feature extractor class that will be instantiated as one of the feature extractor classes of the
-    library when created with the [`AutoFeatureExtractor.from_pretrained`] class method.
-
-    This class cannot be instantiated directly using `__init__()` (throws an error).
-    """
 
     def __init__(self):
         raise OSError(
@@ -306,13 +278,11 @@ class AutoFeatureExtractor:
         if "AutoFeatureExtractor" in config_dict.get("auto_map", {}):
             feature_extractor_auto_map = config_dict["auto_map"]["AutoFeatureExtractor"]
 
-        # If we don't find the feature extractor class in the feature extractor config, let's try the model config.
         if feature_extractor_class is None and feature_extractor_auto_map is None:
             if not isinstance(config, PreTrainedConfig):
                 config = AutoConfig.from_pretrained(
                     pretrained_model_name_or_path, trust_remote_code=trust_remote_code, **kwargs
                 )
-            # It could be in `config.feature_extractor_type``
             feature_extractor_class = getattr(config, "feature_extractor_type", None)
             if hasattr(config, "auto_map") and "AutoFeatureExtractor" in config.auto_map:
                 feature_extractor_auto_map = config.auto_map["AutoFeatureExtractor"]
@@ -343,7 +313,6 @@ class AutoFeatureExtractor:
             return feature_extractor_class.from_pretrained(pretrained_model_name_or_path, **kwargs)
         elif feature_extractor_class is not None:
             return feature_extractor_class.from_pretrained(pretrained_model_name_or_path, **kwargs)
-        # Last try: we use the FEATURE_EXTRACTOR_MAPPING.
         elif type(config) in FEATURE_EXTRACTOR_MAPPING:
             feature_extractor_class = FEATURE_EXTRACTOR_MAPPING[type(config)]
             return feature_extractor_class.from_pretrained(pretrained_model_name_or_path, **kwargs)

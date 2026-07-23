@@ -1,17 +1,3 @@
-# Copyright 2022 WeChatAI and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for RoCBert."""
 
 import collections
 import itertools
@@ -67,46 +53,6 @@ def whitespace_tokenize(text):
 
 
 class RoCBertTokenizer(PreTrainedTokenizer):
-    r"""
-    Args:
-    Construct a RoCBert tokenizer. Based on WordPiece. This tokenizer inherits from [`PreTrainedTokenizer`] which
-    contains most of the main methods. Users should refer to this superclass for more information regarding those
-    methods.
-        vocab_file (`str`):
-            File containing the vocabulary.
-        word_shape_file (`str`):
-            File containing the word => shape info.
-        word_pronunciation_file (`str`):
-            File containing the word => pronunciation info.
-        do_lower_case (`bool`, *optional*, defaults to `True`):
-            Whether or not to lowercase the input when tokenizing.
-        do_basic_tokenize (`bool`, *optional*, defaults to `True`):
-            Whether or not to do basic tokenization before WordPiece.
-        never_split (`Iterable`, *optional*):
-            Collection of tokens which will never be split during tokenization. Only has an effect when
-            `do_basic_tokenize=True`
-        unk_token (`str`, *optional*, defaults to `"[UNK]"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        sep_token (`str`, *optional*, defaults to `"[SEP]"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        pad_token (`str`, *optional*, defaults to `"[PAD]"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        cls_token (`str`, *optional*, defaults to `"[CLS]"`):
-            The classifier token which is used when doing sequence classification (classification of the whole sequence
-            instead of per-token classification). It is the first token of the sequence when built with special tokens.
-        mask_token (`str`, *optional*, defaults to `"[MASK]"`):
-            The token used for masking values. This is the token used when training this model with masked language
-            modeling. This is the token which the model will try to predict.
-        tokenize_chinese_chars (`bool`, *optional*, defaults to `True`):
-            Whether or not to tokenize Chinese characters. This should likely be deactivated for Japanese (see this
-            [issue](https://github.com/huggingface/transformers/issues/328)).
-        strip_accents (`bool`, *optional*):
-            Whether or not to strip all accents. If this option is not specified, then it will be determined by the
-            value for `lowercase` (as in the original BERT).
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
 
@@ -192,9 +138,7 @@ class RoCBertTokenizer(PreTrainedTokenizer):
         verbose: bool = True,
         **kwargs,
     ) -> BatchEncoding:
-        # Handle text_target for seq2seq tasks
         if text_target is not None:
-            # Tokenize source text
             encodings = self.__call__(
                 text=text,
                 text_pair=text_pair,
@@ -216,7 +160,6 @@ class RoCBertTokenizer(PreTrainedTokenizer):
                 verbose=verbose,
                 **kwargs,
             )
-            # Tokenize target text
             target_length = max_target_length if max_target_length is not None else max_length
             target_encodings = self.__call__(
                 text=text_target,
@@ -238,17 +181,14 @@ class RoCBertTokenizer(PreTrainedTokenizer):
                 verbose=verbose,
                 **kwargs,
             )
-            # Add labels from target input_ids
             encodings["labels"] = target_encodings["input_ids"]
             return encodings
 
-        # Detect batch vs single
         is_batched = isinstance(text, (list, tuple)) and (
             not is_split_into_words or (len(text) > 0 and isinstance(text[0], (list, tuple)))
         )
 
         if is_batched:
-            # Build batch tuples of (text, text_pair) if provided
             batch_text_or_text_pairs = list(zip(text, text_pair)) if text_pair is not None else text
             return self.batch_encode_plus(
                 batch_text_or_text_pairs=batch_text_or_text_pairs,  # type: ignore[arg-type]
@@ -372,43 +312,15 @@ class RoCBertTokenizer(PreTrainedTokenizer):
         verbose: bool = True,
         **kwargs,
     ) -> BatchEncoding:
-        padding_strategy, truncation_strategy, max_length, kwargs = self._get_padding_truncation_strategies(
-            padding=padding,
-            truncation=truncation,
-            max_length=max_length,
-            pad_to_multiple_of=pad_to_multiple_of,
-            verbose=verbose,
-            **kwargs,
-        )
-
-        return self._batch_encode_plus(
-            batch_text_or_text_pairs=batch_text_or_text_pairs,
-            add_special_tokens=add_special_tokens,
-            padding_strategy=padding_strategy,
-            truncation_strategy=truncation_strategy,
-            max_length=max_length,
-            stride=stride,
-            is_split_into_words=is_split_into_words,
-            pad_to_multiple_of=pad_to_multiple_of,
-            padding_side=padding_side,
-            return_tensors=return_tensors,
-            return_token_type_ids=return_token_type_ids,
-            return_attention_mask=return_attention_mask,
-            return_overflowing_tokens=return_overflowing_tokens,
-            return_special_tokens_mask=return_special_tokens_mask,
-            return_offsets_mapping=return_offsets_mapping,
-            return_length=return_length,
-            verbose=verbose,
-            **kwargs,
-        )
+        pass
 
     @property
     def do_lower_case(self):
-        return self.basic_tokenizer.do_lower_case
+        pass
 
     @property
     def vocab_size(self):
-        return len(self.vocab)
+        pass
 
     def get_vocab(self):
         return dict(self.vocab, **self.added_tokens_encoder)
@@ -419,7 +331,6 @@ class RoCBertTokenizer(PreTrainedTokenizer):
             for token in self.basic_tokenizer.tokenize(
                 text, never_split=self.all_special_tokens if not split_special_tokens else None
             ):
-                # If the token is part of the never_split set
                 if token in self.basic_tokenizer.never_split:
                     split_tokens.append(token)
                 else:
@@ -579,7 +490,6 @@ class RoCBertTokenizer(PreTrainedTokenizer):
                 and `convert_token_to_pronunciation_id` methods.
         """
 
-        # Backward compatibility for 'truncation_strategy', 'pad_to_max_length'
         padding_strategy, truncation_strategy, max_length, kwargs = self._get_padding_truncation_strategies(
             padding=padding,
             truncation=truncation,
@@ -611,7 +521,6 @@ class RoCBertTokenizer(PreTrainedTokenizer):
                 "for instance `only_second` or `only_first`."
             )
 
-        # Load from model defaults
         if return_token_type_ids is None:
             return_token_type_ids = "token_type_ids" in self.model_input_names
         if return_attention_mask is None:
@@ -619,10 +528,8 @@ class RoCBertTokenizer(PreTrainedTokenizer):
 
         encoded_inputs = {}
 
-        # Compute the total size of the returned encodings
         total_len = len_ids + len_pair_ids + (self.num_special_tokens_to_add(pair=pair) if add_special_tokens else 0)
 
-        # Truncation: Handle max sequence length
         overflowing_tokens = []
         if truncation_strategy != TruncationStrategy.DO_NOT_TRUNCATE and max_length and total_len > max_length:
             ids, pair_ids, overflowing_tokens = self.truncate_sequences(
@@ -651,7 +558,6 @@ class RoCBertTokenizer(PreTrainedTokenizer):
             encoded_inputs["overflowing_tokens"] = overflowing_tokens
             encoded_inputs["num_truncated_tokens"] = total_len - max_length if max_length else 0
 
-        # Add special tokens
         if add_special_tokens:
             sequence = self.build_inputs_with_special_tokens(ids, pair_ids)
             token_type_ids = self.create_token_type_ids_from_sequences(ids, pair_ids)
@@ -672,7 +578,6 @@ class RoCBertTokenizer(PreTrainedTokenizer):
                 pronunciation_ids + pair_pronunciation_ids if pair_pronunciation_ids else pronunciation_ids
             )
 
-        # Build output dictionary
         encoded_inputs["input_ids"] = sequence
         encoded_inputs["input_shape_ids"] = input_shape_ids
         encoded_inputs["input_pronunciation_ids"] = input_pronunciation_ids
@@ -684,10 +589,8 @@ class RoCBertTokenizer(PreTrainedTokenizer):
             else:
                 encoded_inputs["special_tokens_mask"] = [0] * len(sequence)
 
-        # Check lengths
         self._eventual_warn_about_too_long_sequence(encoded_inputs["input_ids"], max_length, verbose)
 
-        # Padding
         if padding_strategy != PaddingStrategy.DO_NOT_PAD or return_attention_mask:
             encoded_inputs = self.pad(
                 encoded_inputs,
@@ -716,7 +619,6 @@ class RoCBertTokenizer(PreTrainedTokenizer):
         padding_side: str | None = None,
         return_attention_mask: bool | None = None,
     ) -> dict:
-        # Load from model defaults
         if return_attention_mask is None:
             return_attention_mask = "attention_mask" in self.model_input_names
 
@@ -730,7 +632,6 @@ class RoCBertTokenizer(PreTrainedTokenizer):
 
         needs_to_be_padded = padding_strategy != PaddingStrategy.DO_NOT_PAD and len(required_input) != max_length
 
-        # Initialize attention mask if not present.
         if return_attention_mask and "attention_mask" not in encoded_inputs:
             encoded_inputs["attention_mask"] = [1] * len(required_input)
 
@@ -947,8 +848,6 @@ class RoCBertTokenizer(PreTrainedTokenizer):
             return_attention_mask=return_attention_mask,
         )
 
-        # Remove overflow-related keys before tensor conversion if return_tensors is set
-        # Slow tokenizers don't support returning these as tensors
         if return_tensors and return_overflowing_tokens:
             batch_outputs.pop("overflowing_tokens", None)
             batch_outputs.pop("num_truncated_tokens", None)
@@ -1099,27 +998,6 @@ class RoCBertTokenizer(PreTrainedTokenizer):
 
 
 class RoCBertBasicTokenizer:
-    """
-    Constructs a RoCBertBasicTokenizer that will run basic tokenization (punctuation splitting, lower casing, etc.).
-
-    Args:
-        do_lower_case (`bool`, *optional*, defaults to `True`):
-            Whether or not to lowercase the input when tokenizing.
-        never_split (`Iterable`, *optional*):
-            Collection of tokens which will never be split during tokenization. Only has an effect when
-            `do_basic_tokenize=True`
-        tokenize_chinese_chars (`bool`, *optional*, defaults to `True`):
-            Whether or not to tokenize Chinese characters.
-
-            This should likely be deactivated for Japanese (see this
-            [issue](https://github.com/huggingface/transformers/issues/328)).
-        strip_accents (`bool`, *optional*):
-            Whether or not to strip all accents. If this option is not specified, then it will be determined by the
-            value for `lowercase` (as in the original BERT).
-        do_split_on_punc (`bool`, *optional*, defaults to `True`):
-            In some instances we want to skip the basic punctuation splitting so that later tokenization can capture
-            the full context of the words, such as contractions.
-    """
 
     def __init__(
         self,
@@ -1146,19 +1024,11 @@ class RoCBertBasicTokenizer:
                 Kept for backward compatibility purposes. Now implemented directly at the base class level (see
                 [`PreTrainedTokenizer.tokenize`]) List of token not to split.
         """
-        # union() returns a new set by concatenating the two sets.
         never_split = self.never_split.union(set(never_split)) if never_split else self.never_split
         text = self._clean_text(text)
 
-        # This was added on November 1st, 2018 for the multilingual and Chinese
-        # models. This is also applied to the English models now, but it doesn't
-        # matter since the English models were not trained on any Chinese data
-        # and generally don't have any Chinese data in them (there are Chinese
-        # characters in the vocabulary because Wikipedia does have some Chinese
-        # words in the English Wikipedia.).
         if self.tokenize_chinese_chars:
             text = self._tokenize_chinese_chars(text)
-        # prevents treating the same character with different unicode codepoints as different characters
         unicode_normalized_text = unicodedata.normalize("NFC", text)
         orig_tokens = whitespace_tokenize(unicode_normalized_text)
         split_tokens = []
@@ -1223,14 +1093,6 @@ class RoCBertBasicTokenizer:
 
     def _is_chinese_char(self, cp):
         """Checks whether CP is the codepoint of a CJK character."""
-        # This defines a "chinese character" as anything in the CJK Unicode block:
-        #   https://en.wikipedia.org/wiki/CJK_Unified_Ideographs_(Unicode_block)
-        #
-        # Note that the CJK Unicode block is NOT all Japanese and Korean characters,
-        # despite its name. The modern Korean Hangul alphabet is a different block,
-        # as is Japanese Hiragana and Katakana. Those alphabets are used to write
-        # space-separated words, so they are not treated specially and handled
-        # like the all of the other languages.
         if (
             (cp >= 0x4E00 and cp <= 0x9FFF)
             or (cp >= 0x3400 and cp <= 0x4DBF)
@@ -1260,7 +1122,6 @@ class RoCBertBasicTokenizer:
 
 
 class RoCBertWordpieceTokenizer:
-    """Runs WordPiece tokenization."""
 
     def __init__(self, vocab, unk_token, max_input_chars_per_word=100):
         self.vocab = vocab

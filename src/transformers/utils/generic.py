@@ -1,19 +1,3 @@
-# Copyright 2022 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Generic utilities
-"""
 
 from __future__ import annotations
 
@@ -46,7 +30,6 @@ if TYPE_CHECKING:
     from ..configuration_utils import PreTrainedConfig
 
 
-# Generic class or function
 T = TypeVar("T")
 
 
@@ -65,9 +48,6 @@ def _register_model_output_pytree_node(output_type: type[ModelOutput]) -> None:
         return
     import torch
 
-    # AMD CI runs PyTorch 2.8.0+rocm which does not support tracing `set.__contains__`
-    # through TorchDynamo. Skip registration during compilation since the pytree node
-    # is already registered from the preceding eager run.
     if torch.compiler.is_compiling():
         return
     if output_type in _registered_model_output_types:
@@ -85,13 +65,11 @@ def _register_model_output_pytree_node(output_type: type[ModelOutput]) -> None:
     _registered_model_output_types.add(output_type)
 
 
-# required for @can_return_tuple decorator to work with torchdynamo
 _is_mlx_available = False
 if is_mlx_available():
     _is_mlx_available = True
 
 
-# vendored from distutils.util
 def strtobool(val) -> int:
     """Convert a string representation of truth to true (1) or false (0).
 
@@ -131,7 +109,6 @@ def _get_frameworks_and_test_func(x):
         "mlx": is_mlx_array,
     }
     preferred_framework = infer_framework_from_repr(x)
-    # We will test this one first, then numpy, then the others.
     frameworks = [] if preferred_framework is None else [preferred_framework]
     if preferred_framework != "np":
         frameworks.append("np")
@@ -143,13 +120,11 @@ def is_tensor(x) -> bool:
     """
     Tests if `x` is a `torch.Tensor`, `np.ndarray` or `mlx.array` in the order defined by `infer_framework_from_repr`
     """
-    # This gives us a smart order to test the frameworks with the corresponding tests.
     framework_to_test_func = _get_frameworks_and_test_func(x)
     for test_func in framework_to_test_func.values():
         if test_func(x):
             return True
 
-    # Tracers
     if is_torch_fx_proxy(x):
         return True
 
@@ -217,7 +192,6 @@ def _is_tensor_or_array_like(value):
 
     if isinstance(value, (list, tuple)):
         if len(value) == 0:
-            # consider empty list or nested list as array-like
             return True
         return _is_tensor_or_array_like(value[0])
 
@@ -254,16 +228,11 @@ def maybe_autocast(
 
 
 def _is_mlx(x):
-    import mlx.core as mx
-
-    return isinstance(x, mx.array)
+    pass
 
 
 def is_mlx_array(x) -> bool:
-    """
-    Tests if `x` is a mlx array or not. Safe to call even when mlx is not installed.
-    """
-    return False if not _is_mlx_available else _is_mlx(x)
+    pass
 
 
 def is_flash_attention_requested(
@@ -291,17 +260,14 @@ def is_flash_attention_requested(
     else:
         checked_attention_implementation = requested_attention_implementation
 
-    # theoretically can happen, equivalent to default implementation (sdpa/eager)
     if checked_attention_implementation is None:
         return False
 
-    # If a specific version is requested, look for a pattern of type "flash...{version}"
     if version is not None:
         if isinstance(version, int):
             version = [version]
         return any(re.match(r".*flash.*" + str(v), checked_attention_implementation) is not None for v in version)
 
-    # Otherwise, just check "flash" is in the attention implementation
     return "flash" in checked_attention_implementation
 
 
@@ -352,11 +318,9 @@ def to_py_obj(obj):
     elif isinstance(obj, (dict, UserDict)):
         return {k: to_py_obj(v) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
-        # Only convert directly if all elements are numeric scalars
         if all(isinstance(x, (int, float, np.number)) for x in obj):
             return list(obj)
 
-        # Otherwise recurse element-wise
         return [to_py_obj(o) for o in obj]
 
     framework_to_py_obj = {
@@ -364,13 +328,11 @@ def to_py_obj(obj):
         "np": lambda obj: obj.tolist(),
     }
 
-    # This gives us a smart order to test the frameworks with the corresponding tests.
     framework_to_test_func = _get_frameworks_and_test_func(obj)
     for framework, test_func in framework_to_test_func.items():
         if test_func(obj):
             return framework_to_py_obj[framework](obj)
 
-    # tolist also works on 0d np arrays
     if isinstance(obj, np.number):
         return obj.tolist()
     else:
@@ -392,7 +354,6 @@ def to_numpy(obj):
     elif isinstance(obj, (list, tuple)):
         return np.array(obj)
 
-    # This gives us a smart order to test the frameworks with the corresponding tests.
     framework_to_test_func = _get_frameworks_and_test_func(obj)
     for framework, test_func in framework_to_test_func.items():
         if test_func(obj):
@@ -413,18 +374,6 @@ def safe_load_json_file(json_file: str):
 
 
 class ModelOutput(OrderedDict):
-    """
-    Base class for all model outputs as dataclass. Has a `__getitem__` that allows indexing by integer or slice (like a
-    tuple) or strings (like a dictionary) that will ignore the `None` attributes. Otherwise behaves like a regular
-    python dictionary.
-
-    <Tip warning={true}>
-
-    You can't unpack a `ModelOutput` directly. Use the [`~utils.ModelOutput.to_tuple`] method to convert it to a tuple
-    before.
-
-    </Tip>
-    """
 
     def __init_subclass__(cls) -> None:
         """Register subclasses as pytree nodes.
@@ -438,10 +387,6 @@ class ModelOutput(OrderedDict):
         super().__init__(*args, **kwargs)
         _register_model_output_pytree_node(type(self))
 
-        # Subclasses of ModelOutput must use the @dataclass decorator
-        # This check is done in __init__ because the @dataclass decorator operates after __init_subclass__
-        # issubclass() would return True for issubclass(ModelOutput, ModelOutput) when False is needed
-        # Just need to check that the current class is not ModelOutput
         is_modeloutput_subclass = self.__class__ != ModelOutput
 
         if is_modeloutput_subclass and not is_dataclass(self):
@@ -458,7 +403,6 @@ class ModelOutput(OrderedDict):
         _register_model_output_pytree_node(type(self))
         class_fields = fields(self)
 
-        # Safety and consistency checks
         if not len(class_fields):
             raise ValueError(f"{self.__class__.__name__} has no fields.")
         if not all(field.default is None for field in class_fields[1:]):
@@ -478,19 +422,14 @@ class ModelOutput(OrderedDict):
                 except TypeError:
                     first_field_iterator = False
 
-            # if we provided an iterator as first field and the iterator is a (key, value) iterator
-            # set the associated fields
             if first_field_iterator:
-                # reset first field to None and remove it from the internal dictionary
                 setattr(self, class_fields[0].name, None)
                 super().__delitem__(class_fields[0].name)
                 for idx, element in enumerate(iterator):
                     if not isinstance(element, (list, tuple)) or len(element) != 2 or not isinstance(element[0], str):
                         if idx == 0:
-                            # If we do not have an iterator of key/values, set it as attribute
                             self[class_fields[0].name] = first_field
                         else:
-                            # If we have a mixed iterator, raise an error
                             raise ValueError(
                                 f"Cannot set key/value for {element}. It needs to be a tuple (key, value)."
                             )
@@ -528,14 +467,11 @@ class ModelOutput(OrderedDict):
     def __setattr__(self, name, value):
         field_names = {field.name for field in fields(self)}
         if name in field_names and value is not None:
-            # Don't call self.__setitem__ to avoid recursion errors
             super().__setitem__(name, value)
         super().__setattr__(name, value)
 
     def __setitem__(self, key, value):
-        # Will raise a KeyException if needed
         super().__setitem__(key, value)
-        # Don't call self.__setattr__ to avoid recursion errors
         super().__setattr__(key, value)
 
     def __reduce__(self):
@@ -553,7 +489,7 @@ class ModelOutput(OrderedDict):
 
 
 def _model_output_flatten(output: ModelOutput) -> tuple[list[Any], list[str]]:
-    return list(output.values()), list(output.keys())
+    pass
 
 
 def _model_output_unflatten(
@@ -561,13 +497,10 @@ def _model_output_unflatten(
     context: list[str],
     output_type: type[ModelOutput] | None = None,
 ) -> ModelOutput:
-    return output_type(**dict(zip(context, values)))
+    pass
 
 
 class ExplicitEnum(str, Enum):
-    """
-    Enum with more explicit error message for missing values.
-    """
 
     @classmethod
     def _missing_(cls, value):
@@ -577,10 +510,6 @@ class ExplicitEnum(str, Enum):
 
 
 class PaddingStrategy(ExplicitEnum):
-    """
-    Possible values for the `padding` argument in [`PreTrainedTokenizerBase.__call__`]. Useful for tab-completion in an
-    IDE.
-    """
 
     LONGEST = "longest"
     MAX_LENGTH = "max_length"
@@ -588,10 +517,6 @@ class PaddingStrategy(ExplicitEnum):
 
 
 class TensorType(ExplicitEnum):
-    """
-    Possible values for the `return_tensors` argument in [`PreTrainedTokenizerBase.__call__`]. Useful for
-    tab-completion in an IDE.
-    """
 
     PYTORCH = "pt"
     NUMPY = "np"
@@ -599,10 +524,6 @@ class TensorType(ExplicitEnum):
 
 
 class ContextManagers:
-    """
-    Wrapper for `contextlib.ExitStack` which enters a collection of context managers. Adaptation of `ContextManagers`
-    in the `fastcore` library.
-    """
 
     def __init__(self, context_managers: list[AbstractContextManager]):
         self.context_managers = context_managers
@@ -711,15 +632,7 @@ def expand_dims(array, axis):
 
 
 def tensor_size(array):
-    """
-    Framework-agnostic version of size operation.
-    """
-    if is_numpy_array(array):
-        return np.size(array)
-    elif is_torch_tensor(array):
-        return array.numel()
-    else:
-        raise ValueError(f"Type not supported for tensor_size: {type(array)}.")
+    pass
 
 
 def torch_int(x):
@@ -777,82 +690,12 @@ def filter_out_non_signature_kwargs(extra: list | None = None):
     extra_params_to_pass = set(extra)
 
     def decorator(func):
-        sig = inspect.signature(func)
-        function_named_args = set(sig.parameters.keys())
-        valid_kwargs_to_pass = function_named_args.union(extra_params_to_pass)
-
-        # Required for better warning message
-        is_instance_method = "self" in function_named_args
-        is_class_method = "cls" in function_named_args
-
-        # Mark function as decorated
-        func._filter_out_non_signature_kwargs = True
-
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            valid_kwargs = {}
-            invalid_kwargs = {}
-
-            for k, v in kwargs.items():
-                if k in valid_kwargs_to_pass:
-                    valid_kwargs[k] = v
-                else:
-                    invalid_kwargs[k] = v
-
-            if invalid_kwargs:
-                invalid_kwargs_names = [f"'{k}'" for k in invalid_kwargs]
-                invalid_kwargs_names = ", ".join(invalid_kwargs_names)
-
-                # Get the class name for better warning message
-                if is_instance_method:
-                    cls_prefix = args[0].__class__.__name__ + "."
-                elif is_class_method:
-                    cls_prefix = args[0].__name__ + "."
-                else:
-                    cls_prefix = ""
-
-                warnings.warn(
-                    f"The following named arguments are not valid for `{cls_prefix}{func.__name__}`"
-                    f" and were ignored: {invalid_kwargs_names}",
-                    UserWarning,
-                    stacklevel=2,
-                )
-
-            return func(*args, **valid_kwargs)
-
-        return wrapper
+        pass
 
     return decorator
 
 
 class TransformersKwargs(TypedDict, total=False):
-    """
-    Keyword arguments to be passed to the forward pass of a `PreTrainedModel`.
-
-    Attributes:
-        num_items_in_batch (`Optional[torch.Tensor]`, *optional*):
-            Number of items in the batch. It is recommended to pass it when you are doing gradient accumulation.
-        output_hidden_states (`Optional[bool]`, *optional*):
-            Most of the models support outputting all hidden states computed during the forward pass.
-        output_attentions (`Optional[bool]`, *optional*):
-            Turn this on to return the intermediary attention scores.
-        output_router_logits (`Optional[bool]`, *optional*):
-            For MoE models, this allows returning the router logits to compute the loss.
-        cu_seq_lens_q (`torch.LongTensor`, *optional*)
-            Gets cumulative sequence length for query state.
-        cu_seq_lens_k (`torch.LongTensor`, *optional*)
-            Gets cumulative sequence length for key state.
-        max_length_q (`int`, *optional*):
-            Maximum sequence length for query state.
-        max_length_k (`int`, *optional*):
-            Maximum sequence length for key state.
-        position_ids (`torch.LongTensor`, *optional*)
-            Indices of positions of each input sequence tokens.
-        is_causal (`bool`, *optional*)
-            Can be set to False to enable bi-directional attention, i.e. use decoder Attention modules as encoders.
-        seq_idx (`torch.IntTensor`, *optional*):
-            Sequence index for each token in a flattened packed batch.
-    """
 
     num_items_in_batch: torch.Tensor | None
     output_hidden_states: bool | None
@@ -879,19 +722,16 @@ def is_timm_local_checkpoint(pretrained_model_path: str) -> bool:
     if pretrained_model_path is None:
         return False
 
-    # in case it's Path, not str
     pretrained_model_path = str(pretrained_model_path)
 
     is_file = os.path.isfile(pretrained_model_path)
     is_dir = os.path.isdir(pretrained_model_path)
 
-    # pretrained_model_path is a file
     if is_file and pretrained_model_path.endswith(".json"):
         with open(pretrained_model_path) as f:
             config_dict = json.load(f)
         return is_timm_config_dict(config_dict)
 
-    # pretrained_model_path is a directory with a config.json
     if is_dir and os.path.exists(os.path.join(pretrained_model_path, "config.json")):
         with open(os.path.join(pretrained_model_path, "config.json")) as f:
             config_dict = json.load(f)
@@ -901,24 +741,11 @@ def is_timm_local_checkpoint(pretrained_model_path: str) -> bool:
 
 
 def set_attribute_for_modules(module: nn.Module, key: str, value: Any):
-    """
-    Set a value to a module and all submodules.
-    """
-    setattr(module, key, value)
-    for submodule in module.children():
-        set_attribute_for_modules(submodule, key, value)
+    pass
 
 
 def del_attribute_from_modules(module: nn.Module, key: str):
-    """
-    Delete a value from a module and all submodules.
-    """
-    # because we might remove it previously in case it's a shared module, e.g. activation function
-    if hasattr(module, key):
-        delattr(module, key)
-
-    for submodule in module.children():
-        del_attribute_from_modules(submodule, key)
+    pass
 
 
 def can_return_tuple(func):
@@ -978,150 +805,44 @@ def accepts_precomputed_kwargs(modality: str):
     other_prefixes = tuple(f"{m}_" for m in _KNOWN_MODALITIES if m != modality)
 
     def decorator(func):
-        existing_params = set(inspect.signature(func).parameters)
-
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            translated = {}
-            for k, v in kwargs.items():
-                if k.startswith(other_prefixes):
-                    continue
-                if k.startswith(prefix) and k not in existing_params:
-                    translated[k.removeprefix(prefix)] = v
-                else:
-                    translated[k] = v
-            return func(*args, **translated)
-
-        return wrapper
+        pass
 
     return decorator
 
 
 def merge_with_config_defaults(func):
-    """
-    Decorator using config field (if they exist) as default value for some args and kwargs. Precedence is always
-    given to the args/kwargs that are explicitly passed.
-    """
-
-    @wraps(func)
-    def wrapper(self, *args, **kwargs):
-        args_with_config_defaults = [
-            "use_cache",
-            "vision_feature_layer",
-            "vision_feature_select_strategy",
-            "vision_aspect_ratio",
-        ]
-        for arg_name in args_with_config_defaults:
-            arg_index = None
-            if arg_name in func.__code__.co_varnames:
-                arg_index = func.__code__.co_varnames.index(arg_name) - 1  # -1 for self
-
-            if arg_index is not None and len(args) > arg_index and args[arg_index] is not None:
-                arg_value = args[arg_index]
-            elif kwargs.get(arg_name) is not None:
-                arg_value = kwargs[arg_name]
-            else:
-                arg_value = getattr(self.config, arg_name, None)
-
-            if arg_value is not None:
-                # Arg-specific handling
-                if arg_name == "use_cache":
-                    if getattr(self, "gradient_checkpointing", False) and self.training and arg_value:
-                        logger.warning_once(
-                            "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`."
-                        )
-                        arg_value = False
-                elif arg_name == "vision_feature_select_strategy":
-                    valid_strategies = ["default", "full"]
-                    if arg_value not in valid_strategies:
-                        raise ValueError(
-                            f"`Unexpected select feature strategy: {arg_value}. Please select from {valid_strategies}."
-                        )
-
-                if arg_index is not None and len(args) > arg_index:
-                    args = list(args)
-                    args[arg_index] = arg_value
-                    args = tuple(args)
-                else:
-                    kwargs[arg_name] = arg_value
-
-        # Maybe temporarily overwrite config value to create the correct mask - kwarg takes precedence
-        is_causal = kwargs.get("is_causal", getattr(self.config, "is_causal", None))
-        if is_causal is not None:
-            is_causal_in_config = hasattr(self.config, "is_causal")
-            if is_causal_in_config:
-                is_causal_original_value = self.config.is_causal
-            # Set it to both config and kwargs (it's needed in both, and can come from only 1 of the sources)
-            self.config.is_causal = is_causal
-            kwargs["is_causal"] = is_causal
-
-        # Call the original forward with the updated kwargs/config
-        try:
-            if kwargs.get("debug_io", False):
-                from ..model_debugging_utils import model_addition_debugger_context
-
-                with model_addition_debugger_context(
-                    self, kwargs.get("debug_io_dir", "model_debug"), kwargs.get("prune_layers")
-                ):
-                    output = func(self, *args, **kwargs)
-            else:
-                output = func(self, *args, **kwargs)
-        # Restore original config value
-        finally:
-            if is_causal is not None:
-                if is_causal_in_config:
-                    self.config.is_causal = is_causal_original_value
-                else:
-                    del self.config.is_causal
-
-        return output
-
-    return wrapper
+    pass
 
 
-# bc for check_model_inputs:
 
 
 def check_model_inputs(func):
-    logger.warning_once("The `check_model_inputs` decorator is deprecated in favor of `merge_with_config_defaults`.")
-    return merge_with_config_defaults(func)
+    pass
 
 
 def no_inherit_decorator(obj: T) -> T:
-    """
-    Identity decorator that prevents the modular converter from propagating its decorators to specific files.
-    """
-    return obj
+    pass
 
 
 class GeneralInterface(MutableMapping):
-    """
-    Dict-like object keeping track of a class-wide mapping, as well as a local one. Allows to have library-wide
-    modifications through the class mapping, as well as local modifications in a single file with the local mapping.
-    """
 
-    # Class instance object, so that a call to `register` can be reflected into all other files correctly, even if
-    # a new instance is created (in order to locally override a given function)
     _global_mapping = {}
 
     def __init__(self):
         self._local_mapping = {}
 
     def __getitem__(self, key):
-        # First check if instance has a local override
         if key in self._local_mapping:
             return self._local_mapping[key]
         return self._global_mapping[key]
 
     def __setitem__(self, key, value):
-        # Allow local update of the default functions without impacting other instances
         self._local_mapping.update({key: value})
 
     def __delitem__(self, key):
         del self._local_mapping[key]
 
     def __iter__(self):
-        # Ensure we use all keys, with the overwritten ones on top
         return iter({**self._global_mapping, **self._local_mapping})
 
     def __len__(self):
@@ -1159,29 +880,7 @@ def retry(
     """
 
     def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            delay = initial_delay
-
-            for attempt in range(1, max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as exc:
-                    if attempt == max_retries:
-                        raise
-
-                    sleep_for = min(delay, max_delay)
-                    if jitter:
-                        sleep_for *= random.uniform(0.8, 1.2)
-
-                    logger.info(
-                        f"[{func.__name__}] attempt {attempt}/{max_retries} failed: {exc}\n"
-                        f"Retrying in {sleep_for:.1f}s..."
-                    )
-                    time.sleep(sleep_for)
-                    delay = min(delay * 2, max_delay)
-
-        return wrapper
+        pass
 
     return decorator
 
@@ -1195,16 +894,6 @@ def maybe_replace_from_package(source_package: str, func_name: str):
     """
 
     def decorator(torch_func: Callable) -> Callable:
-        try:
-            module = importlib.import_module(source_package)
-            function = resolve_internal_import(module, func_name)
-        except Exception:
-            function = torch_func
-        # `resolve_internal_import` may succeed, but return None
-        finally:
-            if function is None:
-                function = torch_func
-
-        return function
+        pass
 
     return decorator

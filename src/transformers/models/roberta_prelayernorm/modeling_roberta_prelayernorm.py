@@ -1,18 +1,3 @@
-# Copyright 2022 The Google AI Language Team Authors and The HuggingFace Inc. team.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch RoBERTa-PreLayerNorm model."""
 
 from collections.abc import Callable
 
@@ -48,9 +33,7 @@ from .configuration_roberta_prelayernorm import RobertaPreLayerNormConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaEmbeddings with Roberta->RobertaPreLayerNorm
 class RobertaPreLayerNormEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -59,7 +42,6 @@ class RobertaPreLayerNormEmbeddings(nn.Module):
 
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -82,7 +64,6 @@ class RobertaPreLayerNormEmbeddings(nn.Module):
     ) -> torch.Tensor:
         if position_ids is None:
             if input_ids is not None:
-                # Create the position ids from the input token ids. Any padded tokens remain padded.
                 position_ids = self.create_position_ids_from_input_ids(
                     input_ids, self.padding_idx, past_key_values_length
                 )
@@ -96,12 +77,8 @@ class RobertaPreLayerNormEmbeddings(nn.Module):
 
         batch_size, seq_length = input_shape
 
-        # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
-        # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):
-                # NOTE: We assume either pos ids to have bsz == 1 (broadcastable) or bsz == effective bsz (input_shape[0])
                 buffered_token_type_ids = self.token_type_ids.to(position_ids.device).expand(position_ids.shape[0], -1)
                 buffered_token_type_ids = torch.gather(buffered_token_type_ids, dim=1, index=position_ids)
                 token_type_ids = buffered_token_type_ids.expand(batch_size, seq_length)
@@ -149,13 +126,11 @@ class RobertaPreLayerNormEmbeddings(nn.Module):
 
         Returns: torch.Tensor
         """
-        # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
         mask = input_ids.ne(padding_idx).int()
         incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
         return incremental_indices.long() + padding_idx
 
 
-# Copied from transformers.models.bert.modeling_bert.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -169,7 +144,6 @@ def eager_attention_forward(
     if scaling is None:
         scaling = query.size(-1) ** -0.5
 
-    # Take the dot product between "query" and "key" to get the raw attention scores.
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scaling
 
     if attention_mask is not None:
@@ -184,7 +158,6 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfAttention with Bert->RobertaPreLayerNorm
 class RobertaPreLayerNormSelfAttention(nn.Module):
     def __init__(self, config, is_causal=False, layer_idx=None):
         super().__init__()
@@ -220,18 +193,15 @@ class RobertaPreLayerNormSelfAttention(nn.Module):
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.attention_head_size)
 
-        # get all proj
         query_layer = self.query(hidden_states).view(*hidden_shape).transpose(1, 2)
         key_layer = self.key(hidden_states).view(*hidden_shape).transpose(1, 2)
         value_layer = self.value(hidden_states).view(*hidden_shape).transpose(1, 2)
 
         if past_key_values is not None:
-            # decoder-only bert can have a simple dynamic cache for example
             current_past_key_values = past_key_values
             if isinstance(past_key_values, EncoderDecoderCache):
                 current_past_key_values = past_key_values.self_attention_cache
 
-            # save all key/value_layer to cache to be re-used for fast auto-regressive generation
             key_layer, value_layer = current_past_key_values.update(key_layer, value_layer, self.layer_idx)
 
         attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
@@ -252,7 +222,6 @@ class RobertaPreLayerNormSelfAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.bert.modeling_bert.BertCrossAttention with Bert->RobertaPreLayerNorm
 class RobertaPreLayerNormCrossAttention(nn.Module):
     def __init__(self, config, is_causal=False, layer_idx=None):
         super().__init__()
@@ -285,17 +254,14 @@ class RobertaPreLayerNormCrossAttention(nn.Module):
         past_key_values: EncoderDecoderCache | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple[torch.Tensor]:
-        # determine input shapes
         input_shape = hidden_states.shape[:-1]
 
         hidden_shape = (*input_shape, -1, self.attention_head_size)
 
-        # get query proj
         query_layer = self.query(hidden_states).view(hidden_shape).transpose(1, 2)
 
         is_updated = past_key_values.is_updated.get(self.layer_idx) if past_key_values is not None else False
         if past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_layer = past_key_values.cross_attention_cache.layers[self.layer_idx].keys
             value_layer = past_key_values.cross_attention_cache.layers[self.layer_idx].values
         else:
@@ -304,11 +270,9 @@ class RobertaPreLayerNormCrossAttention(nn.Module):
             value_layer = self.value(encoder_hidden_states).view(kv_shape).transpose(1, 2)
 
             if past_key_values is not None:
-                # save all states to the cache
                 key_layer, value_layer = past_key_values.cross_attention_cache.update(
                     key_layer, value_layer, self.layer_idx
                 )
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 past_key_values.is_updated[self.layer_idx] = True
 
         attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
@@ -403,7 +367,6 @@ class RobertaPreLayerNormOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertLayer with Bert->RobertaPreLayerNorm
 class RobertaPreLayerNormLayer(GradientCheckpointingLayer):
     def __init__(self, config, layer_idx=None):
         super().__init__()
@@ -469,7 +432,6 @@ class RobertaPreLayerNormLayer(GradientCheckpointingLayer):
         return layer_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertEncoder with Bert->RobertaPreLayerNorm
 class RobertaPreLayerNormEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -504,7 +466,6 @@ class RobertaPreLayerNormEncoder(nn.Module):
         )
 
 
-# Copied from transformers.models.bert.modeling_bert.BertPooler
 class RobertaPreLayerNormPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -512,8 +473,6 @@ class RobertaPreLayerNormPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -582,7 +541,6 @@ class RobertaPreLayerNormModel(RobertaPreLayerNormPreTrainedModel):
 
         self.pooler = RobertaPreLayerNormPooler(config) if add_pooling_layer else None
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -671,7 +629,6 @@ class RobertaPreLayerNormModel(RobertaPreLayerNormPreTrainedModel):
             past_key_values=encoder_outputs.past_key_values,
         )
 
-    # Copied from transformers.models.bert.modeling_bert.BertModel._create_attention_masks
     def _create_attention_masks(
         self,
         attention_mask,
@@ -710,7 +667,6 @@ class RobertaPreLayerNormModel(RobertaPreLayerNormPreTrainedModel):
     RoBERTa-PreLayerNorm Model with a `language modeling` head on top for CLM fine-tuning.
     """
 )
-# Copied from transformers.models.roberta.modeling_roberta.RobertaForCausalLM with FacebookAI/roberta-base->andreasmadsen/efficient_mlm_m0.40,ROBERTA->ROBERTA_PRELAYERNORM,Roberta->RobertaPreLayerNorm,roberta->roberta_prelayernorm, RobertaPreLayerNormTokenizer->RobertaTokenizer
 class RobertaPreLayerNormForCausalLM(RobertaPreLayerNormPreTrainedModel, GenerationMixin):
     _tied_weights_keys = {
         "lm_head.decoder.weight": "roberta_prelayernorm.embeddings.word_embeddings.weight",
@@ -728,7 +684,6 @@ class RobertaPreLayerNormForCausalLM(RobertaPreLayerNormPreTrainedModel, Generat
         self.roberta_prelayernorm = RobertaPreLayerNormModel(config, add_pooling_layer=False)
         self.lm_head = RobertaPreLayerNormLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -803,7 +758,6 @@ class RobertaPreLayerNormForCausalLM(RobertaPreLayerNormPreTrainedModel, Generat
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -832,7 +786,6 @@ class RobertaPreLayerNormForMaskedLM(RobertaPreLayerNormPreTrainedModel):
         "lm_head.decoder.bias": "lm_head.bias",
     }
 
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForMaskedLM.__init__ with ROBERTA->ROBERTA_PRELAYERNORM,Roberta->RobertaPreLayerNorm,roberta->roberta_prelayernorm
     def __init__(self, config):
         super().__init__(config)
 
@@ -845,7 +798,6 @@ class RobertaPreLayerNormForMaskedLM(RobertaPreLayerNormPreTrainedModel):
         self.roberta_prelayernorm = RobertaPreLayerNormModel(config, add_pooling_layer=False)
         self.lm_head = RobertaPreLayerNormLMHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -856,7 +808,6 @@ class RobertaPreLayerNormForMaskedLM(RobertaPreLayerNormPreTrainedModel):
 
     @can_return_tuple
     @auto_docstring
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForMaskedLM.forward with ROBERTA->ROBERTA_PRELAYERNORM,Roberta->RobertaPreLayerNorm,roberta->roberta_prelayernorm
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -900,7 +851,6 @@ class RobertaPreLayerNormForMaskedLM(RobertaPreLayerNormPreTrainedModel):
 
         masked_lm_loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(prediction_scores.device)
             loss_fct = CrossEntropyLoss()
             masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
@@ -913,9 +863,7 @@ class RobertaPreLayerNormForMaskedLM(RobertaPreLayerNormPreTrainedModel):
         )
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaLMHead with Roberta->RobertaPreLayerNorm
 class RobertaPreLayerNormLMHead(nn.Module):
-    """RobertaPreLayerNorm Head for masked language modeling."""
 
     def __init__(self, config):
         super().__init__()
@@ -930,7 +878,6 @@ class RobertaPreLayerNormLMHead(nn.Module):
         x = gelu(x)
         x = self.layer_norm(x)
 
-        # project back to size of vocabulary with bias
         x = self.decoder(x)
 
         return x
@@ -951,12 +898,10 @@ class RobertaPreLayerNormForSequenceClassification(RobertaPreLayerNormPreTrained
         self.roberta_prelayernorm = RobertaPreLayerNormModel(config, add_pooling_layer=False)
         self.classifier = RobertaPreLayerNormClassificationHead(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
     @auto_docstring
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForSequenceClassification.forward with roberta->roberta_prelayernorm
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -996,7 +941,6 @@ class RobertaPreLayerNormForSequenceClassification(RobertaPreLayerNormPreTrained
 
         loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(logits.device)
             if self.config.problem_type is None:
                 if self.num_labels == 1:
@@ -1028,7 +972,6 @@ class RobertaPreLayerNormForSequenceClassification(RobertaPreLayerNormPreTrained
 
 
 @auto_docstring
-# Copied from transformers.models.roberta.modeling_roberta.RobertaForMultipleChoice with ROBERTA->ROBERTA_PRELAYERNORM,Roberta->RobertaPreLayerNorm,roberta->roberta_prelayernorm
 class RobertaPreLayerNormForMultipleChoice(RobertaPreLayerNormPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -1037,7 +980,6 @@ class RobertaPreLayerNormForMultipleChoice(RobertaPreLayerNormPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, 1)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1112,7 +1054,6 @@ class RobertaPreLayerNormForMultipleChoice(RobertaPreLayerNormPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(reshaped_logits.device)
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(reshaped_logits, labels)
@@ -1138,12 +1079,10 @@ class RobertaPreLayerNormForTokenClassification(RobertaPreLayerNormPreTrainedMod
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
     @auto_docstring
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForTokenClassification.forward with roberta->roberta_prelayernorm
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -1184,7 +1123,6 @@ class RobertaPreLayerNormForTokenClassification(RobertaPreLayerNormPreTrainedMod
 
         loss = None
         if labels is not None:
-            # move labels to correct device
             labels = labels.to(logits.device)
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
@@ -1197,9 +1135,7 @@ class RobertaPreLayerNormForTokenClassification(RobertaPreLayerNormPreTrainedMod
         )
 
 
-# Copied from transformers.models.roberta.modeling_roberta.RobertaClassificationHead with Roberta->RobertaPreLayerNorm
 class RobertaPreLayerNormClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
 
     def __init__(self, config):
         super().__init__()
@@ -1229,12 +1165,10 @@ class RobertaPreLayerNormForQuestionAnswering(RobertaPreLayerNormPreTrainedModel
         self.roberta_prelayernorm = RobertaPreLayerNormModel(config, add_pooling_layer=False)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
     @auto_docstring
-    # Copied from transformers.models.roberta.modeling_roberta.RobertaForQuestionAnswering.forward with roberta->roberta_prelayernorm
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
@@ -1276,12 +1210,10 @@ class RobertaPreLayerNormForQuestionAnswering(RobertaPreLayerNormPreTrainedModel
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

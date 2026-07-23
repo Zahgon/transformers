@@ -1,19 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for IDEFICS2.
-"""
 
 import re
 from itertools import accumulate
@@ -38,11 +22,11 @@ logger = logging.get_logger(__name__)
 
 
 def is_url(val) -> bool:
-    return isinstance(val, str) and val.startswith("http")
+    pass
 
 
 def is_image_or_image_url(elem):
-    return is_url(elem) or is_valid_image(elem)
+    pass
 
 
 class Idefics2ProcessorKwargs(ProcessingKwargs, total=False):
@@ -84,16 +68,7 @@ class Idefics2Processor(ProcessorMixin):
         super().__init__(image_processor, tokenizer, chat_template=chat_template)
 
     def _extract_images_from_prompts(self, prompts):
-        prompt_images = []
-        for prompt in prompts:
-            images = []
-            for elem in prompt:
-                if is_valid_image(elem):
-                    images.append(elem)
-                elif is_url(elem):
-                    images.append(load_image(elem))
-            prompt_images.append(images)
-        return prompt_images
+        pass
 
     @auto_docstring
     def __call__(
@@ -121,13 +96,11 @@ class Idefics2Processor(ProcessorMixin):
             elif not isinstance(text, list) and not isinstance(text[0], str):
                 raise ValueError("Invalid input text. Please provide a string, or a list of strings")
 
-            # Replace the image token with fake tokens around the expanded image token sequence of length `image_seq_len`
             fake_image_token = self.fake_image_token
             image_token = self.image_token
             image_str = f"{fake_image_token}{image_token * self.image_seq_len}{fake_image_token}"
 
             if self.image_processor.do_image_splitting:
-                # A single image token is split into 4 patches + 1 original image
                 image_str = image_str * 5
 
             prompt_strings = []
@@ -135,9 +108,7 @@ class Idefics2Processor(ProcessorMixin):
             for sample in text:
                 n_images_in_text.append(sample.count(image_token))
                 sample = sample.replace(image_token, image_str)
-                # Remove any double fake tokens if images are adjacent
                 sample = sample.replace(f"{fake_image_token}{fake_image_token}", f"{fake_image_token}")
-                # Ensure words attached directly after the closing fake token remain word-boundary aligned
                 sample = closing_fake_pattern.sub(f"{fake_image_token} ", sample)
                 prompt_strings.append(sample)
 
@@ -155,7 +126,6 @@ class Idefics2Processor(ProcessorMixin):
                             f"The total number of {image_token} tokens in the prompts should be the same as the number of images passed."
                             f" Found {sum(n_images_in_text)} {image_token} tokens and {len(images)} images."
                         )
-                    # Reorganize the images to match the prompts
                     cumsum_images_in_text = [0] + list(accumulate(n_images_in_text))
                     images = [
                         images[cumsum_images_in_text[i] : cumsum_images_in_text[i + 1]]
@@ -179,7 +149,6 @@ class Idefics2Processor(ProcessorMixin):
                     f"The number of images in the text {n_images_in_text} and images  {n_images_in_images} should be the same."
                 )
 
-            # Load images if they are URLs
             images = [[load_image(im) for im in sample] for sample in images]
             image_inputs = self.image_processor(images, **output_kwargs["images_kwargs"])
             inputs.update(image_inputs)

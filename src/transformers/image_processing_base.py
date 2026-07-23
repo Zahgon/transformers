@@ -1,16 +1,3 @@
-# Copyright 2020 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import copy
 import json
@@ -40,40 +27,18 @@ ImageProcessorType = TypeVar("ImageProcessorType", bound="ImageProcessingMixin")
 logger = logging.get_logger(__name__)
 
 
-# TODO: Move BatchFeature to be imported by both image_processing_utils and image_processing_utils_fast
-# We override the class string here, but logic is the same.
 class BatchFeature(BaseBatchFeature):
-    r"""
-    Holds the output of the image processor specific `__call__` methods.
-
-    This class is derived from a python dictionary and can be used as a dictionary.
-
-    Args:
-        data (`dict`):
-            Dictionary of lists/arrays/tensors returned by the __call__ method ('pixel_values', etc.).
-        tensor_type (`Union[None, str, TensorType]`, *optional*):
-            You can give a tensor_type here to convert the lists of integers in PyTorch/Numpy Tensors at
-            initialization.
-    """
+    pass
 
 
-# TODO: (Amy) - factor out the common parts of this and the feature extractor
 class ImageProcessingMixin(PushToHubMixin):
-    """
-    This is an image processor mixin used to provide saving/loading functionality for sequential and image feature
-    extractors.
-    """
 
     _auto_class = None
 
     def __init__(self, **kwargs):
         """Set elements of `kwargs` as attributes."""
-        # This key was saved while we still used `XXXFeatureExtractor` for image processing. Now we use
-        # `XXXImageProcessor`, this attribute and its value are misleading.
         kwargs.pop("feature_extractor_type", None)
-        # Pop "processor_class", should not be saved with image processing config anymore
         kwargs.pop("processor_class", None)
-        # Additional attributes without default values
         for key, value in kwargs.items():
             try:
                 setattr(self, key, value)
@@ -206,12 +171,9 @@ class ImageProcessingMixin(PushToHubMixin):
             repo_id = hf_api().create_repo(repo_id, exist_ok=True, **kwargs).repo_id
             files_timestamps = self._get_files_timestamps(save_directory)
 
-        # If we have a custom config, we copy the file defining it in the folder and set the attributes so it can be
-        # loaded from the Hub.
         if self._auto_class is not None:
             custom_object_save(self, save_directory, config=self)
 
-        # If we save using the predefined names, we can load using `from_pretrained`
         output_image_processor_file = os.path.join(save_directory, IMAGE_PROCESSOR_NAME)
 
         self.to_json_file(output_image_processor_file)
@@ -306,11 +268,8 @@ class ImageProcessingMixin(PushToHubMixin):
                     _raise_exceptions_for_missing_entries=False,
                 )
             except OSError:
-                # Raise any environment error raise by `cached_file`. It will have a helpful error message adapted to
-                # the original exception.
                 raise
             except Exception:
-                # For any other exception, we throw a generic error.
                 raise OSError(
                     f"Can't load image processor for '{pretrained_model_name_or_path}'. If you were trying to load"
                     " it from 'https://huggingface.co/models', make sure you don't have a local directory with the"
@@ -318,9 +277,6 @@ class ImageProcessingMixin(PushToHubMixin):
                     f" directory containing a {image_processor_filename} file"
                 )
 
-        # Load image_processor dict. Priority goes as (nested config if found -> image processor config)
-        # We are downloading both configs because almost all models have a `processor_config.json` but
-        # not all of these are nested. We need to check if it was saved recebtly as nested or if it is legacy style
         image_processor_dict = None
         if resolved_processor_file is not None:
             processor_dict = safe_load_json_file(resolved_processor_file)
@@ -369,7 +325,6 @@ class ImageProcessingMixin(PushToHubMixin):
         image_processor_dict.update({k: v for k, v in kwargs.items() if k in cls.valid_kwargs.__annotations__})
         image_processor = cls(**image_processor_dict)
 
-        # Apply extra kwargs to instance (BC for remote code, e.g. phi4_multimodal)
         extra_keys = []
         for key in reversed(list(kwargs.keys())):
             if hasattr(image_processor, key) and key not in cls.valid_kwargs.__annotations__:

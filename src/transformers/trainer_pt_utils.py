@@ -1,19 +1,3 @@
-# Copyright 2020-present the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Torch utilities for the Trainer class.
-"""
 
 import contextlib
 import copy
@@ -65,10 +49,7 @@ logger = logging.get_logger(__name__)
 
 
 def get_dataloader_sampler(dataloader):
-    if hasattr(dataloader, "batch_sampler") and dataloader.batch_sampler is not None:
-        return get_dataloader_sampler(dataloader.batch_sampler)
-    elif hasattr(dataloader, "sampler"):
-        return dataloader.sampler
+    pass
 
 
 def atleast_1d(tensor_or_array: torch.Tensor | np.ndarray):
@@ -87,10 +68,8 @@ def torch_pad_and_concatenate(tensor1, tensor2, padding_index=-100):
     if len(tensor1.shape) == 1 or tensor1.shape[1] == tensor2.shape[1]:
         return torch.cat((tensor1, tensor2), dim=0)
 
-    # Let's figure out the new shape
     new_shape = (tensor1.shape[0] + tensor2.shape[0], max(tensor1.shape[1], tensor2.shape[1])) + tensor1.shape[2:]
 
-    # Now let's fill the result tensor
     result = tensor1.new_full(new_shape, padding_index)
     result[: tensor1.shape[0], : tensor1.shape[1]] = tensor1
     result[tensor1.shape[0] :, : tensor2.shape[1]] = tensor2
@@ -105,10 +84,8 @@ def numpy_pad_and_concatenate(array1, array2, padding_index=-100):
     if len(array1.shape) == 1 or array1.shape[1] == array2.shape[1]:
         return np.concatenate((array1, array2), axis=0)
 
-    # Let's figure out the new shape
     new_shape = (array1.shape[0] + array2.shape[0], max(array1.shape[1], array2.shape[1])) + array1.shape[2:]
 
-    # Now let's fill the result tensor
     result = np.full_like(array1, padding_index, shape=new_shape)
     result[: array1.shape[0], : array1.shape[1]] = array1
     result[array1.shape[0] :, : array2.shape[1]] = array2
@@ -165,9 +142,6 @@ def nested_numpify(tensors):
 
     t = tensors.cpu()
     if t.dtype == torch.bfloat16:
-        # As of Numpy 1.21.4, NumPy does not support bfloat16 (see
-        # https://github.com/numpy/numpy/blob/a47ecdea856986cd60eabbd53265c2ca5916ad5d/doc/source/user/basics.types.rst ).
-        # Until Numpy adds bfloat16, we must convert float32.
         t = t.to(torch.float32)
     return t.numpy()
 
@@ -182,103 +156,19 @@ def nested_detach(tensors):
 
 
 def nested_xla_mesh_reduce(tensors, name):
-    if is_torch_xla_available():
-        import torch_xla.core.xla_model as xm
-
-        if isinstance(tensors, (list, tuple)):
-            return type(tensors)(nested_xla_mesh_reduce(t, f"{name}_{i}") for i, t in enumerate(tensors))
-        if isinstance(tensors, Mapping):
-            return type(tensors)(
-                {k: nested_xla_mesh_reduce(t, f"{name}_{i}") for i, (k, t) in enumerate(tensors.items())}
-            )
-
-        tensors = atleast_1d(tensors)
-        return xm.mesh_reduce(name, tensors, torch.cat)
-    else:
-        raise ImportError("Torch xla must be installed to use `nested_xla_mesh_reduce`")
+    pass
 
 
 def distributed_concat(tensor: Any, num_total_examples: int | None = None) -> Any:
-    try:
-        if isinstance(tensor, (tuple, list)):
-            return type(tensor)(distributed_concat(t, num_total_examples) for t in tensor)
-        if isinstance(tensor, Mapping):
-            return type(tensor)({k: distributed_concat(t, num_total_examples) for k, t in tensor.items()})
-        tensor = atleast_1d(tensor).contiguous()
-        output_tensors = [tensor.clone() for _ in range(dist.get_world_size())]
-        dist.all_gather(output_tensors, tensor)
-        concat = torch.cat(output_tensors, dim=0)
-
-        # truncate the dummy elements added by SequentialDistributedSampler
-        if num_total_examples is not None:
-            concat = concat[:num_total_examples]
-        return concat
-    except AssertionError:
-        raise AssertionError("Not currently using distributed training")
+    pass
 
 
 def nested_gather(tensors, parallel_mode, name=None):
-    """
-    Gather value of `tensors` (tensor or list/tuple of nested tensors) across processes.
-    """
-    from .training_args import ParallelMode
-
-    if tensors is None:
-        return
-    if is_torch_xla_available():
-        if name is None:
-            name = "nested_gather"
-        tensors = nested_xla_mesh_reduce(tensors, name)
-    elif is_sagemaker_mp_enabled():
-        tensors = smp_gather(tensors)
-    elif parallel_mode == ParallelMode.DISTRIBUTED:
-        tensors = distributed_concat(tensors)
-    return tensors
+    pass
 
 
 def is_attention_mask_causal(attention_mask):
-    """
-    Check if an attention mask is causal (compatible with causal attention).
-
-    Context parallelism only supports causal attention patterns. This function
-    checks if the provided attention mask is compatible.
-
-    Args:
-        attention_mask (`torch.Tensor`): The attention mask to check.
-
-    Returns:
-        `bool`: True if the mask is causal or compatible with causal attention.
-    """
-    if attention_mask is None:
-        return True  # No mask is considered causal (model uses default causal masking)
-
-    # Handle different mask dimensions
-    if attention_mask.dim() == 2:
-        # (batch_size, seq_len) - standard padding mask, compatible with causal attention
-        return True
-    elif attention_mask.dim() in [3, 4]:
-        # (batch_size, seq_len, seq_len) or (batch_size, num_heads, seq_len, seq_len)
-        # Check if it's lower triangular (causal)
-        seq_len = attention_mask.shape[-1]
-        if seq_len <= 1:
-            return True  # Single token or empty is always causal
-
-        # Take first batch and head (if 4D) for checking pattern
-        if attention_mask.dim() == 4:
-            mask = attention_mask[0, 0]  # First batch, first head
-        else:
-            mask = attention_mask[0]  # First batch
-
-        # Check if upper triangular part is masked (should be 0 or very negative for causal)
-        upper_triangular = torch.triu(mask, diagonal=1)
-
-        # For causal masks, upper triangular should be 0 or very negative (like -inf)
-        # Use a reasonable threshold to handle float precision issues
-        is_causal = torch.all(upper_triangular <= 1e-6) or torch.all(upper_triangular < -1e4)
-        return is_causal.item() if isinstance(is_causal, torch.Tensor) else is_causal
-
-    # For unknown dimensions, be conservative and reject
-    return False
+    pass
 
 
 def distributed_broadcast_scalars(
@@ -286,56 +176,19 @@ def distributed_broadcast_scalars(
     num_total_examples: int | None = None,
     device: torch.device | None = torch.device("cuda"),
 ) -> torch.Tensor:
-    try:
-        tensorized_scalar = torch.tensor(scalars, device=device)
-        output_tensors = [tensorized_scalar.clone() for _ in range(dist.get_world_size())]
-        dist.all_gather(output_tensors, tensorized_scalar)
-        concat = torch.cat(output_tensors, dim=0)
-
-        # truncate the dummy elements added by SequentialDistributedSampler
-        if num_total_examples is not None:
-            concat = concat[:num_total_examples]
-        return concat
-    except AssertionError:
-        raise AssertionError("Not currently using distributed training")
+    pass
 
 
 def reissue_pt_warnings(caught_warnings):
-    # Reissue warnings
-    if len(caught_warnings) > 1:
-        for w in caught_warnings:
-            if w.category is not UserWarning:
-                warnings.warn(w.message, w.category)
+    pass
 
 
 @contextmanager
 def torch_distributed_zero_first(local_rank: int):
-    """
-    Decorator to make all processes in distributed training wait for each local_master to do something.
-
-    Args:
-        local_rank (`int`): The rank of the local process.
-    """
-    if local_rank not in [-1, 0]:
-        dist.barrier()
-    yield
-    if local_rank == 0:
-        dist.barrier()
+    pass
 
 
 class DistributedSamplerWithLoop(DistributedSampler):
-    """
-    Like a torch.utils.data.distributed.DistributedSampler` but loops at the end back to the beginning of the shuffled
-    samples to make each process have a round multiple of batch_size samples.
-
-    Args:
-        dataset (`torch.utils.data.Dataset`):
-            Dataset used for sampling.
-        batch_size (`int`):
-            The batch size used with this sampler
-        kwargs (`dict[str, Any]`, *optional*):
-            All other keyword arguments passed to `DistributedSampler`.
-    """
 
     def __init__(self, dataset, batch_size, **kwargs):
         super().__init__(dataset, **kwargs)
@@ -344,25 +197,12 @@ class DistributedSamplerWithLoop(DistributedSampler):
     def __iter__(self):
         indices = list(super().__iter__())
         remainder = 0 if len(indices) % self.batch_size == 0 else self.batch_size - len(indices) % self.batch_size
-        # DistributedSampler already added samples from the beginning to make the number of samples a round multiple
-        # of the world size, so we skip those.
         start_remainder = 1 if self.rank < len(self.dataset) % self.num_replicas else 0
         indices += indices[start_remainder : start_remainder + remainder]
         return iter(indices)
 
 
 class EvalLoopContainer:
-    """
-    Container to store intermediate results of evaluation loop.
-
-    Args:
-        do_nested_concat (`bool`, *optional*, defaults to `True`):
-            If set to `True`, each iteration will recursively concatenate a new object containing tensors to
-            the existing stored tensors, provided that the structure of the existing object and the new one
-            are identical. If set to `False`, all newly added tensors will be stored in a list.
-        padding_index (`int`, *optional*, defaults to -100):
-            Value used to pad tensors of different shapes when `do_nested_concat=True`.
-    """
 
     def __init__(self, do_nested_concat: bool = True, padding_index: int = -100):
         self.do_nested_concat = do_nested_concat
@@ -382,7 +222,6 @@ class EvalLoopContainer:
     def to_cpu_and_numpy(self) -> None:
         """Move tensors in stored objects to CPU and convert them to numpy arrays."""
 
-        # Check if we have something to add, if not just return
         if self.tensors is None:
             return
 
@@ -394,7 +233,6 @@ class EvalLoopContainer:
         else:
             self.arrays.extend(new_arrays)
 
-        # reset device tensors after adding to cpu
         self.tensors = None
 
     def get_arrays(self):
@@ -404,46 +242,23 @@ class EvalLoopContainer:
 
 
 def get_tpu_sampler(dataset: torch.utils.data.Dataset, batch_size: int):
-    if xr.world_size() <= 1:
-        return RandomSampler(dataset)
-    return DistributedSampler(dataset, num_replicas=xr.world_size(), rank=xr.global_ordinal())
+    pass
 
 
 def nested_new_like(arrays, num_samples, padding_index=-100):
-    """Create the same nested structure as `arrays` with a first dimension always at `num_samples`."""
-    if isinstance(arrays, (list, tuple)):
-        return type(arrays)(nested_new_like(x, num_samples) for x in arrays)
-    return np.full_like(arrays, padding_index, shape=(num_samples, *arrays.shape[1:]))
+    pass
 
 
 def expand_like(arrays, new_seq_length, padding_index=-100):
-    """Expand the `arrays` so that the second dimension grows to `new_seq_length`. Uses `padding_index` for padding."""
-    result = np.full_like(arrays, padding_index, shape=(arrays.shape[0], new_seq_length) + arrays.shape[2:])
-    result[:, : arrays.shape[1]] = arrays
-    return result
+    pass
 
 
 def nested_truncate(tensors, limit):
-    "Truncate `tensors` at `limit` (even if it's a nested list/tuple/dict of tensors)."
-    if isinstance(tensors, (list, tuple)):
-        return type(tensors)(nested_truncate(t, limit) for t in tensors)
-    if isinstance(tensors, Mapping):
-        return type(tensors)({k: nested_truncate(t, limit) for k, t in tensors.items()})
-
-    return tensors[:limit]
+    pass
 
 
 @dataclass
 class LabelSmoother:
-    """
-    Adds label-smoothing on a pre-computed output from a Transformers model.
-
-    Args:
-        epsilon (`float`, *optional*, defaults to 0.1):
-            The label smoothing factor.
-        ignore_index (`int`, *optional*, defaults to -100):
-            The index in the labels to ignore when computing the loss.
-    """
 
     epsilon: float = 0.1
     ignore_index: int = -100
@@ -459,22 +274,16 @@ class LabelSmoother:
             labels = labels.unsqueeze(-1)
 
         padding_mask = labels.eq(self.ignore_index)
-        # In case the ignore_index is -100, the gather will fail, so we replace labels by 0. The padding_mask
-        # will ignore them in any case.
         labels = torch.clamp(labels, min=0)
         nll_loss = log_probs.gather(dim=-1, index=labels)
-        # works for fp16 input tensor too, by internally upcasting it to fp32
         smoothed_loss = log_probs.sum(dim=-1, keepdim=True, dtype=torch.float32)
 
         nll_loss.masked_fill_(padding_mask, 0.0)
         smoothed_loss.masked_fill_(padding_mask, 0.0)
 
-        # The Trainer passes num_items_in_batch when the loss is normalized over the full batch;
-        # otherwise reduce over this micro-batch's active (non-padded) tokens.
         if num_items_in_batch is None:
             denominator = padding_mask.numel() - padding_mask.long().sum()
         elif torch.is_tensor(num_items_in_batch):
-            # The count may be on another device.
             denominator = num_items_in_batch.to(nll_loss.device)
         else:
             denominator = num_items_in_batch
@@ -484,45 +293,10 @@ class LabelSmoother:
 
 
 def get_length_grouped_indices(lengths, batch_size, mega_batch_mult=None, generator=None):
-    """
-    Return a list of indices so that each slice of `batch_size` consecutive indices correspond to elements of similar
-    lengths. To do this, the indices are:
-
-    - randomly permuted
-    - grouped in mega-batches of size `mega_batch_mult * batch_size`
-    - sorted by length in each mega-batch
-
-    The result is the concatenation of all mega-batches, with the batch of `batch_size` containing the element of
-    maximum length placed first, so that an OOM happens sooner rather than later.
-    """
-    # Default for mega_batch_mult: 50 or the number to get 4 megabatches, whichever is smaller.
-    if mega_batch_mult is None:
-        mega_batch_mult = min(len(lengths) // (batch_size * 4), 50)
-        # Just in case, for tiny datasets
-        if mega_batch_mult == 0:
-            mega_batch_mult = 1
-
-    # We need to use torch for the random part as a distributed sampler will set the random seed for torch.
-    indices = torch.randperm(len(lengths), generator=generator)
-    megabatch_size = mega_batch_mult * batch_size
-    megabatches = [indices[i : i + megabatch_size].tolist() for i in range(0, len(lengths), megabatch_size)]
-    megabatches = [sorted(megabatch, key=lambda i: lengths[i], reverse=True) for megabatch in megabatches]
-
-    # The rest is to get the biggest batch first.
-    # Since each megabatch is sorted by descending length, the longest element is the first
-    megabatch_maximums = [lengths[megabatch[0]] for megabatch in megabatches]
-    max_idx = torch.argmax(torch.tensor(megabatch_maximums)).item()
-    # Switch to put the longest element in first position
-    megabatches[0][0], megabatches[max_idx][0] = megabatches[max_idx][0], megabatches[0][0]
-
-    return [i for megabatch in megabatches for i in megabatch]
+    pass
 
 
 class LengthGroupedSampler(Sampler):
-    r"""
-    Sampler that samples indices in a way that groups together features of the dataset of roughly the same length while
-    keeping a bit of randomness.
-    """
 
     def __init__(
         self,
@@ -562,12 +336,7 @@ class LengthGroupedSampler(Sampler):
 
 
 class DistributedLengthGroupedSampler(DistributedSampler):
-    r"""
-    Distributed Sampler that samples indices in a way that groups together features of the dataset of roughly the same
-    length while keeping a bit of randomness.
-    """
 
-    # Copied and adapted from PyTorch DistributedSampler.
     def __init__(
         self,
         batch_size: int,
@@ -613,12 +382,7 @@ class DistributedLengthGroupedSampler(DistributedSampler):
 
         self.lengths = lengths
 
-        # If the dataset length is evenly divisible by # of replicas, then there
-        # is no need to drop any data, since the dataset will be split equally.
         if self.drop_last and len(self.lengths) % self.num_replicas != 0:
-            # Split to nearest available length that is evenly divisible.
-            # This is to ensure each rank receives the same amount of data when
-            # using this Sampler.
             self.num_samples = math.ceil((len(self.lengths) - self.num_replicas) / self.num_replicas)
         else:
             self.num_samples = math.ceil(len(self.lengths) / self.num_replicas)
@@ -626,20 +390,16 @@ class DistributedLengthGroupedSampler(DistributedSampler):
         self.seed = seed
 
     def __iter__(self) -> Iterator:
-        # Deterministically shuffle based on epoch and seed
         g = torch.Generator()
         g.manual_seed(self.seed + self.epoch)
         indices = get_length_grouped_indices(self.lengths, self.batch_size, generator=g)
 
         if not self.drop_last:
-            # add extra samples to make it evenly divisible
             indices += indices[: (self.total_size - len(indices))]
         else:
-            # remove tail of data to make it evenly divisible
             indices = indices[: self.total_size]
         assert len(indices) == self.total_size
 
-        # subsample
         indices = indices[self.rank : self.total_size : self.num_replicas]
         assert len(indices) == self.num_samples
 
@@ -647,13 +407,6 @@ class DistributedLengthGroupedSampler(DistributedSampler):
 
 
 class ShardSampler(Sampler):
-    """
-    Sampler that shards batches between several processes. Dispatches indices batch by batch: on 2 processes with batch
-    size 4, the first two batches are `[0, 1, 2, 3, 4, 5, 6, 7]` and `[8, 9, 10, 11, 12, 13, 14, 15]`, which shard into
-    `[0, 1, 2, 3]` and `[8, 9, 10, 11]` for GPU-0 and `[4, 5, 6, 7]` and `[12, 13, 14, 15]` for GPU-1.
-
-    The sampler thus yields `[0, 1, 2, 3, 8, 9, 10, 11]` on GPU-0 and `[4, 5, 6, 7, 12, 13, 14, 15]` on GPU-1.
-    """
 
     def __init__(
         self,
@@ -677,8 +430,6 @@ class ShardSampler(Sampler):
     def __iter__(self):
         indices = list(range(len(self.dataset)))
 
-        # Add extra samples to make it evenly divisible. While loop is there in the edge case we have a tiny dataset
-        # and it needs to be done several times.
         while len(indices) < self.total_num_samples:
             indices += indices[: (self.total_num_samples - len(indices))]
 
@@ -689,50 +440,10 @@ class ShardSampler(Sampler):
         return iter(result)
 
     def __len__(self):
-        # Each shard only sees a fraction of total_num_samples.
         return self.total_num_samples // self.num_processes
 
 
 class IterableDatasetShard(IterableDataset):
-    """
-    Wraps a PyTorch `IterableDataset` to generate samples for one of the processes only. Instances of this class will
-    always yield a number of samples that is a round multiple of the actual batch size (which is `batch_size x
-    num_processes`). Depending on the value of the `drop_last` attribute, it will either stop the iteration at the
-    first batch that would be too small or loop with indices from the beginning.
-
-    On two processes with an iterable dataset yielding of `[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]` with a batch size of
-    2:
-
-    - the shard on process 0 will yield `[0, 1, 4, 5, 8, 9]` so will see batches `[0, 1]`, `[4, 5]`, `[8, 9]`
-    - the shard on process 1 will yield `[2, 3, 6, 7, 10, 11]` so will see batches `[2, 3]`, `[6, 7]`, `[10, 11]`
-
-    <Tip warning={true}>
-
-        If your IterableDataset implements some randomization that needs to be applied the same way on all processes
-        (for instance, a shuffling), you should use a `torch.Generator` in a `generator` attribute of the `dataset` to
-        generate your random numbers and call the [`~trainer_pt_utils.IterableDatasetShard.set_epoch`] method of this
-        object. It will set the seed of this `generator` to `seed + epoch` on all processes before starting the
-        iteration. Alternatively, you can also implement a `set_epoch()` method in your iterable dataset to deal with
-        this.
-
-    </Tip>
-
-    Args:
-        dataset (`torch.utils.data.IterableDataset`):
-            The batch sampler to split in several shards.
-        batch_size (`int`, *optional*, defaults to 1):
-            The size of the batches per shard.
-        drop_last (`bool`, *optional*, defaults to `False`):
-            Whether or not to drop the last incomplete batch or complete the last batches by using the samples from the
-            beginning.
-        num_processes (`int`, *optional*, defaults to 1):
-            The number of processes running concurrently.
-        process_index (`int`, *optional*, defaults to 0):
-            The index of the current process.
-        seed (`int`, *optional*, defaults to 0):
-            A random seed that will be used for the random number generation in
-            [`~trainer_pt_utils.IterableDatasetShard.set_epoch`].
-    """
 
     def __init__(
         self,
@@ -753,9 +464,7 @@ class IterableDatasetShard(IterableDataset):
         self.num_examples = 0
 
     def set_epoch(self, epoch):
-        self.epoch = epoch
-        if hasattr(self.dataset, "set_epoch"):
-            self.dataset.set_epoch(epoch)
+        pass
 
     def __iter__(self):
         self.num_examples = 0
@@ -773,7 +482,6 @@ class IterableDatasetShard(IterableDataset):
         for element in self.dataset:
             self.num_examples += 1
             current_batch.append(element)
-            # Wait to have a full batch before yielding elements.
             if len(current_batch) == real_batch_size:
                 for i in process_slice:
                     yield current_batch[i]
@@ -781,7 +489,6 @@ class IterableDatasetShard(IterableDataset):
                     first_batch = current_batch.copy()
                 current_batch = []
 
-        # Finished if drop_last is True, otherwise complete the last batch with elements from the beginning.
         if not self.drop_last and len(current_batch) > 0:
             if first_batch is None:
                 first_batch = current_batch.copy()
@@ -791,7 +498,6 @@ class IterableDatasetShard(IterableDataset):
                 yield current_batch[i]
 
     def __len__(self):
-        # Will raise an error if the underlying dataset is not sized.
         if self.drop_last:
             return (len(self.dataset) // (self.batch_size * self.num_processes)) * self.batch_size
         else:
@@ -833,7 +539,6 @@ def metrics_format(metrics: dict[str, float]) -> dict[str, float]:
     return metrics_copy
 
 
-# Trainer helper method: imported into the Trainer class and used as a method (takes `self` as first argument).
 def log_metrics(self, split, metrics):
     """
     Log metrics in a specially formatted way.
@@ -924,7 +629,6 @@ def log_metrics(self, split, metrics):
         print(f"  {key: <{k_width}} = {metrics_formatted[key]:>{v_width}}")
 
 
-# Trainer helper method
 def save_metrics(self, split, metrics, combined=True):
     """
     Save metrics into a json file for that split, e.g. `train_results.json`.
@@ -963,7 +667,6 @@ def save_metrics(self, split, metrics, combined=True):
             json.dump(all_metrics, f, indent=4, sort_keys=True)
 
 
-# Trainer helper method
 def save_state(self):
     """
     Saves the Trainer state, since Trainer.save_model saves only the tokenizer with the model.
@@ -977,57 +680,20 @@ def save_state(self):
     self.state.save_to_json(path)
 
 
-# Trainer helper method
 def get_num_trainable_parameters(self) -> int:
-    """
-    Get the number of trainable parameters.
-    """
-    return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+    pass
 
 
-# Trainer helper method
 def get_learning_rates(self) -> list[float]:
-    """
-    Returns the learning rate of each parameter from self.optimizer.
-    """
-    if self.optimizer is None:
-        raise ValueError("Trainer optimizer is None, please make sure you have setup the optimizer before.")
-    return [group["lr"] for group in self.optimizer.param_groups]
+    pass
 
 
-# Trainer helper method
 def get_optimizer_group(self, param: str | torch.nn.parameter.Parameter | None = None):
-    """
-    Returns optimizer group for a parameter if given, else returns all optimizer groups for params.
-
-    Args:
-        param (`str` or `torch.nn.parameter.Parameter`, *optional*):
-            The parameter for which optimizer group needs to be returned.
-    """
-    if self.optimizer is None:
-        raise ValueError("Trainer optimizer is None, please make sure you have setup the optimizer before.")
-    if param is not None:
-        for group in self.optimizer.param_groups:
-            if param in group["params"]:
-                return group
-    return [group["params"] for group in self.optimizer.param_groups]
+    pass
 
 
 def get_model_param_count(model, trainable_only=False):
-    """
-    Calculate model's total param count. If trainable_only is True then count only those requiring grads.
-    """
-    if is_deepspeed_zero3_enabled():
-
-        def numel(p):
-            return p.ds_numel if hasattr(p, "ds_numel") else p.numel()
-
-    else:
-
-        def numel(p):
-            return p.numel()
-
-    return sum(numel(p) for p in model.parameters() if not trainable_only or p.requires_grad)
+    pass
 
 
 def get_parameter_names(model, forbidden_layer_types, forbidden_layer_names=None):
@@ -1046,7 +712,6 @@ def get_parameter_names(model, forbidden_layer_types, forbidden_layer_names=None
             if not isinstance(child, tuple(forbidden_layer_types))
             and not any(pattern.search(f"{name}.{n}".lower()) for pattern in forbidden_layer_patterns)
         ]
-    # Add model specific parameters that are not in any child
     result += [
         k for k in model._parameters if not any(pattern.search(k.lower()) for pattern in forbidden_layer_patterns)
     ]
@@ -1087,84 +752,26 @@ if is_sagemaker_mp_enabled():
 
     @smp.step()
     def smp_forward_backward(model, inputs, gradient_accumulation_steps=1):
-        outputs = model(**inputs)
-        loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-        loss /= gradient_accumulation_steps
-        model.backward(loss)
-        return loss
+        pass
 
     @smp.step()
     def smp_forward_only(model, inputs):
         return model(**inputs)
 
     def smp_gather(tensor):
-        if isinstance(tensor, (list, tuple)):
-            return type(tensor)(smp_gather(t) for t in tensor)
-        elif isinstance(tensor, dict):
-            return type(tensor)({k: smp_gather(v) for k, v in tensor.items()})
-        elif not isinstance(tensor, torch.Tensor):
-            raise TypeError(
-                f"Can't gather the values of type {type(tensor)}, only of nested list/tuple/dicts of tensors."
-            )
-        all_tensors = smp.allgather(tensor, smp.CommGroup.DP_GROUP)
-        all_tensors = [atleast_1d(t) for t in all_tensors]
-        return torch.cat([t.cpu() for t in all_tensors], dim=0)
+        pass
 
     def smp_nested_concat(tensor):
         if isinstance(tensor, (list, tuple)):
             return type(tensor)(smp_nested_concat(t) for t in tensor)
         elif isinstance(tensor, dict):
             return type(tensor)({k: smp_nested_concat(v) for k, v in tensor.items()})
-        # It doesn't seem possible to check here if `tensor` is a StepOutput because StepOutput lives in `smp.step`
-        # which is also the name of the decorator so Python is confused.
         return tensor.detach().concat().cpu()
 
 
 @dataclass
 class AcceleratorConfig:
-    """
-    A subset of arguments relating to the underlying [`accelerate.Accelerator`]
-    implementation utilized in the `Trainer` that can be customized.
-    Mostly relating to data.
 
-    Parameters:
-        split_batches (`bool`, *optional*, defaults to `False`):
-            Whether or not the accelerator should split the batches yielded by the dataloaders across the devices. If
-            `True` the actual batch size used will be the same on any kind of distributed processes, but it must be a
-            round multiple of the `num_processes` you are using. If `False`, actual batch size used will be the one set
-            in your script multiplied by the number of processes.
-        dispatch_batches (`bool`, *optional*):
-            If set to `True`, the dataloader prepared by the Accelerator is only iterated through on the main process
-            and then the batches are split and broadcast to each process. Will default to `True` for `DataLoader` whose
-            underlying dataset is an `IterableDataset`, `False` otherwise.
-        even_batches (`bool`, *optional*, defaults to `True`):
-            If set to `True`, in cases where the total batch size across all processes does not exactly divide the
-            dataset, samples at the start of the dataset will be duplicated so the batch can be divided equally among
-            all workers.
-        use_seedable_sampler (`bool`, *optional*, defaults to `True`):
-            Whether or not use a fully seedable random sampler ([`accelerate.data_loader.SeedableRandomSampler`]). Ensures
-            training results are fully reproducible using a different sampling technique. While seed-to-seed results
-            may differ, on average the differences are negligible when using multiple different seeds to compare. Should
-            also be ran with [`~utils.set_seed`] for the best results.
-        gradient_accumulation_kwargs (`dict`, *optional*):
-            Additional kwargs to configure gradient accumulation, see [`accelerate.utils.GradientAccumulationPlugin`].
-            Any of the following (optional) keys are acceptable:
-              num_steps (`int`): Will take precedence over [`~.TrainingArguments.gradient_accumulation_steps`] if
-                the latter is set to 1, otherwise an exception will be raised.
-              sync_each_batch (`bool`): Whether to synchronize the gradients at each data batch.
-                The [`accelerate.utils.GradientAccumulationPlugin`] default is `False`.
-        non_blocking (`bool`, *optional*, defaults to `False`):
-            Whether to use non-blocking CUDA calls to help minimize synchronization during
-            distributed training with prepared `DataLoader` inputs being moved to device.
-            Best if used with `pin_memory=True` in the `TrainingArguments`.
-        use_configured_state (`bool*, *optional*, defaults to `False`):
-            Whether or not to use a pre-configured `AcceleratorState` or `PartialState` defined
-            before calling `TrainingArguments`. If `True`, an `Accelerator` or `PartialState`
-            must be initialized. May lead to issues using sweeps or hyperparameter tuning.
-
-    """
-
-    # Data related arguments
     split_batches: bool = field(
         default=False,
         metadata={
@@ -1231,11 +838,9 @@ class AcceleratorConfig:
 
     @classmethod
     def from_json_file(cls, json_file):
-        # Check if exists
         open_file = io.open if os.path.exists(json_file) else open
         with open_file(json_file, "r", encoding="utf-8") as f:
             config_dict = json.load(f)
-        # Check for keys and load sensible defaults
         extra_keys = sorted(key for key in config_dict if key not in cls.__dataclass_fields__)
         if len(extra_keys) > 0:
             raise ValueError(
@@ -1252,15 +857,6 @@ class AcceleratorConfig:
 
 
 class LayerWiseDummyOptimizer(torch.optim.Optimizer):
-    """
-    For Layer-wise optimizers such as GaLoRE optimizer, the optimization
-    step is already done through the post gradient hooks. Therefore
-    the trick is to create a dummy optimizer that can take arbitrary
-    args and kwargs and return a no-op during training.
-
-    Initial idea from @hiyouga in LLaMA-Factory:
-    https://github.com/hiyouga/LLaMA-Factory/commit/8664262cde3919e10eaecbd66e8c5d356856362e#diff-ebe08ab14496dfb9e06075f0fdd36799ef6d1535cc4dd4715b74c4e3e06fe3ba
-    """
 
     def __init__(self, optimizer_dict=None, **kwargs):
         dummy_tensor = torch.randn(1, 1)
@@ -1275,12 +871,6 @@ class LayerWiseDummyOptimizer(torch.optim.Optimizer):
 
 
 class LayerWiseDummyScheduler(LRScheduler):
-    """
-    For Layer-wise optimizers such as GaLoRE optimizer, the optimization and scheduling step
-    are already done through the post gradient hooks. Therefore
-    the trick is to create a dummy scheduler that can take arbitrary
-    args and kwargs and return a no-op during training.
-    """
 
     def __init__(self, *args, **kwargs):
         self.default_lr = kwargs["lr"]
@@ -1289,55 +879,15 @@ class LayerWiseDummyScheduler(LRScheduler):
         super().__init__(optimizer, last_epoch)
 
     def get_lr(self):
-        # default value
-        lrs = [self.default_lr]
-
-        # we take each lr in the parameters if they exist, assumes the optimizer to be the `LayerWiseDummyOptimizer`
-        if self.optimizer is not None:
-            param_wise_lrs = [
-                [group["lr"] for group in optim.param_groups] for optim in self.optimizer.optimizer_dict.values()
-            ]
-            lrs = list(chain(*param_wise_lrs))
-
-        return lrs
+        pass
 
     def _get_closed_form_lr(self):
-        return self.base_lrs
+        pass
 
 
 def set_rng_state_for_device(device_name, device_module, checkpoint_rng_state, is_distributed):
-    """Helper to set RNG state for a specific device type (CUDA, NPU, MLU, MUSA)"""
-    device_state_key = device_name.lower()
-    err_template = "Didn't manage to set back the RNG states of the {backend} because of the following error:\n {exception}\nThis won't yield the same results as if the training had not been interrupted."
-    try:
-        if is_distributed:
-            device_module.random.set_rng_state_all(checkpoint_rng_state[device_state_key])
-        else:
-            device_module.random.set_rng_state(checkpoint_rng_state[device_state_key])
-    except Exception as e:
-        # Log error if setting RNG state fails
-        logger.error(err_template.format(backend=device_name, exception=e))
+    pass
 
 
 def safe_globals():
-    """
-    Context manager to allowlist numpy objects for torch.load with weights_only=True.
-
-    Starting from version 2.4 PyTorch introduces a check for the objects loaded
-    with torch.load(weights_only=True). Starting from 2.6 weights_only=True becomes
-    a default and requires allowlisting of objects being loaded.
-
-    See: https://github.com/pytorch/pytorch/pull/137602
-    See: https://pytorch.org/docs/stable/notes/serialization.html#torch.serialization.add_safe_globals
-    See: https://github.com/huggingface/accelerate/pull/3036
-    """
-    if version.parse(torch.__version__).release < version.parse("2.6").release:
-        return contextlib.nullcontext()
-
-    np_core = np._core if version.parse(np.__version__) >= version.parse("2.0.0") else np.core
-    allowlist = [np_core.multiarray._reconstruct, np.ndarray, np.dtype]
-    # numpy >1.25 defines numpy.dtypes.UInt32DType, but below works for
-    # all versions of numpy
-    allowlist += [type(np.dtype(np.uint32))]
-
-    return torch.serialization.safe_globals(allowlist)
+    pass

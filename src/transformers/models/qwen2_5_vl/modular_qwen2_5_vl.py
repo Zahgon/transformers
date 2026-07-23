@@ -1,22 +1,3 @@
-# Copyright 2025 The Qwen Team and The HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Qwen2.5-VL model."""
 
 import itertools
 import warnings
@@ -66,16 +47,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="Qwen/Qwen2-VL-7B-Instruct")
 @strict
 class Qwen2_5_VLVisionConfig(PreTrainedConfig):
-    r"""
-    tokens_per_second (`int`, *optional*, defaults to 41):
-        Number of tokens to merge for each second of video.
-    window_size (`int`, *optional*, defaults to 11):
-        Size of windows.
-    out_hidden_size (`int`, *optional*, defaults to 3584):
-        The output hidden size of the vision model.
-    fullatt_block_indexes (`int`, *optional*, defaults to `[7, 15, 23, 31]`):
-        Indices of layers with full attention
-    """
 
     model_type = "qwen2_5_vl_vision"
     base_config_key = "vision_config"
@@ -219,14 +190,7 @@ class Qwen2_5_VisionTransformerPretrainedModel(Qwen2_5_VLPreTrainedModel):
         self.post_init()
 
     def rot_pos_emb(self, grid_thw):
-        warnings.warn(
-            f"`{self.__class__.__name__}.rot_pos_emb` is deprecated and will be removed in v5.11. Use `get_vision_position_ids` from `transformers.vision_utils` and apply the rotary embedding module.",
-            FutureWarning,
-            stacklevel=2,
-        )
-        position_ids = get_vision_position_ids(grid_thw, self.spatial_merge_size)
-        rotary_pos_emb = self.rotary_pos_emb(position_ids)
-        return rotary_pos_emb
+        pass
 
     def get_window_index(self, grid_thw):
         warnings.warn(
@@ -318,7 +282,6 @@ class Qwen2_5_VLModel(Qwen2VLModel):
     config: Qwen2_5_VLConfig
     base_model_prefix = "model"
     _no_split_modules = ["Qwen2_5_VLDecoderLayer", "Qwen2_5_VLVisionBlock"]
-    # Reference: fix gemma3 grad acc #37208
     accepts_loss_kwargs = False
 
     def __init__(self, config):
@@ -411,18 +374,14 @@ class Qwen2_5_VLModel(Qwen2VLModel):
             current_pos = 0
             llm_pos_ids_list = []
             for modality_type, start_idx, end_idx in input_type_group:
-                # text == 0
                 if modality_type == 0:
                     text_len = end_idx - start_idx
                     llm_pos_ids_list.append(
                         torch.arange(text_len, device=input_ids.device).view(1, -1).expand(3, -1) + current_pos
                     )
                     current_pos += text_len
-                # image == 1, video == 2
                 else:
                     grid_thw = next(grid_iters[modality_type])
-                    # Only apply temporal scaling for videos; still images have no
-                    # temporal dimension to space out (fixes #45325).
                     if modality_type == 2:
                         time_interval = tokens_per_second * int(next(second_per_grid_ts))
                     else:
@@ -469,10 +428,6 @@ class Qwen2_5_VLModel(Qwen2VLModel):
                 mm_token_type_ids=mm_token_type_ids,
             )
             self.rope_deltas = rope_deltas
-        # Use pre-calculated rope-deltas to infer correct 3D position ids during incremental
-        # generation (past_key_values_length > 0) or when only inputs_embeds is provided (no input_ids
-        # to recompute from). Skip when input_ids is provided without past_key_values to avoid shape
-        # mismatches from stale rope_deltas (e.g., training forward pass after generation).
         elif self.rope_deltas is not None and (past_key_values_length > 0 or input_ids is None):
             batch_size, seq_length, _ = inputs_embeds.shape
             if attention_mask is not None:
@@ -485,7 +440,6 @@ class Qwen2_5_VLModel(Qwen2VLModel):
             delta = self.rope_deltas.repeat_interleave(batch_size // self.rope_deltas.shape[0], dim=0)
             position_ids = position_ids + delta.to(device=position_ids.device)
         else:
-            # Can't build correct 3D positions. Let the model infer it
             position_ids = None
         return position_ids
 
@@ -569,7 +523,6 @@ class Qwen2_5_VLCausalLMOutputWithPast(Qwen2VLCausalLMOutputWithPast):
 
 
 class Qwen2_5_VLForConditionalGeneration(Qwen2VLForConditionalGeneration):
-    # Reference: fix gemma3 grad acc #37208
     accepts_loss_kwargs = False
 
     def forward(
@@ -657,7 +610,6 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2VLForConditionalGeneration):
 
         hidden_states = outputs[0]
 
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -692,7 +644,6 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2VLForConditionalGeneration):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -729,26 +680,11 @@ class Qwen2_5_VLProcessorKwargs(ProcessingKwargs, total=False):
 
 class Qwen2_5_VLProcessor(Qwen2VLProcessor):
     def _process_videos(self, videos: VideoInput, **kwargs):
-        processed_data, video_replacements = super()._process_videos(videos, **kwargs)
-        video_grid_thw = processed_data["video_grid_thw"]
-
-        video_metadata = processed_data["video_metadata"]
-        fps = [metadata.sampled_fps for metadata in video_metadata]
-
-        if isinstance(fps, (int, float)):
-            second_per_grid_ts = [self.video_processor.temporal_patch_size / fps] * len(video_grid_thw)
-        elif hasattr(fps, "__len__") and len(fps) == len(video_grid_thw):
-            second_per_grid_ts = [self.video_processor.temporal_patch_size / tmp for tmp in fps]
-        else:
-            raise ValueError(
-                f"The length of fps ({len(fps) if hasattr(fps, '__len__') else fps}) must be equal to the length of video_grid_thw ({len(video_grid_thw)}) or fps should be a single number."
-            )
-        processed_data["second_per_grid_ts"] = second_per_grid_ts
-        return processed_data, video_replacements
+        pass
 
     @property
     def model_input_names(self):
-        return super().model_input_names + ["second_per_grid_ts", "mm_token_type_ids"]
+        pass
 
 
 __all__ = [

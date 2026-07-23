@@ -1,17 +1,3 @@
-# Copyright 2024 The Qwen team, Alibaba Group and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Qwen2VL model configuration"""
 
 import inspect
 
@@ -44,26 +30,11 @@ class Qwen2VLVisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Qwen/Qwen2-VL-7B-Instruct")
 @strict
 class Qwen2VLTextConfig(PreTrainedConfig):
-    r"""
-    ```python
-    >>> from transformers import Qwen2VLTextModel, Qwen2VLConfig
-
-    >>> # Initializing a Qwen2VL style configuration
-    >>> configuration = Qwen2VLConfig()
-
-    >>> # Initializing a model from the Qwen2-VL-7B style configuration
-    >>> model = Qwen2VLTextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "qwen2_vl_text"
     base_config_key = "text_config"
     keys_to_ignore_at_inference = ["past_key_values"]
     default_theta = 1000000.0
-    # Default tensor parallel plan for base model `Qwen2VL`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",
@@ -104,7 +75,6 @@ class Qwen2VLTextConfig(PreTrainedConfig):
     def __post_init__(self, **kwargs):
         self.sliding_window = self.sliding_window if self.use_sliding_window else None
 
-        # for backward compatibility
         if self.num_key_value_heads is None:
             self.num_key_value_heads = self.num_attention_heads
 
@@ -123,7 +93,6 @@ class Qwen2VLTextConfig(PreTrainedConfig):
         self.rope_parameters = rope_scaling or self.rope_parameters
         self.rope_parameters = self.rope_parameters if self.rope_parameters is not None else {}
 
-        # Standardize and validate the correctness of rotary position embeddings parameters
         self.rope_parameters.setdefault("rope_theta", kwargs.pop("rope_theta", self.default_theta))
         if self.rope_parameters.get("rope_type", self.rope_parameters.get("type")) == "mrope":
             self.rope_parameters["rope_type"] = "default"
@@ -134,21 +103,6 @@ class Qwen2VLTextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="Qwen/Qwen2-VL-7B-Instruct")
 @strict
 class Qwen2VLConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import Qwen2VLForConditionalGeneration, Qwen2VLConfig
-
-    >>> # Initializing a Qwen2VL style configuration
-    >>> configuration = Qwen2VLConfig()
-
-    >>> # Initializing a model from the Qwen2-VL-7B style configuration
-    >>> model = Qwen2VLForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "qwen2_vl"
     sub_configs = {"vision_config": Qwen2VLVisionConfig, "text_config": Qwen2VLTextConfig}
@@ -168,7 +122,6 @@ class Qwen2VLConfig(PreTrainedConfig):
         elif self.vision_config is None:
             self.vision_config = self.sub_configs["vision_config"]()
 
-        # Hub configs are saved as flat dicts so we pop some of kwargs to init `TextConfig`
         text_params = inspect.signature(self.sub_configs["text_config"].__init__).parameters.keys()
         text_params = list(text_params) + ["rope_parameters", "rope_scaling", "rope_theta"]
         text_kwargs = {key: kwargs.pop(key) for key in text_params if key in kwargs}
@@ -176,7 +129,6 @@ class Qwen2VLConfig(PreTrainedConfig):
         if isinstance(self.text_config, dict):
             self.text_config = self.sub_configs["text_config"](**self.text_config)
         elif self.text_config is None:
-            # Hub configs are saved as flat dicts so we pop some of kwargs to init `TextConfig`
             text_kwargs["dtype"] = kwargs.get("torch_dtype", kwargs.get("dtype"))  # don't pop the dtype
             self.text_config = self.sub_configs["text_config"](**text_kwargs)
 

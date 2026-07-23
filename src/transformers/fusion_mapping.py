@@ -1,21 +1,4 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Fusion registration helpers.
-
-See `docs/source/en/fusion_mapping.md` for the design overview and extension guide.
-"""
 
 import math
 import re
@@ -42,12 +25,6 @@ _FUSION_DISCOVERY_CACHE: dict[str, dict[type, dict[str, type[nn.Module]]]] = {}
 
 
 class ModuleFusionSpec:
-    """Base recipe for a fusion family.
-
-    A fusion spec decides which modules are eligible for a fusion, how to build
-    the runtime replacement class, and which weight transforms are needed to map
-    checkpoints between the original and fused layouts.
-    """
 
     target_modules_patterns: tuple[str, ...] = ()
 
@@ -70,7 +47,6 @@ class ModuleFusionSpec:
 
 class _FusedPatchEmbeddingMixin:
     def __init__(self, *args, **kwargs):
-        # call the original_cls.__init__()
         super().__init__(*args, **kwargs)
         self.patch_volume = self.proj.in_channels * math.prod(self.proj.kernel_size)
 
@@ -92,7 +68,6 @@ class _FusedPatchEmbeddingMixin:
 
 
 class PatchEmbeddingsFusionSpec(ModuleFusionSpec):
-    """Fuse compatible Conv3d patch embeddings into flattened Linear projections."""
 
     target_modules_patterns = (r"(^|\.)patch_embed$",)
 
@@ -100,7 +75,6 @@ class PatchEmbeddingsFusionSpec(ModuleFusionSpec):
         if not isinstance(proj := getattr(module, "proj", None), nn.Conv3d):
             return False
 
-        # no overlap between the patches
         return (
             proj.stride == proj.kernel_size
             and proj.padding == (0, 0, 0)
@@ -214,8 +188,6 @@ def _register_module_fusion(
 
     existing_converters = get_checkpoint_conversion_mapping(model_type)
     if existing_converters is not None:
-        # WeightConverter matching stops at the first matching source pattern, so
-        # conflicting converters must fail fast instead of being appended.
         existing_converter_sources = {tuple(existing.source_patterns): existing for existing in existing_converters}
         for converter in converters:
             source_patterns = tuple(converter.source_patterns)
@@ -226,7 +198,6 @@ def _register_module_fusion(
                     f"for source patterns {source_patterns}."
                 )
 
-        # TODO: allow compatible fusions mentioned https://github.com/huggingface/transformers/pull/45041#discussion_r3028989716
         converters = existing_converters + converters
 
     register_checkpoint_conversion_mapping(model_type, converters, overwrite=True)

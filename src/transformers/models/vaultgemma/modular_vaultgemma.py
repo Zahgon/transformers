@@ -1,16 +1,3 @@
-# Copyright 2025 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -25,23 +12,6 @@ from ..gemma2.modeling_gemma2 import Gemma2Attention, Gemma2DecoderLayer, Gemma2
 @auto_docstring(checkpoint="google/vaultgemma-1b")
 @strict
 class VaultGemmaConfig(Gemma2Config):
-    r"""
-    query_pre_attn_scalar (`float`, *optional*, defaults to 256):
-        scaling factor used on the attention scores
-    final_logit_softcapping (`float`, *optional*, defaults to 30.0):
-        scaling factor when applying tanh softcapping on the logits.
-    attn_logit_softcapping (`float`, *optional*, defaults to 50.0):
-        scaling factor when applying tanh softcapping on the attention scores.
-
-    ```python
-    >>> from transformers import VaultGemmaModel, VaultGemmaConfig
-    >>> # Initializing a VaultGemma vaultgemma-7b style configuration
-    >>> configuration = VaultGemmaConfig()
-    >>> # Initializing a model from the vaultgemma-7b style configuration
-    >>> model = VaultGemmaModel(configuration)
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     use_bidirectional_attention = AttributeError()
 
@@ -55,7 +25,6 @@ class VaultGemmaMLP(Gemma2MLP):
 
 
 class VaultGemmaAttention(Gemma2Attention):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: VaultGemmaConfig, layer_idx: int):
         super().__init__()
@@ -79,7 +48,6 @@ class VaultGemmaDecoderLayer(Gemma2DecoderLayer):
     ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             position_embeddings=position_embeddings,

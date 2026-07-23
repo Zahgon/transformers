@@ -1,19 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Feature extraction saving/loading class for common feature extractors.
-"""
 
 import copy
 import json
@@ -51,26 +35,10 @@ logger = logging.get_logger(__name__)
 
 PreTrainedFeatureExtractor = Union["SequenceFeatureExtractor"]
 
-# type hinting: specifying the type of feature extractor class that inherits from FeatureExtractionMixin
 SpecificFeatureExtractorType = TypeVar("SpecificFeatureExtractorType", bound="FeatureExtractionMixin")
 
 
 class BatchFeature(UserDict):
-    r"""
-    Holds the output of the [`~SequenceFeatureExtractor.pad`] and feature extractor specific `__call__` methods.
-
-    This class is derived from a python dictionary and can be used as a dictionary.
-
-    Args:
-        data (`dict`, *optional*):
-            Dictionary of lists/arrays/tensors returned by the __call__/pad methods ('input_values', 'attention_mask',
-            etc.).
-        tensor_type (`Union[None, str, TensorType]`, *optional*):
-            You can give a tensor_type here to convert the lists of integers in PyTorch/Numpy Tensors at
-            initialization.
-        skip_tensor_conversion (`list[str]` or `set[str]`, *optional*):
-            List or set of keys that should NOT be converted to tensors, even when `tensor_type` is specified.
-    """
 
     def __init__(
         self,
@@ -109,7 +77,6 @@ class BatchFeature(UserDict):
         if tensor_type is None:
             return None, None
 
-        # Convert to TensorType
         if not isinstance(tensor_type, TensorType):
             tensor_type = TensorType(tensor_type)
 
@@ -122,11 +89,9 @@ class BatchFeature(UserDict):
                 if torch.is_tensor(value):
                     return value
 
-                # stack list of tensors if tensor_type is PyTorch (# torch.tensor() does not support list of tensors)
                 if isinstance(value, (list, tuple)) and len(value) > 0 and torch.is_tensor(value[0]):
                     return torch.stack(value)
 
-                # convert list of numpy arrays to numpy array (stack) if tensor_type is Numpy
                 if isinstance(value, (list, tuple)) and len(value) > 0:
                     if isinstance(value[0], np.ndarray):
                         value = np.array(value)
@@ -148,7 +113,6 @@ class BatchFeature(UserDict):
                 if isinstance(value, (list, tuple)) and isinstance(value[0], (list, tuple, np.ndarray)):
                     value_lens = [len(val) for val in value]
                     if len(set(value_lens)) > 1 and dtype is None:
-                        # we have a ragged list so handle explicitly
                         value = as_tensor([np.asarray(val) for val in value], dtype=object)
                 return np.asarray(value, dtype=dtype)
 
@@ -183,13 +147,10 @@ class BatchFeature(UserDict):
             skip_tensor_conversion if skip_tensor_conversion is not None else self.skip_tensor_conversion
         )
 
-        # Do the tensor conversion in batch
         for key, value in self.items():
-            # Skip keys explicitly marked for no conversion
             if skip_tensor_conversion and key in skip_tensor_conversion:
                 continue
 
-            # Skip values that are not array-like
             if not _is_tensor_or_array_like(value):
                 continue
 
@@ -232,28 +193,20 @@ class BatchFeature(UserDict):
 
         device = kwargs.get("device")
         non_blocking = kwargs.get("non_blocking", False)
-        # Check if the args are a device or a dtype
         if device is None and len(args) > 0:
-            # device should be always the first argument
             arg = args[0]
             if is_torch_dtype(arg):
-                # The first argument is a dtype
                 pass
             elif isinstance(arg, str) or is_torch_device(arg) or isinstance(arg, int):
                 device = arg
             else:
-                # it's something else
                 raise ValueError(f"Attempting to cast a BatchFeature to type {str(arg)}. This is not supported.")
 
-        # We cast only floating point tensors to avoid issues with tokenizers casting `LongTensor` to `FloatTensor`
         def maybe_to(v):
-            # check if v is a floating point tensor
             if isinstance(v, torch.Tensor) and torch.is_floating_point(v):
-                # cast and send to device
                 return v.to(*args, **kwargs)
             elif isinstance(v, torch.Tensor) and device is not None:
                 return v.to(device=device, non_blocking=non_blocking)
-            # recursively handle lists and tuples
             elif isinstance(v, (list, tuple)):
                 return type(v)(maybe_to(item) for item in v)
             else:
@@ -264,18 +217,12 @@ class BatchFeature(UserDict):
 
 
 class FeatureExtractionMixin(PushToHubMixin):
-    """
-    This is a feature extraction mixin used to provide saving/loading functionality for sequential and audio feature
-    extractors.
-    """
 
     _auto_class = None
 
     def __init__(self, **kwargs):
         """Set elements of `kwargs` as attributes."""
-        # Pop "processor_class", it should not be saved in feature extractor config
         kwargs.pop("processor_class", None)
-        # Additional attributes without default values
         for key, value in kwargs.items():
             try:
                 setattr(self, key, value)
@@ -406,12 +353,9 @@ class FeatureExtractionMixin(PushToHubMixin):
             repo_id = hf_api().create_repo(repo_id, exist_ok=True, **kwargs).repo_id
             files_timestamps = self._get_files_timestamps(save_directory)
 
-        # If we have a custom config, we copy the file defining it in the folder and set the attributes so it can be
-        # loaded from the Hub.
         if self._auto_class is not None:
             custom_object_save(self, save_directory, config=self)
 
-        # If we save using the predefined names, we can load using `from_pretrained`
         output_feature_extractor_file = os.path.join(save_directory, FEATURE_EXTRACTOR_NAME)
 
         self.to_json_file(output_feature_extractor_file)
@@ -473,7 +417,6 @@ class FeatureExtractionMixin(PushToHubMixin):
         else:
             feature_extractor_file = FEATURE_EXTRACTOR_NAME
             try:
-                # Load from local folder or from cache or download from model Hub and cache
                 resolved_processor_file = cached_file(
                     pretrained_model_name_or_path,
                     filename=PROCESSOR_NAME,
@@ -501,11 +444,8 @@ class FeatureExtractionMixin(PushToHubMixin):
                     _raise_exceptions_for_missing_entries=False,
                 )
             except OSError:
-                # Raise any environment error raise by `cached_file`. It will have a helpful error message adapted to
-                # the original exception.
                 raise
             except Exception:
-                # For any other exception, we throw a generic error.
                 raise OSError(
                     f"Can't load feature extractor for '{pretrained_model_name_or_path}'. If you were trying to load"
                     " it from 'https://huggingface.co/models', make sure you don't have a local directory with the"
@@ -513,9 +453,6 @@ class FeatureExtractionMixin(PushToHubMixin):
                     f" directory containing a {FEATURE_EXTRACTOR_NAME} file"
                 )
 
-        # Load feature_extractor dict. Priority goes as (nested config if found -> image processor config)
-        # We are downloading both configs because almost all models have a `processor_config.json` but
-        # not all of these are nested. We need to check if it was saved recebtly as nested or if it is legacy style
         feature_extractor_dict = None
         if resolved_processor_file is not None:
             processor_dict = safe_load_json_file(resolved_processor_file)
@@ -564,7 +501,6 @@ class FeatureExtractionMixin(PushToHubMixin):
         """
         return_unused_kwargs = kwargs.pop("return_unused_kwargs", False)
 
-        # Update feature_extractor with kwargs if needed
         to_remove = []
         for key, value in kwargs.items():
             if key in feature_extractor_dict:

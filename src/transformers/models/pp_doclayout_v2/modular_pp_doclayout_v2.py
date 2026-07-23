@@ -1,16 +1,3 @@
-# Copyright 2026 The PaddlePaddle Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from dataclasses import dataclass
@@ -61,45 +48,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="PaddlePaddle/PP-DocLayoutV2_safetensors")
 @strict
 class PPDocLayoutV2ReadingOrderConfig(PreTrainedConfig):
-    r"""
-    has_relative_attention_bias (`bool`, *optional*, defaults to `True`):
-        Whether or not to use a relative attention bias in the self-attention mechanism.
-    has_spatial_attention_bias (`bool`, *optional*, defaults to `True`):
-        Whether or not to use a spatial attention bias in the self-attention mechanism.
-    rel_pos_bins (`int`, *optional*, defaults to 32):
-        The number of relative position bins to be used in the self-attention mechanism.
-    max_rel_pos (`int`, *optional*, defaults to 128):
-        The maximum number of relative positions to be used in the self-attention mechanism.
-    rel_2d_pos_bins (`int`, *optional*, defaults to 64):
-        The number of 2D relative position bins in the self-attention mechanism.
-    max_rel_2d_pos (`int`, *optional*, defaults to 256):
-        The maximum number of relative 2D positions in the self-attention mechanism.
-    max_2d_position_embeddings (`int`, *optional*, defaults to 1024):
-        The maximum value that the 2D position embedding might ever be used with. Typically set this to something
-        large just in case (e.g., 1024).
-    start_token_id (`int`, *optional*, defaults to 0):
-        Token id representing the start of a sequence.
-    end_token_id (`int`, *optional*, defaults to 2):
-        Token id representing the end of a sequence.
-    pred_token_id (`int`, *optional*, defaults to 3):
-        Token id representing valid prediction positions (placeholders) in the sequence.
-    coordinate_size (`int`, *optional*, defaults to 171):
-        Dimension of the coordinate embeddings.
-    shape_size (`int`, *optional*, defaults to 170):
-        Dimension of the width and height embeddings.
-    num_classes (`int`, *optional*, defaults to 20):
-        Number of labels or classes for the layout elements.
-    relation_bias_embed_dim (`int`, *optional*, defaults to 16):
-        Embedding dimension for the relation bias.
-    relation_bias_theta (`float`, *optional*, defaults to 10000):
-        Temperature parameter used for relation bias scaling.
-    relation_bias_scale (`float`, *optional*, defaults to 100):
-        Scale parameter for the relation bias.
-    global_pointer_head_size (`int`, *optional*, defaults to 64):
-        The size of the global pointer head.
-    gp_dropout_value (`float`, *optional*, defaults to 0.0):
-        The dropout probability in the global pointer head.
-    """
 
     hidden_size: int = 512
     num_attention_heads: int = 8
@@ -137,81 +85,6 @@ class PPDocLayoutV2ReadingOrderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="PaddlePaddle/PP-DocLayoutV2_safetensors")
 @strict
 class PPDocLayoutV2Config(PreTrainedConfig):
-    r"""
-    initializer_bias_prior_prob (`float`, *optional*):
-        The prior probability used by the bias initializer to initialize biases for `enc_score_head` and `class_embed`.
-        If `None`, `prior_prob` computed as `prior_prob = 1 / (num_labels + 1)` while initializing model weights.
-    freeze_backbone_batch_norms (`bool`, *optional*, defaults to `True`):
-        Whether to freeze the batch normalization layers in the backbone.
-    encoder_hidden_dim (`int`, *optional*, defaults to 256):
-        Dimension of the layers in hybrid encoder.
-    encoder_in_channels (`list`, *optional*, defaults to `[512, 1024, 2048]`):
-        Multi level features input for encoder.
-    feat_strides (`list[int]`, *optional*, defaults to `[8, 16, 32]`):
-        Strides used in each feature map.
-    encoder_layers (`int`, *optional*, defaults to 1):
-        Total of layers to be used by the encoder.
-    encode_proj_layers (`list[int]`, *optional*, defaults to `[2]`):
-        Indexes of the projected layers to be used in the encoder.
-    positional_encoding_temperature (`int`, *optional*, defaults to 10000):
-        The temperature parameter used to create the positional encodings.
-    encoder_activation_function (`str`, *optional*, defaults to `"gelu"`):
-        The non-linear activation function (function or string) in the encoder and pooler. If string, `"gelu"`,
-        `"relu"`, `"silu"` and `"gelu_new"` are supported.
-    eval_size (`tuple[int, int]`, *optional*):
-        Height and width used to computes the effective height and width of the position embeddings after taking
-        into account the stride.
-    normalize_before (`bool`, *optional*, defaults to `False`):
-        Determine whether to apply layer normalization in the transformer encoder layer before self-attention and
-        feed-forward modules.
-    hidden_expansion (`float`, *optional*, defaults to 1.0):
-        Expansion ratio to enlarge the dimension size of RepVGGBlock and CSPRepLayer.
-    num_queries (`int`, *optional*, defaults to 300):
-        Number of object queries.
-    decoder_in_channels (`list`, *optional*, defaults to `[256, 256, 256]`):
-        Multi level features dimension for decoder
-    decoder_ffn_dim (`int`, *optional*, defaults to 1024):
-        Dimension of the "intermediate" (often named feed-forward) layer in decoder.
-    num_feature_levels (`int`, *optional*, defaults to 3):
-        The number of input feature levels.
-    decoder_n_points (`int`, *optional*, defaults to 4):
-        The number of sampled keys in each feature level for each attention head in the decoder.
-    decoder_activation_function (`str`, *optional*, defaults to `"relu"`):
-        The non-linear activation function (function or string) in the decoder. If string, `"gelu"`,
-        `"relu"`, `"silu"` and `"gelu_new"` are supported.
-    num_denoising (`int`, *optional*, defaults to 100):
-        The total number of denoising tasks or queries to be used for contrastive denoising.
-    label_noise_ratio (`float`, *optional*, defaults to 0.5):
-        The fraction of denoising labels to which random noise should be added.
-    box_noise_scale (`float`, *optional*, defaults to 1.0):
-        Scale or magnitude of noise to be added to the bounding boxes.
-    learn_initial_query (`bool`, *optional*, defaults to `False`):
-        Indicates whether the initial query embeddings for the decoder should be learned during training
-    anchor_image_size (`tuple[int, int]`, *optional*):
-        Height and width of the input image used during evaluation to generate the bounding box anchors. If None, automatic generate anchor is applied.
-    disable_custom_kernels (`bool`, *optional*, defaults to `True`):
-        Whether to disable custom kernels.
-    class_thresholds (`list[float]`, *optional*):
-        The thresholds for each label.
-    class_order (`list[int]`, *optional*):
-        The priority for each label.
-    reading_order_config (`dict`, *optional*):
-        The configuration of a `PPDocLayoutV2ReadingOrder`.
-
-    Examples:
-
-    ```python
-    >>> from transformers import PPDocLayoutV2Config, PPDocLayoutV2ForObjectDetection
-
-    >>> # Initializing a PP-DocLayoutV2 configuration
-    >>> configuration = PPDocLayoutV2Config()
-
-    >>> # Initializing a model (with random weights) from the configuration
-    >>> model = PPDocLayoutV2ForObjectDetection(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "pp_doclayout_v2"
     sub_configs = {"backbone_config": AutoConfig, "reading_order_config": PPDocLayoutV2ReadingOrderConfig}
@@ -418,7 +291,6 @@ class PPDocLayoutV2PositionRelationEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / half_dim)
         )
@@ -477,29 +349,18 @@ class PPDocLayoutV2ReadingOrderSelfAttention(LayoutLMv3SelfAttention):
             .transpose(1, 2)
         )
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
-        # The attention scores QT K/√d could be significantly larger than input elements, and result in overflow.
-        # Changing the computational order into QT(K/√d) alleviates the problem. (https://huggingface.co/papers/2105.13290)
         attention_scores = torch.matmul(query_layer / math.sqrt(self.attention_head_size), key_layer.transpose(-1, -2))
 
-        # NOTE:
-        # PPDocLayoutV2ReadingOrder applies unscaled rel_2d_pos
-        # unlike LayoutLMv3 which uses (rel_pos + rel_2d_pos) / math.sqrt(self.attention_head_size)
         if rel_2d_pos is not None:
             attention_scores += rel_2d_pos
         elif self.has_relative_attention_bias:
             attention_scores += rel_pos / math.sqrt(self.attention_head_size)
 
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in RobertaModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
-        # Use the trick of the CogView paper to stabilize training
         attention_probs = self.cogview_attention(attention_scores)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -602,7 +463,6 @@ class PPDocLayoutV2TextEmbeddings(LayoutLMv3TextEmbeddings):
     ):
         if position_ids is None:
             if input_ids is not None:
-                # Create the position ids from the input token ids. Any padded tokens remain padded.
                 position_ids = self.create_position_ids_from_input_ids(input_ids, self.padding_idx).to(
                     input_ids.device
                 )
@@ -626,7 +486,6 @@ class PPDocLayoutV2TextEmbeddings(LayoutLMv3TextEmbeddings):
         position_embeddings = self.position_embeddings(position_ids)
         embeddings += position_embeddings
 
-        # custom new spatial embeddings
         spatial_position_embeddings = self.calculate_spatial_position_embeddings(bbox)
         spatial_position_embeddings = self.spatial_proj(spatial_position_embeddings)
         embeddings += spatial_position_embeddings
@@ -654,7 +513,6 @@ class PPDocLayoutV2PreTrainedModel(RTDetrPreTrainedModel):
     """
 )
 class PPDocLayoutV2ReadingOrder(PPDocLayoutV2PreTrainedModel):
-    # Attention is based on LayoutLMv3 (no interface)
     _supports_sdpa = False
     _supports_flash_attn = False
     _supports_attention_backend = False
@@ -737,43 +595,6 @@ class PPDocLayoutV2ReadingOrder(PPDocLayoutV2PreTrainedModel):
 @auto_docstring
 @dataclass
 class PPDocLayoutV2ForObjectDetectionOutput(ModelOutput):
-    r"""
-    logits (`torch.FloatTensor` of shape `(batch_size, num_queries, num_classes + 1)`):
-        Classification logits (including no-object) for all queries.
-    pred_boxes (`torch.FloatTensor` of shape `(batch_size, num_queries, 4)`):
-        Normalized boxes coordinates for all queries, represented as (center_x, center_y, width, height). These
-        values are normalized in [0, 1], relative to the size of each individual image in the batch (disregarding
-        possible padding). You can use [`~RTDetrImageProcessor.post_process_object_detection`] to retrieve the
-        unnormalized (absolute) bounding boxes.
-    order_logits (`tuple` of `torch.FloatTensor` of shape `(batch_size, num_queries, num_queries)`):
-        Order logits for all queries. The first dimension of each tensor is the batch size. The second dimension is the number of queries.
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_queries, hidden_size)`):
-        Sequence of hidden-states at the output of the last layer of the decoder of the model.
-    intermediate_hidden_states (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, hidden_size)`):
-        Stacked intermediate hidden states (output of each layer of the decoder).
-    intermediate_logits (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, config.num_labels)`):
-        Stacked intermediate logits (logits of each layer of the decoder).
-    intermediate_reference_points (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked intermediate reference points (reference points of each layer of the decoder).
-    intermediate_predicted_corners (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked intermediate predicted corners (predicted corners of each layer of the decoder).
-    initial_reference_points (`torch.FloatTensor` of shape `(batch_size, config.decoder_layers, num_queries, 4)`):
-        Stacked initial reference points (initial reference points of each layer of the decoder).
-    init_reference_points (`torch.FloatTensor` of shape  `(batch_size, num_queries, 4)`):
-        Initial reference points sent through the Transformer decoder.
-    enc_topk_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.num_labels)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Logits of predicted bounding boxes coordinates in the encoder.
-    enc_topk_bboxes (`torch.FloatTensor` of shape `(batch_size, sequence_length, 4)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Logits of predicted bounding boxes coordinates in the encoder.
-    enc_outputs_class (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.num_labels)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Predicted bounding boxes scores where the top `config.two_stage_num_proposals` scoring bounding boxes are
-        picked as region proposals in the first stage. Output of bounding box binary classification (i.e.
-        foreground and background).
-    enc_outputs_coord_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, 4)`, *optional*, returned when `config.with_box_refine=True` and `config.two_stage=True`):
-        Logits of predicted bounding boxes coordinates in the first stage.
-    denoising_meta_values (`dict`):
-        Extra dictionary for the denoising related values
-    """
 
     logits: torch.FloatTensor | None = None
     pred_boxes: torch.FloatTensor | None = None

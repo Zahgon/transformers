@@ -1,16 +1,3 @@
-# Copyright 2025 Meta Platforms, Inc. and the HuggingFace Inc. team. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for PerceptionLM."""
 
 import math
 from functools import reduce
@@ -33,15 +20,6 @@ from ...utils import TensorType, auto_docstring
 
 
 class PerceptionLMImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    vision_input_type (`str`, *optional*, defaults to `"thumb+tile"`):
-        Vision processing strategy. `"thumb+tile"` uses both thumbnails and multiple tiles for
-        multi-scale processing, otherwise uses single tile for lower memory usage.
-    tile_size (`int`, *optional*, defaults to `448`):
-        Height and width dimension (in pixels) of each tile used for image processing.
-    max_num_tiles (`int`, *optional*, defaults to `36`):
-        Maximum number of tiles an image can be split into based on its aspect ratio.
-    """
 
     vision_input_type: str | None
     tile_size: int
@@ -121,22 +99,16 @@ class PerceptionLMImageProcessor(TorchvisionBackend):
         scale = image_width / image_height
 
         if scale > 1.0:
-            # Width is larger than height
 
-            # Rescaling factor is the minimum of the two scaling factors. Else one side would be outside of the canvas.
             rescaling_factor = min(target_width / image_width, target_height / image_height)
 
-            # Set new width to target width and height to the rescaled height.
             new_w = rescaling_factor * image_width
             new_h = math.floor(new_w / scale)
 
         else:
-            # Height is larger than width
 
-            # Rescaling factor is the minimum of the two scaling factors. Else one side would be outside of the canvas.
             rescaling_factor = min(target_width / image_width, target_height / image_height)
 
-            # Set new height to target height and width to the rescaled width.
             new_h = rescaling_factor * image_height
             new_w = math.floor(new_h * scale)
 
@@ -149,25 +121,19 @@ class PerceptionLMImageProcessor(TorchvisionBackend):
         If the image can be fit onto several canvases, it will return the canvas where the shorter edge
         of the image will be largest.
         """
-        # Initialize the optimal canvas to None. If no canvas is found where image fits, function returns None.
         optimal_canvas = None
         optimal_image_width_height = None
 
         scale = img_width / img_height
 
-        # Gather all potential supported image resolutions and iterate through them to find best match
         potential_arrangements = [
             item for sublist in self._find_supported_aspect_ratios().values() for item in sublist
         ]
         for n_w, n_h in potential_arrangements:
-            # Compute the canvas size
             canvas_width, canvas_height = n_w * tile_size, n_h * tile_size
 
-            # Check if image can fit into the canvas without downsampling
             if canvas_width >= img_width and canvas_height >= img_height:
-                # If we did not find a good canvas yet, we will use the current one
                 if optimal_canvas is None:
-                    # Set optimal canvas and determine the actual image height and width in the canvas with aspect ratio preserving resampling
                     optimal_canvas = (n_w, n_h)
                     optimal_image_width_height = self._get_image_height_width(
                         image_width=img_width,
@@ -176,15 +142,12 @@ class PerceptionLMImageProcessor(TorchvisionBackend):
                         target_height=n_h * tile_size,
                     )
                 else:
-                    # If we already found an optimal canvas before, we will check if the shorter edge of the image will be larger than the current optimal canvas.
-                    # This means we can potentially upsample the image resolution which is beneficial to performance.
                     image_width_height = self._get_image_height_width(
                         image_width=img_width,
                         image_height=img_height,
                         target_width=n_w * tile_size,
                         target_height=n_h * tile_size,
                     )
-                    # Llama3V dynamic tiling. Prioritize biggest canvas.
                     if (scale < 1.0 and (image_width_height[0] >= optimal_image_width_height[0])) or (
                         scale >= 1.0 and (image_width_height[1] >= optimal_image_width_height[1])
                     ):
@@ -206,7 +169,6 @@ class PerceptionLMImageProcessor(TorchvisionBackend):
                 key=lambda x: abs(x - target_aspect_ratio),
             )
             tiles_given_aspect_ratio = asp_dict[closest_aspect_ratio]
-            # select largest width
             return max(tiles_given_aspect_ratio, key=lambda x: x[0])
         else:
             closest_aspect_ratio = min(
@@ -214,16 +176,12 @@ class PerceptionLMImageProcessor(TorchvisionBackend):
                 key=lambda x: abs(1 / x - 1 / target_aspect_ratio),
             )
             tiles_given_aspect_ratio = asp_dict[closest_aspect_ratio]
-            # select largest height
             return max(tiles_given_aspect_ratio, key=lambda x: x[1])
 
     def _split(self, image: torch.Tensor, ncw: int, nch: int) -> torch.Tensor:
-        # Split image into number of required tiles (width x height)
         batch_size, num_channels, height, width = image.size()
         image = image.view(batch_size, num_channels, nch, height // nch, ncw, width // ncw)
-        # Permute dimensions to reorder the axes
         image = image.permute(0, 2, 4, 1, 3, 5).contiguous()
-        # Reshape into the desired output shape (batch_size * 4, num_channels, width/2, height/2)
         image = image.view(batch_size, ncw * nch, num_channels, height // nch, width // ncw)
         return image
 
@@ -242,7 +200,6 @@ class PerceptionLMImageProcessor(TorchvisionBackend):
         if max_num_tiles > 1:
             aspect_ratio = self._fit_image_to_canvas(img_width=width, img_height=height, tile_size=tile_size)
             if aspect_ratio is None:
-                # If we did not find a canvas, we have to find the closest aspect ratio and downsample the image
                 aspect_ratio = self._find_closest_aspect_ratio(img_width=width, img_height=height, tile_size=tile_size)
         else:
             aspect_ratio = (1, 1)
@@ -268,7 +225,6 @@ class PerceptionLMImageProcessor(TorchvisionBackend):
         disable_grouping: bool | None,
         **kwargs,
     ) -> BatchFeature:
-        # Group images by size for batched transformation
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
@@ -289,7 +245,6 @@ class PerceptionLMImageProcessor(TorchvisionBackend):
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images,
                 do_rescale,

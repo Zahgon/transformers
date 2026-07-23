@@ -1,16 +1,3 @@
-# Copyright 2026 IBM and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import math
 from dataclasses import dataclass
@@ -46,31 +33,14 @@ from ..llava_next.modeling_llava_next import (
 from ..llava_next.processing_llava_next import LlavaNextProcessor
 
 
-# ── Output classes ──────────────────────────────────────────────────────────
 
 
 class Granite4VisionModelOutputWithPast(LlavaNextModelOutputWithPast):
-    r"""
-    deepstack_features (`list[tuple[int, list[torch.Tensor]]]`, *optional*):
-        List of `(llm_layer_idx, packed_features)` pairs produced by the deepstack
-        and spatial projectors. Each entry targets one LLM decoder layer; `packed_features`
-        is a per-image list of tensors of shape `(num_image_tokens, hidden_size)`.
-    """
 
     deepstack_features: list | None = None
 
 
 class Granite4VisionCausalLMOutputWithPast(LlavaNextCausalLMOutputWithPast):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    deepstack_features (`list[tuple[int, list[torch.Tensor]]]`, *optional*):
-        List of `(llm_layer_idx, packed_features)` pairs produced by the deepstack
-        and spatial projectors. Each entry targets one LLM decoder layer; `packed_features`
-        is a per-image list of tensors of shape `(num_image_tokens, hidden_size)`.
-    """
 
     deepstack_features: list | None = None
 
@@ -82,17 +52,10 @@ class Granite4VisionCausalLMOutputWithPast(LlavaNextCausalLMOutputWithPast):
 )
 @dataclass
 class Granite4VisionImageFeaturesOutput(BaseModelOutputWithPooling):
-    r"""
-    deepstack_features (`list[tuple[int, list[torch.Tensor]]]`, *optional*):
-        List of `(llm_layer_idx, packed_features)` pairs produced by the deepstack
-        and spatial projectors. Each entry targets one LLM decoder layer; `packed_features`
-        is a per-image list of tensors of shape `(num_image_tokens, hidden_size)`.
-    """
 
     deepstack_features: list | None = None
 
 
-# ── Config ──────────────────────────────────────────────────────────────────
 
 
 class Granite4VisionTextConfig(GraniteConfig):
@@ -101,26 +64,6 @@ class Granite4VisionTextConfig(GraniteConfig):
 
 
 class Granite4VisionConfig(LlavaNextConfig):
-    r"""
-    image_grid_pinpoints (`list`, *optional*):
-        A list of possible resolutions to use for processing high resolution images. Each item in the list should be a
-        tuple or list of the form `(height, width)`.
-    downsample_rate (`str`, *optional*):
-        Fractional downsample rate for the Window Q-Former projector, e.g. `"1/4"` or `"3/8"`.
-        The numerator is the query window side, the denominator is the key window side.
-    deepstack_layer_map (`list`, *optional*):
-        List of `[vision_layer_idx, llm_layer_idx]` pairs. Features from each vision encoder layer
-        are projected and injected at the corresponding LLM decoder layer during forward pass.
-    spatial_vision_layer (`int`, *optional*, defaults to `-1`):
-        Index of the vision encoder layer used for spatial sampling.
-    spatial_target_layers (`list`, *optional*, defaults to `[12, 15, 18, 21]`):
-        Target LLM layers for the 4 spatial offset groups.
-    projector_dropout (`float`, *optional*, defaults to `0.1`):
-        Dropout probability in the Window Q-Former projector.
-    qformer_config (`dict` or `Blip2QFormerConfig`, *optional*):
-        Configuration for the Window Q-Former projector. If `None`, defaults are derived from
-        `vision_config.hidden_size`.
-    """
 
     model_type = "granite4_vision"
     sub_configs = {"text_config": AutoConfig, "vision_config": AutoConfig, "qformer_config": AutoConfig}
@@ -178,7 +121,6 @@ class Granite4VisionConfig(LlavaNextConfig):
         PreTrainedConfig.__post_init__(**kwargs)
 
 
-# ── Processor ───────────────────────────────────────────────────────────────
 
 
 class Granite4VisionProcessor(LlavaNextProcessor):
@@ -220,29 +162,9 @@ class Granite4VisionProcessor(LlavaNextProcessor):
         self.downsample_rate = downsample_rate
 
     def _get_number_of_features(self, orig_height: int, orig_width: int, height: int, width: int) -> int:
-        image_grid_pinpoints = self.image_processor.image_grid_pinpoints
-
-        height_best_resolution, width_best_resolution = select_best_resolution(
-            [orig_height, orig_width], image_grid_pinpoints
-        )
-        scale_height, scale_width = height_best_resolution // height, width_best_resolution // width
-
-        patches_height = height // self.patch_size
-        patches_width = width // self.patch_size
-        if self.downsample_rate is not None:
-            ds_rate = Fraction(self.downsample_rate)
-            patches_height = int(patches_height * ds_rate)
-            patches_width = int(patches_width * ds_rate)
-
-        unpadded_features, newline_features = self._get_unpadded_features(
-            orig_height, orig_width, patches_height, patches_width, scale_height, scale_width
-        )
-        base_features = patches_height * patches_width + self.num_additional_image_tokens
-        num_image_tokens = unpadded_features + newline_features + base_features
-        return num_image_tokens
+        pass
 
 
-# ── Downsampling helpers ─────────────────────────────────────────────────────
 
 
 def interpolate_downsample(image_features: torch.Tensor, orig_side: int, new_side: int) -> torch.Tensor:
@@ -264,7 +186,6 @@ def spatial_offset_downsample(image_features: torch.Tensor, orig_side: int, offs
 
 
 class Granite4VisionWindowQFormerDownsampler(nn.Module):
-    """Window-based QFormer downsampler that processes image patches in windows."""
 
     def __init__(self, config, spatial_offset=None):
         super().__init__()
@@ -341,7 +262,6 @@ class Granite4VisionWindowQFormerDownsampler(nn.Module):
         return self.out_linear(out)
 
 
-# ── Model ───────────────────────────────────────────────────────────────────
 
 
 class Granite4VisionTextRotaryEmbedding(GraniteRotaryEmbedding):
@@ -372,7 +292,6 @@ class Granite4VisionPreTrainedModel(LlavaNextPreTrainedModel):
 
 
 class Granite4VisionTextModel(Granite4VisionPreTrainedModel, GraniteModel):
-    """Granite LLM backbone with deepstack feature injection support."""
 
     config_class = Granite4VisionTextConfig
 
@@ -455,18 +374,15 @@ class Granite4VisionModel(LlavaNextModel):
     def __init__(self, config: Granite4VisionConfig):
         super().__init__(config)
 
-        # Replace parent's single multi_modal_projector with layerwise_projectors
         del self.multi_modal_projector
 
         self.downsample_rate = config.downsample_rate
         self.projector_dropout = config.projector_dropout
 
-        # Deepstack projectors: one per (vision_layer, llm_layer) pair
         self.layerwise_projectors = nn.ModuleList(
             [Granite4VisionWindowQFormerDownsampler(config) for _ in range(len(config.deepstack_layer_map))]
         )
 
-        # Spatial sampling projectors: 4 offset groups (TL, TR, BL, BR)
         self.spatial_projectors = nn.ModuleList(
             [Granite4VisionWindowQFormerDownsampler(config, spatial_offset=i) for i in range(4)]
         )
@@ -475,7 +391,6 @@ class Granite4VisionModel(LlavaNextModel):
             self.config.text_config.pad_token_id if self.config.text_config.pad_token_id is not None else -1
         )
 
-        # Replace the inherited LLM backbone with our deepstack-aware subclass
         self.language_model = Granite4VisionTextModel(config.text_config)
 
     def pack_image_features(self, image_features, image_sizes, vision_feature_select_strategy, image_newline=None):
@@ -582,7 +497,6 @@ class Granite4VisionModel(LlavaNextModel):
 
         vision_outputs = self.vision_tower(pixel_values, output_hidden_states=True, **kwargs)
 
-        # Deepstack features: extract from multiple vision layers, downsample via interpolation
         all_features = []
         for projection_idx, (vision_layer, llm_layer) in enumerate(self.config.deepstack_layer_map):
             selected_feature = vision_outputs.hidden_states[vision_layer]
@@ -602,7 +516,6 @@ class Granite4VisionModel(LlavaNextModel):
 
             all_features.append((llm_layer, packed_features))
 
-        # Spatial features: extract 4 offset groups from a single vision layer
         spatial_feature = vision_outputs.hidden_states[self.config.spatial_vision_layer]
 
         if vision_feature_select_strategy == "default":
@@ -646,7 +559,6 @@ class Granite4VisionModel(LlavaNextModel):
         if inputs_embeds is None:
             inputs_embeds = self.get_input_embeddings()(input_ids)
 
-        # Build deepstack injection map and scatter initial image embeddings
         deepstack_features = None
         vision_mask = None
         image_features = None
@@ -665,7 +577,6 @@ class Granite4VisionModel(LlavaNextModel):
                     vision_mask = self.get_placeholder_mask(
                         input_ids, inputs_embeds=inputs_embeds, image_features=concat_features
                     )
-                    # Zero out image token positions — deepstack injection will sum features in during forward.
                     inputs_embeds = inputs_embeds.masked_fill(vision_mask, 0.0)
                 deepstack_features[llm_layer_idx] = concat_features
 
@@ -690,7 +601,6 @@ class Granite4VisionModel(LlavaNextModel):
         )
 
 
-# ── ForConditionalGeneration ────────────────────────────────────────────────
 
 
 class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
@@ -727,7 +637,6 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
 
         hidden_states = outputs.last_hidden_state
 
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
         logits = logits / self.config.text_config.logits_scaling

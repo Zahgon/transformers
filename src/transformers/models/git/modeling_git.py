@@ -1,18 +1,3 @@
-# Copyright 2022 Microsoft Research and The HuggingFace Inc. team.
-# All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch GIT model."""
 
 import math
 from collections.abc import Callable
@@ -57,12 +42,7 @@ logger = logging.get_logger(__name__)
     """
 )
 @dataclass
-# Copied from transformers.models.clip.modeling_clip.CLIPVisionModelOutput with CLIP->Git
 class GitVisionModelOutput(ModelOutput):
-    r"""
-    image_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim)` *optional* returned when model is initialized with `with_projection=True`):
-        The image embeddings obtained by applying the projection layer to the pooler_output.
-    """
 
     image_embeds: torch.FloatTensor | None = None
     last_hidden_state: torch.FloatTensor | None = None
@@ -71,7 +51,6 @@ class GitVisionModelOutput(ModelOutput):
 
 
 class GitEmbeddings(nn.Module):
-    """Construct the embeddings from word and position embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -80,7 +59,6 @@ class GitEmbeddings(nn.Module):
 
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -160,19 +138,14 @@ class GitSelfAttention(nn.Module):
         if past_key_values is not None:
             key_layer, value_layer = past_key_values.update(key_layer, value_layer, self.layer_idx)
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask is (precomputed for all layers in GitModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -184,7 +157,6 @@ class GitSelfAttention(nn.Module):
         return context_layer, attention_probs
 
 
-# Copied from transformers.models.bert.modeling_bert.BertSelfOutput
 class GitSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -227,7 +199,6 @@ class GitAttention(nn.Module):
         return attention_output
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate
 class GitIntermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -243,7 +214,6 @@ class GitIntermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput
 class GitOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -341,7 +311,6 @@ class GitPreTrainedModel(PreTrainedModel):
             init.copy_(module.position_ids, torch.arange(module.position_ids.shape[-1]).expand((1, -1)))
 
 
-# Copied from transformers.models.clip.modeling_clip.CLIPVisionEmbeddings with CLIP->Git
 class GitVisionEmbeddings(nn.Module):
     def __init__(self, config: GitVisionConfig):
         super().__init__()
@@ -379,7 +348,6 @@ class GitVisionEmbeddings(nn.Module):
         position_embedding = self.position_embedding.weight.unsqueeze(0)
         num_positions = position_embedding.shape[1] - 1
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embedding(self.position_ids)
 
@@ -440,7 +408,6 @@ class GitVisionMLP(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.siglip.modeling_siglip.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -465,7 +432,6 @@ def eager_attention_forward(
 
 
 class GitVisionAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config):
         super().__init__()
@@ -521,7 +487,6 @@ class GitVisionAttention(nn.Module):
         return attn_output, attn_weights
 
 
-# Copied from transformers.models.altclip.modeling_altclip.AltCLIPEncoderLayer with AltCLIPVisionConfig->GitVisionConfig,AltCLIP->GitVision
 class GitVisionEncoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: GitVisionConfig):
         super().__init__()
@@ -555,15 +520,7 @@ class GitVisionEncoderLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-# Copied from transformers.models.altclip.modeling_altclip.AltCLIPEncoder with AltCLIP->GitVision, CLIPConfig
 class GitVisionEncoder(nn.Module):
-    """
-    Transformer encoder consisting of `config.num_hidden_layers` self attention layers. Each layer is a
-    [`GitVisionEncoderLayer`].
-
-    Args:
-        config: GitVisionConfig
-    """
 
     def __init__(self, config: GitVisionConfig):
         super().__init__()
@@ -645,7 +602,6 @@ class GitVisionModel(GitPreTrainedModel):
     def __init__(self, config: GitVisionConfig):
         super().__init__(config)
         self.vision_model = GitVisionTransformer(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> nn.Module:
@@ -728,7 +684,6 @@ class GitModel(GitPreTrainedModel):
                 for _ in range(config.num_image_with_embedding)
             )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -781,7 +736,6 @@ class GitModel(GitPreTrainedModel):
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache(config=self.config)
 
-        # past_key_values_length
         past_key_values_length = 0
         if past_key_values is not None:
             past_key_values_length = (
@@ -790,7 +744,6 @@ class GitModel(GitPreTrainedModel):
                 else past_key_values.get_seq_length()
             )
 
-        # Adjust position ids by adding image seq length
         if pixel_values is None and past_key_values is not None and input_ids.shape[1] == 1:
             position_ids = position_ids + past_key_values_length
 
@@ -801,18 +754,15 @@ class GitModel(GitPreTrainedModel):
             past_key_values_length=past_key_values_length,
         )
 
-        # Always create `token_type_ids` so we can re-use Gemma3 style mask preparation fn
         token_type_ids = torch.zeros_like(embedding_output, dtype=torch.int)[..., 0]
 
         if pixel_values is not None:
             if pixel_values.ndim == 4:
-                # here we assume pixel_values is of shape (batch_size, num_channels, height, width)
                 visual_features = self.image_encoder(
                     pixel_values, interpolate_pos_encoding=interpolate_pos_encoding
                 ).last_hidden_state
 
             elif pixel_values.ndim == 5:
-                # here we assume pixel_values is of shape (batch_size, num_frames, num_channels, height, width)
                 visual_features = []
                 for frame_idx in range(pixel_values.shape[1]):
                     visual_features_frame = self.image_encoder(
@@ -821,7 +771,6 @@ class GitModel(GitPreTrainedModel):
                     visual_features_frame += self.img_temporal_embedding[frame_idx]
                     visual_features.append(visual_features_frame)
 
-                # finally, concatenate all features along sequence dimension
                 visual_features = torch.cat(visual_features, dim=1)
 
             else:
@@ -829,12 +778,10 @@ class GitModel(GitPreTrainedModel):
 
             projected_visual_features = self.visual_projection(visual_features)
 
-            # Repeat visual features to match embedding batch size.
             projected_visual_features = projected_visual_features.repeat(
                 embedding_output.size(0) // projected_visual_features.size(0), 1, 1
             )
 
-            # concatenate patch token and text token embeddings
             embedding_output = torch.cat((projected_visual_features, embedding_output), dim=1)
             image_token_type_ids = torch.ones_like(projected_visual_features, dtype=token_type_ids.dtype)[..., 0]
             token_type_ids = torch.cat([image_token_type_ids, token_type_ids], dim=-1)
@@ -843,8 +790,6 @@ class GitModel(GitPreTrainedModel):
                     [torch.ones_like(image_token_type_ids, dtype=attention_mask.dtype), attention_mask], dim=-1
                 )
         elif past_key_values is not None and input_ids.shape[1] == 1:
-            # Expand attention mask and cache position with image tokens because GIT doesn't add image
-            # placeholder tokens when processing. Doesn't worth the refactor, low usage!
             extended_attention_mask = torch.ones(
                 (attention_mask.shape[0], past_key_values_length - attention_mask.shape[1] + 1),
                 dtype=attention_mask.dtype,
@@ -852,10 +797,8 @@ class GitModel(GitPreTrainedModel):
             )
             attention_mask = torch.cat([extended_attention_mask, attention_mask], dim=-1)
 
-        # Images attend each other bidirectionally while text remains causal
         group_ids = torch.full([*embedding_output.size()[:-1]], -1, device=embedding_output.device)
         if token_type_ids is not None:
-            # Can attend bidirectionally in images and causally in suffix
             group_ids = torch.where(token_type_ids == 1, 0, -1)
 
         mask_kwargs = {
@@ -899,7 +842,6 @@ class GitForCausalLM(GitPreTrainedModel, GenerationMixin):
         self.git = GitModel(config)
         self.output = nn.Linear(config.hidden_size, config.vocab_size)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_output_embeddings(self):
@@ -1074,13 +1016,11 @@ class GitForCausalLM(GitPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.output(hidden_states[:, slice_indices, :])
 
         loss = None
         if labels is not None:
-            # we are doing next-token prediction; shift prediction scores and input ids by one
             num_image_tokens = self.git.encoder.layer[0].attention.self.image_patch_tokens
             shifted_logits = logits[:, num_image_tokens:-1, :].contiguous()
             shift_labels = labels[:, 1:].contiguous()
@@ -1110,7 +1050,6 @@ class GitForCausalLM(GitPreTrainedModel, GenerationMixin):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- `git` has special `pixel_values` handling
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,

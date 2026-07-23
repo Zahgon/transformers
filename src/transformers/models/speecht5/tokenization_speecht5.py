@@ -1,17 +1,3 @@
-# Copyright 2023 The Facebook Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization class for SpeechT5."""
 
 from typing import Any
 
@@ -28,47 +14,6 @@ VOCAB_FILES_NAMES = {"vocab_file": "spm_char.model"}
 
 @requires(backends=("sentencepiece",))
 class SpeechT5Tokenizer(SentencePieceBackend):
-    """
-    Construct a SpeechT5 tokenizer. Based on [SentencePiece](https://github.com/google/sentencepiece).
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            [SentencePiece](https://github.com/google/sentencepiece) file (generally has a *.spm* extension) that
-            contains the vocabulary necessary to instantiate a tokenizer.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The begin of sequence token.
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        normalize (`bool`, *optional*, defaults to `False`):
-            Whether to convert numeric quantities in the text to their spelt-out english counterparts.
-        sp_model_kwargs (`dict`, *optional*):
-            Will be passed to the `SentencePieceProcessor.__init__()` method. The [Python wrapper for
-            SentencePiece](https://github.com/google/sentencepiece/tree/master/python) can be used, among other things,
-            to set:
-
-            - `enable_sampling`: Enable subword regularization.
-            - `nbest_size`: Sampling parameters for unigram. Invalid for BPE-Dropout.
-
-              - `nbest_size = {0,1}`: No sampling is performed.
-              - `nbest_size > 1`: samples from the nbest_size results.
-              - `nbest_size < 0`: assuming that nbest_size is infinite and samples from the all hypothesis (lattice)
-                using forward-filtering-and-backward-sampling algorithm.
-
-            - `alpha`: Smoothing parameter for unigram sampling, and dropout probability of merge operations for
-              BPE-dropout.
-
-    Attributes:
-        sp_model (`SentencePieceProcessor`):
-            The *SentencePiece* processor that is used for every conversion (string, tokens and IDs).
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -88,11 +33,9 @@ class SpeechT5Tokenizer(SentencePieceBackend):
         self.normalize = normalize
         self._normalizer = None
 
-        # Prepare sp_model_kwargs for parent class
         if sp_model_kwargs is not None:
             kwargs["sp_model_kwargs"] = sp_model_kwargs
 
-        # Call parent init (which will load sp_model)
         super().__init__(
             vocab_file=vocab_file,
             bos_token=bos_token,
@@ -125,7 +68,6 @@ class SpeechT5Tokenizer(SentencePieceBackend):
         """Build model inputs from a sequence by appending eos_token_id."""
         if token_ids_1 is None:
             return token_ids_0 + [self.eos_token_id]
-        # We don't expect to process pairs, but leave the pair logic for API consistency
         return token_ids_0 + token_ids_1 + [self.eos_token_id]
 
     def get_special_tokens_mask(

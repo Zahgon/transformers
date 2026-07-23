@@ -1,17 +1,3 @@
-# Copyright 2021 Microsoft Research The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch LayoutLMv2 model."""
 
 import math
 
@@ -38,20 +24,16 @@ from ...utils.output_capturing import capture_outputs
 from .configuration_layoutlmv2 import LayoutLMv2Config
 
 
-# soft dependency
 if is_detectron2_available():
     import detectron2
     from detectron2.modeling import META_ARCH_REGISTRY
 
-    # This is needed as otherwise their overload will break sequential loading by overwriting buffer over and over. See
-    # https://github.com/facebookresearch/detectron2/blob/9604f5995cc628619f0e4fd913453b4d7d61db3f/detectron2/layers/batch_norm.py#L83-L86
     detectron2.layers.batch_norm.FrozenBatchNorm2d._load_from_state_dict = torch.nn.Module._load_from_state_dict
 
 logger = logging.get_logger(__name__)
 
 
 class LayoutLMv2Embeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -152,13 +134,11 @@ class LayoutLMv2SelfAttention(nn.Module):
         batch_size = hidden_states.shape[0]
         query, key, value = self.compute_qkv(hidden_states)
 
-        # (B, L, H*D) -> (B, H, L, D)
         query_layer = query.view(batch_size, -1, self.num_attention_heads, self.attention_head_size).transpose(1, 2)
         key_layer = key.view(batch_size, -1, self.num_attention_heads, self.attention_head_size).transpose(1, 2)
         value_layer = value.view(batch_size, -1, self.num_attention_heads, self.attention_head_size).transpose(1, 2)
 
         query_layer = query_layer / math.sqrt(self.attention_head_size)
-        # [BSZ, NAT, L, L]
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         if self.has_relative_attention_bias:
             attention_scores += rel_pos
@@ -168,8 +148,6 @@ class LayoutLMv2SelfAttention(nn.Module):
             attention_mask.to(torch.bool), torch.finfo(attention_scores.dtype).min
         )
         attention_probs = nn.functional.softmax(attention_scores, dim=-1, dtype=torch.float32).type_as(value_layer)
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -220,7 +198,6 @@ class LayoutLMv2SelfOutput(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->LayoutLMv2
 class LayoutLMv2Intermediate(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -236,7 +213,6 @@ class LayoutLMv2Intermediate(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.bert.modeling_bert.BertOutput with Bert->LayoutLM
 class LayoutLMv2Output(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -316,13 +292,10 @@ def relative_position_bucket(relative_position, bidirectional=True, num_buckets=
         n = torch.abs(relative_position)
     else:
         n = torch.max(-relative_position, torch.zeros_like(relative_position))
-    # now n is in the range [0, inf)
 
-    # half of the buckets are for exact increments in positions
     max_exact = num_buckets // 2
     is_small = n < max_exact
 
-    # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
     val_if_large = max_exact + (
         torch.log(n.float() / max_exact) / math.log(max_distance / max_exact) * (num_buckets - max_exact)
     ).to(torch.long)
@@ -361,10 +334,6 @@ class LayoutLMv2Encoder(nn.Module):
             num_buckets=self.rel_pos_bins,
             max_distance=self.max_rel_pos,
         )
-        # Since this is a simple indexing operation that is independent of the input,
-        # no need to track gradients for this operation
-        #
-        # Without this no_grad context, training speed slows down significantly
         with torch.no_grad():
             rel_pos = self.rel_pos_bias.weight.t()[rel_pos].permute(0, 3, 1, 2)
         rel_pos = rel_pos.contiguous()
@@ -385,10 +354,6 @@ class LayoutLMv2Encoder(nn.Module):
             num_buckets=self.rel_2d_pos_bins,
             max_distance=self.max_rel_2d_pos,
         )
-        # Since this is a simple indexing operation that is independent of the input,
-        # no need to track gradients for this operation
-        #
-        # Without this no_grad context, training speed slows down significantly
         with torch.no_grad():
             rel_pos_x = self.rel_pos_x_bias.weight.t()[rel_pos_x].permute(0, 3, 1, 2)
             rel_pos_y = self.rel_pos_y_bias.weight.t()[rel_pos_y].permute(0, 3, 1, 2)
@@ -442,7 +407,6 @@ class LayoutLMv2PreTrainedModel(PreTrainedModel):
         elif isinstance(module, LayoutLMv2Model):
             if hasattr(module, "visual_segment_embedding"):
                 init.normal_(module.visual_segment_embedding, mean=0.0, std=self.config.initializer_range)
-        # We check the existence of each one since detectron2 seems to do weird things
         elif isinstance(module, detectron2.layers.FrozenBatchNorm2d):
             init.ones_(module.weight)
             init.zeros_(module.bias)
@@ -451,27 +415,7 @@ class LayoutLMv2PreTrainedModel(PreTrainedModel):
 
 
 def my_convert_sync_batchnorm(module, process_group=None):
-    # same as `nn.modules.SyncBatchNorm.convert_sync_batchnorm` but allowing converting from `detectron2.layers.FrozenBatchNorm2d`
-    if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
-        return nn.modules.SyncBatchNorm.convert_sync_batchnorm(module, process_group)
-    module_output = module
-    if isinstance(module, detectron2.layers.FrozenBatchNorm2d):
-        module_output = torch.nn.SyncBatchNorm(
-            num_features=module.num_features,
-            eps=module.eps,
-            affine=True,
-            track_running_stats=True,
-            process_group=process_group,
-        )
-        module_output.weight = torch.nn.Parameter(module.weight)
-        module_output.bias = torch.nn.Parameter(module.bias)
-        module_output.running_mean = module.running_mean
-        module_output.running_var = module.running_var
-        module_output.num_batches_tracked = torch.tensor(0, dtype=torch.long, device=module.running_mean.device)
-    for name, child in module.named_children():
-        module_output.add_module(name, my_convert_sync_batchnorm(child, process_group))
-    del module
-    return module_output
+    pass
 
 
 class LayoutLMv2VisualBackbone(nn.Module):
@@ -518,26 +462,7 @@ class LayoutLMv2VisualBackbone(nn.Module):
         return features
 
     def synchronize_batch_norm(self):
-        if not (
-            torch.distributed.is_available()
-            and torch.distributed.is_initialized()
-            and torch.distributed.get_rank() > -1
-        ):
-            raise RuntimeError("Make sure torch.distributed is set up properly.")
-
-        self_rank = torch.distributed.get_rank()
-        node_size = torch.cuda.device_count()
-        world_size = torch.distributed.get_world_size()
-        if not (world_size % node_size == 0):
-            raise RuntimeError("Make sure the number of processes can be divided by the number of nodes")
-
-        node_global_ranks = [list(range(i * node_size, (i + 1) * node_size)) for i in range(world_size // node_size)]
-        sync_bn_groups = [
-            torch.distributed.new_group(ranks=node_global_ranks[i]) for i in range(world_size // node_size)
-        ]
-        node_rank = self_rank // node_size
-
-        self.backbone = my_convert_sync_batchnorm(self.backbone, process_group=sync_bn_groups[node_rank])
+        pass
 
 
 class LayoutLMv2Pooler(nn.Module):
@@ -547,8 +472,6 @@ class LayoutLMv2Pooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
         first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
@@ -576,7 +499,6 @@ class LayoutLMv2Model(LayoutLMv2PreTrainedModel):
         self.encoder = LayoutLMv2Encoder(config)
         self.pooler = LayoutLMv2Pooler(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -723,7 +645,6 @@ class LayoutLMv2Model(LayoutLMv2PreTrainedModel):
         visual_shape = list(input_shape)
         visual_shape[1] = self.config.image_feature_pool_shape[0] * self.config.image_feature_pool_shape[1]
         visual_shape = torch.Size(visual_shape)
-        # needs a new copy of input_shape for tracing. Otherwise wrong dimensions will occur
         final_shape = list(self._get_input_shape(input_ids, inputs_embeds))
         final_shape[1] += visual_shape[1]
         final_shape = torch.Size(final_shape)
@@ -805,7 +726,6 @@ class LayoutLMv2ForSequenceClassification(LayoutLMv2PreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size * 3, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -946,10 +866,8 @@ class LayoutLMv2ForSequenceClassification(LayoutLMv2PreTrainedModel):
 
         cls_final_output = sequence_output[:, 0, :]
 
-        # average-pool the visual embeddings
         pooled_initial_image_embeddings = initial_image_embeddings.mean(dim=1)
         pooled_final_image_embeddings = final_image_embeddings.mean(dim=1)
-        # concatenate with cls_final_output
         sequence_output = torch.cat(
             [cls_final_output, pooled_initial_image_embeddings, pooled_final_image_embeddings], dim=1
         )
@@ -1003,7 +921,6 @@ class LayoutLMv2ForTokenClassification(LayoutLMv2PreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1113,7 +1030,6 @@ class LayoutLMv2ForTokenClassification(LayoutLMv2PreTrainedModel):
             input_shape = inputs_embeds.size()[:-1]
 
         seq_length = input_shape[1]
-        # only take the text part of the output representations
         sequence_output = outputs.last_hidden_state[:, :seq_length]
         sequence_output = self.dropout(sequence_output)
         logits = self.classifier(sequence_output)
@@ -1144,7 +1060,6 @@ class LayoutLMv2ForQuestionAnswering(LayoutLMv2PreTrainedModel):
         self.layoutlmv2 = LayoutLMv2Model(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -1254,7 +1169,6 @@ class LayoutLMv2ForQuestionAnswering(LayoutLMv2PreTrainedModel):
             input_shape = inputs_embeds.size()[:-1]
 
         seq_length = input_shape[1]
-        # only take the text part of the output representations
         sequence_output = outputs.last_hidden_state[:, :seq_length]
 
         logits = self.qa_outputs(sequence_output)
@@ -1264,12 +1178,10 @@ class LayoutLMv2ForQuestionAnswering(LayoutLMv2PreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

@@ -1,17 +1,3 @@
-# Copyright 2023 the Falcon authors and HuggingFace Inc. team.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Falcon model."""
 
 import math
 from collections.abc import Callable
@@ -55,8 +41,6 @@ if is_flash_attn_available():
 logger = logging.get_logger(__name__)
 
 
-# NOTE(Hesslow): Unfortunately we did not fuse matmul and bias during training, this means that there's one additional quantization to bfloat16 between the operations.
-# In order not to degrade the quality of our HF-port, we keep these characteristics in the final model.
 class FalconLinear(nn.Linear):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         hidden_states = input @ self.weight.T
@@ -65,7 +49,6 @@ class FalconLinear(nn.Linear):
         return hidden_states + self.bias
 
 
-# Copied from transformers.models.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
@@ -73,7 +56,6 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-# Copied from transformers.models.llama.modeling_llama.apply_rotary_pos_emb
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
 
@@ -99,7 +81,6 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     return q_embed, k_embed
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->Falcon
 class FalconRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
@@ -143,7 +124,6 @@ class FalconRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
@@ -182,18 +162,11 @@ def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int, dtype: torc
         extra_powers = torch.arange(1, 1 + 2 * num_remaining_heads, 2, device=attention_mask.device, dtype=torch.int32)
         slopes = torch.cat([slopes, torch.pow(extra_base, extra_powers)], dim=0)
 
-    # Note: alibi will added to the attention bias that will be applied to the query, key product of attention
-    # => therefore alibi will have to be of shape (batch_size, num_heads, query_length, key_length)
-    # => here we set (batch_size=1, num_heads=num_heads, query_length=1, key_length=max_length)
-    # => the query_length dimension will then be broadcasted correctly
-    # This is more or less identical to T5's relative position bias:
-    # https://github.com/huggingface/transformers/blob/f681437203baa7671de3174b0fa583c349d9d5e1/src/transformers/models/t5/modeling_t5.py#L527
     arange_tensor = ((attention_mask.cumsum(dim=-1) - 1) * attention_mask)[:, None, :]
     alibi = slopes[..., None].bfloat16() * arange_tensor
     return alibi.reshape(batch_size * num_heads, 1, seq_length).to(dtype)
 
 
-# Copied from transformers.models.bloom.modeling_bloom.dropout_add
 def dropout_add(x: torch.Tensor, residual: torch.Tensor, prob: float, training: bool) -> torch.Tensor:
     """
     Dropout add function
@@ -240,7 +213,6 @@ class FalconAttention(nn.Module):
                 f" {self.num_heads})."
             )
 
-        # Layer-wise attention scaling
         self.inv_norm_factor = 1.0 / math.sqrt(self.head_dim)
         self.beta = self.inv_norm_factor
         if config.new_decoder_architecture:
@@ -287,7 +259,6 @@ class FalconAttention(nn.Module):
             fused_qkv = fused_qkv.view(batch_size, seq_length, self.num_heads + 2, self.head_dim)
             return fused_qkv[..., :-2, :], fused_qkv[..., [-2], :], fused_qkv[..., [-1], :]
 
-    # Copied from transformers.models.bloom.modeling_bloom.BloomAttention._merge_heads
     def _merge_heads(self, x: torch.Tensor) -> torch.Tensor:
         """
         Merge heads together over the last dimension
@@ -298,19 +269,13 @@ class FalconAttention(nn.Module):
         Returns:
             torch.tensor: [batch_size, seq_length, num_heads * head_dim]
         """
-        # What we want to achieve is:
-        # batch_size * num_heads, seq_length, head_dim -> batch_size, seq_length, num_heads * head_dim
         batch_size_and_num_heads, seq_length, _ = x.shape
         batch_size = batch_size_and_num_heads // self.num_heads
 
-        # First view to decompose the batch size
-        # batch_size * num_heads, seq_length, head_dim -> batch_size, num_heads, seq_length, head_dim
         x = x.view(batch_size, self.num_heads, seq_length, self.head_dim)
 
-        # batch_size, num_heads, seq_length, head_dim -> batch_size, seq_length, num_heads, head_dim
         x = x.permute(0, 2, 1, 3)
 
-        # batch_size, seq_length, num_heads, head_dim -> batch_size, seq_length, num_heads * head_dim
         return x.reshape(batch_size, seq_length, self.num_heads * self.head_dim)
 
     def forward(
@@ -327,7 +292,6 @@ class FalconAttention(nn.Module):
     ):
         fused_qkv = self.query_key_value(hidden_states)  # [batch_size, seq_length, 3 x hidden_size]
         num_kv_heads = self.num_heads if self.new_decoder_architecture else self.num_kv_heads
-        # 3 x [batch_size, seq_length, num_heads, head_dim]
         (query_layer, key_layer, value_layer) = self._split_heads(fused_qkv)
 
         batch_size, query_length, _, _ = query_layer.shape
@@ -347,10 +311,6 @@ class FalconAttention(nn.Module):
 
         if alibi is None:
             if self.config._attn_implementation == "sdpa" and not output_attentions:
-                # We dispatch to SDPA's Flash Attention or Efficient kernels via this if statement instead of an
-                # inline conditional assignment to support both torch.compile's `dynamic=True` and `fullgraph=True`
-                # The query_length > 1 is necessary to match with a bidirectional attention mask we do not have
-                # a causal pattern in those cases.
                 is_causal = self.is_causal and attention_mask is None and query_length > 1
                 attn_output = torch.nn.functional.scaled_dot_product_attention(
                     query_layer,
@@ -366,7 +326,6 @@ class FalconAttention(nn.Module):
                 attention_scores /= math.sqrt(self.head_dim)
 
                 attention_scores = F.softmax(attention_scores + attention_mask, dim=-1, dtype=hidden_states.dtype)
-                # It is unclear why dropout is not applied here (while it is with alibi).
                 attn_output = attention_scores @ value_layer
 
             attn_output = attn_output.view(batch_size, self.num_heads, query_length, self.head_dim)
@@ -379,8 +338,6 @@ class FalconAttention(nn.Module):
 
         else:
             if self.config._attn_implementation == "sdpa" and not output_attentions:
-                # We dispatch to SDPA's Flash Attention or Efficient kernels via this if statement instead of an
-                # inline conditional assignment to support both torch.compile's `dynamic=True` and `fullgraph=True`
                 is_causal = self.is_causal and attention_mask is None and query_length > 1
                 attn_output = torch.nn.functional.scaled_dot_product_attention(
                     query_layer,
@@ -398,28 +355,21 @@ class FalconAttention(nn.Module):
             else:
                 matmul_result = query_layer @ key_layer.transpose(-1, -2)
 
-                # change view to [batch_size, num_heads, q_length, kv_length]
                 attention_scores = matmul_result.view(batch_size, self.num_heads, query_length, kv_length)
 
-                # cast attention scores to fp32, compute scaled softmax and cast back to initial dtype - [batch_size, num_heads, q_length, kv_length]
                 input_dtype = attention_scores.dtype
-                # `float16` has a minimum value of -65504.0, whereas `bfloat16` and `float32` have a minimum value of `-3.4e+38`
                 if input_dtype == torch.float16 or input_dtype == torch.bfloat16:
                     attention_scores = attention_scores.to(torch.float32)
 
                 attention_logits = attention_scores + alibi.view(batch_size, self.num_heads, 1, -1)
                 attention_logits *= self.inv_norm_factor
                 attention_probs = F.softmax(attention_logits + attention_mask, dim=-1, dtype=hidden_states.dtype)
-                # [batch_size, num_heads, q_length, kv_length]
                 attention_probs = self.attention_dropout(attention_probs)
 
-                # change view [batch_size, num_heads, q_length, kv_length]
                 attention_probs_reshaped = attention_probs.view(batch_size, self.num_heads, query_length, kv_length)
 
-                # matmul: [batch_size * num_heads, q_length, head_dim]
                 attn_output = (attention_probs_reshaped @ value_layer).flatten(0, 1)
 
-                # change view [batch_size, q_length, num_heads * head_dim]
                 attn_output = self._merge_heads(attn_output)
 
                 attn_output = self.dense(attn_output)
@@ -428,18 +378,10 @@ class FalconAttention(nn.Module):
 
 
 class FalconFlashAttention2(FalconAttention):
-    """
-    Falcon flash attention module. This module inherits from `FalconAttention` as the weights of the module stays
-    untouched. The only required change would be on the forward pass where it needs to correctly call the public API of
-    flash attention and deal with padding tokens in case the input contains any of them.
-    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # TODO: Should be removed once Flash Attention for RoCm is bumped to 2.1.
-        # flash_attn<2.1 generates top-left aligned causal mask, while what is needed here is bottom-right alignment, that was made default for flash_attn>=2.1. This attribute is used to handle this difference. Reference: https://github.com/Dao-AILab/flash-attention/releases/tag/v2.1.0.
-        # Beware that with flash_attn<2.1, using q_seqlen != k_seqlen (except for the case q_seqlen == 1) produces a wrong mask (top-left).
         self._flash_attn_uses_top_left_mask = flash_attn_supports_top_left_mask()
 
     def forward(
@@ -456,7 +398,6 @@ class FalconFlashAttention2(FalconAttention):
     ):
         fused_qkv = self.query_key_value(hidden_states)  # [batch_size, seq_length, 3 x hidden_size]
         num_kv_heads = self.num_heads if self.new_decoder_architecture else self.num_kv_heads
-        # 3 x [batch_size, seq_length, num_heads, head_dim]
         (query_layer, key_layer, value_layer) = self._split_heads(fused_qkv)
 
         batch_size, query_length, _, _ = query_layer.shape
@@ -472,8 +413,6 @@ class FalconFlashAttention2(FalconAttention):
         if layer_past is not None:
             key_layer, value_layer = layer_past.update(key_layer, value_layer, self.layer_idx)
 
-        # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
-        # to be able to avoid many of these transpose/reshape/view.
         query_layer = query_layer.transpose(1, 2)
         key_layer = key_layer.transpose(1, 2)
         value_layer = value_layer.transpose(1, 2)
@@ -483,15 +422,11 @@ class FalconFlashAttention2(FalconAttention):
 
         attn_dropout = self.config.attention_dropout if self.training else 0.0
 
-        # In PEFT, usually we cast the layer norms in float32 for training stability reasons
-        # therefore the input hidden states gets silently casted in float32. Hence, we need
-        # cast them back in float16 just to be sure everything works as expected.
         input_dtype = query_layer.dtype
         device_type = query_layer.device.type if query_layer.device.type != "mps" else "cpu"
         if input_dtype == torch.float32:
             if torch.is_autocast_enabled(device_type):
                 target_dtype = torch.get_autocast_dtype(device_type)
-            # Handle the case where the model is quantized
             elif hasattr(self.config, "_is_quantized"):
                 target_dtype = self.config.dtype
             else:
@@ -570,9 +505,7 @@ class FalconDecoderLayer(GradientCheckpointingLayer):
             self.input_layernorm = LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
         else:
             if config.num_ln_in_parallel_attn == 2:
-                # The layer norm before self-attention
                 self.ln_attn = LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
-                # The layer norm before the MLP
                 self.ln_mlp = LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
             else:
                 self.input_layernorm = LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
@@ -597,7 +530,6 @@ class FalconDecoderLayer(GradientCheckpointingLayer):
         else:
             attention_layernorm_out = self.input_layernorm(hidden_states)
 
-        # Self attention.
         attention_output, attn_weights = self.self_attention(
             attention_layernorm_out,
             layer_past=layer_past,
@@ -625,7 +557,6 @@ class FalconDecoderLayer(GradientCheckpointingLayer):
         ):
             mlp_layernorm_out = attention_layernorm_out
 
-        # MLP.
         mlp_output = self.mlp(mlp_layernorm_out)
 
         if self.config.new_decoder_architecture or self.config.parallel_attn:
@@ -655,16 +586,9 @@ class FalconPreTrainedModel(PreTrainedModel):
             if module.bias is not None:
                 init.zeros_(module.bias)
 
-    # Adapted from transformers.modeling_utils.PreTrainedModel._check_and_enable_sdpa
     @classmethod
     def _check_and_enable_sdpa(cls, config, hard_check_only: bool = False):
-        _is_bettertransformer = getattr(cls, "use_bettertransformer", False)
-        if _is_bettertransformer:
-            return config
-
-        if not hard_check_only:
-            config._attn_implementation = "sdpa"
-        return config
+        pass
 
 
 @auto_docstring
@@ -676,18 +600,14 @@ class FalconModel(FalconPreTrainedModel):
         self.num_heads = config.num_attention_heads
         self.use_alibi = config.alibi
 
-        # Embedding + LN Embedding
         self.word_embeddings = nn.Embedding(config.vocab_size, self.embed_dim)
 
-        # Transformer blocks
         self.h = nn.ModuleList([FalconDecoderLayer(config, layer_idx=i) for i in range(config.num_hidden_layers)])
 
-        # Final Layer Norm
         self.ln_f = LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
         self.gradient_checkpointing = False
         self.rotary_emb = FalconRotaryEmbedding(config=config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -746,7 +666,6 @@ class FalconModel(FalconPreTrainedModel):
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache(config=self.config)
 
-        # Compute alibi tensor: check build_alibi_tensor documentation
         alibi = None
         past_key_values_length = past_key_values.get_seq_length() if past_key_values is not None else 0
         batch_size, seq_length, _ = inputs_embeds.shape
@@ -770,19 +689,16 @@ class FalconModel(FalconPreTrainedModel):
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             past_key_values=past_key_values,
-            # Force mask creation for alibi
             and_mask_function=lambda *args: torch.tensor(True, dtype=torch.bool),
         )
         if alibi is not None and causal_mask is not None and causal_mask.ndim == 4:
             min_dtype = torch.finfo(inputs_embeds.dtype).min
 
-            # Only using non-bool mask for alibi
             if causal_mask.dtype == torch.bool:
                 causal_mask = torch.where(
                     causal_mask, torch.tensor(0.0, device=causal_mask.device, dtype=inputs_embeds.dtype), min_dtype
                 )
 
-            # We take care to integrate alibi bias in the causal_mask here
             alibi = alibi.reshape(batch_size, -1, *alibi.shape[1:])
             causal_mask = torch.masked_fill(
                 alibi / math.sqrt(self.config.hidden_size // self.num_heads),
@@ -815,7 +731,6 @@ class FalconModel(FalconPreTrainedModel):
             if output_attentions:
                 all_self_attentions = all_self_attentions + (outputs[1],)
 
-        # Add last hidden state
         hidden_states = self.ln_f(hidden_states)
 
         if output_hidden_states:
@@ -847,7 +762,6 @@ class FalconForCausalLM(FalconPreTrainedModel, GenerationMixin):
         self.transformer = FalconModel(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def set_output_embeddings(self, new_embeddings: torch.Tensor):
@@ -948,7 +862,6 @@ class FalconForSequenceClassification(FalconPreTrainedModel):
         self.transformer = FalconModel(config)
         self.score = nn.Linear(config.hidden_size, config.num_labels, bias=False)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1009,7 +922,6 @@ class FalconForSequenceClassification(FalconPreTrainedModel):
         if self.config.pad_token_id is None:
             last_non_pad_token = -1
         elif input_ids is not None:
-            # To handle both left- and right- padding, we take the rightmost token that is not equal to pad_token_id
             non_pad_mask = (input_ids != self.config.pad_token_id).to(logits.device, torch.int32)
             token_indices = torch.arange(input_ids.shape[-1], device=logits.device, dtype=torch.int32)
             last_non_pad_token = (token_indices * non_pad_mask).argmax(-1)
@@ -1073,7 +985,6 @@ class FalconForTokenClassification(FalconPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1152,7 +1063,6 @@ class FalconForQuestionAnswering(FalconPreTrainedModel):
         self.transformer = FalconModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1201,12 +1111,10 @@ class FalconForQuestionAnswering(FalconPreTrainedModel):
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)

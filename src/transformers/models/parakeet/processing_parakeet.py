@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from tokenizers.decoders import DecodeStream
@@ -63,12 +50,7 @@ class ParakeetProcessor(ProcessorMixin):
 
     @property
     def _decoder_type(self):
-        if self.decoder_type is not None:
-            return self.decoder_type
-        # BC: CTC and TDT checkpoints pushed to the hub before `decoder_type` existed, so it is unset for them.
-        # If decoder_type is not specified, use TDT when there is no blank token, otherwise CTC;
-        # if it is specified, use the provided decoder type
-        return "ctc" if self.blank_token not in self.tokenizer.get_vocab() else "tdt"
+        pass
 
     @auto_docstring
     def __call__(
@@ -111,8 +93,6 @@ class ParakeetProcessor(ProcessorMixin):
             return inputs
         else:
             inputs["labels"] = encodings["input_ids"]
-            # Prepend blank token to labels to form decoder_input_ids.
-            # The TDT decoder expects [blank, label_0, ..., label_{U-1}] as input,
             if isinstance(text, str):
                 text = [text]
             decoder_text = [self.blank_token + t for t in text]
@@ -122,8 +102,7 @@ class ParakeetProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        feature_extractor_input_names = self.feature_extractor.model_input_names
-        return feature_extractor_input_names + ["labels", "decoder_input_ids"]
+        pass
 
     def batch_decode(self, *args, **kwargs):
         kwargs.setdefault("group_tokens", self._decoder_type == "ctc")
@@ -139,7 +118,6 @@ class ParakeetProcessor(ProcessorMixin):
 
         if durations is not None:
             token_ids = args[0]
-            # Derive per-step frame indices from cumulative sum of durations.
             timestamps = durations.cumsum(dim=-1) - durations
 
             output_kwargs = self._merge_kwargs(
@@ -151,9 +129,6 @@ class ParakeetProcessor(ProcessorMixin):
                 / self.feature_extractor.sampling_rate
                 * output_kwargs["audio_kwargs"]["subsampling_factor"]
             )
-            # Filter padding/blank tokens and decode per sequence to keep track of token-level timestamps
-            # See `compute_rnnt_timestamps` in NeMo:
-            # https://github.com/NVIDIA-NeMo/NeMo/blob/1692a8fb97e1aadc883cfadd2a57c4e8a1b793aa/nemo/collections/asr/parts/submodules/rnnt_decoding.py#L993
             skip_ids = {self.tokenizer.pad_token_id, self.blank_token_id}
             proc_timestamps = []
             for batch_ids, batch_timestamps, batch_durations in zip(token_ids, timestamps, durations):
@@ -164,8 +139,6 @@ class ParakeetProcessor(ProcessorMixin):
                         continue
                     chunk = stream.step(self.tokenizer._tokenizer, int(token_id))
                     if chunk is not None:
-                        # TDT sizes a token by its predicted duration; RNN-T tokens each span a single frame
-                        # (their per-step value is a 0/1 encoder advance, not a span).
                         token_span = int(batch_durations[i]) if self._decoder_type == "tdt" else 1
                         start = int(batch_timestamps[i])
                         timestamp_dict.append(
@@ -184,13 +157,9 @@ class ParakeetProcessor(ProcessorMixin):
         self, char_offsets, frame_rate, supported_punctuation=["?", "'", "¡", "¿", "-", ":", ",", "%", "/", ".", "!"]
     ):
         for i, offset in enumerate(char_offsets):
-            # Convert frame indices to seconds
             offset["start"] = offset["start"] * frame_rate
             offset["end"] = offset["end"] * frame_rate
 
-            # If token is a punctuation mark, set its start and end offset as start and end of previous token.
-            # This is part of the TDT timestamp post-processing; RNN-T mirrors NeMo's raw char-level timestamps,
-            # which keep every token (punctuation included) at its own emitted frame, so it is skipped there.
             if self._decoder_type == "tdt" and offset["token"] in supported_punctuation and i > 0:
                 offset["start"] = char_offsets[i - 1]["end"]
                 offset["end"] = offset["start"]

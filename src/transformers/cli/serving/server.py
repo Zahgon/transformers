@@ -1,19 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-FastAPI app factory.
-"""
 
 import uuid
 from contextlib import asynccontextmanager
@@ -67,15 +51,13 @@ def build_server(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        yield
-        model_manager.shutdown()
+        pass
 
     app = FastAPI(lifespan=lifespan)
 
     @app.exception_handler(CBWorkerDeadError)
     async def _cb_dead_handler(_request: Request, exc: CBWorkerDeadError):
-        # Map CBWorkerDeadError to 503; otherwise it'd fall through to Starlette's default 500.
-        return JSONResponse({"error": str(exc)}, status_code=503)
+        pass
 
     if enable_cors:
         app.add_middleware(
@@ -87,34 +69,27 @@ def build_server(
         )
         logger.warning_once("CORS allow origin is set to `*`. Not recommended for production.")
 
-    # ---- Middleware ----
 
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):
-        """Get or set the request ID in the header."""
-        request_id = request.headers.get(X_REQUEST_ID) or str(uuid.uuid4())
-        request.state.request_id = request_id
-        response = await call_next(request)
-        response.headers[X_REQUEST_ID] = request_id
-        return response
+        pass
 
-    # ---- Routes ----
 
     @app.post("/v1/chat/completions")
     async def chat_completions(request: Request, body: dict):
-        return await chat_handler.handle_request(body, request.state.request_id)
+        pass
 
     @app.post("/v1/completions")
     async def completions(request: Request, body: dict):
-        return await completion_handler.handle_request(body, request.state.request_id)
+        pass
 
     @app.post("/v1/responses")
     async def responses(request: Request, body: dict):
-        return await response_handler.handle_request(body, request.state.request_id)
+        pass
 
     @app.post("/v1/audio/transcriptions")
     async def audio_transcriptions(request: Request):
-        return await transcription_handler.handle_request(request)
+        pass
 
     @app.post("/load_model")
     async def load_model(body: dict):
@@ -140,8 +115,6 @@ def build_server(
 
     @app.get("/health")
     def health():
-        if not generation_state.is_cb_alive():
-            return JSONResponse({"status": "unhealthy", "reason": "cb_worker_dead"}, status_code=503)
-        return JSONResponse({"status": "ok"})
+        pass
 
     return app

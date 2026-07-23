@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from __future__ import annotations
 
 import inspect
@@ -57,10 +44,8 @@ def is_fsdp_managed_module(module: nn.Module) -> bool:
     if not torch.distributed.is_available():
         return False
 
-    # FSDP2: attribute set by apply_fsdp2()
     if getattr(module, "_is_fsdp_managed_module", False):
         return True
-    # FSDP1: wrapped by FullyShardedDataParallel
     try:
         from torch.distributed.fsdp import FullyShardedDataParallel
     except ImportError:
@@ -169,26 +154,7 @@ def expand_fsdp_plan(
 
 
 def verify_fsdp_plan(module_names: list[str], fsdp_plan: dict[str, str] | None) -> None:
-    """
-    Verify the FSDP plan of the model, log a warning if plan keys were not applied or strategies are invalid.
-    """
-    if not fsdp_plan:
-        return
-
-    name_lookup = dict.fromkeys(module_names)
-    unused_rules: dict[str, str] = {}
-    invalid_strategies: dict[str, str] = {}
-
-    for key, strategy in fsdp_plan.items():
-        if strategy not in {"free_full_weight", "keep_full_weight"}:
-            invalid_strategies[key] = strategy
-        elif key not in name_lookup and not any(replace_layer_number_by_wildcard(name) == key for name in name_lookup):
-            unused_rules[key] = strategy
-
-    if invalid_strategies:
-        logger.warning(f"The following FSDP entries have unknown strategies: {invalid_strategies}")
-    if unused_rules:
-        logger.warning(f"The following FSDP rules were not applied to any module: {unused_rules}")
+    pass
 
 
 def apply_fully_sharded_data_parallelism(
@@ -200,7 +166,6 @@ def apply_fully_sharded_data_parallelism(
     if not is_torch_available():
         raise ImportError("PyTorch is required for FSDP support")
 
-    # TODO(3outeille): Move to 2.7 when dcp saving/loading will be introduced
     if not is_torch_greater_or_equal("2.6"):
         raise OSError("FSDP2 requires torch>=2.6")
 
@@ -221,8 +186,6 @@ def apply_fully_sharded_data_parallelism(
         fully_shard(module, mesh=fsdp_mesh, reshard_after_forward=True, **fsdp_policy_kwargs)
         logger.debug(f"Applied fully_shard to {module_name} (reshard=True)")
 
-    # Optimization: when the keep buffer is exactly the (final_norm, lm_head/embed)
-    # tail pair, bundle them into one fully_shard so that we dont need to do all-gather during backward pass.
     if is_norm_and_head_pair(no_reshard_targets, model):
         names, modules = [], []
         for name, module in no_reshard_targets:
@@ -235,21 +198,16 @@ def apply_fully_sharded_data_parallelism(
             fully_shard(module, mesh=fsdp_mesh, reshard_after_forward=False, **fsdp_policy_kwargs)
             logger.debug(f"Applied fully_shard to {name} (reshard=False)")
 
-    # Apply FSDP2 to the root module
     fully_shard(model, mesh=fsdp_mesh, **fsdp_policy_kwargs)
 
     logger.info(f"FSDP2 applied to model via _fsdp_plan: {len(fsdp_plan)} entries")
 
-    # Used by generation code to detect FSDP and enable synced_gpus.
     model._is_fsdp_managed_module = True
 
-    # NOTE(3outeille): No need to tie the word embeddings here, it will be done _finalize_model_loading in modeling_utils.py
 
     return model
 
 
-# ========================= PEFT compatibility =========================
-# TODO(3outeille): make sure new FSDP works with PEFT
 def get_fsdp_ckpt_kwargs():
     """
     Returns checkpoint kwargs for FSDP model saving.
@@ -266,22 +224,4 @@ def get_fsdp_ckpt_kwargs():
 
 
 def update_fsdp_plugin_peft(model, accelerator):
-    """
-    Updates the FSDP plugin for PEFT LoRA/QLoRA compatibility.
-
-    When using FSDP with PEFT LoRA, the auto wrap policy needs to be updated to additionally wrap
-    LoRA trainable layers separately. When using FSDP with QLoRA, the mixed precision policy needs
-    to be updated to use the quantization storage data type.
-    """
-    from peft import PeftConfig
-    from peft.utils.other import fsdp_auto_wrap_policy
-
-    if isinstance(model.active_peft_config, PeftConfig):
-        accelerator.state.fsdp_plugin.auto_wrap_policy = fsdp_auto_wrap_policy(model)
-    if (
-        getattr(model, "quantization_method", None) == QuantizationMethod.BITS_AND_BYTES
-        and model.hf_quantizer.quantization_config.bnb_4bit_quant_storage.is_floating_point
-    ):
-        accelerator.state.fsdp_plugin.set_mixed_precision(
-            model.hf_quantizer.quantization_config.bnb_4bit_quant_storage, override=True
-        )
+    pass

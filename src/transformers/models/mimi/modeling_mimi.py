@@ -1,17 +1,3 @@
-# Copyright 2024 Kyutai, and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Mimi model."""
 
 import math
 from collections.abc import Callable
@@ -41,28 +27,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring
 @dataclass
 class MimiOutput(ModelOutput):
-    r"""
-    audio_codes (`torch.LongTensor`  of shape `(batch_size, num_quantizers, codes_length)`, *optional*):
-        Discrete code embeddings computed using `model.encode`.
-    audio_values (`torch.FloatTensor` of shape `(batch_size, sequence_length)`, *optional*):
-        Decoded audio values, obtained using the decoder part of Mimi.
-    encoder_past_key_values (`Cache`, *optional*):
-        Pre-computed hidden-states (key and values in the self-attention blocks) that can be used to speed up sequential decoding of the encoder transformer.
-        This typically consists in the `past_key_values` returned by the model at a previous stage of decoding, when `use_cache=True` or `config.use_cache=True`.
-
-        The model will output the same cache format that is fed as input.
-
-        If `past_key_values` are used, the user can optionally input only the last `audio_values` or `audio_codes (those that don't
-        have their past key value states given to this model).
-    decoder_past_key_values (`Cache`, *optional*):
-        Pre-computed hidden-states (key and values in the self-attention blocks) that can be used to speed up sequential decoding of the decoder transformer.
-        This typically consists in the `past_key_values` returned by the model at a previous stage of decoding, when `use_cache=True` or `config.use_cache=True`.
-
-        The model will output the same cache format that is fed as input.
-
-        If `past_key_values` are used, the user can optionally input only the last `audio_values` or `audio_codes (those that don't
-        have their past key value states given to this model).
-    """
 
     audio_codes: torch.LongTensor | None = None
     audio_values: torch.FloatTensor | None = None
@@ -71,13 +35,6 @@ class MimiOutput(ModelOutput):
 
 
 class MimiConv1dPaddingCache:
-    """
-    Padding cache for MimiConv1d causal convolutions in order to support streaming via cache padding.
-    See: https://huggingface.co/papers/2005.06720 & https://huggingface.co/papers/2204.07064
-
-    A padding cache is a list of cached partial hidden states for each convolution layer.
-    Hidden states are cached from the previous call to the MimiConv1d forward pass, given the padding size.
-    """
 
     def __init__(
         self,
@@ -86,7 +43,6 @@ class MimiConv1dPaddingCache:
         per_layer_padding_mode: list[str],
         per_layer_in_channels: list[int],
     ):
-        # ensure correct number of layers for each arg
         from_args_num_layers = {len(per_layer_padding), len(per_layer_padding_mode), len(per_layer_in_channels)}
 
         if len(from_args_num_layers) != 1 or from_args_num_layers.pop() != num_layers:
@@ -150,7 +106,6 @@ class MimiConv1dPaddingCache:
         else:
             current_cache = self.padding_cache[layer_idx]
 
-        # update the cache
         if padding > 0:
             shortfall = max(0, padding - hidden_states.shape[-1])
             if shortfall > 0:
@@ -167,20 +122,6 @@ class MimiConv1dPaddingCache:
 @auto_docstring
 @dataclass
 class MimiEncoderOutput(ModelOutput):
-    r"""
-    audio_codes (`torch.LongTensor`  of shape `(batch_size, num_quantizers, codes_length)`, *optional*):
-        Discrete code embeddings computed using `model.encode`.
-    encoder_past_key_values (`Cache`, *optional*):
-        Pre-computed hidden-states (key and values in the self-attention blocks) that can be used to speed up sequential decoding of the encoder transformer.
-        This typically consists in the `past_key_values` returned by the model at a previous stage of decoding, when `use_cache=True` or `config.use_cache=True`.
-
-        The model will output the same cache format that is fed as input.
-
-        If `past_key_values` are used, the user can optionally input only the last `audio_values` or `audio_codes (those that don't
-        have their past key value states given to this model).
-    padding_cache (`MimiConv1dPaddingCache`, *optional*):
-        Padding cache for MimiConv1d causal convolutions in order to support streaming via cache padding.
-    """
 
     audio_codes: torch.LongTensor | None = None
     encoder_past_key_values: Cache | None = None
@@ -190,25 +131,12 @@ class MimiEncoderOutput(ModelOutput):
 @auto_docstring
 @dataclass
 class MimiDecoderOutput(ModelOutput):
-    r"""
-    audio_values (`torch.FloatTensor`  of shape `(batch_size, segment_length)`, *optional*):
-        Decoded audio values, obtained using the decoder part of Mimi.
-    decoder_past_key_values (`Cache`, *optional*):
-        Pre-computed hidden-states (key and values in the self-attention blocks) that can be used to speed up sequential decoding of the decoder transformer.
-        This typically consists in the `past_key_values` returned by the model at a previous stage of decoding, when `use_cache=True` or `config.use_cache=True`.
-
-        The model will output the same cache format that is fed as input.
-
-        If `past_key_values` are used, the user can optionally input only the last `audio_values` or `audio_codes (those that don't
-        have their past key value states given to this model).
-    """
 
     audio_values: torch.FloatTensor | None = None
     decoder_past_key_values: Cache | None = None
 
 
 class MimiConv1d(nn.Module):
-    """Conv1d with asymmetric or causal padding and normalization."""
 
     def __init__(
         self,
@@ -229,7 +157,6 @@ class MimiConv1d(nn.Module):
         self.layer_idx = layer_idx
         self.in_channels = in_channels
 
-        # warn user on unusual setup between dilation and stride
         if stride > 1 and dilation > 1:
             logger.warning(
                 "MimiConv1d has been initialized with stride > 1 and dilation > 1"
@@ -244,14 +171,12 @@ class MimiConv1d(nn.Module):
         stride = torch.tensor(self.conv.stride[0], dtype=torch.int64)
         dilation = self.conv.dilation[0]
 
-        # Effective kernel size with dilations.
         kernel_size = torch.tensor((kernel_size - 1) * dilation + 1, dtype=torch.int64)
 
         self.register_buffer("stride", stride, persistent=False)
         self.register_buffer("kernel_size", kernel_size, persistent=False)
         self.register_buffer("padding_total", kernel_size - stride, persistent=False)
 
-        # Asymmetric padding required for odd strides
         self.padding_right = self.padding_total // 2
         self.padding_left = self.padding_total - self.padding_right
 
@@ -265,7 +190,6 @@ class MimiConv1d(nn.Module):
     def remove_weight_norm(self):
         nn.utils.remove_weight_norm(self.conv)
 
-    # Copied from transformers.models.encodec.modeling_encodec.EncodecConv1d._get_extra_padding_for_conv1d
     def _get_extra_padding_for_conv1d(
         self,
         hidden_states: torch.Tensor,
@@ -279,7 +203,6 @@ class MimiConv1d(nn.Module):
         return ideal_length - length
 
     @staticmethod
-    # Copied from transformers.models.encodec.modeling_encodec.EncodecConv1d._pad1d
     def _pad1d(hidden_states: torch.Tensor, paddings: tuple[int, int], mode: str = "zero", value: float = 0.0):
         """Tiny wrapper around torch.nn.functional.pad, just to allow for reflect padding on small input.
         If this is the case, we insert extra 0 padding to the right before the reflection happens.
@@ -302,7 +225,6 @@ class MimiConv1d(nn.Module):
         """
         Return the length of the output of the MimiConv1d.
         """
-        # padding size
         n_frames = (input_length - self.kernel_size + self.padding_total) / self.stride + 1
         n_frames = torch.ceil(n_frames).to(torch.int64) - 1
         ideal_length = n_frames * self.stride + self.kernel_size - self.padding_total
@@ -315,10 +237,8 @@ class MimiConv1d(nn.Module):
             padding_left = self.padding_left
             padding_right = self.padding_right + extra_padding
 
-        # padding
         input_length = input_length + padding_left + padding_right
 
-        # conv
         output_length = (
             input_length + 2 * self.conv.padding[0] - self.conv.dilation[0] * (self.conv.kernel_size[0] - 1) - 1
         ) // self.conv.stride[0] + 1
@@ -335,7 +255,6 @@ class MimiConv1d(nn.Module):
             hidden_states = torch.cat([layer_padding_cache, hidden_states], dim=2)
 
         elif self.causal:
-            # Left padding for causal
             hidden_states = self._pad1d(hidden_states, (self.padding_total, extra_padding), mode=self.pad_mode)
 
         else:
@@ -348,7 +267,6 @@ class MimiConv1d(nn.Module):
 
 
 class MimiConvTranspose1d(nn.Module):
-    """ConvTranspose1d with asymmetric or causal padding and normalization."""
 
     def __init__(
         self,
@@ -372,16 +290,9 @@ class MimiConvTranspose1d(nn.Module):
         stride = self.conv.stride[0]
         padding_total = kernel_size - stride
 
-        # We will only trim fixed padding. Extra padding from `pad_for_conv1d` would be
-        # removed at the very end, when keeping only the right length for the output,
-        # as removing it here would require also passing the length at the matching layer
-        # in the encoder.
         if self.causal:
-            # Trim the padding on the right according to the specified ratio
-            # if trim_right_ratio = 1.0, trim everything from right
             self.padding_right = math.ceil(padding_total * self.trim_right_ratio)
         else:
-            # Asymmetric padding required for odd strides
             self.padding_right = padding_total // 2
 
         self.padding_left = padding_total - self.padding_right
@@ -399,16 +310,12 @@ class MimiConvTranspose1d(nn.Module):
     def forward(self, hidden_states):
         hidden_states = self.conv(hidden_states)
 
-        # unpad
         end = hidden_states.shape[-1] - self.padding_right
         hidden_states = hidden_states[..., self.padding_left : end]
         return hidden_states
 
 
 class MimiResnetBlock(nn.Module):
-    """
-    Residual block from SEANet model as used by Mimi.
-    """
 
     def __init__(self, config: MimiConfig, dim: int, dilations: list[int]):
         super().__init__()
@@ -448,24 +355,19 @@ class MimiResnetBlock(nn.Module):
 
 
 class MimiEncoder(nn.Module):
-    """SEANet encoder as used by Mimi."""
 
     def __init__(self, config: MimiConfig):
         super().__init__()
         model = [MimiConv1d(config, config.audio_channels, config.num_filters, config.kernel_size)]
         scaling = 1
 
-        # keep track of MimiConv1d submodule layer names for easy encoded length computation
         mimiconv1d_layer_names = ["layers.0"]
 
-        # Downsample to raw audio scale
         for ratio in reversed(config.upsampling_ratios):
             current_scale = scaling * config.num_filters
-            # Add residual layers
             for j in range(config.num_residual_layers):
                 mimiconv1d_layer_names.extend([f"layers.{len(model)}.block.1", f"layers.{len(model)}.block.3"])
                 model += [MimiResnetBlock(config, current_scale, [config.dilation_growth_rate**j, 1])]
-            # Add downsampling layers
             model += [nn.ELU()]
             mimiconv1d_layer_names.append(f"layers.{len(model)}")
             model += [MimiConv1d(config, current_scale, current_scale * 2, kernel_size=ratio * 2, stride=ratio)]
@@ -478,7 +380,6 @@ class MimiEncoder(nn.Module):
         self.layers = nn.ModuleList(model)
         self._mimiconv1d_layer_names = mimiconv1d_layer_names
 
-        # initialize layer_idx for MimiConv1d submodules, necessary for padding_cache
         for layer_idx, layername in enumerate(self._mimiconv1d_layer_names):
             conv_layer = self.get_submodule(layername)
             setattr(conv_layer, "layer_idx", layer_idx)
@@ -493,9 +394,6 @@ class MimiEncoder(nn.Module):
 
 
 class MimiLayerScale(nn.Module):
-    """Layer scale from [Touvron et al 2021] (https://huggingface.co/papers/2103.17239).
-    This rescales diagonally the residual outputs close to 0, with a learnt scale.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -507,7 +405,6 @@ class MimiLayerScale(nn.Module):
         return self.scale * x
 
 
-# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->Mimi
 class MimiRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
@@ -551,7 +448,6 @@ class MimiRotaryEmbedding(nn.Module):
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
-        # Compute the inverse frequencies
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
@@ -573,7 +469,6 @@ class MimiRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-# Copied from transformers.models.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
@@ -581,7 +476,6 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-# Copied from transformers.models.llama.modeling_llama.apply_rotary_pos_emb
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
 
@@ -615,7 +509,6 @@ class MimiMLP(nn.Module):
         self.fc1 = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
         self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size, bias=False)
 
-    # Copied from transformers.models.clip.modeling_clip.CLIPMLP.forward
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         hidden_states = self.fc1(hidden_states)
         hidden_states = self.activation_fn(hidden_states)
@@ -623,7 +516,6 @@ class MimiMLP(nn.Module):
         return hidden_states
 
 
-# Copied from transformers.models.llama.modeling_llama.repeat_kv
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
@@ -636,7 +528,6 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
-# Copied from transformers.models.llama.modeling_llama.eager_attention_forward
 def eager_attention_forward(
     module: nn.Module,
     query: torch.Tensor,
@@ -663,7 +554,6 @@ def eager_attention_forward(
 
 
 class MimiAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: MimiConfig, layer_idx: int | None = None):
         super().__init__()
@@ -761,7 +651,6 @@ class MimiTransformerLayer(GradientCheckpointingLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
         hidden_states, self_attn_weights = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -773,7 +662,6 @@ class MimiTransformerLayer(GradientCheckpointingLayer):
         )
         hidden_states = residual + self.self_attn_layer_scale(hidden_states)
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
@@ -788,12 +676,6 @@ class MimiTransformerLayer(GradientCheckpointingLayer):
 
 
 class MimiTransformerModel(nn.Module):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`MimiTransformerLayer`]
-
-    Args:
-        config: MimiConfig
-    """
 
     def __init__(self, config: MimiConfig):
         super().__init__()
@@ -896,7 +778,6 @@ class MimiTransformerModel(nn.Module):
         )
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-        # decoder layers
         all_hidden_states = () if output_hidden_states else None
         all_self_attns = () if output_attentions else None
 
@@ -919,7 +800,6 @@ class MimiTransformerModel(nn.Module):
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
 
-        # add hidden states from the last decoder layer
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
 
@@ -937,32 +817,26 @@ class MimiTransformerModel(nn.Module):
 
 
 class MimiDecoder(nn.Module):
-    """SEANet decoder as used by Mimi."""
 
     def __init__(self, config: MimiConfig):
         super().__init__()
         scaling = int(2 ** len(config.upsampling_ratios))
         model = [MimiConv1d(config, config.hidden_size, scaling * config.num_filters, config.kernel_size)]
 
-        # Upsample to raw audio scale
         for ratio in config.upsampling_ratios:
             current_scale = scaling * config.num_filters
-            # Add upsampling layers
             model += [nn.ELU()]
             model += [
                 MimiConvTranspose1d(config, current_scale, current_scale // 2, kernel_size=ratio * 2, stride=ratio)
             ]
-            # Add residual layers
             for j in range(config.num_residual_layers):
                 model += [MimiResnetBlock(config, current_scale // 2, (config.dilation_growth_rate**j, 1))]
             scaling //= 2
 
-        # Add final layers
         model += [nn.ELU()]
         model += [MimiConv1d(config, config.num_filters, config.audio_channels, config.last_kernel_size)]
         self.layers = nn.ModuleList(model)
 
-    # Copied from transformers.models.encodec.modeling_encodec.EncodecDecoder.forward
     def forward(self, hidden_states):
         for layer in self.layers:
             hidden_states = layer(hidden_states)
@@ -970,7 +844,6 @@ class MimiDecoder(nn.Module):
 
 
 class MimiEuclideanCodebook(nn.Module):
-    """Codebook with Euclidean distance."""
 
     def __init__(self, config: MimiConfig, epsilon: float = 1e-5):
         super().__init__()
@@ -991,34 +864,23 @@ class MimiEuclideanCodebook(nn.Module):
         return self._embed
 
     def quantize(self, hidden_states):
-        # Projects each vector in `hidden_states` over the nearest centroid and return its index.
-        # `hidden_states` should be `[N, D]` with `N` the number of input vectors and `D` the dimension.
         dists = torch.cdist(hidden_states[None].float(), self.embed[None].float(), p=2)[0]
         embed_ind = dists.argmin(dim=-1)
         return embed_ind
 
-    # Copied from transformers.models.encodec.modeling_encodec.EncodecEuclideanCodebook.encode
     def encode(self, hidden_states):
         shape = hidden_states.shape
-        # pre-process
         hidden_states = hidden_states.reshape((-1, shape[-1]))
-        # quantize
         embed_ind = self.quantize(hidden_states)
-        # post-process
         embed_ind = embed_ind.view(*shape[:-1])
         return embed_ind
 
-    # Copied from transformers.models.encodec.modeling_encodec.EncodecEuclideanCodebook.decode
     def decode(self, embed_ind):
         quantize = nn.functional.embedding(embed_ind, self.embed)
         return quantize
 
 
-# Copied from transformers.models.encodec.modeling_encodec.EncodecVectorQuantization with Encodec->Mimi
 class MimiVectorQuantization(nn.Module):
-    """
-    Vector quantization implementation. Currently supports only euclidean distance.
-    """
 
     def __init__(self, config: MimiConfig):
         super().__init__()
@@ -1036,7 +898,6 @@ class MimiVectorQuantization(nn.Module):
 
 
 class MimiResidualVectorQuantizer(nn.Module):
-    """Residual Vector Quantizer."""
 
     def __init__(self, config: MimiConfig, num_quantizers: int | None = None):
         super().__init__()
@@ -1090,7 +951,6 @@ class MimiResidualVectorQuantizer(nn.Module):
 
 
 class MimiSplitResidualVectorQuantizer(nn.Module):
-    """Split Residual Vector Quantizer."""
 
     def __init__(self, config: MimiConfig):
         super().__init__()
@@ -1122,7 +982,6 @@ class MimiSplitResidualVectorQuantizer(nn.Module):
                 f"The number of quantizers (i.e codebooks) asked should be higher than the number of semantic quantizers {self.num_semantic_quantizers}, but is currently {num_quantizers}."
             )
 
-        # codes is [K, B, T], with T frames, K nb of codebooks.
         codes = self.semantic_residual_vector_quantizer.encode(embeddings)
 
         if num_quantizers > self.num_semantic_quantizers:
@@ -1136,10 +995,8 @@ class MimiSplitResidualVectorQuantizer(nn.Module):
     def decode(self, codes: torch.Tensor) -> torch.Tensor:
         """Decode the given codes to the quantized representation."""
 
-        # The first num_semantic_quantizers codebooks are decoded using the semantic RVQ
         quantized_out = self.semantic_residual_vector_quantizer.decode(codes[:, : self.num_semantic_quantizers])
 
-        # The rest of the codebooks are decoded using the acoustic RVQ
         if codes.shape[1] > self.num_semantic_quantizers:
             quantized_out += self.acoustic_residual_vector_quantizer.decode(codes[:, self.num_semantic_quantizers :])
         return quantized_out
@@ -1232,7 +1089,6 @@ class MimiModel(MimiPreTrainedModel):
         if 2**self.bits_per_codebook != self.config.codebook_size:
             raise ValueError("The codebook_size must be a power of 2.")
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def _encode_frame(
@@ -1249,10 +1105,8 @@ class MimiModel(MimiPreTrainedModel):
         Encodes the given input using the underlying VQVAE. The padding mask is required to compute the correct scale.
         """
 
-        # TODO: @eustlb, let's make the encoder support padding_mask so that batched inputs are supported.
         embeddings = self.encoder(input_values, padding_cache=padding_cache)
 
-        # TODO: @eustlb, convert the padding mask to attention mask.
         encoder_outputs = self.encoder_transformer(
             embeddings.transpose(1, 2),
             past_key_values=past_key_values,
@@ -1276,11 +1130,9 @@ class MimiModel(MimiPreTrainedModel):
         """
         output_length = input_length
 
-        # encoder
         for layer_name in self.encoder._mimiconv1d_layer_names:
             output_length = self.encoder.get_submodule(layer_name)._get_output_length(output_length)
 
-        # downsample
         output_length = self.downsample._get_output_length(output_length)
 
         return output_length
@@ -1362,7 +1214,6 @@ class MimiModel(MimiPreTrainedModel):
                 per_layer_padding_mode.append(self.encoder.get_submodule(layer_name).pad_mode)
                 per_layer_in_channels.append(self.encoder.get_submodule(layer_name).in_channels)
 
-            # downsample layer
             per_layer_padding.append(self.downsample.padding_total)
             per_layer_padding_mode.append(self.downsample.pad_mode)
             per_layer_in_channels.append(self.downsample.in_channels)
@@ -1450,7 +1301,6 @@ class MimiModel(MimiPreTrainedModel):
             audio_codes, past_key_values=decoder_past_key_values, return_dict=return_dict
         )
 
-        # truncate based on padding mask
         if padding_mask is not None and padding_mask.shape[-1] < audio_values.shape[-1]:
             audio_values = audio_values[..., : padding_mask.shape[-1]]
 

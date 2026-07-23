@@ -1,16 +1,3 @@
-# Copyright 2020 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import copy
 import re
@@ -45,7 +32,6 @@ class TrialShortNamer:
                 break
 
         if short_word is None:
-            # Paranoid fallback
             def int_to_alphabetic(integer):
                 s = ""
                 while integer != 0:
@@ -72,8 +58,6 @@ class TrialShortNamer:
 
         shortname_parts = [TrialShortNamer.shortname_for_word(info, word) for word in words]
 
-        # We try to create a separatorless short name, but if there is a collision we have to fallback
-        # to a separated short name
         separators = ["", "_"]
 
         for separator in separators:
@@ -112,51 +96,8 @@ class TrialShortNamer:
 
     @classmethod
     def shortname(cls, params):
-        cls.build_naming_info()
-        assert cls.PREFIX is not None
-        name = [copy.copy(cls.PREFIX)]
-
-        for k, v in params.items():
-            if k not in cls.DEFAULTS:
-                raise Exception(f"You should provide a default value for the param name {k} with value {v}")
-            if v == cls.DEFAULTS[k]:
-                # The default value is not added to the name
-                continue
-
-            key = cls.NAMING_INFO["short_param"][k]
-
-            if isinstance(v, bool):
-                v = 1 if v else 0
-
-            sep = "" if isinstance(v, (int, float)) else "-"
-            e = f"{key}{sep}{v}"
-            name.append(e)
-
-        return "_".join(name)
+        pass
 
     @classmethod
     def parse_repr(cls, repr):
-        repr = repr[len(cls.PREFIX) + 1 :]
-        if repr == "":
-            values = []
-        else:
-            values = repr.split("_")
-
-        parameters = {}
-
-        for value in values:
-            if "-" in value:
-                p_k, p_v = value.split("-")
-            else:
-                p_k = re.sub("[0-9.]", "", value)
-                p_v = float(re.sub("[^0-9.]", "", value))
-
-            key = cls.NAMING_INFO["reverse_short_param"][p_k]
-
-            parameters[key] = p_v
-
-        for k in cls.DEFAULTS:
-            if k not in parameters:
-                parameters[k] = cls.DEFAULTS[k]
-
-        return parameters
+        pass

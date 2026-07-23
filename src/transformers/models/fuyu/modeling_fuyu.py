@@ -1,17 +1,3 @@
-# Copyright 2023 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Fuyu model."""
 
 import torch
 from torch import nn
@@ -59,7 +45,6 @@ class FuyuModel(FuyuPreTrainedModel):
         )
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
     def gather_continuous_embeddings(
@@ -68,43 +53,7 @@ class FuyuModel(FuyuPreTrainedModel):
         continuous_embeddings: list[torch.Tensor],
         image_patch_input_indices: torch.Tensor,
     ) -> torch.Tensor:
-        """This function places the continuous_embeddings into the word_embeddings at the locations
-        indicated by image_patch_input_indices. Different batch elements can have different numbers of continuous
-        embeddings.
-
-        Args:
-            word_embeddings (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-                Tensor of word embeddings.
-            continuous_embeddings (`torch.FloatTensor` of shape `(batch_size, num_patches, hidden_size)`):
-                Tensor of continuous embeddings. The length of the list is the batch size. Each entry is shape
-                [num_image_embeddings, hidden], and num_image_embeddings needs to match the number of non-negative
-                indices in image_patch_input_indices for that batch element.
-            image_patch_input_indices (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
-                Tensor of indices of the image patches in the input_ids tensor.
-        """
-        if not (word_embeddings.shape[0] == len(continuous_embeddings)):
-            raise ValueError(
-                f"Batch sizes must match! Got {len(continuous_embeddings)=} and {word_embeddings.shape[0]=}"
-            )
-
-        output_embeddings = word_embeddings.clone()
-        for batch_idx in range(word_embeddings.shape[0]):
-            # First, find the positions of all the non-negative values in image_patch_input_indices, those are the
-            # positions in word_embeddings that we want to replace with content from continuous_embeddings.
-            dst_indices = torch.nonzero(image_patch_input_indices[batch_idx] >= 0, as_tuple=True)[0]
-            # Next look up those indices in image_patch_input_indices to find the indices in continuous_embeddings that we
-            # want to use to replace the values in word_embeddings.
-            src_indices = image_patch_input_indices[batch_idx][dst_indices]
-            # Check if we have more indices than embeddings. Note that we could have fewer indices if images got truncated.
-            if src_indices.shape[0] > continuous_embeddings[batch_idx].shape[0]:
-                raise ValueError(
-                    f"Number of continuous embeddings {continuous_embeddings[batch_idx].shape=} does not match "
-                    f"number of continuous token ids {src_indices.shape=} in batch element {batch_idx}."
-                )
-            output_embeddings[batch_idx, dst_indices] = continuous_embeddings[batch_idx][src_indices].to(
-                output_embeddings.device
-            )
-        return output_embeddings
+        pass
 
     @can_return_tuple
     @auto_docstring
@@ -147,7 +96,6 @@ class FuyuModel(FuyuPreTrainedModel):
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
-        # [batch_size, num_total_patches, patch_size_ x patch_size x num_channels ]
         image_patches: torch.Tensor | None = None,
         image_patches_indices: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
@@ -219,7 +167,6 @@ class FuyuForCausalLM(FuyuPreTrainedModel, GenerationMixin):
     def forward(
         self,
         input_ids: torch.LongTensor | None = None,
-        # [batch_size, num_total_patches, patch_size_ x patch_size x num_channels ]
         image_patches: torch.Tensor | None = None,
         image_patches_indices: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
@@ -280,7 +227,6 @@ class FuyuForCausalLM(FuyuPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -309,7 +255,6 @@ class FuyuForCausalLM(FuyuPreTrainedModel, GenerationMixin):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -323,7 +268,6 @@ class FuyuForCausalLM(FuyuPreTrainedModel, GenerationMixin):
         )
 
         if not is_first_iteration and kwargs.get("use_cache", True):
-            # set image_patches and image_patches_indices to `None` for decoding stage
             model_inputs["image_patches_indices"] = None
             model_inputs["image_patches"] = None
 

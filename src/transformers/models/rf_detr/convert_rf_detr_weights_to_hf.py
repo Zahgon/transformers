@@ -1,17 +1,3 @@
-# Copyright 2026 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Convert RF-DETR checkpoints to transformers format."""
 
 import argparse
 import json
@@ -22,10 +8,8 @@ from huggingface_hub import hf_hub_download
 from transformers import RfDetrConfig, RfDetrForInstanceSegmentation, RfDetrForObjectDetection, RfDetrImageProcessor
 
 
-# Mapping of model names to their checkpoint files
 HOSTED_MODELS = {
     "rf-detr-base": "https://storage.googleapis.com/rfdetr/rf-detr-base-coco.pth",
-    # base-2 is a less converged model that may be better for finetuning but worse for inference
     "rf-detr-base-2": "https://storage.googleapis.com/rfdetr/rf-detr-base-2.pth",
     "rf-detr-nano": "https://storage.googleapis.com/rfdetr/nano_coco/checkpoint_best_regular.pth",
     "rf-detr-small": "https://storage.googleapis.com/rfdetr/small_coco/checkpoint_best_regular.pth",
@@ -40,7 +24,6 @@ HOSTED_MODELS = {
     "rf-detr-seg-xxlarge": "https://storage.googleapis.com/rfdetr/rf-detr-seg-2xl-ft.pth",
 }
 
-# Model configurations for different sizes
 
 BASE_BACKBONE_CONFIG = {
     "attention_probs_dropout_prob": 0.0,
@@ -63,7 +46,6 @@ BASE_BACKBONE_CONFIG = {
     "use_swiglu_ffn": False,
 }
 
-# Backbone specs: model_name -> {image_size, **overrides of BASE_BACKBONE_CONFIG}
 MODEL_VARIANT_BACKBONE_CONFIG_KWARGS = {
     "rf-detr-nano": {},
     "rf-detr-small": {"image_size": 512},
@@ -98,7 +80,6 @@ BASE_MODEL_CONFIG = {
     "intermediate_size": 1024,
 }
 
-# Model specs: model_name -> overrides of BASE_MODEL_CONFIG (at least decoder_layers)
 MODEL_VARIANT_CONFIG_KWARGS = {
     "rf-detr-nano": {"decoder_layers": 2},
     "rf-detr-small": {"decoder_layers": 3},
@@ -179,22 +160,18 @@ def convert_rf_detr_checkpoint(
     """
     print(f"Converting {model_name} checkpoint...")
 
-    # Get model configuration
     config = get_model_config(model_name)
     rf_detr_config = RfDetrConfig(**config)
 
-    # Load checkpoint
     checkpoint_url = checkpoint_url if checkpoint_url is not None else HOSTED_MODELS[model_name]
     print(f"Loading checkpoint from {checkpoint_url}...")
     checkpoint = torch.hub.load_state_dict_from_url(
         checkpoint_url, map_location="cpu", weights_only=False, file_name=f"{model_name}.pth"
     )
-    # Create model and load weights
     print("Creating model and loading weights...")
     is_segmentation = "seg" in model_name
     model_class = RfDetrForInstanceSegmentation if is_segmentation else RfDetrForObjectDetection
 
-    # Handle different checkpoint formats
     if "state_dict" in checkpoint:
         state_dict = checkpoint["state_dict"]
     elif "model" in checkpoint:
@@ -221,13 +198,11 @@ def convert_rf_detr_checkpoint(
     image_processor = RfDetrImageProcessor(size=IMAGE_PROCESSORS[model_name], do_resize=True, use_fast=True)
 
     repo_id = f"{organization}/{model_name}"
-    # Save model
     print("Saving model..." + " and pushing to hub..." if push_to_hub else "")
     model.save_pretrained(
         pytorch_dump_folder_path, push_to_hub=push_to_hub, repo_id=repo_id, commit_message=f"Add {model_name} model"
     )
 
-    # Save image processor
     print("Saving image processor..." + " and pushing to hub..." if push_to_hub else "")
     image_processor.save_pretrained(
         pytorch_dump_folder_path,
@@ -260,10 +235,8 @@ def main():
 
     args = parser.parse_args()
 
-    # Get checkpoint path
     checkpoint_path = args.checkpoint_path
 
-    # Convert checkpoint
     convert_rf_detr_checkpoint(
         model_name=args.model_name,
         checkpoint_url=checkpoint_path,

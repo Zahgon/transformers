@@ -1,17 +1,3 @@
-# Copyright 2025 The LLAMA4 and HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -27,19 +13,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="meta-llama/Llama-4-Scout-17B-16E")
 @strict
 class Llama4VisionConfig(PreTrainedConfig):
-    r"""
-    vision_output_dim (`int`, *optional*, defaults to 7680):
-        Dimensionality of the vision model output. Includes output of transformer
-        encoder with intermediate layers and global transformer encoder.
-    pixel_shuffle_ratio (`float`, *optional*, defaults to 0.5):
-        Pixel-shuffle ratio for downsampling patch tokens. Smaller values produce fewer tokens (more downsampling).
-    projector_input_dim (`int`, *optional*, defaults to 4096):
-        Width of the vision adapter MLP before pixel shuffle. Larger value increases capacity and compute.
-    projector_output_dim (`int`, *optional*, defaults to 4096):
-        Output width of the vision adapter. Larger value yields higher-dimensional image features.
-    projector_dropout (`float`, *optional*, defaults to 0.0):
-        Dropout rate inside the vision adapter MLP. Higher value adds more regularization.
-    """
 
     base_model_tp_plan = {
         "model.layers.*.self_attn.q_proj": "colwise",
@@ -77,34 +50,6 @@ class Llama4VisionConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="meta-llama/Llama-4-Scout-17B-16E")
 @strict
 class Llama4TextConfig(PreTrainedConfig):
-    r"""
-    intermediate_size_mlp (`int`, *optional*, defaults to 16384):
-        Intermediate size of dense MLP layers. Larger value increases FFN capacity and compute.
-    moe_layers (`list[int]`, *optional*):
-        List of layer indices that use MoE. Overrides `interleave_moe_layer_step` when set.
-    interleave_moe_layer_step (`int`, *optional*, defaults to 1):
-        Spacing between MoE layers when `moe_layers` is `None`. Larger value means fewer MoE layers.
-    use_qk_norm (`bool`, *optional*, defaults to `True`):
-        Whether to L2-normalize queries/keys on RoPE layers. Can stabilize attention when enabled.
-    no_rope_layers (`list[int]`, *optional*):
-        List with at least the same length as the number of layers in the model.
-        A `1` at an index position indicates that the corresponding layer will use RoPE,
-        while a `0` indicates that it's a NoPE layer.
-    no_rope_layer_interval (`int`, *optional*, defaults to 4):
-        If `no_rope_layers` is `None`, it will be created using a NoPE layer every
-        `no_rope_layer_interval` layers.
-    attention_chunk_size (`int`, *optional*, defaults to 8192):
-        Chunk size for the attention computation. Smaller value enforces more local attention and lowers memory.
-    attn_temperature_tuning (`bool`, *optional*, defaults to `True`):
-        Whether to dynamically scale the attention temperature for each query token based on sequence length.
-        Recommended for long sequences (e.g., >32k tokens) to maintain stable output results.
-    floor_scale (`int`, *optional*, defaults to 8192):
-        Base scale (in tokens) for attention temperature tuning. Larger value delays scaling to longer positions.
-    attn_scale (`float`, *optional*, defaults to 0.1):
-        Strength of attention temperature tuning. Larger value increases scaling at long positions.
-
-    Example:
-    """
 
     model_type = "llama4_text"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -205,25 +150,6 @@ class Llama4TextConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="meta-llama/Llama-4-Scout-17B-16E")
 @strict
 class Llama4Config(PreTrainedConfig):
-    r"""
-    boi_token_index (`int`, *optional*, defaults to 200080):
-        The begin-of-image token index to wrap the image prompt.
-    eoi_token_index (`int`, *optional*, defaults to 200081):
-        The end-of-image token index to wrap the image prompt.
-
-    ```python
-    >>> from transformers import Llama4Model, Llama4Config
-
-    >>> # Initializing a Llama4 7B style configuration
-    >>> configuration = Llama4Config()
-
-    >>> # Initializing a model from the Llama4 7B style configuration
-    >>> model = Llama4Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "llama4"
     attribute_map = {

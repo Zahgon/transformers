@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for SigLIP2."""
 
 import torch
 from torchvision.transforms.v2 import functional as tvF
@@ -27,13 +13,6 @@ from ...utils import (
 
 
 class Siglip2ImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    patch_size (`int`, *optional*, defaults to `self.patch_size`):
-        The size (resolution) of each patch the image will be split to.
-    max_num_patches (`int`, *optional*, defaults to `self.max_num_patches`):
-        The image will be resized to have at most this number of patches,
-        and then padded in "patch" dimension to match this number exactly.
-    """
 
     patch_size: int
     max_num_patches: int
@@ -68,7 +47,6 @@ def get_image_size_for_max_num_patches(
         scaled_size = max(patch_size, scaled_size)  # ensure at least 1 patch
         return int(scaled_size)
 
-    # Binary search for optimal scale
     scale_min, scale_max = eps / 10, 100.0
     while (scale_max - scale_min) >= eps:
         scale = (scale_min + scale_max) / 2
@@ -138,7 +116,6 @@ class Siglip2ImageProcessor(TorchvisionBackend):
         return super().preprocess(images, **kwargs)
 
     def _validate_preprocess_kwargs(self, **kwargs) -> tuple:
-        # Remove do_resize from kwargs to not raise an error as size is None (computed dynamically)
         kwargs.pop("do_resize", None)
         return super()._validate_preprocess_kwargs(**kwargs)
 
@@ -174,7 +151,6 @@ class Siglip2ImageProcessor(TorchvisionBackend):
 
             image = self.rescale_and_normalize(image, do_rescale, rescale_factor, do_normalize, image_mean, image_std)
 
-            # (num_channels, height, width) -> (num_patches, patch_size * patch_size * num_channels)
             patches = convert_image_to_patches(image, patch_size)
             patches, mask = pad_along_first_dim(patches, max_num_patches)
 

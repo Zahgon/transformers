@@ -1,17 +1,3 @@
-# Copyright 2019 The Open AI Team Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for XLM."""
 
 import json
 import os
@@ -119,10 +105,8 @@ def remove_non_printing_char(text):
 
 def romanian_preprocessing(text):
     """Sennrich's WMT16 scripts for Romanian preprocessing, used by model `FacebookAI/xlm-mlm-enro-1024`"""
-    # https://github.com/rsennrich/wmt16-scripts/blob/master/preprocess/normalise-romanian.py
     text = text.replace("\u015e", "\u0218").replace("\u015f", "\u0219")
     text = text.replace("\u0162", "\u021a").replace("\u0163", "\u021b")
-    # https://github.com/rsennrich/wmt16-scripts/blob/master/preprocess/remove-diacritics.py
     text = text.replace("\u0218", "S").replace("\u0219", "s")  # s-comma
     text = text.replace("\u021a", "T").replace("\u021b", "t")  # t-comma
     text = text.replace("\u0102", "A").replace("\u0103", "a")
@@ -132,60 +116,6 @@ def romanian_preprocessing(text):
 
 
 class XLMTokenizer(PreTrainedTokenizer):
-    """
-    Construct an XLM tokenizer. Based on Byte-Pair Encoding. The tokenization process is the following:
-
-    - Moses preprocessing and tokenization for most supported languages.
-    - Language specific tokenization for Chinese (Jieba), Japanese (KyTea) and Thai (PyThaiNLP).
-    - Optionally lowercases and normalizes all inputs text.
-    - The arguments `special_tokens` and the function `set_special_tokens`, can be used to add additional symbols (like
-      "__classify__") to a vocabulary.
-    - The `lang2id` attribute maps the languages supported by the model with their IDs if provided (automatically set
-      for pretrained vocabularies).
-    - The `id2lang` attributes does reverse mapping if provided (automatically set for pretrained vocabularies).
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        vocab_file (`str`):
-            Vocabulary file.
-        merges_file (`str`):
-            Merges file.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the beginning of
-            sequence. The token used is the `cls_token`.
-
-            </Tip>
-
-        sep_token (`str`, *optional*, defaults to `"</s>"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-        cls_token (`str`, *optional*, defaults to `"</s>"`):
-            The classifier token which is used when doing sequence classification (classification of the whole sequence
-            instead of per-token classification). It is the first token of the sequence when built with special tokens.
-        mask_token (`str`, *optional*, defaults to `"<special1>"`):
-            The token used for masking values. This is the token used when training this model with masked language
-            modeling. This is the token which the model will try to predict.
-        additional_special_tokens (`List[str]`, *optional*, defaults to `['<special0>', '<special1>', '<special2>', '<special3>', '<special4>', '<special5>', '<special6>', '<special7>', '<special8>', '<special9>']`):
-            List of additional special tokens.
-        lang2id (`Dict[str, int]`, *optional*):
-            Dictionary mapping languages string identifiers to their IDs.
-        id2lang (`Dict[int, str]`, *optional*):
-            Dictionary mapping language IDs to their string identifiers.
-        do_lowercase_and_remove_accent (`bool`, *optional*, defaults to `True`):
-            Whether to lowercase and remove accents when tokenizing.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
 
@@ -226,12 +156,9 @@ class XLMTokenizer(PreTrainedTokenizer):
 
         self.sm = sacremoses
 
-        # cache of sm.MosesPunctNormalizer instance
         self.cache_moses_punct_normalizer = {}
-        # cache of sm.MosesTokenizer instance
         self.cache_moses_tokenizer = {}
         self.lang_with_custom_tokenizer = {"zh", "th", "ja"}
-        # True for current supported model (v1.2.0), False for XLM-17 & 100
         self.do_lowercase_and_remove_accent = do_lowercase_and_remove_accent
         self.lang2id = lang2id
         self.id2lang = id2lang
@@ -265,7 +192,7 @@ class XLMTokenizer(PreTrainedTokenizer):
 
     @property
     def do_lower_case(self):
-        return self.do_lowercase_and_remove_accent
+        pass
 
     def moses_punct_norm(self, text, lang):
         if lang not in self.cache_moses_punct_normalizer:
@@ -312,7 +239,7 @@ class XLMTokenizer(PreTrainedTokenizer):
 
     @property
     def vocab_size(self):
-        return len(self.encoder)
+        pass
 
     def get_vocab(self):
         return dict(self.encoder, **self.added_tokens_encoder)
@@ -410,7 +337,6 @@ class XLMTokenizer(PreTrainedTokenizer):
             text = text.split()
         elif lang not in self.lang_with_custom_tokenizer:
             text = self.moses_pipeline(text, lang=lang)
-            # TODO: make sure we are using `FacebookAI/xlm-mlm-enro-1024`, since XLM-100 doesn't have this step
             if lang == "ro":
                 text = romanian_preprocessing(text)
             text = self.moses_tokenize(text, lang=lang)

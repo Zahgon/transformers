@@ -1,17 +1,3 @@
-# Copyright 2023-present NAVER Corp, The Microsoft Research Asia LayoutLM Team Authors and the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Bros model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,28 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="jinho8345/bros-base-uncased")
 @strict
 class BrosConfig(PreTrainedConfig):
-    r"""
-    dim_bbox (`int`, *optional*, defaults to 8):
-        The dimension of the bounding box coordinates. (x0, y1, x1, y0, x1, y1, x0, y1)
-    bbox_scale (`float`, *optional*, defaults to 100.0):
-        The scale factor of the bounding box coordinates.
-    n_relations (`int`, *optional*, defaults to 1):
-        The number of relations for SpadeEE(entity extraction), SpadeEL(entity linking) head.
-
-    Examples:
-
-    ```python
-    >>> from transformers import BrosConfig, BrosModel
-
-    >>> # Initializing a BROS jinho8345/bros-base-uncased style configuration
-    >>> configuration = BrosConfig()
-
-    >>> # Initializing a model from the jinho8345/bros-base-uncased style configuration
-    >>> model = BrosModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "bros"
 

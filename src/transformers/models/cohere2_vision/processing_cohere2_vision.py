@@ -1,16 +1,3 @@
-# Copyright 2025 HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from ...image_processing_utils import BatchFeature
@@ -50,14 +37,7 @@ class Cohere2VisionProcessor(ProcessorMixin):
 
     @property
     def image_token_ids(self) -> list[int]:
-        return self.tokenizer.convert_tokens_to_ids(
-            [
-                self.image_token,
-                self.boi_token,
-                self.eoi_token,
-                self.img_line_break_token,
-            ]
-        )
+        pass
 
     @auto_docstring
     def __call__(
@@ -87,7 +67,6 @@ class Cohere2VisionProcessor(ProcessorMixin):
             **kwargs,
         )
 
-        # Process images
         image_inputs = {}
         if images is not None:
             image_inputs = self.image_processor(images=images, **output_kwargs["images_kwargs"])
@@ -117,35 +96,7 @@ class Cohere2VisionProcessor(ProcessorMixin):
         return BatchFeature(data={**text_inputs, **image_inputs}, tensor_type=return_tensors)
 
     def _get_num_multimodal_tokens(self, image_sizes=None, **kwargs):
-        """
-        Computes the number of placeholder tokens needed for multimodal inputs with the given sizes.
-
-        Args:
-            image_sizes (`list[list[int]]`, *optional*):
-                The input sizes formatted as (height, width) per each image.
-
-        Returns:
-            `MultiModalData`: A `MultiModalData` object holding number of tokens per each of the provided
-            input modalities, along with other useful data.
-        """
-
-        vision_data = {}
-        if image_sizes is not None:
-            images_kwargs = Cohere2VisionProcessorKwargs._defaults.get("images_kwargs", {})
-            images_kwargs.update(kwargs)
-
-            num_image_patches = [
-                self.image_processor.get_number_of_image_patches(*image_size, images_kwargs)
-                for image_size in image_sizes
-            ]
-
-            token_per_patch = int(self.patch_size**2)
-            num_image_tokens = [
-                2 + sum(token_per_patch + 1 for _ in range(num_patches)) for num_patches in num_image_patches
-            ]  # Add +2 and +1 for BOI/EOI and image break tokens
-            vision_data.update({"num_image_tokens": num_image_tokens, "num_image_patches": num_image_patches})
-
-        return MultiModalData(**vision_data)
+        pass
 
     def batch_decode(self, *args, **kwargs):
         """
@@ -163,9 +114,7 @@ class Cohere2VisionProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        image_processor_input_names = self.image_processor.model_input_names
-        return list(tokenizer_input_names) + list(image_processor_input_names)
+        pass
 
 
 __all__ = ["Cohere2VisionProcessor"]

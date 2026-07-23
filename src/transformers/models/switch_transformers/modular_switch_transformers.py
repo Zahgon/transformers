@@ -1,17 +1,3 @@
-# Copyright 2022 SwitchTransformers Authors and HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch SwitchTransformers model."""
 
 import copy
 
@@ -50,10 +36,6 @@ from .configuration_switch_transformers import SwitchTransformersConfig
 logger = logging.get_logger(__name__)
 
 
-####################################################
-# This dict contains ids and associated url
-# for the pretrained weights provided with the models
-####################################################
 
 
 def router_z_loss_func(router_logits: torch.Tensor) -> float:
@@ -95,7 +77,6 @@ def load_balancing_loss_func(router_probs: torch.Tensor, expert_indices: torch.T
     """
     num_experts = router_probs.shape[-1]
 
-    # cast the expert indices to int64, otherwise one-hot encoding will fail
     if expert_indices.dtype != torch.int64:
         expert_indices = expert_indices.to(torch.int64)
 
@@ -104,10 +85,8 @@ def load_balancing_loss_func(router_probs: torch.Tensor, expert_indices: torch.T
 
     expert_mask = torch.nn.functional.one_hot(expert_indices, num_experts)
 
-    # For a given token, determine if it was routed to a given expert.
     expert_mask = torch.max(expert_mask, axis=-2).values
 
-    # cast to float32 otherwise mean will fail
     expert_mask = expert_mask.to(torch.float32)
     tokens_per_group_and_expert = torch.mean(expert_mask, axis=-2)
 
@@ -116,15 +95,6 @@ def load_balancing_loss_func(router_probs: torch.Tensor, expert_indices: torch.T
 
 
 class SwitchTransformersTop1Router(nn.Module):
-    """
-    Router using tokens choose top-1 experts assignment.
-
-    This router uses the same mechanism as in Switch Transformer (https://huggingface.co/papers/2101.03961) and V-MoE
-    (https://huggingface.co/papers/2106.05974): tokens choose their top experts. Items are sorted by router_probs and then
-    routed to their choice of expert until the expert's expert_capacity is reached. **There is no guarantee that each
-    token is processed by an expert**, or that each expert receives at least one token.
-
-    """
 
     def __init__(self, config: SwitchTransformersConfig):
         super().__init__()
@@ -150,23 +120,17 @@ class SwitchTransformersTop1Router(nn.Module):
                 Logits tensor of shape (batch_size, sequence_length, num_experts) corresponding to raw router logits.
                 This is used later for computing router z-loss.
         """
-        # float32 is used to ensure stability. See the discussion of "selective precision" in
-        # https://huggingface.co/papers/2101.03961.
-        # We also store the previous dtype to cast back the output to the previous dtype
         self.input_dtype = hidden_states.dtype
         hidden_states = hidden_states.to(self.dtype)
         if self.training and self.jitter_noise > 0:
-            # Multiply the token inputs by the uniform distribution - adding some noise
             hidden_states *= torch.empty_like(hidden_states).uniform_(1.0 - self.jitter_noise, 1.0 + self.jitter_noise)
         self.classifier = self.classifier.to(self.dtype)
         router_logits = self.classifier(hidden_states)
 
-        # Apply Softmax and cast back to the original `dtype`
         router_probs = nn.functional.softmax(router_logits, dim=-1, dtype=self.dtype).to(self.input_dtype)
         router_logits, expert_index = torch.max(router_probs, dim=-1, keepdim=True)
         expert_index = torch.nn.functional.one_hot(expert_index, num_classes=self.num_experts)
         token_priority = torch.cumsum(expert_index, dim=-2)
-        # mask if the token routed to the expert will overflow
         expert_capacity_mask = token_priority <= self.expert_capacity
         expert_index = expert_index * expert_capacity_mask
         router_probs = torch.max(router_probs, dim=-1).values.unsqueeze(-1)
@@ -219,22 +183,11 @@ class SwitchTransformersSparseMLP(nn.Module):  # inherit from mixtral
 
 
 class SwitchTransformersLayerFF(nn.Module):
-    r"""
-    Switch Transformers Feed Forward layer module. This is a wrapper around the Mixture of Experts module.
-
-    Parameters:
-        config : ([`SwitchTransformersConfig`]): Model configuration class with all the parameters of the model.
-            Initializing with a config file does not load the weights associated with the model, only the
-            configuration. Check out the [`~PreTrainedModel.from_pretrained`] method to load the model weights.
-        is_sparse (`bool`):
-            Whether the MLP layer is a `Sparse` layer (contains a Mixture of Experts) or not
-    """
 
     def __init__(self, config: SwitchTransformersConfig, is_sparse=False):
         super().__init__()
         self.is_sparse = is_sparse
 
-        # Check if it is a sparse layer, if not then it is a dense layer
         if not self.is_sparse:
             self.mlp = SwitchTransformersDenseActDense(config)
         else:
@@ -298,7 +251,6 @@ class SwitchTransformersBlock(GradientCheckpointingLayer):
             use_cache=use_cache,
         )
 
-        # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16 and torch.isinf(hidden_states).any():
             clamp_value = torch.finfo(hidden_states.dtype).max - 1000
             hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
@@ -313,13 +265,11 @@ class SwitchTransformersBlock(GradientCheckpointingLayer):
                 past_key_values=past_key_values,
             )
 
-            # clamp inf values to enable fp16 training
             if hidden_states.dtype == torch.float16 and torch.isinf(hidden_states).any():
                 clamp_value = torch.finfo(hidden_states.dtype).max - 1000
                 hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
 
         hidden_states = self.layer[-1](hidden_states)
-        # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16 and torch.isinf(hidden_states).any():
             clamp_value = torch.finfo(hidden_states.dtype).max - 1000
             hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
@@ -390,7 +340,6 @@ class SwitchTransformersPreTrainedModel(PreTrainedModel):
 
         if pad_token_id is None:
             raise ValueError("self.model.config.pad_token_id has to be defined.")
-        # replace possible -100 values in labels by `pad_token_id`
         shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
         return shifted_input_ids
@@ -464,13 +413,10 @@ class SwitchTransformersStack(SwitchTransformersPreTrainedModel):
                 else:
                     past_key_values = DynamicCache(config=self.config)
         elif not self.is_decoder:
-            # do not pass cache object down the line for encoder stack
-            # it messes indexing later in decoder-stack because cache object is modified in-place
             past_key_values = None
 
         past_key_values_length = past_key_values.get_seq_length() if past_key_values is not None else 0
         if attention_mask is None and not is_torchdynamo_compiling():
-            # required mask seq length can be calculated via length of past cache
             mask_seq_length = past_key_values_length + seq_length
             attention_mask = torch.ones(batch_size, mask_seq_length, device=inputs_embeds.device)
 
@@ -542,7 +488,6 @@ class SwitchTransformersModel(SwitchTransformersPreTrainedModel):
         decoder_config.is_decoder = True
         self.decoder = SwitchTransformersStack(decoder_config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def set_input_embeddings(self, new_embeddings):
@@ -664,10 +609,8 @@ class SwitchTransformersForConditionalGeneration(SwitchTransformersPreTrainedMod
         hidden_states = encoder_outputs[0]
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
-            # get decoder inputs from shifting lm labels to the right
             decoder_input_ids = self._shift_right(labels)
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -682,8 +625,6 @@ class SwitchTransformersForConditionalGeneration(SwitchTransformersPreTrainedMod
         sequence_output = decoder_outputs.last_hidden_state
 
         if self.config.tie_word_embeddings:
-            # Rescale output before projecting on vocab
-            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
             sequence_output = sequence_output * (self.model_dim**-0.5)
 
         lm_logits = self.lm_head(sequence_output)
@@ -695,7 +636,6 @@ class SwitchTransformersForConditionalGeneration(SwitchTransformersPreTrainedMod
         decoder_aux_loss = None
 
         if output_router_logits:
-            # Compute the router loss (z_loss + auxiliary loss) for each router in the encoder and decoder
             if self.encoder.config.encoder_sparse_step > 1:
                 encoder_router_logits, encoder_expert_indexes = self._unpack_router_logits(encoder_outputs[-1])
                 encoder_z_loss = router_z_loss_func(encoder_router_logits)
@@ -716,7 +656,6 @@ class SwitchTransformersForConditionalGeneration(SwitchTransformersPreTrainedMod
 
         if labels is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-100)
-            # move labels to correct device to enable PP
             labels = labels.to(lm_logits.device)
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
 

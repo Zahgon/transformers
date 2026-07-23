@@ -1,16 +1,3 @@
-# Copyright 2025 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from huggingface_hub.dataclasses import strict
@@ -23,21 +10,6 @@ from ..auto import CONFIG_MAPPING, AutoConfig
 @auto_docstring(checkpoint="zai-org/GLM-ASR-Nano-2512")
 @strict
 class GlmAsrEncoderConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import GlmAsrEncoderConfig, GlmAsrEncoder
-
-    >>> # Initializing a GlmAsrEncoderConfig
-    >>> configuration = GlmAsrEncoderConfig()
-
-    >>> # Initializing a GlmAsrEncoder (with random weights)
-    >>> model = GlmAsrEncoder(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "glmasr_encoder"
 
@@ -64,21 +36,6 @@ class GlmAsrEncoderConfig(PreTrainedConfig):
 @auto_docstring(checkpoint="zai-org/GLM-ASR-Nano-2512")
 @strict
 class GlmAsrConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import GlmAsrForConditionalGeneration, GlmAsrConfig
-
-    >>> # Initializing a glmasr configuration
-    >>> configuration = GlmAsrConfig()
-
-    >>> # Initializing a GLM-ASR-Nano-2512 model with random weights
-    >>> model = GlmAsrForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "glmasr"
     sub_configs = {"text_config": AutoConfig, "audio_config": AutoConfig}

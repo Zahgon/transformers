@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 from typing import Optional
@@ -35,15 +22,6 @@ from .configuration_vibevoice_acoustic_tokenizer import (
 @auto_docstring
 @dataclass
 class VibeVoiceAcousticTokenizerOutput(ModelOutput):
-    r"""
-    audio (`torch.FloatTensor` of shape `(batch_size, channels, sequence_length)`):
-        Decoded audio.
-    latents (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Projected latents (continuous representations for acoustic tokens) at the output of the encoder.
-    padding_cache (`VibeVoiceAcousticTokenizerConv1dPaddingCache`, *optional*, returned when `use_cache=True` is passed):
-        A [`VibeVoiceAcousticTokenizerConv1dPaddingCache`] instance containing cached convolution states for each decoder
-        layer that can be passed to subsequent forward calls.
-    """
 
     audio: torch.FloatTensor | None = None
     latents: torch.FloatTensor | None = None
@@ -53,13 +31,6 @@ class VibeVoiceAcousticTokenizerOutput(ModelOutput):
 @auto_docstring
 @dataclass
 class VibeVoiceAcousticTokenizerEncoderOutput(ModelOutput):
-    r"""
-    latents (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`):
-        Projected latents (continuous representations for acoustic tokens) at the output of the encoder.
-    padding_cache (`VibeVoiceAcousticTokenizerConv1dPaddingCache`, *optional*, returned when `use_cache=True` is passed):
-        A [`VibeVoiceAcousticTokenizerConv1dPaddingCache`] instance containing cached convolution states for each encoder
-        layer that can be passed to subsequent forward calls.
-    """
 
     latents: torch.FloatTensor | None = None
     padding_cache: Optional["VibeVoiceAcousticTokenizerConv1dPaddingCache"] = None
@@ -68,13 +39,6 @@ class VibeVoiceAcousticTokenizerEncoderOutput(ModelOutput):
 @auto_docstring
 @dataclass
 class VibeVoiceAcousticTokenizerDecoderOutput(ModelOutput):
-    r"""
-    audio (`torch.FloatTensor` of shape `(batch_size, channels, sequence_length)`):
-        Decoded audio.
-    padding_cache (`VibeVoiceAcousticTokenizerConv1dPaddingCache`, *optional*, returned when `use_cache=True` is passed):
-        A [`VibeVoiceAcousticTokenizerConv1dPaddingCache`] instance containing cached convolution states for each decoder
-        layer that can be passed to subsequent forward calls.
-    """
 
     audio: torch.FloatTensor | None = None
     padding_cache: Optional["VibeVoiceAcousticTokenizerConv1dPaddingCache"] = None
@@ -99,9 +63,7 @@ class VibeVoiceAcousticTokenizerConv1dPaddingCache(VoxtralRealtimeConv1dPaddingC
     pass
 
 
-# TODO: @eustlb, @ebezzam this should be latter factorized with other causalconv1d (e.g. VoxtralRealtimeCausalConv1d)
 class VibeVoiceAcousticTokenizerCausalConv1d(nn.Module):
-    """Conv1d with built-in causal padding and optional streaming support through a cache."""
 
     def __init__(
         self,
@@ -139,7 +101,6 @@ class VibeVoiceAcousticTokenizerCausalConv1d(nn.Module):
 
 
 class VibeVoiceAcousticTokenizerCausalConvTranspose1d(nn.Module):
-    """ConvTranspose1d with built-in causal padding and optional streaming support through a cache."""
 
     def __init__(
         self,
@@ -170,12 +131,10 @@ class VibeVoiceAcousticTokenizerCausalConvTranspose1d(nn.Module):
             hidden_states = padding_cache.update(hidden_states, self.cache_key, self)
         hidden_states = self.convtr(hidden_states)
 
-        # Remove extra padding at the right side
         if self.padding_total > 0:
             hidden_states = hidden_states[..., : -self.padding_total]
 
         if padding_cache is not None:
-            # For first chunk return full output, for subsequent chunks return only new output
             expected_new_output = time_dim * self.stride
             if hidden_states.shape[2] >= expected_new_output:
                 hidden_states = hidden_states[:, :, -expected_new_output:]
@@ -183,7 +142,6 @@ class VibeVoiceAcousticTokenizerCausalConvTranspose1d(nn.Module):
 
 
 class VibeVoiceAcousticTokenizerConvNext1dLayer(nn.Module):
-    """ConvNeXt-like block adapted for 1D convolutions."""
 
     def __init__(self, config, hidden_size, dilation=1, stride=1, layer_idx=None):
         super().__init__()
@@ -204,14 +162,12 @@ class VibeVoiceAcousticTokenizerConvNext1dLayer(nn.Module):
         )
 
     def forward(self, hidden_states, padding_cache=None):
-        # mixer
         residual = hidden_states
         hidden_states = self.norm(hidden_states.transpose(1, 2)).transpose(1, 2)
         hidden_states = self.mixer(hidden_states, padding_cache=padding_cache)
         hidden_states = hidden_states * self.gamma.unsqueeze(-1)
         hidden_states = residual + hidden_states
 
-        # ffn
         residual = hidden_states
         hidden_states = self.ffn_norm(hidden_states.transpose(1, 2))
         hidden_states = self.ffn(hidden_states).transpose(1, 2)

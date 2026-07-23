@@ -1,17 +1,3 @@
-# Copyright 2025 The Nari Labs and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Feature extractor class for Dia"""
 
 import numpy as np
 
@@ -24,22 +10,6 @@ logger = logging.get_logger(__name__)
 
 
 class DiaFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs an Dia feature extractor.
-
-    This feature extractor inherits from [`~feature_extraction_sequence_utils.SequenceFeatureExtractor`] which contains
-    most of the main methods. Users should refer to this superclass for more information regarding those methods.
-
-    Args:
-        feature_size (`int`, *optional*, defaults to 1):
-            The feature dimension of the extracted features. Use 1 for mono, 2 for stereo.
-        sampling_rate (`int`, *optional*, defaults to 16000):
-            The sampling rate at which the audio waveform should be digitalized, expressed in hertz (Hz).
-        padding_value (`float`, *optional*, defaults to 0.0):
-            The value that is used for padding.
-        hop_length (`int`, *optional*, defaults to 512):
-            Overlap length between successive windows.
-    """
 
     model_input_names = ["input_values", "n_quantizers"]
 
@@ -111,7 +81,6 @@ class DiaFeatureExtractor(SequenceFeatureExtractor):
         if padding and truncation:
             raise ValueError("Both padding and truncation were set. Make sure you only set one.")
         elif padding is None:
-            # by default let's pad the inputs
             padding = True
 
         is_batched = bool(
@@ -125,16 +94,13 @@ class DiaFeatureExtractor(SequenceFeatureExtractor):
         elif isinstance(raw_audio, np.ndarray) and raw_audio.dtype is np.dtype(np.float64):
             raw_audio = raw_audio.astype(np.float32)
 
-        # always return batch
         if not is_batched:
             raw_audio = [np.asarray(raw_audio).T]
 
-        # convert stereo to mono if necessary, unique to Dia
         for idx, example in enumerate(raw_audio):
             if self.feature_size == 2 and example.ndim == 2:
                 raw_audio[idx] = np.mean(example, -1)
 
-        # verify inputs are valid
         for idx, example in enumerate(raw_audio):
             if example.ndim > 2:
                 raise ValueError(f"Expected input shape (channels, length) but got shape {example.shape}")
@@ -145,11 +111,9 @@ class DiaFeatureExtractor(SequenceFeatureExtractor):
 
         input_values = BatchFeature({"input_values": raw_audio})
 
-        # temporarily treat it as if we were mono as we also convert stereo to mono
         original_feature_size = self.feature_size
         self.feature_size = 1
 
-        # normal padding on batch
         padded_inputs = self.pad(
             input_values,
             max_length=max_length,
@@ -170,7 +134,6 @@ class DiaFeatureExtractor(SequenceFeatureExtractor):
         if return_tensors is not None:
             padded_inputs = padded_inputs.convert_to_tensors(return_tensors)
 
-        # rewrite back to original feature size
         self.feature_size = original_feature_size
 
         return padded_inputs

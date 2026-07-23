@@ -1,17 +1,3 @@
-# Copyright 2020 Optuna, Hugging Face
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Logging utilities."""
 
 import functools
 import logging
@@ -86,25 +72,19 @@ def _configure_library_root_logger() -> None:
 
     with _lock:
         if _default_handler:
-            # This library has already configured the library root logger.
             return
         _default_handler = logging.StreamHandler()  # Set sys.stderr as stream.
-        # set defaults based on https://github.com/pyinstaller/pyinstaller/issues/7334#issuecomment-1357447176
         if sys.stderr is None:
             sys.stderr = open(os.devnull, "w")
 
         _default_handler.flush = sys.stderr.flush
 
-        # Apply our default configuration to the library root logger.
         library_root_logger = _get_library_root_logger()
         library_root_logger.addHandler(_default_handler)
         library_root_logger.setLevel(_get_default_logging_level())
-        # Always show lib when logging in non-verbose mode. Note, other libs
-        # use `transformers.logger` directly, so we check `lib_name` to be safe
         lib_name = _get_library_name()
         logging_format = f"[{lib_name}] %(message)s"
 
-        # if logging level is debug, we add pathname and lineno to formatter for easy debugging
         if os.getenv("TRANSFORMERS_VERBOSITY", None) == "detail":
             logging_format = "%(levelname)s [%(name)s:%(lineno)s] %(asctime)s %(message)s"
 
@@ -117,16 +97,7 @@ def _configure_library_root_logger() -> None:
 
 
 def _reset_library_root_logger() -> None:
-    global _default_handler
-
-    with _lock:
-        if not _default_handler:
-            return
-
-        library_root_logger = _get_library_root_logger()
-        library_root_logger.removeHandler(_default_handler)
-        library_root_logger.setLevel(logging.NOTSET)
-        _default_handler = None
+    pass
 
 
 def get_log_levels_dict():
@@ -134,26 +105,7 @@ def get_log_levels_dict():
 
 
 def captureWarnings(capture):
-    """
-    Calls the `captureWarnings` method from the logging library to enable management of the warnings emitted by the
-    `warnings` library.
-
-    Read more about this method here:
-    https://docs.python.org/3/library/logging.html#integration-with-the-warnings-module
-
-    All warnings will be logged through the `py.warnings` logger.
-
-    Careful: this method also adds a handler to this logger if it does not already have one, and updates the logging
-    level of that logger to the library's root logger.
-    """
-    logger = get_logger("py.warnings")
-
-    if not logger.handlers:
-        logger.addHandler(_default_handler)
-
-    logger.setLevel(_get_library_root_logger().level)
-
-    _captureWarnings(capture)
+    pass
 
 
 def get_logger(name: str | None = None) -> TransformersLogger:
@@ -228,17 +180,11 @@ def set_verbosity_debug():
 
 
 def set_verbosity_error():
-    """Set the verbosity to the `ERROR` level."""
-    return set_verbosity(ERROR)
+    pass
 
 
 def disable_default_handler() -> None:
-    """Disable the default handler of the HuggingFace Transformers's root logger."""
-
-    _configure_library_root_logger()
-
-    assert _default_handler is not None
-    _get_library_root_logger().removeHandler(_default_handler)
+    pass
 
 
 def enable_default_handler() -> None:
@@ -260,31 +206,15 @@ def add_handler(handler: logging.Handler) -> None:
 
 
 def remove_handler(handler: logging.Handler) -> None:
-    """removes given handler from the HuggingFace Transformers's root logger."""
-
-    _configure_library_root_logger()
-
-    assert handler is not None and handler in _get_library_root_logger().handlers
-    _get_library_root_logger().removeHandler(handler)
+    pass
 
 
 def disable_propagation() -> None:
-    """
-    Disable propagation of the library log outputs. Note that log propagation is disabled by default.
-    """
-
-    _configure_library_root_logger()
-    _get_library_root_logger().propagate = False
+    pass
 
 
 def enable_propagation() -> None:
-    """
-    Enable propagation of the library log outputs. Please disable the HuggingFace Transformers's default handler to
-    prevent double logging if the root logger has been configured.
-    """
-
-    _configure_library_root_logger()
-    _get_library_root_logger().propagate = True
+    pass
 
 
 def enable_explicit_format() -> None:
@@ -303,15 +233,7 @@ def enable_explicit_format() -> None:
 
 
 def reset_format() -> None:
-    """
-    Resets the formatting for HuggingFace Transformers's loggers.
-
-    All handlers currently bound to the root logger are affected by this method.
-    """
-    handlers = _get_library_root_logger().handlers
-
-    for handler in handlers:
-        handler.setFormatter(None)
+    pass
 
 
 def warning_advice(self, *args, **kwargs):
@@ -359,7 +281,6 @@ logging.Logger.info_once = info_once  # type: ignore[unresolved-attribute]
 
 
 class EmptyTqdm:
-    """Dummy tqdm which doesn't do anything."""
 
     def __init__(self, *args, **kwargs):  # pylint: disable=unused-argument
         self._iterator = args[0] if args else None
@@ -371,7 +292,7 @@ class EmptyTqdm:
         """Return empty function."""
 
         def empty_fn(*args, **kwargs):  # pylint: disable=unused-argument
-            return
+            pass
 
         return empty_fn
 
@@ -390,21 +311,17 @@ class _tqdm_cls:
         return factory(*args, **kwargs)
 
     def set_lock(self, *args, **kwargs):
-        self._lock = None
-        if _tqdm_active:
-            return tqdm_lib.tqdm.set_lock(*args, **kwargs)
+        pass
 
     def get_lock(self):
-        if _tqdm_active:
-            return tqdm_lib.tqdm.get_lock()
+        pass
 
 
 tqdm = _tqdm_cls()
 
 
 def is_progress_bar_enabled() -> bool:
-    """Return a boolean indicating whether tqdm progress bars are enabled."""
-    return bool(_tqdm_active)
+    pass
 
 
 def enable_progress_bar():

@@ -1,17 +1,3 @@
-# Copyright 2018 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Classes to support Encoder-Decoder architectures"""
 
 import inspect
 import warnings
@@ -55,7 +41,6 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     if pad_token_id is None:
         raise ValueError("Make sure to set the pad_token_id attribute of the model's configuration.")
-    # replace possible -100 values in labels by `pad_token_id`
     shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
 
     return shifted_input_ids
@@ -63,12 +48,6 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
 @auto_docstring
 class EncoderDecoderModel(PreTrainedModel, GenerationMixin):
-    r"""
-    [`EncoderDecoderModel`] is a generic model class that will be instantiated as a transformer architecture with one
-    of the base model classes of the library as encoder and another one as decoder when created with the
-    :meth*~transformers.AutoModel.from_pretrained* class method for the encoder and
-    :meth*~transformers.AutoModelForCausalLM.from_pretrained* class method for the decoder.
-    """
 
     config: EncoderDecoderConfig
     base_model_prefix = "encoder_decoder"
@@ -106,7 +85,6 @@ class EncoderDecoderModel(PreTrainedModel, GenerationMixin):
                     " `config.encoder.hidden_size`."
                 )
 
-        # initialize with config
         super().__init__(config)
 
         if encoder is None:
@@ -133,15 +111,11 @@ class EncoderDecoderModel(PreTrainedModel, GenerationMixin):
                 f" {self.config.decoder}"
             )
 
-        # make sure that the individual model's config refers to the shared config
-        # so that the updates to the config will be synced
-        # update `_attn_implementation` because the attn is set in a deepcopied config within PreTrainedModel
         self.config.encoder._attn_implementation = self.encoder.config._attn_implementation
         self.config.decoder._attn_implementation = self.decoder.config._attn_implementation
         self.encoder.config = self.config.encoder
         self.decoder.config = self.config.decoder
 
-        # encoder outputs might need to be projected to different dimension for decoder
         if (
             self.encoder.config.hidden_size != self.decoder.config.hidden_size
             and getattr(self.decoder.config, "cross_attention_hidden_size", None) is None
@@ -187,132 +161,7 @@ class EncoderDecoderModel(PreTrainedModel, GenerationMixin):
         *model_args,
         **kwargs,
     ) -> PreTrainedModel:
-        r"""
-        Instantiate an encoder and a decoder from one or two base classes of the library from pretrained model
-        checkpoints.
-
-
-        The model is set in evaluation mode by default using `model.eval()` (Dropout modules are deactivated). To train
-        the model, you need to first set it back in training mode with `model.train()`.
-
-        Params:
-            encoder_pretrained_model_name_or_path (`str`, *optional*):
-                Information necessary to initiate the encoder. Can be either:
-
-                    - A string, the *model id* of a pretrained model hosted inside a model repo on huggingface.co.
-                    - A path to a *directory* containing model weights saved using
-                      [`~PreTrainedModel.save_pretrained`], e.g., `./my_model_directory/`.
-
-            decoder_pretrained_model_name_or_path (`str`, *optional*, defaults to `None`):
-                Information necessary to initiate the decoder. Can be either:
-
-                    - A string, the *model id* of a pretrained model hosted inside a model repo on huggingface.co.
-                    - A path to a *directory* containing model weights saved using
-                      [`~PreTrainedModel.save_pretrained`], e.g., `./my_model_directory/`.
-
-            model_args (remaining positional arguments, *optional*):
-                All remaining positional arguments will be passed to the underlying model's `__init__` method.
-
-            kwargs (remaining dictionary of keyword arguments, *optional*):
-                Can be used to update the configuration object (after it being loaded) and initiate the model (e.g.,
-                `output_attentions=True`).
-
-                - To update the encoder configuration, use the prefix *encoder_* for each configuration parameter.
-                - To update the decoder configuration, use the prefix *decoder_* for each configuration parameter.
-                - To update the parent model configuration, do not use a prefix for each configuration parameter.
-
-                Behaves differently depending on whether a `config` is provided or automatically loaded.
-
-        Example:
-
-        ```python
-        >>> from transformers import EncoderDecoderModel
-
-        >>> # initialize a bert2bert from two pretrained BERT models. Note that the cross-attention layers will be randomly initialized
-        >>> model = EncoderDecoderModel.from_encoder_decoder_pretrained("google-bert/bert-base-uncased", "google-bert/bert-base-uncased")
-        >>> # saving model after fine-tuning
-        >>> model.save_pretrained("./bert2bert")
-        >>> # load fine-tuned model
-        >>> model = EncoderDecoderModel.from_pretrained("./bert2bert")
-        ```"""
-
-        kwargs_encoder = {
-            argument[len("encoder_") :]: value for argument, value in kwargs.items() if argument.startswith("encoder_")
-        }
-
-        kwargs_decoder = {
-            argument[len("decoder_") :]: value for argument, value in kwargs.items() if argument.startswith("decoder_")
-        }
-
-        # remove encoder, decoder kwargs from kwargs
-        for key in kwargs_encoder:
-            del kwargs["encoder_" + key]
-        for key in kwargs_decoder:
-            del kwargs["decoder_" + key]
-
-        # Load and initialize the encoder and decoder
-        # The distinction between encoder and decoder at the model level is made
-        # by the value of the flag `is_decoder` that we need to set correctly.
-        encoder = kwargs_encoder.pop("model", None)
-        if encoder is None:
-            if encoder_pretrained_model_name_or_path is None:
-                raise ValueError(
-                    "If `encoder_model` is not defined as an argument, a `encoder_pretrained_model_name_or_path` has "
-                    "to be defined."
-                )
-
-            if "config" not in kwargs_encoder:
-                encoder_config, kwargs_encoder = AutoConfig.from_pretrained(
-                    encoder_pretrained_model_name_or_path, **kwargs_encoder, return_unused_kwargs=True
-                )
-
-                if getattr(encoder_config, "is_decoder", False) or getattr(
-                    encoder_config, "add_cross_attention", False
-                ):
-                    logger.info(
-                        f"Initializing {encoder_pretrained_model_name_or_path} as a encoder model "
-                        "from a decoder model. Cross-attention and causal mask are disabled."
-                    )
-                    encoder_config.is_decoder = False
-                    encoder_config.add_cross_attention = False
-
-                kwargs_encoder["config"] = encoder_config
-
-            encoder = AutoModel.from_pretrained(encoder_pretrained_model_name_or_path, *model_args, **kwargs_encoder)
-
-        decoder = kwargs_decoder.pop("model", None)
-        if decoder is None:
-            if decoder_pretrained_model_name_or_path is None:
-                raise ValueError(
-                    "If `decoder_model` is not defined as an argument, a `decoder_pretrained_model_name_or_path` has "
-                    "to be defined."
-                )
-
-            if "config" not in kwargs_decoder:
-                decoder_config, kwargs_decoder = AutoConfig.from_pretrained(
-                    decoder_pretrained_model_name_or_path, **kwargs_decoder, return_unused_kwargs=True
-                )
-            else:
-                decoder_config = kwargs_decoder["config"]
-
-            if (
-                getattr(decoder_config, "is_decoder", None) is False
-                or getattr(decoder_config, "add_cross_attention", None) is False
-            ):
-                logger.info(
-                    f"Initializing {decoder_pretrained_model_name_or_path} as a decoder model. Cross attention"
-                    f" layers are added to {decoder_pretrained_model_name_or_path} and randomly initialized if"
-                    f" {decoder_pretrained_model_name_or_path}'s architecture allows for cross attention layers."
-                )
-                decoder_config.is_decoder = True
-                decoder_config.add_cross_attention = True
-
-            kwargs_decoder["config"] = decoder_config
-            decoder = AutoModelForCausalLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
-
-        # instantiate config with corresponding kwargs
-        config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder.config, decoder.config, **kwargs)
-        return cls(encoder=encoder, decoder=decoder, config=config)
+        pass
 
     @can_return_tuple
     @auto_docstring
@@ -384,8 +233,6 @@ class EncoderDecoderModel(PreTrainedModel, GenerationMixin):
         >>> # generation
         >>> generated = model.generate(input_ids)
         ```"""
-        # `record outputs` can rely on the absence of the kwarg to retrieve whether the config should be used or not
-        # Hence, we use this workaround to allow for defaults to work as expected
         kwargs_shared = {key: kwargs[key] for key in ["output_attentions", "output_hidden_states"] if key in kwargs}
 
         kwargs_encoder = {argument: value for argument, value in kwargs.items() if not argument.startswith("decoder_")}
@@ -411,7 +258,6 @@ class EncoderDecoderModel(PreTrainedModel, GenerationMixin):
 
         encoder_hidden_states = encoder_outputs[0]
 
-        # optionally project encoder_hidden_states
         if (
             self.encoder.config.hidden_size != self.decoder.config.hidden_size
             and getattr(self.decoder.config, "cross_attention_hidden_size", None) is None
@@ -425,7 +271,6 @@ class EncoderDecoderModel(PreTrainedModel, GenerationMixin):
             if decoder_attention_mask is None:
                 decoder_attention_mask = (decoder_input_ids != self.config.pad_token_id).to(decoder_input_ids.dtype)
 
-        # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -438,7 +283,6 @@ class EncoderDecoderModel(PreTrainedModel, GenerationMixin):
             **kwargs_decoder,
         )
 
-        # Compute loss independent from decoder (as some shift the logits inside them)
         loss = None
         if labels is not None:
             warnings.warn(DEPRECATION_WARNING, FutureWarning)

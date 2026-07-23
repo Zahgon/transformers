@@ -1,16 +1,3 @@
-# Copyright 2024 NetEase, Inc. and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from ..core_model_loading import ConversionOps
 from ..quantizers.quantizers_utils import should_convert_module
 from ..utils import is_torch_available, logging
@@ -47,7 +34,6 @@ class EetqQuantize(ConversionOps):
 class EetqLinearMMFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, weight, scales, bias=None):
-        # The forward pass can use ctx.
         ctx.save_for_backward(x, weight, scales, bias)
         output = eetq_kernels_hub.w8_a16_gemm(x, weight, scales)
         output = output + bias if bias is not None else output
@@ -55,17 +41,7 @@ class EetqLinearMMFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        input, weight, scales, bias = ctx.saved_tensors
-        identity = torch.eye(weight.shape[0]).to(weight.device).to(input.dtype)
-
-        # Dequantize the weight
-        weight = eetq_kernels_hub.w8_a16_gemm(identity, weight, scales)
-
-        if ctx.needs_input_grad[0]:
-            # 2D matrix multiplication, unsqueeze to 3D
-            grad_input = grad_output.squeeze(0).matmul(weight.transpose(0, 1)).unsqueeze(0)
-
-        return grad_input, None, None, None
+        pass
 
 
 class EetqLinear(nn.Module):
@@ -100,7 +76,6 @@ def replace_with_eetq_linear(model, modules_to_not_convert: list[str] | None = N
     eetq_kernels_hub = get_kernel("kernels-community/quantization-eetq", version=1)
 
     has_been_replaced = False
-    # we need this to correctly materialize the weights during quantization
     module_kwargs = {} if pre_quantized else {"dtype": None}
     for module_name, module in model.named_modules():
         if not should_convert_module(module_name, modules_to_not_convert):

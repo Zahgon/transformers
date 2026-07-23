@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from typing import TYPE_CHECKING
 
 from .base import HfQuantizer
@@ -39,9 +26,6 @@ logger = logging.get_logger(__name__)
 
 
 class FbgemmFp8HfQuantizer(HfQuantizer):
-    """
-    FP8 quantization using fbgemm kernels
-    """
 
     requires_calibration = False
     quantization_config: "FbgemmFp8Config"
@@ -113,7 +97,6 @@ class FbgemmFp8HfQuantizer(HfQuantizer):
     def param_element_size(self, model: "PreTrainedModel", param_name: str, param: "torch.Tensor") -> float:
         "Return the element size (in bytes) for `param_name`."
         if self.param_needs_quantization(model, param_name):
-            # 8 bit, this is needed as when `pre_quantized`` is False, we don't set the dtype of the FP8Linear in order to correctly load the weights
             return 1
         return super().param_element_size(model, param_name, param)
 
@@ -146,16 +129,12 @@ class FbgemmFp8HfQuantizer(HfQuantizer):
         for m in model.modules():
             if isinstance(m, (FbgemmFp8Linear, FbgemmFp8Llama4TextExperts)):
                 if hasattr(m, "input_scale_ub"):
-                    # The model is now on the target device, so we can use fill_ directly.
                     m.input_scale_ub.fill_(self.quantization_config.activation_scale_ub)
         return model
 
     def update_tp_plan(self, config):
         if "Llama4" in config.__class__.__name__:
             text_plan = {
-                # We are using a different tp plan with local_colwise and local_rowwise for the attention because fbgemm operations cannot be parallelized
-                # With local_colwise and local_rowwise, all the operations are done locally, and we add a gather operation to gather the results instead of
-                # using dtensors
                 "layers.*.self_attn.q_proj.weight": "colwise",
                 "layers.*.self_attn.q_proj.weight_scale": "colwise",
                 "layers.*.self_attn.k_proj.weight": "colwise",
@@ -163,13 +142,9 @@ class FbgemmFp8HfQuantizer(HfQuantizer):
                 "layers.*.self_attn.v_proj.weight": "colwise",
                 "layers.*.self_attn.v_proj.weight_scale": "colwise",
                 "layers.*.self_attn.o_proj.weight": "rowwise",
-                # We keep the same sequence_parallel plan for layernorms
                 "layers.*.input_layernorm.weight": "sequence_parallel",
                 "layers.*.post_attention_layernorm.weight": "sequence_parallel",
                 "norm.weight": "sequence_parallel",
-                # We keep the same local_colwise and local_rowwise plan for the feed forward shared expert
-                # We also add scales for the shared expert, for local_colwise the scale is also local_colwise
-                # For local_rowwise the scale is replicated, so we don't need to add it
                 "layers.*.feed_forward.shared_expert.gate_proj.weight": "colwise",
                 "layers.*.feed_forward.shared_expert.gate_proj.weight_scale": "colwise",
                 "layers.*.feed_forward.shared_expert.up_proj.weight": "colwise",
@@ -180,8 +155,6 @@ class FbgemmFp8HfQuantizer(HfQuantizer):
                 "layers.*.feed_forward.experts.*.up_proj.weight": "colwise",
                 "layers.*.feed_forward.experts.*.up_proj.weight_scale": "colwise",
                 "layers.*.feed_forward.experts.*.down_proj.weight": "rowwise",
-                # For Fused implementation we use local_packed_rowwise for the gate_up_proj, and the same for the packed scales
-                # We use local_colwise for the down_proj, and the scales are replicated so we don't add them
                 "layers.*.feed_forward.experts.gate_up_proj": "packed_rowwise",
                 "layers.*.feed_forward.experts.gate_up_proj_scale": "packed_rowwise",
                 "layers.*.feed_forward.experts.down_proj": "colwise",
@@ -199,7 +172,7 @@ class FbgemmFp8HfQuantizer(HfQuantizer):
 
     @property
     def is_trainable(self) -> bool:
-        return False
+        pass
 
     def get_quantize_ops(self):
         from ..integrations.fbgemm_fp8 import FbgemmFp8Quantize

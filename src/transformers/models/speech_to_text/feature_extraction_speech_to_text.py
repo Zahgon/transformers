@@ -1,19 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Feature extractor class for Speech2Text
-"""
 
 import numpy as np
 
@@ -31,38 +15,6 @@ logger = logging.get_logger(__name__)
 
 
 class Speech2TextFeatureExtractor(SequenceFeatureExtractor):
-    r"""
-    Constructs a Speech2Text feature extractor.
-
-    This feature extractor inherits from [`Speech2TextFeatureExtractor`] which contains most of the main methods. Users
-    should refer to this superclass for more information regarding those methods.
-
-    This class extracts mel-filter bank features from raw speech using TorchAudio if installed or using numpy
-    otherwise, and applies utterance-level cepstral mean and variance normalization to the extracted features.
-
-    Args:
-        feature_size (`int`, *optional*, defaults to 80):
-            The feature dimension of the extracted features.
-        sampling_rate (`int`, *optional*, defaults to 16000):
-            The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
-        num_mel_bins (`int`, *optional*, defaults to 80):
-            Number of Mel-frequency bins.
-        padding_value (`float`, *optional*, defaults to 0.0):
-            The value that is used to fill the padding vectors.
-        dither (`float`, *optional*, defaults to 0.0):
-            Adds dithering. In other words, adds a small Gaussian noise to each frame.
-            E.g. use 4.0 to add dithering with a normal distribution centered
-            around 0.0 with standard deviation 4.0 (assuming [-32k,+32k] range of kaldi waveform).
-            The value 0.0 means no dithering.
-            Dithering has similar effect as `mel_floor`. It reduces the high log_mel_fbank
-            values for signals with hard-zero sections, when VAD cutoff is present in the signal.
-        do_ceptral_normalize (`bool`, *optional*, defaults to `True`):
-            Whether or not to apply utterance-level cepstral mean and variance normalization to extracted features.
-        normalize_means (`bool`, *optional*, defaults to `True`):
-            Whether or not to zero-mean normalize the extracted features.
-        normalize_vars (`bool`, *optional*, defaults to `True`):
-            Whether or not to unit-variance normalize the extracted features.
-    """
 
     model_input_names = ["input_features", "attention_mask"]
 
@@ -105,38 +57,7 @@ class Speech2TextFeatureExtractor(SequenceFeatureExtractor):
         self,
         waveform: np.ndarray,
     ) -> np.ndarray:
-        """
-        Get mel-filter bank features using TorchAudio. Note that TorchAudio requires 16-bit signed integers as inputs
-        and hence the waveform should not be normalized before feature extraction.
-        """
-        waveform = waveform * (2**15)  # Kaldi compliance: 16-bit signed integers
-        if is_speech_available():
-            waveform = torch.from_numpy(waveform).unsqueeze(0)
-            features = ta_kaldi.fbank(
-                waveform,
-                dither=self.dither,
-                num_mel_bins=self.num_mel_bins,
-                sample_frequency=self.sampling_rate,
-            )
-            features = features.numpy()
-        else:
-            waveform = np.squeeze(waveform)
-            features = spectrogram(
-                waveform,
-                self.window,
-                frame_length=400,
-                hop_length=160,
-                fft_length=512,
-                power=2.0,
-                center=False,
-                dither=self.dither,
-                preemphasis=0.97,
-                mel_filters=self.mel_filters,
-                log_mel="log",
-                mel_floor=1.192092955078125e-07,
-                remove_dc_offset=True,
-            ).T
-        return features
+        pass
 
     @staticmethod
     def utterance_cmvn(
@@ -146,7 +67,6 @@ class Speech2TextFeatureExtractor(SequenceFeatureExtractor):
         normalize_vars: bool | None = True,
         padding_value: float = 0.0,
     ) -> np.ndarray:
-        # make sure we normalize float32 arrays
         if normalize_means:
             mean = x[:input_length].mean(axis=0)
             x = np.subtract(x, mean)
@@ -157,7 +77,6 @@ class Speech2TextFeatureExtractor(SequenceFeatureExtractor):
         if input_length < x.shape[0]:
             x[input_length:] = padding_value
 
-        # make sure array is in float32
         x = x.astype(np.float32)
 
         return x
@@ -262,14 +181,11 @@ class Speech2TextFeatureExtractor(SequenceFeatureExtractor):
         elif isinstance(raw_speech, np.ndarray) and raw_speech.dtype is np.dtype(np.float64):
             raw_speech = raw_speech.astype(np.float32)
 
-        # always return batch
         if not is_batched:
             raw_speech = [raw_speech]
 
-        # extract fbank features
         features = [self._extract_fbank_features(waveform) for waveform in raw_speech]
 
-        # convert into correct format for padding
         encoded_inputs = BatchFeature({"input_features": features})
 
         padded_inputs = self.pad(
@@ -282,7 +198,6 @@ class Speech2TextFeatureExtractor(SequenceFeatureExtractor):
             **kwargs,
         )
 
-        # make sure list is in array format
         input_features = padded_inputs.get("input_features")
         if isinstance(input_features[0], list):
             padded_inputs["input_features"] = [np.asarray(feature, dtype=np.float32) for feature in input_features]
@@ -291,7 +206,6 @@ class Speech2TextFeatureExtractor(SequenceFeatureExtractor):
         if attention_mask is not None:
             padded_inputs["attention_mask"] = [np.asarray(array, dtype=np.int32) for array in attention_mask]
 
-        # Utterance-level cepstral mean and variance normalization
         if self.do_ceptral_normalize:
             attention_mask = (
                 np.array(attention_mask, dtype=np.int32)

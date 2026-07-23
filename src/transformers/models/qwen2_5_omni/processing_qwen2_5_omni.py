@@ -1,20 +1,3 @@
-# Copyright 2025 The Qwen team, Alibaba Group and the HuggingFace Inc. team. All rights reserved.
-#
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for Qwen2.5Omni.
-"""
 
 import re
 
@@ -28,41 +11,7 @@ from ...utils import auto_docstring
 from ...video_utils import VideoInput
 
 
-# Redefine kwargs for videos because Qwen-Omni uses some kwargs for processing omni
-# and does not use them in video processor class
 class Qwen2_5_OmniVideosKwargs(VideosKwargs, total=False):
-    """
-    min_pixels (`int`, *optional*):
-        Minimum number of pixels (height × width) for video frames after resizing. Frames smaller than this
-        threshold will be upscaled to meet the minimum requirement.
-    max_pixels (`int`, *optional*):
-        Maximum number of pixels (height × width) for video frames after resizing. Frames larger than this
-        threshold will be downscaled to fit within the limit.
-    patch_size (`int`, *optional*):
-        The spatial patch size used by the vision encoder. Video frames are divided into patches of this size
-        in both height and width dimensions.
-    temporal_patch_size (`int`, *optional*):
-        The temporal patch size used by the vision encoder. This determines how many consecutive frames are
-        grouped together as a single temporal patch.
-    merge_size (`int`, *optional*):
-        The merge size used for combining spatial patches. Multiple patches are merged together to reduce the
-        sequence length while maintaining spatial information.
-    min_frames (`int`, *optional*):
-        Minimum number of frames to extract from the video. Videos with fewer frames will be padded or repeated
-        to meet this requirement.
-    max_frames (`int`, *optional*):
-        Maximum number of frames to extract from the video. Longer videos will be truncated or sampled to fit
-        within this limit.
-    use_audio_in_video (`bool`, *optional*, defaults to `False`):
-        Whether to incorporate audio information when processing videos. When enabled, audio tokens are
-        interleaved with video tokens based on temporal alignment, creating a unified multimodal representation.
-    seconds_per_chunk (`float`, *optional*, defaults to `2.0`):
-        The duration (in seconds) of each video chunk when splitting long videos. This parameter controls how
-        videos are divided into temporal segments for processing.
-    position_id_per_seconds (`int` or `float`, *optional*, defaults to `25`):
-        The number of position IDs allocated per second of video. This parameter controls the temporal resolution
-        of position embeddings and is used to align video tokens with audio tokens when `use_audio_in_video=True`.
-    """
 
     min_pixels: int
     max_pixels: int
@@ -207,65 +156,7 @@ class Qwen2_5OmniProcessor(ProcessorMixin):
         position_id_per_seconds,
         seconds_per_chunk,
     ):
-        # Extend mm token length
-        merge_length_image = self.image_processor.merge_size**2
-        merge_length_video = self.video_processor.merge_size**2
-
-        processed_text = []
-        for sample in text:
-            positions = []
-            special_tokens = [re.escape(tok) for tok in [self.audio_token, self.image_token, self.video_token]]
-            pattern = "|".join(special_tokens)
-            positions = sorted([(match.start(), match.group()) for match in re.finditer(pattern, sample)])
-            positions.sort(key=lambda x: x[0])
-
-            for _, special_token in positions:
-                if special_token == self.audio_token:
-                    sample = sample.replace(self.audio_token, "<|audio_placeholder|>" * next(audio_lengths), 1)
-                elif special_token == self.image_token:
-                    image_seq_length = next(image_grid_thw).prod() // merge_length_image
-                    sample = sample.replace(self.image_token, "<|image_placeholder|>" * image_seq_length, 1)
-                elif special_token == self.video_token:
-                    if not use_audio_in_video:
-                        video_seq_length = next(video_grid_thw).prod() // merge_length_video
-                        sample = sample.replace(self.video_token, "<|video_placeholder|>" * video_seq_length, 1)
-                    else:
-                        audio_token_indices = np.arange(next(audio_lengths))
-                        curr_video_grid_thw = next(video_grid_thw)
-                        height = curr_video_grid_thw[1] // self.video_processor.merge_size
-                        width = curr_video_grid_thw[2] // self.video_processor.merge_size
-                        video_token_indices = np.arange(curr_video_grid_thw[0]).reshape(-1, 1, 1)
-                        video_token_indices = np.broadcast_to(
-                            video_token_indices, (video_token_indices.shape[0], height, width)
-                        ).reshape(-1)
-                        video_token_indices = (
-                            video_token_indices * next(video_second_per_grid) * position_id_per_seconds
-                        )
-
-                        tokens_per_chunk = int(position_id_per_seconds * seconds_per_chunk)
-                        video_chunk_indexes = self.get_chunked_index(video_token_indices, tokens_per_chunk)
-                        audio_chunk_indexes = self.get_chunked_index(audio_token_indices, tokens_per_chunk)
-
-                        placeholder_string = self.vision_bos_token + self.audio_bos_token
-                        for j in range(max(len(video_chunk_indexes), len(audio_chunk_indexes))):
-                            if j < len(video_chunk_indexes):
-                                video_seq_length = video_chunk_indexes[j][1] - video_chunk_indexes[j][0]
-                                placeholder_string += "<|video_placeholder|>" * video_seq_length
-                            if j < len(audio_chunk_indexes):
-                                audio_seq_length = audio_chunk_indexes[j][1] - audio_chunk_indexes[j][0]
-                                placeholder_string += "<|audio_placeholder|>" * audio_seq_length
-                        placeholder_string += self.audio_eos_token + self.vision_eos_token
-                        sample = sample.replace(
-                            self.vision_bos_token + self.video_token + self.vision_eos_token,
-                            placeholder_string,
-                            1,
-                        )
-
-            sample = sample.replace("<|audio_placeholder|>", self.audio_token)
-            sample = sample.replace("<|image_placeholder|>", self.image_token)
-            sample = sample.replace("<|video_placeholder|>", self.video_token)
-            processed_text.append(sample)
-        return processed_text
+        pass
 
     def get_chunked_index(self, token_indices: np.ndarray, tokens_per_chunk: int) -> list[tuple[int, int]]:
         """
@@ -347,7 +238,6 @@ class Qwen2_5OmniProcessor(ProcessorMixin):
             )
 
         elif generation_mode == "audio":
-            # model supports only bs=1, so we will never get several audio outputs
             audio = generated_outputs[1].reshape(-1).detach().cpu().numpy()
             return [audio]
 
@@ -358,20 +248,7 @@ class Qwen2_5OmniProcessor(ProcessorMixin):
 
     @property
     def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        feature_extractor_input_names = self.feature_extractor.model_input_names
-        image_processor_input_names = self.image_processor.model_input_names
-        video_processor_input_names = self.video_processor.model_input_names
-        return list(
-            dict.fromkeys(
-                tokenizer_input_names
-                + feature_extractor_input_names
-                + image_processor_input_names
-                + video_processor_input_names
-                + ["feature_attention_mask"]
-                + ["video_second_per_grid"]
-            )
-        )
+        pass
 
 
 __all__ = ["Qwen2_5OmniProcessor"]

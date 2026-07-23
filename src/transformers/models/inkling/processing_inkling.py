@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from ...processing_utils import ProcessingKwargs, ProcessorMixin
@@ -74,7 +61,6 @@ class InklingProcessor(ProcessorMixin):
         self.audio_bos_token = audio_bos_token
         self.audio_bos_token_id = tokenizer.encode(self.audio_bos_token, add_special_tokens=False)[0]
 
-        # dMel
         self.num_dmel_bins = num_dmel_bins
         self.dmel_min_value = dmel_min_value
         self.dmel_max_value = dmel_max_value
@@ -83,46 +69,24 @@ class InklingProcessor(ProcessorMixin):
         super().__init__(feature_extractor, image_processor, tokenizer, chat_template=chat_template)
 
     def _extract_dmel_bins(self, input_features: "torch.Tensor") -> "torch.Tensor":
-        bin_centers = self.bin_centers.to(input_features.device)
-        mel = input_features.to(torch.float64).clamp(min=self.dmel_min_value, max=self.dmel_max_value)
-        return (mel.unsqueeze(-1) - bin_centers).abs().argmin(dim=-1).to(torch.int32)
+        pass
 
     def _process_audio(self, audio, **kwargs):
-        audio_inputs = self.feature_extractor(audio, **kwargs)
-
-        processed_audio = {
-            "audio_input_ids": self._extract_dmel_bins(audio_inputs["input_features"]),
-            "audio_input_ids_mask": audio_inputs.get("input_features_mask"),
-        }
-        audio_replacements = [self.replace_audio_token(processed_audio, audio_idx=idx) for idx in range(len(audio))]
-        return processed_audio, audio_replacements
+        pass
 
     def replace_image_token(self, image_inputs: dict, image_idx: int) -> str:
-        num_soft_tokens = image_inputs["num_patches"][image_idx]
-        return self.image_token * num_soft_tokens
+        pass
 
     def replace_audio_token(self, audio_inputs: dict, audio_idx: int) -> str:
-        audio_input_ids_mask = audio_inputs.get("audio_input_ids_mask")
-
-        if audio_input_ids_mask is not None:
-            num_soft_tokens = int(audio_input_ids_mask[audio_idx].sum())
-        else:
-            num_soft_tokens = int(audio_inputs["audio_input_ids"][audio_idx].shape[-2])
-        return self.audio_token * num_soft_tokens
+        pass
 
     @property
     def unused_input_names(self) -> list[str]:
-        return ["num_patches"]
+        pass
 
     @property
     def model_input_names(self) -> list[str]:
-        names = [
-            "audio_input_ids",
-            "audio_input_ids_mask",
-            *self.image_processor.model_input_names,
-            *self.tokenizer.model_input_names,
-        ]
-        return [name for name in dict.fromkeys(names) if name not in self.unused_input_names]
+        pass
 
 
 __all__ = ["InklingProcessor"]

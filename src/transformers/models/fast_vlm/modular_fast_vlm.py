@@ -1,16 +1,3 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -39,21 +26,6 @@ from ..llava.modeling_llava import (
 @auto_docstring(checkpoint="KamilaMila/FastVLM-7B")
 @strict
 class FastVlmConfig(LlavaConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import FastVlmForConditionalGeneration, FastVlmConfig
-
-    >>> # Initializing a FastVLM-7B style configuration
-    >>> configuration = FastVlmConfig()
-
-    >>> # Initializing a model from the FastVLM-7B style configuration
-    >>> model = FastVlmForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "fast_vlm"
 
@@ -92,25 +64,13 @@ class FastVlmConfig(LlavaConfig):
                 num_key_value_heads=4,
                 num_hidden_layers=28,
             )
-        # The default value is `False` but this config is used with many model types
-        # Attr `tie_word_embeddings` was saved in text config for those models, so we
-        # need an ugly workaround and forward-pass the attr from text config
         if not self.tie_word_embeddings and self.text_config.tie_word_embeddings:
             self.tie_word_embeddings = self.text_config.tie_word_embeddings
 
         PreTrainedConfig.__post_init__(**kwargs)
 
     def validate_architecture(self):
-        """Part of `@strict`-powered validation. Validates the architecture of the config."""
-        if self.vision_feature_select_strategy != "full":
-            raise ValueError(
-                f"Unexpected select feature strategy: {self.vision_feature_select_strategy}. Only 'full' is supported in FastVLM."
-            )
-
-        if self.vision_feature_layer != -1:
-            raise ValueError(
-                f"Unexpected vision feature layer: {self.vision_feature_layer}. Only -1 is supported in FastVLM."
-            )
+        pass
 
 
 class FastVlmMultiModalProjector(LlavaMultiModalProjector):
@@ -163,7 +123,6 @@ class FastVlmModel(LlavaModel):
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
         image_outputs = self.vision_tower(pixel_values, return_dict=True, **kwargs)
 
-        # since the vision tower is hybrid in FastVLM, its output needs to be handled differently from Llava
         selected_image_feature = image_outputs.last_hidden_state
         selected_image_feature = selected_image_feature.flatten(2).permute(0, 2, 1)
         image_features = self.multi_modal_projector(selected_image_feature)
@@ -314,7 +273,6 @@ class FastVlmForConditionalGeneration(LlavaForConditionalGeneration):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

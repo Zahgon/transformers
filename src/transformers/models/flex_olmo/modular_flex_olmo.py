@@ -1,16 +1,3 @@
-# Copyright 2025 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -39,21 +26,6 @@ from ..olmoe.modeling_olmoe import (
 @auto_docstring(checkpoint="allenai/FlexOlmo-7x7B-1T")
 @strict
 class FlexOlmoConfig(PreTrainedConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import FlexOlmoModel, FlexOlmoConfig
-
-    >>> # Initializing a FlexOlmo style configuration
-    >>> configuration = FlexOlmoConfig()
-
-    >>> # Initializing a model from the FlexOlmo style configuration
-    >>> model = FlexOlmoModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "flex_olmo"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -110,13 +82,10 @@ class FlexOlmoConfig(PreTrainedConfig):
         super().__post_init__(**kwargs)
 
 
-# FlexOlmo RMS norm reuses Olmo2 RMS norm, which handles low precision slightly differently than the original Olmoe.
 class FlexOlmoRMSNorm(Olmo2RMSNorm):
     pass
 
 
-# FlexOlmo RMS norm reuses Olmo2 RMS norm, so that the output cos and sin are returned
-# as float32 rather than the input type.
 class FlexOlmoRotaryEmbedding(Olmo2RotaryEmbedding):
     pass
 
@@ -125,8 +94,6 @@ class FlexOlmoMLP(OlmoeMLP):
     pass
 
 
-# FlexOlmo uses Olmo2 attention instead of OlmoE Attention since its `apply_rotary_pos_emb`
-# implementation handles lower precision more faithfully to the Olmo codebase.
 class FlexOlmoAttention(Olmo2Attention):
     pass
 
@@ -139,8 +106,6 @@ class FlexOlmoSparseMoeBlock(OlmoeSparseMoeBlock):
     pass
 
 
-# FlexOlmo decoder layer is identical to OlmoE decoder layer except:
-# - Norm is applied after attention/feedforward rather than before.
 class FlexOlmoDecoderLayer(OlmoeDecoderLayer):
     def __init__(self, config: FlexOlmoConfig, layer_idx: int):
         super().__init__(config, layer_idx=layer_idx)
@@ -160,7 +125,6 @@ class FlexOlmoDecoderLayer(OlmoeDecoderLayer):
     ) -> torch.FloatTensor:
         residual = hidden_states
 
-        # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
@@ -172,7 +136,6 @@ class FlexOlmoDecoderLayer(OlmoeDecoderLayer):
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
         hidden_states = self.mlp(hidden_states)
         hidden_states = self.post_feedforward_layernorm(hidden_states)
@@ -180,8 +143,6 @@ class FlexOlmoDecoderLayer(OlmoeDecoderLayer):
         return hidden_states
 
 
-# FlexOlmo uses Mixtral model as its base instead of OlmoE model since Mixtral is more up-to-date with the rest
-# of the transformers library. For example, it uses the newer mechanisms of recording submodule outputs.
 class FlexOlmoPreTrainedModel(MixtralPreTrainedModel):
     _can_record_outputs = {
         "router_logits": OutputRecorder(FlexOlmoTopKRouter, index=0),
@@ -190,10 +151,6 @@ class FlexOlmoPreTrainedModel(MixtralPreTrainedModel):
     }
 
 
-# FlexOlmo uses Mixtral model as its base instead of OlmoE model since Mixtral is more up-to-date with the rest
-# of the transformers library. For example, it uses the newer mechanisms of recording submodule outputs.
-# FlexOlmo model is identical to Mixtral model except:
-# - FlexOlmo does not use sliding window attention.
 class FlexOlmoModel(MixtralModel):
     @merge_with_config_defaults
     @capture_outputs
@@ -232,7 +189,6 @@ class FlexOlmoModel(MixtralModel):
 
         hidden_states = inputs_embeds
 
-        # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:

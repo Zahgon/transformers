@@ -1,17 +1,3 @@
-# Copyright 2024 The Qwen team, Alibaba Group and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Qwen3MoE model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,27 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="Qwen/Qwen3-30B-A3B-Base")
 @strict
 class Qwen3MoeConfig(PreTrainedConfig):
-    r"""
-    decoder_sparse_step (`int`, *optional*, defaults to 1):
-        The frequency of the MoE layer.
-    mlp_only_layers (`list[int]`, *optional*, defaults to `[]`):
-        Indicate which layers use Qwen3MoeMLP rather than Qwen3MoeSparseMoeBlock
-        The list contains layer index, from 0 to num_layers-1 if we have num_layers layers
-        If `mlp_only_layers` is empty, `decoder_sparse_step` is used to determine the sparsity.
-
-    ```python
-    >>> from transformers import Qwen3MoeModel, Qwen3MoeConfig
-
-    >>> # Initializing a Qwen3MoE style configuration
-    >>> configuration = Qwen3MoeConfig()
-
-    >>> # Initializing a model from the Qwen3-15B-A2B" style configuration
-    >>> model = Qwen3MoeModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "qwen3_moe"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -52,7 +17,6 @@ class Qwen3MoeConfig(PreTrainedConfig):
         "num_experts": "num_local_experts",
     }
 
-    # Default tensor parallel plan for base model `Qwen3Moe`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
         "layers.*.self_attn.k_proj": "colwise",
@@ -67,9 +31,6 @@ class Qwen3MoeConfig(PreTrainedConfig):
         "layers.*.mlp.up_proj": "colwise",
         "layers.*.mlp.down_proj": "rowwise",
     }
-    # Expert-only EP plan: only shards MoE experts, not attention.
-    # Attention is left unsharded — FSDP2 handles attention weight distribution.
-    # This allows EP to scale beyond num_kv_heads (not constrained by 4 for Qwen3-30B).
     base_model_ep_plan = {
         "layers.*.mlp.gate": "ep_router",
         "layers.*.mlp.experts.gate_up_proj": "grouped_gemm",

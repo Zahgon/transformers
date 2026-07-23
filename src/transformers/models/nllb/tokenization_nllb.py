@@ -1,16 +1,3 @@
-# Copyright 2022 The Facebook AI Research Team Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from tokenizers import Regex, Tokenizer, decoders, normalizers, pre_tokenizers, processors
@@ -31,53 +18,6 @@ FAIRSEQ_LANGUAGE_CODES = ['ace_Arab', 'ace_Latn', 'acm_Arab', 'acq_Arab', 'aeb_A
 
 
 class NllbTokenizer(TokenizersBackend):
-    """
-    Construct an NLLB tokenizer (backed by HuggingFace's *tokenizers* library). Based on
-    [Unigram](https://huggingface.co/docs/tokenizers/python/latest/components.html?highlight=unigram#models).
-
-    This tokenizer inherits from [`TokenizersBackend`] which contains most of the main methods. Users should
-    refer to this superclass for more information regarding those methods.
-
-    The tokenization method is `<tokens> <eos> <language code>` for source language documents, and `<language code>
-    <tokens> <eos>` for target language documents.
-
-    Examples:
-
-    ```python
-    >>> from transformers import NllbTokenizer
-
-    >>> tokenizer = NllbTokenizer.from_pretrained(
-    ...     "facebook/nllb-200-distilled-600M", src_lang="eng_Latn", tgt_lang="fra_Latn"
-    ... )
-    >>> example_english_phrase = " UN Chief Says There Is No Military Solution in Syria"
-    >>> expected_translation_french = "Le chef de l'ONU affirme qu'il n'y a pas de solution militaire en Syrie."
-    >>> inputs = tokenizer(example_english_phrase, text_target=expected_translation_french, return_tensors="pt")
-    ```
-
-    Args:
-        vocab_file (`str`, *optional*):
-            Path to the vocabulary file.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining.
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-        sep_token (`str`, *optional*, defaults to `"</s>"`):
-            The separator token.
-        cls_token (`str`, *optional*, defaults to `"<s>"`):
-            The classifier token.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding.
-        mask_token (`str`, *optional*, defaults to `"<mask>"`):
-            The token used for masking values.
-        src_lang (`str`, *optional*):
-            The language to use as source language for translation.
-        tgt_lang (`str`, *optional*):
-            The language to use as target language for translation.
-        legacy_behaviour (`bool`, *optional*, defaults to `False`):
-            Whether to use legacy behaviour (suffix pattern) or new behaviour (prefix pattern).
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -105,8 +45,6 @@ class NllbTokenizer(TokenizersBackend):
         legacy_behaviour=False,
         **kwargs,
     ):
-        # V5: extra_special_tokens takes precedence over additional_special_tokens (deprecated)
-        # Handle case where both are passed (ie. from config and user override)
         if extra_special_tokens is not None:
             additional_special_tokens = extra_special_tokens
         elif additional_special_tokens is None:
@@ -166,7 +104,6 @@ class NllbTokenizer(TokenizersBackend):
             **kwargs,
         )
 
-        # Build fairseq mappings for backward compatibility
         self.fairseq_offset = 1
         self.fairseq_tokens_to_ids = {
             "<s>": 0,
@@ -183,24 +120,16 @@ class NllbTokenizer(TokenizersBackend):
 
     @property
     def src_lang(self) -> str:
-        return self._src_lang
+        pass
 
     @src_lang.setter
     def src_lang(self, new_src_lang: str) -> None:
-        self._src_lang = new_src_lang
-        self.set_src_lang_special_tokens(self._src_lang)
+        pass
 
     def _build_translation_inputs(
         self, raw_inputs, return_tensors: str, src_lang: str | None, tgt_lang: str | None, **extra_kwargs
     ):
-        """Used by translation pipeline, to prepare inputs for the generate function"""
-        if src_lang is None or tgt_lang is None:
-            raise ValueError("Translation requires a `src_lang` and a `tgt_lang` for this model")
-        self.src_lang = src_lang
-        inputs = self(raw_inputs, add_special_tokens=True, return_tensors=return_tensors, **extra_kwargs)
-        tgt_lang_id = self.convert_tokens_to_ids(tgt_lang)
-        inputs["forced_bos_token_id"] = tgt_lang_id
-        return inputs
+        pass
 
     def prepare_seq2seq_batch(
         self,
@@ -215,54 +144,13 @@ class NllbTokenizer(TokenizersBackend):
         truncation: bool = True,
         **kwargs,
     ) -> BatchEncoding:
-        self.src_lang = src_lang
-        self.tgt_lang = tgt_lang
-
-        if max_length is None:
-            max_length = self.model_max_length
-
-        model_inputs = self(
-            src_texts,
-            add_special_tokens=True,
-            return_tensors=return_tensors,
-            max_length=max_length,
-            padding=padding,
-            truncation=truncation,
-            **kwargs,
-        )
-
-        if tgt_texts is None:
-            return model_inputs
-
-        # Process tgt_texts
-        if max_target_length is None:
-            max_target_length = max_length
-
-        # Switch to target mode to set the right special tokens
-        self._switch_to_target_mode()
-        labels = self(
-            tgt_texts,
-            add_special_tokens=True,
-            return_tensors=return_tensors,
-            padding=padding,
-            max_length=max_target_length,
-            truncation=truncation,
-            **kwargs,
-        )
-        model_inputs["labels"] = labels["input_ids"]
-
-        # Switch back to input mode
-        self._switch_to_input_mode()
-
-        return model_inputs
+        pass
 
     def _switch_to_input_mode(self):
-        return self.set_src_lang_special_tokens(self.src_lang)
+        pass
 
     def _switch_to_target_mode(self):
-        if self.tgt_lang is None:
-            self.tgt_lang = self._src_lang
-        return self.set_tgt_lang_special_tokens(self.tgt_lang)
+        pass
 
     def set_src_lang_special_tokens(self, src_lang) -> None:
         """Reset the special tokens to the source lang setting.

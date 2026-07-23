@@ -1,17 +1,3 @@
-# Copyright 2026 Tencent HunYuan Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch HYV3 model."""
 
 import torch
 import torch.nn.functional as F
@@ -52,22 +38,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="tencent/Hy3-preview")
 @strict
 class HYV3Config(PreTrainedConfig):
-    r"""
-    router_scaling_factor (*float*):
-        Scaling factor on the top-k weighs of the MoE expert selection.
-    enable_moe_fp32_combine (*bool*):
-        Whether to add the shared experts to the final MoE result in fp32 or the base existing dtype of the model.
-    mlp_layer_types (`list`, *optional*):
-        MLP (Moe vs Dense) pattern for each layer.
-
-    Example:
-        ```python
-        >>> from transformers import HYV3Config, HYV3Model
-
-        >>> config = HYV3Config()
-        >>> model = HYV3Model(config)
-        ```
-    """
 
     model_type = "hy_v3"
     default_theta = 11_158_840.0
@@ -179,7 +149,6 @@ class HYV3TopKRouter(MixtralTopKRouter):
         top_k_weights = routing_weights.gather(1, top_k_index)
 
         top_k_weights = top_k_weights / (top_k_weights.sum(dim=-1, keepdim=True) + 1e-20)
-        # Key difference: extra scaling factor
         top_k_weights = top_k_weights * self.router_scaling_factor
 
         return router_logits, top_k_weights, top_k_index
@@ -206,7 +175,6 @@ class HYV3MoE(MiniMaxM2SparseMoeBlock):
         _, top_k_weights, top_k_index = self.gate(hidden_states, self.e_score_correction_bias)
         routed_output = self.experts(hidden_states, top_k_index, top_k_weights)
 
-        # Key difference: optional float casting on combing shared experts
         if self.enable_moe_fp32_combine:
             hidden_states = (routed_output.float() + self.shared_experts(hidden_states).float()).to(
                 hidden_states.dtype
@@ -228,7 +196,6 @@ class HYV3DecoderLayer(DeepseekV3DecoderLayer):
 
 
 class HYV3PreTrainedModel(LlamaPreTrainedModel):
-    # Not supporting multi-token prediction (MTP) atm
     _keys_to_ignore_on_load_unexpected = [r"model\.layers\.80.*"]
     _keep_in_fp32_modules_strict = ["e_score_correction_bias"]
     _can_record_outputs = {

@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for SuperPoint."""
 
 from typing import TYPE_CHECKING
 
@@ -32,10 +18,6 @@ from torchvision.transforms.v2 import functional as tvF
 
 
 class SuperPointImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    do_grayscale (`bool`, *optional*, defaults to `self.do_grayscale`):
-        Whether to convert the image to grayscale. Can be overridden by `do_grayscale` in the `preprocess` method.
-    """
 
     do_grayscale: bool
 
@@ -94,17 +76,13 @@ class SuperPointImageProcessor(TorchvisionBackend):
         do_grayscale: bool = False,
         **kwargs,
     ) -> BatchFeature:
-        # Group images by size for batched processing
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
-            # Apply grayscale conversion before resize (if requested)
             if do_grayscale:
                 stacked_images = convert_to_grayscale(stacked_images)
-            # Resize
             if do_resize:
                 stacked_images = self.resize(stacked_images, size=size, resample=resample)
-            # Rescale
             if do_rescale:
                 stacked_images = self.rescale(stacked_images, rescale_factor)
             processed_images_grouped[shape] = stacked_images
@@ -114,51 +92,7 @@ class SuperPointImageProcessor(TorchvisionBackend):
     def post_process_keypoint_detection(
         self, outputs: "SuperPointKeypointDescriptionOutput", target_sizes: TensorType | list[tuple]
     ) -> list[dict[str, "torch.Tensor"]]:
-        """
-        Converts the raw output of [`SuperPointForKeypointDetection`] into lists of keypoints, scores and descriptors
-        with coordinates absolute to the original image sizes.
-
-        Args:
-            outputs ([`SuperPointKeypointDescriptionOutput`]):
-                Raw outputs of the model containing keypoints in a relative (x, y) format, with scores and descriptors.
-            target_sizes (`torch.Tensor` or `list[tuple[int, int]]`):
-                Tensor of shape `(batch_size, 2)` or list of tuples (`tuple[int, int]`) containing the target size
-                `(height, width)` of each image in the batch. This must be the original
-                image size (before any processing).
-        Returns:
-            `list[Dict]`: A list of dictionaries, each dictionary containing the keypoints in absolute format according
-            to target_sizes, scores and descriptors for an image in the batch as predicted by the model.
-        """
-        if len(outputs.mask) != len(target_sizes):
-            raise ValueError("Make sure that you pass in as many target sizes as the batch dimension of the mask")
-
-        if isinstance(target_sizes, list):
-            image_sizes = torch.tensor(target_sizes, device=outputs.mask.device)
-        else:
-            if target_sizes.shape[1] != 2:
-                raise ValueError(
-                    "Each element of target_sizes must contain the size (h, w) of each image of the batch"
-                )
-            image_sizes = target_sizes
-
-        # Flip the image sizes to (width, height) and convert keypoints to absolute coordinates
-        image_sizes = torch.flip(image_sizes, [1])
-        masked_keypoints = outputs.keypoints * image_sizes[:, None]
-
-        # Convert masked_keypoints to int
-        masked_keypoints = masked_keypoints.to(torch.int32)
-
-        results = []
-        for image_mask, keypoints, scores, descriptors in zip(
-            outputs.mask, masked_keypoints, outputs.scores, outputs.descriptors
-        ):
-            indices = torch.nonzero(image_mask).squeeze(1)
-            keypoints = keypoints[indices]
-            scores = scores[indices]
-            descriptors = descriptors[indices]
-            results.append({"keypoints": keypoints, "scores": scores, "descriptors": descriptors})
-
-        return results
+        pass
 
 
 __all__ = ["SuperPointImageProcessor"]

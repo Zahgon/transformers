@@ -1,17 +1,3 @@
-# Copyright Studio Ousia and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""LUKE configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,31 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="studio-ousia/luke-base")
 @strict
 class LukeConfig(PreTrainedConfig):
-    r"""
-    entity_vocab_size (`int`, *optional*, defaults to 500000):
-        Entity vocabulary size of the LUKE model. Defines the number of different entities that can be represented
-        by the `entity_ids` passed when calling [`LukeModel`].
-    entity_emb_size (`int`, *optional*, defaults to 256):
-        The number of dimensions of the entity embedding.
-    use_entity_aware_attention (`bool`, *optional*, defaults to `True`):
-        Whether or not the model should use the entity-aware self-attention mechanism proposed in [LUKE: Deep
-        Contextualized Entity Representations with Entity-aware Self-attention (Yamada et
-        al.)](https://huggingface.co/papers/2010.01057).
-
-    Examples:
-
-    ```python
-    >>> from transformers import LukeConfig, LukeModel
-
-    >>> # Initializing a LUKE configuration
-    >>> configuration = LukeConfig()
-
-    >>> # Initializing a model from the configuration
-    >>> model = LukeModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "luke"
 

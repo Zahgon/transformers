@@ -1,16 +1,3 @@
-# Copyright 2020 The Facebook AI Research Team Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from tokenizers import Tokenizer, decoders, pre_tokenizers, processors
@@ -31,28 +18,6 @@ FAIRSEQ_LANGUAGE_CODES = ["ar_AR", "cs_CZ", "de_DE", "en_XX", "es_XX", "et_EE", 
 
 
 class MBartTokenizer(TokenizersBackend):
-    """
-    Construct an MBART tokenizer (backed by HuggingFace's *tokenizers* library). Based on
-    [Unigram](https://huggingface.co/docs/tokenizers/python/latest/components.html?highlight=unigram#models).
-
-    This tokenizer inherits from [`TokenizersBackend`] which contains most of the main methods. Users should
-    refer to this superclass for more information regarding those methods.
-
-    The tokenization method is `<tokens> <eos> <language code>` for source language documents, and `<language code>
-    <tokens> <eos>` for target language documents.
-
-    Examples:
-
-    ```python
-    >>> from transformers import MBartTokenizer
-
-    >>> tokenizer = MBartTokenizer.from_pretrained(
-    ...     "facebook/mbart-large-en-ro", src_lang="en_XX", tgt_lang="ro_RO"
-    ... )
-    >>> example_english_phrase = " UN Chief Says There Is No Military Solution in Syria"
-    >>> expected_translation_romanian = "Şeful ONU declară că nu există o soluţie militară în Siria"
-    >>> inputs = tokenizer(example_english_phrase, text_target=expected_translation_romanian, return_tensors="pt")
-    ```"""
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -129,7 +94,6 @@ class MBartTokenizer(TokenizersBackend):
         }
         self.fairseq_offset = 1
 
-        # Build fairseq token mappings for backward compatibility
         self.fairseq_tokens_to_ids = {
             "<s>": 0,
             "<pad>": 1,
@@ -147,32 +111,22 @@ class MBartTokenizer(TokenizersBackend):
 
     @property
     def src_lang(self) -> str:
-        return self._src_lang
+        pass
 
     @src_lang.setter
     def src_lang(self, new_src_lang: str) -> None:
-        self._src_lang = new_src_lang
-        self.set_src_lang_special_tokens(self._src_lang)
+        pass
 
     def _build_translation_inputs(
         self, raw_inputs, return_tensors: str, src_lang: str | None, tgt_lang: str | None, **extra_kwargs
     ):
-        """Used by translation pipeline, to prepare inputs for the generate function"""
-        if src_lang is None or tgt_lang is None:
-            raise ValueError("Translation requires a `src_lang` and a `tgt_lang` for this model")
-        self.src_lang = src_lang
-        inputs = self(raw_inputs, add_special_tokens=True, return_tensors=return_tensors, **extra_kwargs)
-        tgt_lang_id = self.convert_tokens_to_ids(tgt_lang)
-        inputs["forced_bos_token_id"] = tgt_lang_id
-        return inputs
+        pass
 
     def _switch_to_input_mode(self):
-        return self.set_src_lang_special_tokens(self.src_lang)
+        pass
 
     def _switch_to_target_mode(self):
-        if self.tgt_lang is None:
-            self.tgt_lang = self._src_lang
-        return self.set_tgt_lang_special_tokens(self.tgt_lang)
+        pass
 
     def set_src_lang_special_tokens(self, src_lang) -> None:
         """Reset the special tokens to the source lang setting. No prefix and suffix=[eos, src_lang_code]."""

@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from dataclasses import dataclass
 
@@ -117,24 +104,6 @@ class VideomtLayerScale(EomtLayerScale):
 )
 @dataclass
 class VideomtForUniversalSegmentationOutput(ModelOutput):
-    r"""
-    loss (`torch.Tensor`, *optional*):
-        The computed loss, returned when labels are present.
-    class_queries_logits (`torch.FloatTensor`):
-        A tensor of shape `(batch_size, num_queries, num_labels + 1)` representing the proposed classes for each
-        query. Note the `+ 1` is needed because we incorporate the null class.
-    masks_queries_logits (`torch.FloatTensor`):
-        A tensor of shape `(batch_size, num_queries, height, width)` representing the proposed masks for each
-        query.
-    last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
-        Last hidden states (final feature map) of the last layer.
-    hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
-        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
-        shape `(batch_size, sequence_length, hidden_size)`. Hidden-states all layers of the model.
-    attentions (`tuple(tuple(torch.FloatTensor))`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
-        Tuple of `tuple(torch.FloatTensor)` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
-        sequence_length)`. Self and Cross Attentions weights from transformer decoder.
-    """
 
     loss: torch.FloatTensor | None = None
     class_queries_logits: torch.FloatTensor | None = None

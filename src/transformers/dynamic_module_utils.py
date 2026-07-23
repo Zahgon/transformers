@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Utilities to dynamically load objects from the Hub."""
 
 import ast
 import filecmp
@@ -59,10 +45,6 @@ def _sanitize_module_name(name: str) -> str:
 
     If the input name is already a valid identifier, it is returned unchanged.
     """
-    # We not replacing `\W` characters with `_` to avoid collisions. Because `_` is a very common
-    # separator used in module names, replacing `\W` with `_` would create too many collisions.
-    # Once a module is imported, it is cached in `sys.modules` and the second import would return
-    # the first module, which might not be the expected behavior if name collisions happen.
     new_name = name.replace(".", "_dot_").replace("-", "_hyphen_")
     if new_name and new_name[0].isdigit():
         new_name = f"_{new_name}"
@@ -86,7 +68,6 @@ def init_hf_modules():
     """
     Creates the cache directory for modules with an init, and adds it to the Python path.
     """
-    # This function has already been executed if HF_MODULES_CACHE already is in the Python path.
     if HF_MODULES_CACHE in sys.path:
         return
 
@@ -108,15 +89,12 @@ def create_dynamic_module(name: str | os.PathLike) -> None:
     """
     init_hf_modules()
     dynamic_module_path = (Path(HF_MODULES_CACHE) / name).resolve()
-    # If the parent module does not exist yet, recursively create it.
     if not dynamic_module_path.parent.exists():
         create_dynamic_module(dynamic_module_path.parent)
     os.makedirs(dynamic_module_path, exist_ok=True)
     init_path = dynamic_module_path / "__init__.py"
     if not init_path.exists():
         init_path.touch()
-        # It is extremely important to invalidate the cache when we change stuff in those modules, or users end up
-        # with errors about module that do not exist. Same for all other `invalidate_caches` in this file.
         importlib.invalidate_caches()
 
 
@@ -133,11 +111,8 @@ def get_relative_imports(module_file: str | os.PathLike) -> list[str]:
     with open(module_file, encoding="utf-8") as f:
         content = f.read()
 
-    # Imports of the form `import .xxx`
     relative_imports = re.findall(r"^\s*import\s+\.(\S+)\s*$", content, flags=re.MULTILINE)
-    # Imports of the form `from .xxx import yyy`
     relative_imports += re.findall(r"^\s*from\s+\.(\S+)\s+import", content, flags=re.MULTILINE)
-    # Unique-ify
     return list(set(relative_imports))
 
 
@@ -157,7 +132,6 @@ def get_relative_import_files(module_file: str | os.PathLike) -> list[str]:
     files_to_check = [module_file]
     all_relative_imports = []
 
-    # Let's recurse through all relative imports
     while not no_change:
         new_imports = []
         for f in files_to_check:
@@ -202,23 +176,18 @@ def get_imports(filename: str | os.PathLike) -> list[str]:
                         and check_function.startswith("is_flash_attn")
                         or hasattr(transformers.utils.import_utils, check_function)
                     ):
-                        # Don't recurse into "if flash_attn_available()" or any "if library_available" blocks
-                        # that appears in `transformers.utils.import_utils` and ignore imports in them
                         return
         elif isinstance(node, ast.Import):
-            # Handle 'import x' statements
             for alias in node.names:
                 top_module = alias.name.split(".")[0]
                 if top_module:
                     imported_modules.add(top_module)
         elif isinstance(node, ast.ImportFrom):
-            # Handle 'from x import y' statements, ignoring relative imports
             if node.level == 0 and node.module:
                 top_module = node.module.split(".")[0]
                 if top_module:
                     imported_modules.add(top_module)
 
-        # Recursively visit all children
         for child in ast.iter_child_nodes(node):
             recursive_look_for_imports(child)
 
@@ -246,9 +215,6 @@ def check_imports(filename: str | os.PathLike) -> list[str]:
             importlib.import_module(imp)
         except ImportError as exception:
             logger.warning(f"Encountered exception while importing {imp}: {exception}")
-            # Some packages can fail with an ImportError because of a dependency issue.
-            # This check avoids hiding such errors.
-            # See https://github.com/huggingface/transformers/issues/33604
             if "No module named" in str(exception):
                 missing_packages.append(imp)
             else:
@@ -293,18 +259,15 @@ def get_class_in_module(
         cached_module: ModuleType | None = sys.modules.get(name)
         module_spec = importlib.util.spec_from_file_location(name, location=module_file)
 
-        # Hash the module file and all its relative imports to check if we need to reload it
         module_files: list[Path] = [module_file] + sorted(map(Path, get_relative_import_files(module_file)))
         module_hash: str = hashlib.sha256(b"".join(bytes(f) + f.read_bytes() for f in module_files)).hexdigest()
 
         module: ModuleType
         if cached_module is None:
             module = importlib.util.module_from_spec(module_spec)
-            # insert it into sys.modules before any loading begins
             sys.modules[name] = module
         else:
             module = cached_module
-        # reload in both cases, unless the module is already imported and the hash hits
         if getattr(module, "__transformers_module_hash__", "") != module_hash:
             module_spec.loader.exec_module(module)
             module.__transformers_module_hash__ = module_hash
@@ -405,7 +368,6 @@ def get_cached_module_file(
         logger.info("Offline mode: forcing local_files_only=True")
         local_files_only = True
 
-    # Download and cache module_file from the repo `pretrained_model_name_or_path` of grab it if it's a local file.
     pretrained_model_name_or_path = str(pretrained_model_name_or_path)
     is_local = os.path.isdir(pretrained_model_name_or_path)
     cached_module = None
@@ -417,7 +379,6 @@ def get_cached_module_file(
 
     new_files = []
     try:
-        # Load from URL or cache if already cached
         resolved_module_file = cached_file(
             pretrained_model_name_or_path,
             module_file,
@@ -437,7 +398,6 @@ def get_cached_module_file(
         logger.info(f"Could not locate the {module_file} inside {pretrained_model_name_or_path}.")
         raise
 
-    # Check we have all the requirements in our environment
     modules_needed = check_imports(resolved_module_file)
     if is_local:
         local_model_name = _sanitize_module_name(os.path.basename(os.path.normpath(pretrained_model_name_or_path)))
@@ -447,13 +407,10 @@ def get_cached_module_file(
         else:
             submodule = local_source_files_hash
 
-    # Now we move the module inside our cached dynamic modules.
     full_submodule = TRANSFORMERS_DYNAMIC_MODULE_NAME + os.path.sep + submodule
     create_dynamic_module(full_submodule)
     submodule_path = Path(HF_MODULES_CACHE) / full_submodule
     if is_local:
-        # We copy local files to avoid putting too many folders in sys.path. This copy is done when the file is new or
-        # has changed since last copy.
         if not (submodule_path / module_file).exists() or not filecmp.cmp(
             resolved_module_file, str(submodule_path / module_file)
         ):
@@ -471,11 +428,8 @@ def get_cached_module_file(
                 shutil.copyfile(source_file, target_path)
                 importlib.invalidate_caches()
     else:
-        # Get the commit hash
         commit_hash = extract_commit_hash(resolved_module_file, _commit_hash)
 
-        # The module file will end up being placed in a subfolder with the git hash of the repo. This way we get the
-        # benefit of versioning.
         submodule_path = submodule_path / commit_hash
         full_submodule = full_submodule + os.path.sep + commit_hash
         full_submodule_module_file_path = os.path.join(full_submodule, module_file)
@@ -484,7 +438,6 @@ def get_cached_module_file(
         if not (submodule_path / module_file).exists():
             shutil.copyfile(resolved_module_file, submodule_path / module_file)
             importlib.invalidate_caches()
-        # Make sure we also have every file with relative
         for module_needed in modules_needed:
             if not ((submodule_path / module_file).parent / f"{module_needed}.py").exists():
                 get_cached_module_file(
@@ -599,7 +552,6 @@ def get_class_from_dynamic_module(
     # module.
     cls = get_class_from_dynamic_module("sgugger/my-bert-model--modeling.MyBertModel", "sgugger/another-bert-model")
     ```"""
-    # Catch the name of the repo if it's specified in `class_reference`
     if "--" in class_reference:
         repo_id, class_reference = class_reference.split("--")
     else:
@@ -608,7 +560,6 @@ def get_class_from_dynamic_module(
 
     if code_revision is None and pretrained_model_name_or_path == repo_id:
         code_revision = revision
-    # And lastly we get the class inside our newly created module
     final_module = get_cached_module_file(
         repo_id,
         module_file + ".py",
@@ -649,12 +600,10 @@ def custom_object_save(obj: Any, folder: str | os.PathLike, config: dict | None 
         module_name = obj.__class__.__module__
         last_module = module_name.split(".")[-1]
         full_name = f"{last_module}.{obj.__class__.__name__}"
-        # Special handling for tokenizers
         if "Tokenizer" in full_name:
             slow_tokenizer_class = None
             fast_tokenizer_class = None
             if obj.__class__.__name__.endswith("Fast"):
-                # Fast tokenizer: we have the fast tokenizer class and we may have the slow one has an attribute.
                 fast_tokenizer_class = f"{last_module}.{obj.__class__.__name__}"
                 if getattr(obj, "slow_tokenizer_class", None) is not None:
                     slow_tokenizer = getattr(obj, "slow_tokenizer_class")
@@ -662,7 +611,6 @@ def custom_object_save(obj: Any, folder: str | os.PathLike, config: dict | None 
                     last_slow_tok_module = slow_tok_module_name.split(".")[-1]
                     slow_tokenizer_class = f"{last_slow_tok_module}.{slow_tokenizer.__name__}"
             else:
-                # Slow tokenizer: no way to have the fast class
                 slow_tokenizer_class = f"{last_module}.{obj.__class__.__name__}"
 
             full_name = (slow_tokenizer_class, fast_tokenizer_class)
@@ -676,7 +624,6 @@ def custom_object_save(obj: Any, folder: str | os.PathLike, config: dict | None 
         else:
             _config.auto_map = {obj._auto_class: full_name}
 
-    # Add object class to the config auto_map
     if isinstance(config, (list, tuple)):
         for cfg in config:
             _set_auto_map_in_config(cfg)
@@ -684,13 +631,11 @@ def custom_object_save(obj: Any, folder: str | os.PathLike, config: dict | None 
         _set_auto_map_in_config(config)
 
     result = []
-    # Copy module file to the output folder.
     object_file = sys.modules[obj.__module__].__file__
     dest_file = Path(folder) / (Path(object_file).name)
     shutil.copyfile(object_file, dest_file)
     result.append(dest_file)
 
-    # Gather all relative imports recursively and make sure they are copied as well.
     for needed_file in get_relative_import_files(object_file):
         dest_file = Path(folder) / (Path(needed_file).name)
         shutil.copyfile(needed_file, dest_file)
@@ -772,7 +717,6 @@ def resolve_trust_remote_code(
                         trust_remote_code = False
                 signal.alarm(0)
             except Exception:
-                # OS which does not support signal.SIGALRM
                 raise ValueError(
                     f"{error_message} You can inspect the repository content at https://hf.co/{model_name}.\n"
                     f"Please pass the argument `trust_remote_code=True` to allow custom code to be run."
@@ -782,7 +726,6 @@ def resolve_trust_remote_code(
                     signal.signal(signal.SIGALRM, prev_sig_handler)
                     signal.alarm(0)
         elif has_remote_code:
-            # For the CI which puts the timeout at 0
             _raise_timeout_error(None, None)
 
     if has_remote_code and not has_local_code and not trust_remote_code:
@@ -819,7 +762,6 @@ def check_python_requirements(path_or_repo_id, requirements_file="requirements.t
                 continue
 
             try:
-                # e.g. "torch>2.6.0" -> "torch", ">", "2.6.0"
                 package_name, delimiter, version_number = split_package_version(requirement)
             except ValueError:  # e.g. "torch", as opposed to "torch>2.6.0"
                 package_name = requirement

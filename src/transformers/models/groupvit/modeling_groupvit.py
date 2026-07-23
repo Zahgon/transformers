@@ -1,17 +1,3 @@
-# Copyright 2022 NVIDIA and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch GroupViT model."""
 
 import collections.abc
 from dataclasses import dataclass
@@ -37,13 +23,10 @@ from .configuration_groupvit import GroupViTConfig, GroupViTTextConfig, GroupViT
 logger = logging.get_logger(__name__)
 
 
-# contrastive loss function, adapted from
-# https://sachinruk.github.io/blog/pytorch/pytorch%20lightning/loss%20function/gpu/2021/03/07/CLIP.html
 def contrastive_loss(logits: torch.Tensor) -> torch.Tensor:
     return nn.functional.cross_entropy(logits, torch.arange(len(logits), device=logits.device))
 
 
-# Copied from transformers.models.clip.modeling_clip.image_text_contrastive_loss
 def image_text_contrastive_loss(similarity: torch.Tensor) -> torch.Tensor:
     caption_loss = contrastive_loss(similarity)
     image_loss = contrastive_loss(similarity.T)
@@ -52,7 +35,6 @@ def image_text_contrastive_loss(similarity: torch.Tensor) -> torch.Tensor:
 
 def hard_softmax(logits: torch.Tensor, dim: int):
     y_soft = logits.softmax(dim)
-    # Straight through.
     index = y_soft.max(dim, keepdim=True)[1]
     y_hard = torch.zeros_like(logits, memory_format=torch.legacy_contiguous_format).scatter_(dim, index, 1.0)
     ret = y_hard - y_soft.detach() + y_soft
@@ -61,7 +43,6 @@ def hard_softmax(logits: torch.Tensor, dim: int):
 
 
 def gumbel_softmax(logits: torch.Tensor, tau: float = 1, hard: bool = False, dim: int = -1) -> torch.Tensor:
-    # more stable https://github.com/pytorch/pytorch/issues/41663
     gumbel_dist = torch.distributions.gumbel.Gumbel(
         torch.tensor(0.0, device=logits.device, dtype=logits.dtype),
         torch.tensor(1.0, device=logits.device, dtype=logits.dtype),
@@ -72,12 +53,10 @@ def gumbel_softmax(logits: torch.Tensor, tau: float = 1, hard: bool = False, dim
     y_soft = gumbels.softmax(dim)
 
     if hard:
-        # Straight through.
         index = y_soft.max(dim, keepdim=True)[1]
         y_hard = torch.zeros_like(logits, memory_format=torch.legacy_contiguous_format).scatter_(dim, index, 1.0)
         ret = y_hard - y_soft.detach() + y_soft
     else:
-        # Reparameterization trick.
         ret = y_soft
     return ret
 
@@ -104,7 +83,6 @@ def resize_attention_map(attentions, height, width, align_corners=False):
 
     batch_size = attentions.shape[0]
     groups = attentions.shape[1]  # number of group token
-    # [batch_size, groups, height*width, groups] -> [batch_size, groups, height, width]
     attentions = attentions.reshape(batch_size, groups, feat_height, feat_width)
     attentions = nn.functional.interpolate(
         attentions, size=(height, width), mode="bilinear", align_corners=align_corners
@@ -125,17 +103,14 @@ def get_grouping_from_attentions(attentions, hw_shape):
     with torch.no_grad():
         prev_attn_masks = None
         for attn_masks in attentions:
-            # [batch_size, num_groups, height x width] -> [batch_size, height x width, num_groups]
             attn_masks = attn_masks.permute(0, 2, 1).contiguous()
             if prev_attn_masks is None:
                 prev_attn_masks = attn_masks
             else:
                 prev_attn_masks = prev_attn_masks @ attn_masks
-            # [batch_size, heightxwidth, num_groups] -> [batch_size, num_groups, heightxwidth] -> [batch_size, num_groups, height, width]
             cur_attn_map = resize_attention_map(prev_attn_masks.permute(0, 2, 1).contiguous(), *hw_shape)
             attn_maps.append(cur_attn_map)
 
-    # [batch_size, num_groups, height, width]
     final_grouping = attn_maps[-1]
 
     return final_grouping
@@ -181,16 +156,12 @@ class GroupViTAssignAttention(nn.Module):
 
     def forward(self, query, key):
         value = key
-        # [batch_size, query_length, channels]
         query = self.q_proj(query)
 
-        # [batch_size, key_length, channels]
         key = self.k_proj(key)
 
-        # [batch_size, key_length, channels]
         value = self.v_proj(value)
 
-        # [batch_size, query_length, key_length]
         raw_attn = (query @ key.transpose(-2, -1)) * self.scale
 
         attn = self.get_attn(raw_attn)
@@ -209,7 +180,6 @@ class GroupViTTokenAssign(nn.Module):
     def __init__(self, config: GroupViTVisionConfig, num_group_token, num_output_group):
         super().__init__()
         self.num_output_group = num_output_group
-        # norm on group_tokens
         self.norm_tokens = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         assign_mlp_ratio = (
             config.assign_mlp_ratio
@@ -219,7 +189,6 @@ class GroupViTTokenAssign(nn.Module):
         tokens_dim, channels_dim = [int(x * config.hidden_size) for x in assign_mlp_ratio]
         self.mlp_inter = GroupViTMixerMLP(config, num_group_token, tokens_dim, num_output_group)
         self.norm_post_tokens = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        # norm on x
         self.norm_x = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.pre_assign_attn = GroupViTCrossAttentionLayer(config)
 
@@ -235,7 +204,6 @@ class GroupViTTokenAssign(nn.Module):
         Returns:
             projected_group_tokens (torch.Tensor): [batch_size, num_output_groups, channels]
         """
-        # [B, num_output_groups, C] <- [B, num_group_tokens, C]
         projected_group_tokens = self.mlp_inter(group_tokens)
         projected_group_tokens = self.norm_post_tokens(projected_group_tokens)
         return projected_group_tokens
@@ -249,7 +217,6 @@ class GroupViTTokenAssign(nn.Module):
 
         group_tokens = self.norm_tokens(group_tokens)
         image_tokens = self.norm_x(image_tokens)
-        # [batch_size, num_output_groups, channels]
         projected_group_tokens = self.project_group_token(group_tokens)
         projected_group_tokens = self.pre_assign_attn(projected_group_tokens, image_tokens)
         new_image_tokens, attention = self.assign(projected_group_tokens, image_tokens)
@@ -263,36 +230,6 @@ class GroupViTTokenAssign(nn.Module):
 @auto_docstring
 @dataclass
 class GroupViTModelOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `return_loss` is `True`):
-        Contrastive loss for image-text similarity.
-    logits_per_image (`torch.FloatTensor` of shape `(image_batch_size, text_batch_size)`):
-        The scaled dot product scores between `image_embeds` and `text_embeds`. This represents the image-text
-        similarity scores.
-    logits_per_text (`torch.FloatTensor` of shape `(text_batch_size, image_batch_size)`):
-        The scaled dot product scores between `text_embeds` and `image_embeds`. This represents the text-image
-        similarity scores.
-    segmentation_logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels, logits_height, logits_width)`):
-        Classification scores for each pixel.
-
-        <Tip warning={true}>
-
-        The logits returned do not necessarily have the same size as the `pixel_values` passed as inputs. This is
-        to avoid doing two interpolations and lose some quality when a user needs to resize the logits to the
-        original image size as post-processing. You should always check your logits shape and resize as needed.
-
-        </Tip>
-    text_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim`):
-        The text embeddings obtained by applying the projection layer to the pooled output of
-        [`GroupViTTextModel`].
-    image_embeds (`torch.FloatTensor` of shape `(batch_size, output_dim`):
-        The image embeddings obtained by applying the projection layer to the pooled output of
-        [`GroupViTVisionModel`].
-    text_model_output (`BaseModelOutputWithPooling`):
-        The output of the [`GroupViTTextModel`].
-    vision_model_output (`BaseModelOutputWithPooling`):
-        The output of the [`GroupViTVisionModel`].
-    """
 
     loss: torch.FloatTensor | None = None
     logits_per_image: torch.FloatTensor | None = None
@@ -311,9 +248,6 @@ class GroupViTModelOutput(ModelOutput):
 
 
 class GroupViTPatchEmbeddings(nn.Module):
-    """
-    Image to Patch Embedding.
-    """
 
     def __init__(
         self,
@@ -374,7 +308,6 @@ class GroupViTVisionEmbeddings(nn.Module):
         num_patches = embeddings.shape[1]
         num_positions = self.position_embeddings.shape[1]
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
 
@@ -418,7 +351,6 @@ class GroupViTVisionEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.clip.modeling_clip.CLIPTextEmbeddings with CLIP->GroupViT
 class GroupViTTextEmbeddings(nn.Module):
     def __init__(self, config: GroupViTTextConfig):
         super().__init__()
@@ -427,7 +359,6 @@ class GroupViTTextEmbeddings(nn.Module):
         self.token_embedding = nn.Embedding(config.vocab_size, embed_dim)
         self.position_embedding = nn.Embedding(config.max_position_embeddings, embed_dim)
 
-        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
         self.register_buffer(
             "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
         )
@@ -460,7 +391,6 @@ class GroupViTTextEmbeddings(nn.Module):
 
 
 class GroupViTStage(nn.Module):
-    """This corresponds to the `GroupingLayer` class in the GroupViT implementation."""
 
     def __init__(
         self,
@@ -498,7 +428,7 @@ class GroupViTStage(nn.Module):
 
     @property
     def with_group_token(self):
-        return self.group_token is not None
+        pass
 
     def split_x(self, x):
         if self.with_group_token:
@@ -583,7 +513,6 @@ class GroupViTMixerMLP(GroupViTMLP):
 
 
 class GroupViTAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config):
         super().__init__()
@@ -619,7 +548,6 @@ class GroupViTAttention(nn.Module):
         bsz, tgt_len, embed_dim = hidden_states.size()
         is_cross_attention = encoder_hidden_states is not None
 
-        # get query proj
         query_states = self.q_proj(hidden_states) * self.scale
         if is_cross_attention:
             key_states = self._shape(self.k_proj(encoder_hidden_states), -1, bsz)
@@ -652,10 +580,6 @@ class GroupViTAttention(nn.Module):
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
-        # this operation is a bit awkward, but it's required to
-        # make sure that attn_weights keeps its gradient.
-        # In order to do so, attn_weights have to reshaped
-        # twice and have to be reused in the following
         attn_weights_reshaped = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
         attn_weights = attn_weights_reshaped.view(bsz * self.num_heads, tgt_len, src_len)
 
@@ -678,7 +602,6 @@ class GroupViTAttention(nn.Module):
         return attn_output, attn_weights_reshaped
 
 
-# Copied from transformers.models.altclip.modeling_altclip.AltCLIPEncoderLayer with AltCLIP->GroupViT
 class GroupViTEncoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: GroupViTVisionConfig):
         super().__init__()
@@ -808,13 +731,6 @@ class GroupViTVisionEncoder(nn.Module):
 
 
 class GroupViTTextEncoder(nn.Module):
-    """
-    Transformer encoder consisting of `config.num_hidden_layers` self-attention layers. Each layer is a
-    [`GroupViTEncoderLayer`].
-
-    Args:
-        config: GroupViTTextConfig
-    """
 
     def __init__(self, config: GroupViTTextConfig):
         super().__init__()
@@ -863,7 +779,6 @@ class GroupViTTextTransformer(GroupViTPreTrainedModel):
         self.encoder = GroupViTTextEncoder(config)
         self.final_layer_norm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
 
-        # For `pooled_output` computation
         self.eos_token_id = config.eos_token_id
 
         self.post_init()
@@ -905,22 +820,13 @@ class GroupViTTextTransformer(GroupViTPreTrainedModel):
         last_hidden_state = self.final_layer_norm(last_hidden_state)
 
         if self.eos_token_id == 2:
-            # The `eos_token_id` was incorrect before PR #24773: Let's keep what have been done here.
-            # A CLIP model with such `eos_token_id` in the config can't work correctly with extra new tokens added
-            # ------------------------------------------------------------
-            # text_embeds.shape = [batch_size, sequence_length, transformer.width]
-            # take features from the eot embedding (eot_token is the highest number in each sequence)
-            # casting to torch.int for onnx compatibility: argmax doesn't support int64 inputs with opset 14
             pooled_output = last_hidden_state[
                 torch.arange(last_hidden_state.shape[0], device=last_hidden_state.device),
                 input_ids.to(dtype=torch.int, device=last_hidden_state.device).argmax(dim=-1),
             ]
         else:
-            # The config gets updated `eos_token_id` from PR #24773 (so the use of extra new tokens is possible)
             pooled_output = last_hidden_state[
                 torch.arange(last_hidden_state.shape[0], device=last_hidden_state.device),
-                # We need to get the first position of `eos_token_id` value (`pad_token_ids` might equal to `eos_token_id`)
-                # Note: we assume each sequence (along batch dim.) contains an  `eos_token_id` (e.g. prepared by the tokenizer)
                 (input_ids.to(dtype=torch.int, device=last_hidden_state.device) == self.eos_token_id)
                 .int()
                 .argmax(dim=-1),
@@ -939,7 +845,6 @@ class GroupViTTextModel(GroupViTPreTrainedModel):
     def __init__(self, config: GroupViTTextConfig):
         super().__init__(config)
         self.text_model = GroupViTTextTransformer(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> nn.Module:
@@ -1017,7 +922,6 @@ class GroupViTVisionTransformer(nn.Module):
 
         last_hidden_state = encoder_outputs[0]
 
-        # normalize the last hidden state
         last_hidden_state = self.layernorm(last_hidden_state)
         pooled_output = last_hidden_state.mean(dim=1)
 
@@ -1041,7 +945,6 @@ class GroupViTVisionModel(GroupViTPreTrainedModel):
     def __init__(self, config: GroupViTVisionConfig):
         super().__init__(config)
         self.vision_model = GroupViTVisionTransformer(config)
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self) -> GroupViTPatchEmbeddings:
@@ -1130,7 +1033,6 @@ class GroupViTModel(GroupViTPreTrainedModel):
         )
         self.logit_scale = nn.Parameter(torch.tensor(self.config.logit_scale_init_value))
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -1242,7 +1144,6 @@ class GroupViTModel(GroupViTPreTrainedModel):
         >>> logits_per_image = outputs.logits_per_image  # this is the image-text similarity score
         >>> probs = logits_per_image.softmax(dim=1)  # we can take the softmax to get the label probabilities
         ```"""
-        # Use GROUPVIT model's config for some fields (if specified) instead of those of vision & text components.
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_segmentation = (
             output_segmentation if output_segmentation is not None else self.config.output_segmentation
@@ -1253,7 +1154,6 @@ class GroupViTModel(GroupViTPreTrainedModel):
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
 
-        # Vision side uses explicit flags (nn.Module-based, not hook-based)
         vision_outputs = self.vision_model(
             pixel_values=pixel_values,
             output_attentions=output_attentions,
@@ -1274,39 +1174,28 @@ class GroupViTModel(GroupViTPreTrainedModel):
         text_embeds = text_outputs.pooler_output
         text_embeds = self.text_projection(text_embeds)
 
-        # normalized features
         image_embeds = image_embeds / image_embeds.norm(dim=-1, keepdim=True)
         text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True)
 
-        # cosine similarity as logits
         logit_scale = self.logit_scale.exp()
         logits_per_text = torch.matmul(text_embeds, image_embeds.t()) * logit_scale
         logits_per_image = logits_per_text.t()
 
         seg_logits = None
         if output_segmentation:
-            # grouped features
-            # [batch_size_image, num_group, hidden_size]
             image_group_embeds = vision_outputs.last_hidden_state
-            # [batch_size_image*num_group, hidden_size]
             image_group_embeds = self.visual_projection(image_group_embeds.reshape(-1, image_group_embeds.shape[-1]))
             attentions = vision_outputs.attentions
-            # [batch_size_image, num_group, height, width]
             grouping = get_grouping_from_attentions(attentions, pixel_values.shape[2:])
 
-            # normalized features
             image_group_embeds = image_group_embeds / image_group_embeds.norm(dim=-1, keepdim=True)
-            # [batch_size_image x num_group, batch_size_text]
             logits_per_image_group = torch.matmul(image_group_embeds, text_embeds.t()) * logit_scale
-            # [batch_size_image, batch_size_text, num_group]
             logits_per_image_group = logits_per_image_group.reshape(
                 image_embeds.shape[0], -1, text_embeds.shape[0]
             ).permute(0, 2, 1)
 
-            # [batch_size_image, batch_size_text, height x width]
             flatten_grouping = grouping.reshape(grouping.shape[0], grouping.shape[1], -1)
 
-            # [batch_size_image, batch_size_text, height, width]
             seg_logits = torch.matmul(logits_per_image_group, flatten_grouping) * logit_scale
             seg_logits = seg_logits.reshape(
                 seg_logits.shape[0], seg_logits.shape[1], grouping.shape[2], grouping.shape[3]

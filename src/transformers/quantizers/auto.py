@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-# Modifications Copyright (C) 2025, Advanced Micro Devices, Inc. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import warnings
 
 from ..models.auto.configuration_auto import AutoConfig
@@ -90,9 +76,6 @@ AUTO_QUANTIZER_MAPPING = {
     "vptq": VptqHfQuantizer,
     "spqr": SpQRHfQuantizer,
     "fp8": FineGrainedFP8HfQuantizer,
-    # MXFP8 = FP8 (E4M3 weights) with per-block ``[1, 32]`` E8M0 (uint8) scales —
-    # reuses the FineGrainedFP8 dequant path, with the E8M0 byte→exponent
-    # unpacking handled inside ``Fp8Dequantize._dequantize_one``.
     "mxfp8": FineGrainedFP8HfQuantizer,
     "auto-round": AutoRoundQuantizer,
     "mxfp4": Mxfp4HfQuantizer,
@@ -144,15 +127,10 @@ logger = logging.get_logger(__name__)
 
 
 class AutoQuantizationConfig:
-    """
-    The Auto-HF quantization config class that takes care of automatically dispatching to the correct
-    quantization config given a quantization config stored in a dictionary.
-    """
 
     @classmethod
     def from_dict(cls, quantization_config_dict: dict):
         quant_method = quantization_config_dict.get("quant_method")
-        # We need a special care for bnb models to make sure everything is BC ..
         if quantization_config_dict.get("load_in_8bit", False) or quantization_config_dict.get("load_in_4bit", False):
             suffix = "_4bit" if quantization_config_dict.get("load_in_4bit", False) else "_8bit"
             quant_method = QuantizationMethod.BITS_AND_BYTES + suffix
@@ -179,27 +157,19 @@ class AutoQuantizationConfig:
             )
         quantization_config_dict = model_config.quantization_config
         quantization_config = cls.from_dict(quantization_config_dict)
-        # Update with potential kwargs that are passed through from_pretrained.
         quantization_config.update(**kwargs)
         return quantization_config
 
 
 class AutoHfQuantizer:
-    """
-     The Auto-HF quantizer class that takes care of automatically instantiating to the correct
-    `HfQuantizer` given the `QuantizationConfig`.
-    """
 
     @classmethod
     def from_config(cls, quantization_config: QuantizationConfigMixin | dict, **kwargs):
-        # Convert it to a QuantizationConfig if the q_config is a dict
         if isinstance(quantization_config, dict):
             quantization_config = AutoQuantizationConfig.from_dict(quantization_config)
 
         quant_method = quantization_config.quant_method
 
-        # Again, we need a special care for bnb as we have a single quantization config
-        # class for both 4-bit and 8-bit quantization
         if quant_method == QuantizationMethod.BITS_AND_BYTES:
             if not isinstance(quantization_config, BitsAndBytesConfig):
                 raise TypeError(
@@ -242,7 +212,6 @@ class AutoHfQuantizer:
             warning_msg = ""
 
         if isinstance(quantization_config, dict):
-            # Convert the config based on the type of quantization_config_from_args (e.g., AutoRoundConfig), which takes priority before automatic configuration dispatch.
             if isinstance(quantization_config_from_args, AutoRoundConfig):
                 quantization_config = AutoRoundConfig.from_dict(quantization_config)
             else:
@@ -270,7 +239,6 @@ class AutoHfQuantizer:
         if warning_msg != "" and not isinstance(quantization_config, (Mxfp4Config, MetalConfig, FineGrainedFP8Config)):
             warnings.warn(warning_msg)
         else:
-            # in the case of mxfp4, we don't want to print the warning message, bit confusing for users
             logger.info(warning_msg)
         return quantization_config
 
@@ -296,35 +264,11 @@ class AutoHfQuantizer:
 
 
 def register_quantization_config(method: str):
-    """Register a custom quantization configuration."""
-
-    def register_config_fn(cls):
-        if method in AUTO_QUANTIZATION_CONFIG_MAPPING:
-            raise ValueError(f"Config '{method}' already registered")
-
-        if not issubclass(cls, QuantizationConfigMixin):
-            raise TypeError("Config must extend QuantizationConfigMixin")
-
-        AUTO_QUANTIZATION_CONFIG_MAPPING[method] = cls
-        return cls
-
-    return register_config_fn
+    pass
 
 
 def register_quantizer(name: str):
-    """Register a custom quantizer."""
-
-    def register_quantizer_fn(cls):
-        if name in AUTO_QUANTIZER_MAPPING:
-            raise ValueError(f"Quantizer '{name}' already registered")
-
-        if not issubclass(cls, HfQuantizer):
-            raise TypeError("Quantizer must extend HfQuantizer")
-
-        AUTO_QUANTIZER_MAPPING[name] = cls
-        return cls
-
-    return register_quantizer_fn
+    pass
 
 
 def get_hf_quantizer(config, quantization_config, device_map, weights_only, user_agent):
@@ -359,7 +303,6 @@ def get_hf_quantizer(config, quantization_config, device_map, weights_only, user
         config = hf_quantizer.update_tp_plan(config)
         config = hf_quantizer.update_ep_plan(config)
 
-        # In order to ensure popular quantization methods are supported. Can be disable with `disable_telemetry`
         if not getattr(hf_quantizer.quantization_config, "dequantize", False):
             quant_method = hf_quantizer.quantization_config.quant_method
             user_agent["quant"] = getattr(quant_method, "value", quant_method)

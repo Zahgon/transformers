@@ -1,19 +1,3 @@
-# Copyright 2023 Apple Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# Original license: https://github.com/apple/ml-cvnets/blob/main/LICENSE
-"""PyTorch MobileViTV2 model."""
 
 import torch
 from torch import nn
@@ -36,7 +20,6 @@ from .configuration_mobilevitv2 import MobileViTV2Config
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.mobilevit.modeling_mobilevit.make_divisible
 def make_divisible(value: int, divisor: int = 8, min_value: int | None = None) -> int:
     """
     Ensure that all layers have a channel count that is divisible by `divisor`.
@@ -44,7 +27,6 @@ def make_divisible(value: int, divisor: int = 8, min_value: int | None = None) -
     if min_value is None:
         min_value = divisor
     new_value = max(min_value, int(value + divisor / 2) // divisor * divisor)
-    # Make sure that round down does not go down by more than 10%.
     if new_value < 0.9 * value:
         new_value += divisor
     return int(new_value)
@@ -54,7 +36,6 @@ def clip(value: float, min_val: float = float("-inf"), max_val: float = float("i
     return max(min_val, min(max_val, value))
 
 
-# Copied from transformers.models.mobilevit.modeling_mobilevit.MobileViTConvLayer with MobileViT->MobileViTV2
 class MobileViTV2ConvLayer(nn.Module):
     def __init__(
         self,
@@ -119,11 +100,7 @@ class MobileViTV2ConvLayer(nn.Module):
         return features
 
 
-# Copied from transformers.models.mobilevit.modeling_mobilevit.MobileViTInvertedResidual with MobileViT->MobileViTV2
 class MobileViTV2InvertedResidual(nn.Module):
-    """
-    Inverted residual block (MobileNetv2): https://huggingface.co/papers/1801.04381
-    """
 
     def __init__(
         self, config: MobileViTV2Config, in_channels: int, out_channels: int, stride: int, dilation: int = 1
@@ -168,7 +145,6 @@ class MobileViTV2InvertedResidual(nn.Module):
         return residual + features if self.use_residual else features
 
 
-# Copied from transformers.models.mobilevit.modeling_mobilevit.MobileViTMobileNetLayer with MobileViT->MobileViTV2
 class MobileViTV2MobileNetLayer(nn.Module):
     def __init__(
         self, config: MobileViTV2Config, in_channels: int, out_channels: int, stride: int = 1, num_stages: int = 1
@@ -193,16 +169,6 @@ class MobileViTV2MobileNetLayer(nn.Module):
 
 
 class MobileViTV2LinearSelfAttention(nn.Module):
-    """
-    This layer applies a self-attention with linear complexity, as described in MobileViTV2 paper:
-    https://huggingface.co/papers/2206.02680
-
-    Args:
-        config (`MobileVitv2Config`):
-             Model configuration object
-        embed_dim (`int`):
-            `input_channels` from an expected input of size :math:`(batch_size, input_channels, height, width)`
-    """
 
     def __init__(self, config: MobileViTV2Config, embed_dim: int) -> None:
         super().__init__()
@@ -230,26 +196,16 @@ class MobileViTV2LinearSelfAttention(nn.Module):
         self.embed_dim = embed_dim
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # (batch_size, embed_dim, num_pixels_in_patch, num_patches) --> (batch_size, 1+2*embed_dim, num_pixels_in_patch, num_patches)
         qkv = self.qkv_proj(hidden_states)
 
-        # Project hidden_states into query, key and value
-        # Query --> [batch_size, 1, num_pixels_in_patch, num_patches]
-        # value, key --> [batch_size, embed_dim, num_pixels_in_patch, num_patches]
         query, key, value = torch.split(qkv, split_size_or_sections=[1, self.embed_dim, self.embed_dim], dim=1)
 
-        # apply softmax along num_patches dimension
         context_scores = torch.nn.functional.softmax(query, dim=-1)
         context_scores = self.attn_dropout(context_scores)
 
-        # Compute context vector
-        # [batch_size, embed_dim, num_pixels_in_patch, num_patches] x [batch_size, 1, num_pixels_in_patch, num_patches] -> [batch_size, embed_dim, num_pixels_in_patch, num_patches]
         context_vector = key * context_scores
-        # [batch_size, embed_dim, num_pixels_in_patch, num_patches] --> [batch_size, embed_dim, num_pixels_in_patch, 1]
         context_vector = torch.sum(context_vector, dim=-1, keepdim=True)
 
-        # combine context vector with values
-        # [batch_size, embed_dim, num_pixels_in_patch, num_patches] * [batch_size, embed_dim, num_pixels_in_patch, 1] --> [batch_size, embed_dim, num_pixels_in_patch, num_patches]
         out = torch.nn.functional.relu(value) * context_vector.expand_as(value)
         out = self.out_proj(out)
         return out
@@ -331,7 +287,6 @@ class MobileViTV2Transformer(nn.Module):
 
         ffn_dims = [ffn_multiplier * d_model] * n_layers
 
-        # ensure that dims are multiple of 16
         ffn_dims = [int((d // 16) * 16) for d in ffn_dims]
 
         self.layer = nn.ModuleList()
@@ -348,9 +303,6 @@ class MobileViTV2Transformer(nn.Module):
 
 
 class MobileViTV2Layer(GradientCheckpointingLayer):
-    """
-    MobileViTV2 layer: https://huggingface.co/papers/2206.02680
-    """
 
     def __init__(
         self,
@@ -380,7 +332,6 @@ class MobileViTV2Layer(GradientCheckpointingLayer):
         else:
             self.downsampling_layer = None
 
-        # Local representations
         self.conv_kxk = MobileViTV2ConvLayer(
             config,
             in_channels=in_channels,
@@ -397,13 +348,10 @@ class MobileViTV2Layer(GradientCheckpointingLayer):
             use_activation=False,
         )
 
-        # Global representations
         self.transformer = MobileViTV2Transformer(config, d_model=attn_unit_dim, n_layers=n_attn_blocks)
 
-        # self.layernorm = MobileViTV2LayerNorm2D(attn_unit_dim, eps=config.layer_norm_eps)
         self.layernorm = nn.GroupNorm(num_groups=1, num_channels=attn_unit_dim, eps=config.layer_norm_eps)
 
-        # Fusion
         self.conv_projection = MobileViTV2ConvLayer(
             config,
             in_channels=cnn_out_dim,
@@ -438,23 +386,17 @@ class MobileViTV2Layer(GradientCheckpointingLayer):
         return feature_map
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
-        # reduce spatial dimensions if needed
         if self.downsampling_layer:
             features = self.downsampling_layer(features)
 
-        # local representation
         features = self.conv_kxk(features)
         features = self.conv_1x1(features)
 
-        # convert feature map to patches
         patches, output_size = self.unfolding(features)
 
-        # learn global representations
         patches = self.transformer(patches)
         patches = self.layernorm(patches)
 
-        # convert patches back to feature maps
-        # [batch_size, patch_height, patch_width, input_dim] --> [batch_size, input_dim, patch_height, patch_width]
         features = self.folding(patches, output_size)
 
         features = self.conv_projection(features)
@@ -469,8 +411,6 @@ class MobileViTV2Encoder(nn.Module):
         self.layer = nn.ModuleList()
         self.gradient_checkpointing = False
 
-        # segmentation architectures like DeepLab and PSPNet modify the strides
-        # of the classification backbones
         dilate_layer_4 = dilate_layer_5 = False
         if config.output_stride == 8:
             dilate_layer_4 = True
@@ -613,7 +553,6 @@ class MobileViTV2Model(MobileViTV2PreTrainedModel):
         )
         self.encoder = MobileViTV2Encoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -643,7 +582,6 @@ class MobileViTV2Model(MobileViTV2PreTrainedModel):
         if self.expand_output:
             last_hidden_state = encoder_outputs[0]
 
-            # global average pooling: (batch_size, channels, height, width) -> (batch_size, channels)
             pooled_output = torch.mean(last_hidden_state, dim=[-2, -1], keepdim=False)
         else:
             last_hidden_state = encoder_outputs[0]
@@ -674,14 +612,12 @@ class MobileViTV2ForImageClassification(MobileViTV2PreTrainedModel):
         self.mobilevitv2 = MobileViTV2Model(config)
 
         out_channels = make_divisible(512 * config.width_multiplier, divisor=8)  # layer 5 output dimension
-        # Classifier head
         self.classifier = (
             nn.Linear(in_features=out_channels, out_features=config.num_labels)
             if config.num_labels > 0
             else nn.Identity()
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -722,7 +658,6 @@ class MobileViTV2ForImageClassification(MobileViTV2PreTrainedModel):
         )
 
 
-# Copied from transformers.models.mobilevit.modeling_mobilevit.MobileViTASPPPooling with MobileViT->MobileViTV2
 class MobileViTV2ASPPPooling(nn.Module):
     def __init__(self, config: MobileViTV2Config, in_channels: int, out_channels: int) -> None:
         super().__init__()
@@ -748,9 +683,6 @@ class MobileViTV2ASPPPooling(nn.Module):
 
 
 class MobileViTV2ASPP(nn.Module):
-    """
-    ASPP module defined in DeepLab papers: https://huggingface.co/papers/1606.00915, https://huggingface.co/papers/1706.05587
-    """
 
     def __init__(self, config: MobileViTV2Config) -> None:
         super().__init__()
@@ -807,11 +739,7 @@ class MobileViTV2ASPP(nn.Module):
         return pooled_features
 
 
-# Copied from transformers.models.mobilevit.modeling_mobilevit.MobileViTDeepLabV3 with MobileViT->MobileViTV2
 class MobileViTV2DeepLabV3(nn.Module):
-    """
-    DeepLabv3 architecture: https://huggingface.co/papers/1706.05587
-    """
 
     def __init__(self, config: MobileViTV2Config) -> None:
         super().__init__()
@@ -849,7 +777,6 @@ class MobileViTV2ForSemanticSegmentation(MobileViTV2PreTrainedModel):
         self.mobilevitv2 = MobileViTV2Model(config, expand_output=False)
         self.segmentation_head = MobileViTV2DeepLabV3(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -910,7 +837,6 @@ class MobileViTV2ForSemanticSegmentation(MobileViTV2PreTrainedModel):
 
         loss = None
         if labels is not None:
-            # upsample logits to the images' original size
             upsampled_logits = nn.functional.interpolate(
                 logits, size=labels.shape[-2:], mode="bilinear", align_corners=False
             )

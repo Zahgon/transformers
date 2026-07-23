@@ -1,17 +1,3 @@
-# Copyright 2019 The Open AI Team Authors and The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for FSMT."""
 
 import json
 import os
@@ -100,60 +86,9 @@ def remove_non_printing_char(text):
     return "".join(output)
 
 
-# Porting notes:
-# this one is modeled after XLMTokenizer
-#
-# added:
-# - src_vocab_file,
-# - tgt_vocab_file,
-# - langs,
 
 
 class FSMTTokenizer(PreTrainedTokenizer):
-    """
-    Construct an FAIRSEQ Transformer tokenizer. Based on Byte-Pair Encoding. The tokenization process is the following:
-
-    - Moses preprocessing and tokenization.
-    - Normalizing all inputs text.
-    - The arguments `special_tokens` and the function `set_special_tokens`, can be used to add additional symbols (like
-      "__classify__") to a vocabulary.
-    - The argument `langs` defines a pair of languages.
-
-    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
-    this superclass for more information regarding those methods.
-
-    Args:
-        langs (`List[str]`, *optional*):
-            A list of two languages to translate from and to, for instance `["en", "ru"]`.
-        src_vocab_file (`str`, *optional*):
-            File containing the vocabulary for the source language.
-        tgt_vocab_file (`st`, *optional*):
-            File containing the vocabulary for the target language.
-        merges_file (`str`, *optional*):
-            File containing the merges.
-        do_lower_case (`bool`, *optional*, defaults to `False`):
-            Whether or not to lowercase the input when tokenizing.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
-            token instead.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
-
-            <Tip>
-
-            When building a sequence using special tokens, this is not the token that is used for the beginning of
-            sequence. The token used is the `cls_token`.
-
-            </Tip>
-
-        sep_token (`str`, *optional*, defaults to `"</s>"`):
-            The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
-            sequence classification or for a text and a question for question answering. It is also used as the last
-            token of a sequence built with special tokens.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding, for example when batching sequences of different lengths.
-
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -186,9 +121,7 @@ class FSMTTokenizer(PreTrainedTokenizer):
         self.merges_file = merges_file
         self.do_lower_case = do_lower_case
 
-        # cache of sm.MosesPunctNormalizer instance
         self.cache_moses_punct_normalizer = {}
-        # cache of sm.MosesTokenizer instance
         self.cache_moses_tokenizer = {}
         self.cache_moses_detokenizer = {}
 
@@ -224,14 +157,12 @@ class FSMTTokenizer(PreTrainedTokenizer):
             **kwargs,
         )
 
-    # hack override
     def get_vocab(self) -> dict[str, int]:
         return self.get_src_vocab()
 
-    # hack override
     @property
     def vocab_size(self) -> int:
-        return self.src_vocab_size
+        pass
 
     def moses_punct_norm(self, text, lang):
         if lang not in self.cache_moses_punct_normalizer:
@@ -261,17 +192,17 @@ class FSMTTokenizer(PreTrainedTokenizer):
 
     @property
     def src_vocab_size(self):
-        return len(self.encoder)
+        pass
 
     @property
     def tgt_vocab_size(self):
-        return len(self.decoder)
+        pass
 
     def get_src_vocab(self):
         return dict(self.encoder, **self.added_tokens_encoder)
 
     def get_tgt_vocab(self):
-        return dict(self.decoder, **self.added_tokens_decoder)
+        pass
 
     def bpe(self, token):
         word = tuple(token[:-1]) + (token[-1] + "</w>",)
@@ -335,9 +266,6 @@ class FSMTTokenizer(PreTrainedTokenizer):
         Returns:
             List of tokens.
         """
-        # ignore `lang` which is currently isn't explicitly passed in tokenization_utils.py and always results in lang=en
-        # if lang != self.src_lang:
-        #     raise ValueError(f"Expected lang={self.src_lang}, but got {lang}")
         lang = self.src_lang
 
         if self.do_lower_case:
@@ -367,10 +295,8 @@ class FSMTTokenizer(PreTrainedTokenizer):
     def convert_tokens_to_string(self, tokens):
         """Converts a sequence of tokens (string) in a single string."""
 
-        # remove BPE
         tokens = [t.replace(" ", "").replace("</w>", " ") for t in tokens]
         tokens = "".join(tokens).split()
-        # detokenize
         text = self.moses_detokenize(tokens, self.tgt_lang)
         return text
 
@@ -395,7 +321,6 @@ class FSMTTokenizer(PreTrainedTokenizer):
         """
         sep = [self.sep_token_id]
 
-        # no bos used in fairseq
         if token_ids_1 is None:
             return token_ids_0 + sep
         return token_ids_0 + sep + token_ids_1 + sep
@@ -423,7 +348,6 @@ class FSMTTokenizer(PreTrainedTokenizer):
             return super().get_special_tokens_mask(
                 token_ids_0=token_ids_0, token_ids_1=token_ids_1, already_has_special_tokens=True
             )
-        # no bos used in fairseq
         if token_ids_1 is not None:
             return ([0] * len(token_ids_0)) + [1] + ([0] * len(token_ids_1)) + [1]
         return ([0] * len(token_ids_0)) + [1]

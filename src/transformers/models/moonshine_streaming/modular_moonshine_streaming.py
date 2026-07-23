@@ -1,16 +1,3 @@
-# Copyright 2026 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -66,14 +53,6 @@ class MoonshineStreamingProcessor(Wav2Vec2Processor): ...
 )
 @dataclass
 class MoonshineStreamingEncoderModelOutput(BaseModelOutput):
-    r"""
-    attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
-        Mask to avoid performing attention on padding token indices after sequence compression. Returned because the
-        sequence length may differ from the input sequence length. Mask values selected in `[0, 1]`:
-
-        - 1 for tokens that are **not masked**,
-        - 0 for tokens that are **masked**.
-    """
 
     attention_mask: torch.Tensor | None = None
 
@@ -265,12 +244,7 @@ def sliding_window_mask_function(sliding_window: tuple[int, int]) -> Callable:
     """
 
     def inner_mask(batch_idx: int, head_idx: int, q_idx: int, kv_idx: int) -> bool:
-        left_window_size, right_window_size = sliding_window
-
-        dist = q_idx - kv_idx
-        left_mask = (dist >= 0) & (dist < left_window_size)
-        right_mask = (dist < 0) & (-dist < right_window_size)
-        return left_mask | right_mask
+        pass
 
     return inner_mask
 

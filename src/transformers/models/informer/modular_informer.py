@@ -1,17 +1,3 @@
-# Copyright 2023 Amazon and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Informer model."""
 
 import math
 
@@ -100,9 +86,6 @@ class InformerAttention(BartAttention):
 
 
 class InformerProbSparseAttention(nn.Module):
-    """Probabilistic Attention mechanism to select the "active"
-    queries rather than the "lazy" queries and provides a sparse Transformer thus mitigating the quadratic compute and
-    memory requirements of vanilla attention"""
 
     def __init__(
         self,
@@ -148,15 +131,12 @@ class InformerProbSparseAttention(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         """Input shape: Batch x Time x Channel"""
 
-        # if key_value_states are provided this layer is used as a cross-attention layer
-        # for the decoder
         is_cross_attention = key_value_states is not None
 
         bsz, tgt_len, _ = hidden_states.size()
         src_len = key_value_states.shape[1] if is_cross_attention else tgt_len
         kv_input_shape = (bsz, src_len, -1, self.head_dim)
 
-        # get query proj
         query_states = self.q_proj(hidden_states) * self.scaling
 
         is_updated = False
@@ -164,7 +144,6 @@ class InformerProbSparseAttention(nn.Module):
             if isinstance(past_key_values, EncoderDecoderCache):
                 is_updated = past_key_values.is_updated.get(self.layer_idx)
                 if is_cross_attention:
-                    # after the first generated id, we can subsequently re-use all key/value_states from cache
                     curr_past_key_values = past_key_values.cross_attention_cache
                 else:
                     curr_past_key_values = past_key_values.self_attention_cache
@@ -173,7 +152,6 @@ class InformerProbSparseAttention(nn.Module):
 
         current_states = key_value_states if is_cross_attention else hidden_states
         if is_cross_attention and past_key_values is not None and is_updated:
-            # reuse k,v, cross_attentions
             key_states = curr_past_key_values.layers[self.layer_idx].keys
             value_states = curr_past_key_values.layers[self.layer_idx].values
         else:
@@ -184,7 +162,6 @@ class InformerProbSparseAttention(nn.Module):
 
             if past_key_values is not None:
                 key_states, value_states = curr_past_key_values.update(key_states, value_states, self.layer_idx)
-                # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention and isinstance(past_key_values, EncoderDecoderCache):
                     past_key_values.is_updated[self.layer_idx] = True
 
@@ -210,21 +187,18 @@ class InformerProbSparseAttention(nn.Module):
 
         queries_keys_sample = torch.bmm(query_states, k_sample.transpose(1, 2))  # Q_K_sampled
 
-        # find the Top_k query with sparsity measurement
         if u > 0:
             sparsity_measurement = queries_keys_sample.max(dim=-1)[0] - torch.div(
                 queries_keys_sample.sum(dim=-1), key_states_time_length
             )  # M
             top_u_sparsity_measurement = sparsity_measurement.topk(u, sorted=False)[1]  # M_top
 
-            # calculate q_reduce: query_states[:, top_u_sparsity_measurement]
             dim_for_slice = torch.arange(query_states.size(0)).unsqueeze(-1)
             q_reduce = query_states[dim_for_slice, top_u_sparsity_measurement]
         else:
             q_reduce = query_states
             top_u_sparsity_measurement = None
 
-        # Use q_reduce to calculate attention weights
         attn_weights = torch.bmm(q_reduce, key_states.transpose(1, 2))
 
         src_len = key_states.size(1)
@@ -254,20 +228,13 @@ class InformerProbSparseAttention(nn.Module):
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
-        # this operation is a bit awkward, but it's required to
-        # make sure that attn_weights keeps its gradient.
-        # In order to do so, attn_weights have to be reshaped
-        # twice and have to be reused in the following
         attn_weights_reshaped = attn_weights.view(bsz, self.num_heads, u, src_len)
         attn_weights = attn_weights_reshaped.view(bsz * self.num_heads, u, src_len)
 
         attn_probs = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
         attn_output = torch.bmm(attn_probs, value_states)
 
-        # calculate context for updating the attn_output, based on:
-        # https://github.com/zhouhaoyi/Informer2020/blob/ac59c7447135473fb2aafeafe94395f884d5c7a5/models/attn.py#L74
         if self.is_decoder:
-            # cast to float32 before operation to avoid overflow
             context = value_states.cumsum(dim=-2, dtype=torch.float32).to(value_states.dtype)
         else:
             v_mean_dim_time = value_states.mean(dim=-2)
@@ -278,7 +245,6 @@ class InformerProbSparseAttention(nn.Module):
             )
 
         if top_u_sparsity_measurement is not None:
-            # update context: copy the attention output to the context at top_u_sparsity_measurement index
             dim_for_slice = torch.arange(context.size(0)).unsqueeze(-1)
             context[dim_for_slice, top_u_sparsity_measurement, :] = attn_output
             attn_output = context
@@ -292,8 +258,6 @@ class InformerProbSparseAttention(nn.Module):
         attn_output = attn_output.view(bsz, self.num_heads, tgt_len, self.head_dim)
         attn_output = attn_output.transpose(1, 2)
 
-        # Use the `embed_dim` from the config (stored in the class) rather than `hidden_state` because `attn_output` can be
-        # partitioned across GPUs when using tensor-parallelism.
         attn_output = attn_output.reshape(bsz, tgt_len, self.embed_dim)
 
         attn_output = self.out_proj(attn_output)
@@ -301,7 +265,6 @@ class InformerProbSparseAttention(nn.Module):
         return attn_output, attn_weights_reshaped
 
 
-# source: https://github.com/zhouhaoyi/Informer2020/blob/main/models/encoder.py
 class InformerConvLayer(GradientCheckpointingLayer):
     def __init__(self, c_in):
         super().__init__()
@@ -403,7 +366,6 @@ class InformerEncoder(TimeSeriesTransformerEncoder):
         else:
             self.conv_layers = [None] * config.encoder_layers
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @merge_with_config_defaults
@@ -427,7 +389,6 @@ class InformerEncoder(TimeSeriesTransformerEncoder):
         )
 
         for idx, (encoder_layer, conv_layer) in enumerate(zip(self.layers, self.conv_layers)):
-            # add LayerDrop (see https://huggingface.co/papers/1909.11556 for description)
             to_drop = False
             if self.training:
                 dropout_probability = torch.rand([])
@@ -470,7 +431,6 @@ class InformerDecoder(TimeSeriesTransformerDecoder):
         self.layernorm_embedding = nn.LayerNorm(config.d_model)
 
         self.gradient_checkpointing = False
-        # Initialize weights and apply final processing
         self.post_init()
 
 
@@ -491,11 +451,9 @@ class InformerModel(TimeSeriesTransformerModel):
                 embedding_dims=config.embedding_dimension,
             )
 
-        # transformer encoder-decoder and mask initializer
         self.encoder = InformerEncoder(config)
         self.decoder = InformerDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(self, **super_kwargs):
@@ -641,7 +599,6 @@ class InformerForPrediction(TimeSeriesTransformerForPrediction):
         else:
             raise ValueError(f"Unknown loss function {config.loss}")
 
-        # Initialize weights of distribution_output and apply final processing
         self.post_init()
 
     @merge_with_config_defaults

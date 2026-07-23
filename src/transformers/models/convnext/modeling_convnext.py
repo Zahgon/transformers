@@ -1,17 +1,3 @@
-# Copyright 2022 Meta Platforms, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch ConvNext model."""
 
 import torch
 from torch import nn
@@ -37,10 +23,6 @@ logger = logging.get_logger(__name__)
 
 
 class ConvNextLayerNorm(nn.LayerNorm):
-    r"""LayerNorm that supports two data formats: channels_last (default) or channels_first.
-    The ordering of the dimensions in the inputs. channels_last corresponds to inputs with shape (batch_size, height,
-    width, channels) while channels_first corresponds to inputs with shape (batch_size, channels, height, width).
-    """
 
     def __init__(self, normalized_shape, *, eps=1e-6, data_format="channels_last", **kwargs):
         super().__init__(normalized_shape, eps=eps, **kwargs)
@@ -63,9 +45,6 @@ class ConvNextLayerNorm(nn.LayerNorm):
 
 
 class ConvNextEmbeddings(nn.Module):
-    """This class is comparable to (and inspired by) the SwinEmbeddings class
-    found in src/transformers/models/swin/modeling_swin.py.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -86,13 +65,7 @@ class ConvNextEmbeddings(nn.Module):
         return embeddings
 
 
-# Copied from transformers.models.swin.modular_swin.SwinDropPath with SwinDropPath->ConvNextDropPath
 class ConvNextDropPath(nn.Module):
-    """Stochastic depth (DropPath) per sample, for residual blocks.
-
-    Identity when ``drop_prob`` is 0 or outside training. See `Deep Networks with Stochastic Depth
-    <https://arxiv.org/abs/1603.09382>`_.
-    """
 
     def __init__(self, drop_prob: float = 0.0) -> None:
         super().__init__()
@@ -108,22 +81,10 @@ class ConvNextDropPath(nn.Module):
         return hidden_states.div(keep_prob) * random_tensor
 
     def extra_repr(self) -> str:
-        return f"p={self.drop_prob}"
+        pass
 
 
 class ConvNextLayer(nn.Module):
-    """This corresponds to the `Block` class in the original implementation.
-
-    There are two equivalent implementations: [DwConv, LayerNorm (channels_first), Conv, GELU,1x1 Conv]; all in (N, C,
-    H, W) (2) [DwConv, Permute to (N, H, W, C), LayerNorm (channels_last), Linear, GELU, Linear]; Permute back
-
-    The authors used (2) as they find it slightly faster in PyTorch.
-
-    Args:
-        config ([`ConvNextConfig`]): Model configuration class.
-        dim (`int`): Number of input channels.
-        drop_path (`float`): Stochastic depth rate. Default: 0.0.
-    """
 
     def __init__(self, config, dim, drop_path=0):
         super().__init__()
@@ -155,15 +116,6 @@ class ConvNextLayer(nn.Module):
 
 
 class ConvNextStage(nn.Module):
-    """ConvNeXT stage, consisting of an optional downsampling layer + multiple residual blocks.
-
-    Args:
-        config ([`ConvNextConfig`]): Model configuration class.
-        in_channels (`int`): Number of input channels.
-        out_channels (`int`): Number of output channels.
-        depth (`int`): Number of residual blocks.
-        drop_path_rates(`list[float]`): Stochastic depth rates for each layer.
-    """
 
     def __init__(self, config, in_channels, out_channels, kernel_size=2, stride=2, depth=2, drop_path_rates=None):
         super().__init__()
@@ -256,10 +208,8 @@ class ConvNextModel(ConvNextPreTrainedModel):
         self.embeddings = ConvNextEmbeddings(config)
         self.encoder = ConvNextEncoder(config)
 
-        # final layernorm layer
         self.layernorm = nn.LayerNorm(config.hidden_sizes[-1], eps=config.layer_norm_eps)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -274,7 +224,6 @@ class ConvNextModel(ConvNextPreTrainedModel):
         encoder_outputs: BaseModelOutputWithNoAttention = self.encoder(embedding_output, **kwargs)
         last_hidden_state = encoder_outputs.last_hidden_state
 
-        # global average pooling, (N, C, H, W) -> (N, C)
         pooled_output = self.layernorm(last_hidden_state.mean([-2, -1]))
 
         return BaseModelOutputWithPoolingAndNoAttention(
@@ -299,13 +248,11 @@ class ConvNextForImageClassification(ConvNextPreTrainedModel):
         self.num_labels = config.num_labels
         self.convnext = ConvNextModel(config)
 
-        # Classifier head
         if config.num_labels > 0:
             self.classifier = nn.Linear(config.hidden_sizes[-1], config.num_labels)
         else:
             self.classifier = nn.Identity()
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple
@@ -349,13 +296,11 @@ class ConvNextBackbone(BackboneMixin, ConvNextPreTrainedModel):
         self.encoder = ConvNextEncoder(config)
         self.num_features = [config.hidden_sizes[0]] + config.hidden_sizes
 
-        # Add layer norms to hidden states of out_features
         hidden_states_norms = {}
         for stage, num_channels in zip(self.out_features, self.channels):
             hidden_states_norms[stage] = ConvNextLayerNorm(num_channels, data_format="channels_first")
         self.hidden_states_norms = nn.ModuleDict(hidden_states_norms)
 
-        # initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

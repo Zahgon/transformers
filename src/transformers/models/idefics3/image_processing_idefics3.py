@@ -1,17 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for Idefics3."""
 
 import math
 
@@ -40,15 +26,6 @@ MAX_IMAGE_SIZE = 4096  # 4k resolution as absolute maximum
 
 
 class Idefics3ImageProcessorKwargs(ImagesKwargs, total=False):
-    """
-    do_image_splitting (`bool`, *optional*, defaults to `True`):
-        Whether to split the image into sub-images concatenated with the original image. They are split into patches
-        such that each patch has a size of `max_image_size["height"]` x `max_image_size["width"]`.
-    max_image_size (`Dict`, *optional*, defaults to `{"longest_edge": 364}`):
-        Maximum resolution of the patches of images accepted by the model. This is a dictionary containing the key "longest_edge".
-    return_row_col_info (`bool`, *optional*, defaults to `False`):
-        Whether to return the row and column information of the images.
-    """
 
     do_image_splitting: bool
     max_image_size: dict[str, int]
@@ -86,7 +63,6 @@ def _resize_output_size_rescale_to_max_len(
         if width % 2 != 0:
             width += 1
 
-    # Avoid resizing to a size smaller than min_len
     height = max(height, min_len)
     width = max(width, min_len)
     return height, width
@@ -117,7 +93,6 @@ def _resize_output_size_scale_below_upper_bound(
         height = max_len
         width = int(height * aspect_ratio)
 
-    # Avoid resizing to a size smaller than 1
     height = max(height, 1)
     width = max(width, 1)
     return height, width
@@ -140,9 +115,7 @@ def get_resize_output_image_size(
     """
     height, width = image.shape[-2:]
 
-    # Find the output size, when rescaling the longest edge to max_len and preserving the aspect ratio
     height, width = _resize_output_size_rescale_to_max_len(height, width, max_len=resolution_max_side)
-    # Find the output size when scaling the image to be below the MAX_IMAGE_SIZE
     height, width = _resize_output_size_scale_below_upper_bound(height, width, max_len=MAX_IMAGE_SIZE)
     return height, width
 
@@ -226,7 +199,6 @@ class Idefics3ImageProcessor(TorchvisionBackend):
         """
         Prepare a nested images structure for processing.
         """
-        # Checks for `str` in case of URL/local path and optionally loads images
         images = self.fetch_images(images)
         return make_nested_list_of_images(images, expected_ndims=expected_ndims)
 
@@ -287,11 +259,9 @@ class Idefics3ImageProcessor(TorchvisionBackend):
 
         frames = []
         if height > max_height or width > max_width:
-            # Calculate the number of splits
             num_splits_h = math.ceil(height / max_height)
             num_splits_w = math.ceil(width / max_width)
 
-            # Split the images by height, then by width
             frames = (
                 images.unfold(height_dim, size=max_height, step=max_height)
                 .unfold(width_dim, size=max_width, step=max_width)
@@ -300,7 +270,6 @@ class Idefics3ImageProcessor(TorchvisionBackend):
                 .permute(0, 2, 1, 3, 4)
             )  # batch_size x n_frames x num_channels x height x width
 
-            # For the global image at the end, we resize it to match the max_image_size, for cpu memory efficiency
             global_image_height, global_image_width = max_height, max_width
             images = self.resize(
                 images, SizeDict(height=global_image_height, width=global_image_width), resample=resample
@@ -364,12 +333,10 @@ class Idefics3ImageProcessor(TorchvisionBackend):
                 f"original size. Got padded size: {padded_size}, original size: {original_size}."
             )
 
-        # Only pad if necessary
         if original_size != padded_size:
             padding = (0, 0, padding_right, padding_bottom)
             image = tvF.pad(image, padding, fill=fill, padding_mode="constant")
 
-        # Make a pixel mask for the image, where 1 indicates a valid pixel and 0 indicates padding.
         pixel_mask = None
         if return_pixel_mask:
             pixel_mask = torch.zeros_like(image[..., 0, :, :], dtype=torch.int64)
@@ -430,12 +397,10 @@ class Idefics3ImageProcessor(TorchvisionBackend):
             processed_images = reorder_images(split_images_grouped, grouped_images_index, is_nested=True)
             rows = reorder_images(rows_grouped, grouped_images_index, is_nested=True)
             cols = reorder_images(cols_grouped, grouped_images_index, is_nested=True)
-            # flattenened the doubly nested list to a nested list
             for i, group_images in enumerate(processed_images):
                 processed_images[i] = [image for sublist in group_images for image in sublist]
         else:
             for shape, stacked_images in grouped_images.items():
-                # We square the images to max_image_size
                 stacked_images = self.resize(
                     image=stacked_images,
                     size=SizeDict(height=max_image_size["longest_edge"], width=max_image_size["longest_edge"]),
@@ -445,21 +410,17 @@ class Idefics3ImageProcessor(TorchvisionBackend):
             processed_images = reorder_images(split_images_grouped, grouped_images_index, is_nested=True)
             rows = [[0] * len(images) for images in processed_images]
             cols = [[0] * len(images) for images in processed_images]
-        # Group images by size for further processing
-        # Needed in case do_resize is False, or resize returns images with different sizes
         grouped_images, grouped_images_index = group_images_by_shape(
             processed_images, is_nested=True, disable_grouping=disable_grouping
         )
         processed_images_grouped = {}
         for shape, stacked_images in grouped_images.items():
-            # Fused rescale and normalize
             stacked_images = self.rescale_and_normalize(
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
             processed_images_grouped[shape] = stacked_images
         processed_images = reorder_images(processed_images_grouped, grouped_images_index, is_nested=True)
         if do_pad:
-            # Get max images per batch
             max_num_images = max(len(images_) for images_ in processed_images)
             max_height, max_width = get_max_height_width(processed_images)
             num_channels = get_num_channels(processed_images)
@@ -490,7 +451,6 @@ class Idefics3ImageProcessor(TorchvisionBackend):
             data = {"pixel_values": torch.stack([torch.stack(images) for images in processed_images])}
         else:
             data = {"pixel_values": processed_images}
-        # This is needed for generating correct text inputs in the processor - we don't pad to the max number of images
         encoding = BatchFeature(data=data, tensor_type=return_tensors)
 
         if return_row_col_info:
@@ -506,46 +466,7 @@ class Idefics3ImageProcessor(TorchvisionBackend):
         return encoder_dict
 
     def get_number_of_image_patches(self, height: int, width: int, images_kwargs: dict):
-        """
-        A utility that returns number of image patches for a given image size.
-
-        Args:
-            height (`int`):
-                Height of the input image.
-            width (`int`):
-                Width of the input image.
-            images_kwargs (`dict`)
-                Any kwargs to override defaults of the image processor.
-        Returns:
-            `int`: Number of patches per image.
-        """
-        do_image_splitting = images_kwargs.get("do_image_splitting", self.do_image_splitting)
-        max_image_size = images_kwargs.get("max_image_size", self.max_image_size)
-        size = images_kwargs.get("size", self.size)
-
-        num_patches = num_rows = num_cols = 0
-        if do_image_splitting:
-            height, width = _resize_output_size_rescale_to_max_len(height, width, max_len=size["longest_edge"])
-            height, width = _resize_output_size_scale_below_upper_bound(height, width, max_len=MAX_IMAGE_SIZE)
-            aspect_ratio = width / height
-
-            if width >= height:
-                resized_width = math.ceil(width / max_image_size["longest_edge"]) * max_image_size["longest_edge"]
-                resized_height = int(width / aspect_ratio)
-                resized_height = math.ceil(height / max_image_size["longest_edge"]) * max_image_size["longest_edge"]
-            elif height > width:
-                resized_height = math.ceil(height / max_image_size["longest_edge"]) * max_image_size["longest_edge"]
-                resized_width = int(height * aspect_ratio)
-                resized_width = math.ceil(width / max_image_size["longest_edge"]) * max_image_size["longest_edge"]
-
-            max_height = max_width = max_image_size["longest_edge"]
-            if resized_height > max_height or resized_width > max_width:
-                # Calculate the number of splits
-                num_rows = math.ceil(resized_height / max_height)
-                num_cols = math.ceil(resized_width / max_width)
-                num_patches = num_rows * num_cols + 1
-
-        return num_patches, num_rows, num_cols
+        pass
 
 
 __all__ = ["Idefics3ImageProcessor"]

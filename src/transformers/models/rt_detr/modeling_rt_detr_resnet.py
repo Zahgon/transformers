@@ -1,20 +1,3 @@
-# Copyright 2024 Microsoft Research, Inc. and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-PyTorch RTDetr specific ResNet model. The main difference between hugginface ResNet model is that this RTDetrResNet model forces to use shortcut at the first layer in the resnet-18/34 models.
-See https://github.com/lyuwenyu/RT-DETR/blob/5b628eaa0a2fc25bdafec7e6148d5296b144af85/rtdetr_pytorch/src/nn/backbone/presnet.py#L126 for details.
-"""
 
 import math
 
@@ -34,7 +17,6 @@ from .configuration_rt_detr_resnet import RTDetrResNetConfig
 logger = logging.get_logger(__name__)
 
 
-# Copied from transformers.models.resnet.modeling_resnet.ResNetConvLayer with ResNet->RTDetrResNet
 class RTDetrResNetConvLayer(nn.Module):
     def __init__(
         self,
@@ -69,9 +51,6 @@ class RTDetrResNetConvLayer(nn.Module):
 
 
 class RTDetrResNetEmbeddings(nn.Module):
-    """
-    ResNet Embeddings (stem) composed of a deep aggressive convolution.
-    """
 
     def __init__(self, config: RTDetrResNetConfig):
         super().__init__()
@@ -114,12 +93,7 @@ class RTDetrResNetEmbeddings(nn.Module):
         return embedding
 
 
-# Copied from transformers.models.resnet.modeling_resnet.ResNetShortCut -> RTDetrResNetChortCut
 class RTDetrResNetShortCut(nn.Module):
-    """
-    ResNet shortcut, used to project the residual features to the correct size. If needed, it is also used to
-    downsample the input using `stride=2`.
-    """
 
     def __init__(self, in_channels: int, out_channels: int, stride: int = 2):
         super().__init__()
@@ -133,10 +107,6 @@ class RTDetrResNetShortCut(nn.Module):
 
 
 class RTDetrResNetBasicLayer(nn.Module):
-    """
-    A classic ResNet's residual layer composed by two `3x3` convolutions.
-    See https://github.com/lyuwenyu/RT-DETR/blob/5b628eaa0a2fc25bdafec7e6148d5296b144af85/rtdetr_pytorch/src/nn/backbone/presnet.py#L34.
-    """
 
     def __init__(
         self,
@@ -177,13 +147,6 @@ class RTDetrResNetBasicLayer(nn.Module):
 
 
 class RTDetrResNetBottleNeckLayer(nn.Module):
-    """
-    A classic RTDetrResNet's bottleneck layer composed by three `3x3` convolutions.
-
-    The first `1x1` convolution reduces the input by a factor of `reduction` in order to make the second `3x3`
-    convolution faster. The last `1x1` convolution remaps the reduced features to `out_channels`. If
-    `downsample_in_bottleneck` is true, downsample will be in the first layer instead of the second layer.
-    """
 
     def __init__(
         self,
@@ -232,9 +195,6 @@ class RTDetrResNetBottleNeckLayer(nn.Module):
 
 
 class RTDetrResNetStage(nn.Module):
-    """
-    A RTDetrResNet stage composed by stacked layers.
-    """
 
     def __init__(
         self,
@@ -268,12 +228,10 @@ class RTDetrResNetStage(nn.Module):
         return hidden_state
 
 
-# Copied from transformers.models.resnet.modeling_resnet.ResNetEncoder with ResNet->RTDetrResNet
 class RTDetrResNetEncoder(nn.Module):
     def __init__(self, config: RTDetrResNetConfig):
         super().__init__()
         self.stages = nn.ModuleList([])
-        # based on `downsample_in_first_stage` the first layer of the first stage may or may not downsample the input
         self.stages.append(
             RTDetrResNetStage(
                 config,
@@ -311,7 +269,6 @@ class RTDetrResNetEncoder(nn.Module):
 
 
 @auto_docstring
-# Copied from transformers.models.resnet.modeling_resnet.ResNetPreTrainedModel with ResNet->RTDetrResNet
 class RTDetrResNetPreTrainedModel(PreTrainedModel):
     config: RTDetrResNetConfig
     base_model_prefix = "resnet"
@@ -324,14 +281,12 @@ class RTDetrResNetPreTrainedModel(PreTrainedModel):
         super()._init_weights(module)
         if isinstance(module, nn.Conv2d):
             init.kaiming_normal_(module.weight, mode="fan_out", nonlinearity="relu")
-        # copied from the `reset_parameters` method of `class Linear(Module)` in `torch`.
         elif isinstance(module, nn.Linear):
             init.kaiming_uniform_(module.weight, a=math.sqrt(5))
             if module.bias is not None:
                 fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(module.weight)
                 bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
                 init.uniform_(module.bias, -bound, bound)
-        # We need to check it like that as some Detr models replace the BatchNorm2d by their own
         elif "BatchNorm" in module.__class__.__name__:
             init.ones_(module.weight)
             init.zeros_(module.bias)
@@ -356,7 +311,6 @@ class RTDetrResNetBackbone(BackboneMixin, RTDetrResNetPreTrainedModel):
         self.embedder = RTDetrResNetEmbeddings(config)
         self.encoder = RTDetrResNetEncoder(config)
 
-        # initialize weights and apply final processing
         self.post_init()
 
     @can_return_tuple

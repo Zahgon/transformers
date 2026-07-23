@@ -1,19 +1,3 @@
-# Copyright 2020 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Integration with Deepspeed
-"""
 
 import copy
 import importlib.metadata
@@ -36,8 +20,6 @@ logger = logging.get_logger(__name__)
 def is_deepspeed_available():
     package_exists = importlib.util.find_spec("deepspeed") is not None
 
-    # Check we're not importing a "deepspeed" directory somewhere but the actual library by trying to grab the version
-    # AND checking it has an author field in the metadata that is HuggingFace.
     if package_exists:
         try:
             _ = importlib.metadata.metadata("deepspeed")
@@ -49,30 +31,12 @@ def is_deepspeed_available():
 if is_accelerate_available() and is_deepspeed_available():
     from accelerate.utils.deepspeed import HfDeepSpeedConfig as DeepSpeedConfig
 else:
-    # Inherits from a dummy `object` if accelerate is not available, so that python succeeds to import this file.
-    # Deepspeed glue code will never inherit this dummy object as it checks if accelerate is available.
     from builtins import object as DeepSpeedConfig
 
 
 class HfDeepSpeedConfig(DeepSpeedConfig):  # noqa UP004
-    """
-    This object contains a DeepSpeed configuration dictionary and can be quickly queried for things like zero stage.
-
-    A `weakref` of this object is stored in the module's globals to be able to access the config from areas where
-    things like the Trainer object is not available (e.g. `from_pretrained` and `_get_resized_embeddings`). Therefore
-    it's important that this object remains alive while the program is still running.
-
-    [`Trainer`] uses the `HfTrainerDeepSpeedConfig` subclass instead. That subclass has logic to sync the configuration
-    with values of [`TrainingArguments`] by replacing special placeholder values: `"auto"`. Without this special logic
-    the DeepSpeed configuration is not modified in any way.
-
-    Args:
-        config_file_or_dict (`Union[str, Dict]`): path to DeepSpeed config file or dict.
-
-    """
 
     def __init__(self, config_file_or_dict):
-        # set global weakref object
         set_hf_deepspeed_config(self)
         dep_version_check("accelerate")
         dep_version_check("deepspeed")
@@ -80,10 +44,6 @@ class HfDeepSpeedConfig(DeepSpeedConfig):  # noqa UP004
 
 
 class HfTrainerDeepSpeedConfig(HfDeepSpeedConfig):
-    """
-    The `HfTrainerDeepSpeedConfig` object is meant to be created during `TrainingArguments` object creation and has the
-    same lifespan as the latter.
-    """
 
     def __init__(self, config_file_or_dict):
         super().__init__(config_file_or_dict)
@@ -135,8 +95,6 @@ class HfTrainerDeepSpeedConfig(HfDeepSpeedConfig):
         Adjust the config with `TrainingArguments` values. This stage is run during `TrainingArguments` object
         creation.
         """
-        # DeepSpeed does:
-        # train_batch_size = world_size * train_micro_batch_size_per_gpu * gradient_accumulation_steps
         train_batch_size = args.world_size * args.per_device_train_batch_size * args.gradient_accumulation_steps
         self.fill_match(
             "train_micro_batch_size_per_gpu",
@@ -168,19 +126,14 @@ class HfTrainerDeepSpeedConfig(HfDeepSpeedConfig):
 
         self.fill_only("scheduler.params.warmup_min_lr", 0)  # not a trainer arg
         self.fill_match("scheduler.params.warmup_max_lr", args.learning_rate, "learning_rate")
-        # total_num_steps - will get set in trainer_config_finalize
 
         if args.save_on_each_node:
-            # deepspeed uses shared storage by default. Let's override this setting if save_on_each_node == True
             self.config["checkpoint"] = self.config.get("checkpoint", {})
             self.config["checkpoint"]["use_node_local_storage"] = args.save_on_each_node
 
-        # amp: similar to the pytorch native amp - it has a bunch of optional params but we won't set
-        # any here unless the user did the work
         self.fill_match("fp16.enabled", (args.fp16 or args.fp16_full_eval), "fp16|fp16_full_eval")
         self.fill_match("bf16.enabled", (args.bf16 or args.bf16_full_eval), "bf16|bf16_full_eval")
 
-        # deepspeed's default mode is fp16 unless there is a config that says differently
         if self.is_true("bf16.enabled"):
             self._dtype = torch.bfloat16
         elif self.is_true("fp16.enabled"):
@@ -194,9 +147,7 @@ class HfTrainerDeepSpeedConfig(HfDeepSpeedConfig):
 
         Now we can complete the configuration process.
         """
-        # zero
 
-        # deal with config keys that use `auto` value and rely on model's hidden_size
         hidden_size_based_keys = [
             "zero_optimization.reduce_bucket_size",
             "zero_optimization.stage3_prefetch_bucket_size",
@@ -210,12 +161,10 @@ class HfTrainerDeepSpeedConfig(HfDeepSpeedConfig):
                 if hasattr(model.config, "hidden_size"):
                     hidden_size = model.config.hidden_size
                 elif hasattr(model.config, "hidden_sizes"):
-                    # if there are many hidden sizes pick the largest one
                     hidden_size = max(model.config.hidden_sizes)
                 elif hasattr(model.config, "text_config") and hasattr(model.config.text_config, "hidden_size"):
                     hidden_size = model.config.text_config.hidden_size
                 elif hasattr(model.config, "text_config") and hasattr(model.config.text_config, "hidden_sizes"):
-                    # if there are many hidden sizes pick the largest one
                     hidden_size = max(model.config.text_config.hidden_sizes)
 
             if hidden_size is None:
@@ -228,7 +177,6 @@ class HfTrainerDeepSpeedConfig(HfDeepSpeedConfig):
 
             self.fill_only("zero_optimization.reduce_bucket_size", hidden_size * hidden_size)
             if self.is_zero3():
-                # automatically assign the optimal config values based on model config
                 self.fill_only(
                     "zero_optimization.stage3_prefetch_bucket_size",
                     int(0.9 * hidden_size * hidden_size),
@@ -238,7 +186,6 @@ class HfTrainerDeepSpeedConfig(HfDeepSpeedConfig):
                     10 * hidden_size,
                 )
 
-        # scheduler
         self.fill_match(
             "scheduler.params.total_num_steps",
             num_training_steps,
@@ -258,20 +205,15 @@ class HfTrainerDeepSpeedConfig(HfDeepSpeedConfig):
             )
 
 
-# keep the config object global to be able to access it anywhere during TrainingArguments life-cycle
 _hf_deepspeed_config_weak_ref = None
 
 
 def set_hf_deepspeed_config(hf_deepspeed_config_obj):
-    # this is a special weakref global object to allow us to get to Deepspeed config from APIs
-    # that don't have an easy way to get to the Deepspeed config outside of the Trainer domain.
     global _hf_deepspeed_config_weak_ref
-    # will go away automatically when HfDeepSpeedConfig is destroyed (when TrainingArguments is destroyed)
     _hf_deepspeed_config_weak_ref = weakref.ref(hf_deepspeed_config_obj)
 
 
 def unset_hf_deepspeed_config():
-    # useful for unit tests to ensure the global state doesn't leak - call from `tearDown` method
     global _hf_deepspeed_config_weak_ref
     _hf_deepspeed_config_weak_ref = None
 
@@ -330,13 +272,9 @@ def _apply_weight_conversions_to_state_dict(model, state_dict, weight_mapping):
     Apply weight conversions (renaming and merging/splitting operations) to a state dict.
     This is a simplified version that handles the conversion without loading into the model.
     """
-    # Check for Tensor Parallelism - weight conversions are not tested with TP
-    # TP uses ReplaceWithTensorSlicing which may conflict with our weight conversions
     ds_config = deepspeed_config()
     if ds_config is not None:
-        # Check training config (tensor_parallel.autotp_size)
         tp_size = ds_config.get("tensor_parallel", {}).get("autotp_size", 1)
-        # Check inference config (inference.tensor_parallel.tp_size)
         inference_config = ds_config.get("inference", {})
         if isinstance(inference_config, dict):
             tp_size = max(tp_size, inference_config.get("tensor_parallel", {}).get("tp_size", 1))
@@ -349,13 +287,10 @@ def _apply_weight_conversions_to_state_dict(model, state_dict, weight_mapping):
 
     from ..core_model_loading import WeightConverter, WeightRenaming, dot_natural_key, rename_source_key
 
-    # Preserve metadata from the original state dict
     metadata = getattr(state_dict, "_metadata", None)
 
     base_model_prefix = model.base_model_prefix
 
-    # Build a meta state dict for matching - only keys/shapes, no actual tensor data
-    # This minimizes memory since we don't duplicate the model's parameters
     model_state_dict = {}
     for key, param in model.state_dict().items():
         model_state_dict[key] = torch.empty(param.shape, dtype=param.dtype, device="meta")
@@ -363,7 +298,6 @@ def _apply_weight_conversions_to_state_dict(model, state_dict, weight_mapping):
     renamings = [entry for entry in weight_mapping if isinstance(entry, WeightRenaming)]
     converters = [entry for entry in weight_mapping if isinstance(entry, WeightConverter)]
 
-    # Fast path: if we only have simple renamings and no converters, we can skip the expensive collection logic
     if len(converters) == 0:
         new_state_dict = {}
         for original_key, tensor in state_dict.items():
@@ -372,17 +306,12 @@ def _apply_weight_conversions_to_state_dict(model, state_dict, weight_mapping):
             )
             if renamed_key in model_state_dict:
                 new_state_dict[renamed_key] = tensor
-        # Attach metadata to the new state dict
         if metadata is not None:
             new_state_dict._metadata = metadata
         return new_state_dict
 
-    # Full path: we have WeightConverter operations that require tensor fusion/splitting
     pattern_to_converter = {k: converter for converter in converters for k in converter.source_patterns}
 
-    # Build a mapping of what needs to be converted
-    # Sort keys to ensure consistent ordering (important for MoE conversions)
-    # Iterate over sorted keys and pop from state_dict to free memory immediately
     conversion_mapping = {}
     new_state_dict = {}
     sorted_keys = sorted(state_dict.keys(), key=lambda k: dot_natural_key(k))
@@ -392,12 +321,8 @@ def _apply_weight_conversions_to_state_dict(model, state_dict, weight_mapping):
             original_key, renamings, converters, base_model_prefix=base_model_prefix, meta_state_dict=model_state_dict
         )
 
-        # Only process if the renamed key is in the model's state dict
         if renamed_key in model_state_dict:
-            # If source_pattern is not None, this key needs WeightConverter (e.g., MoE fusion)
             if source_pattern is not None:
-                # Create a fresh converter for this layer to hold its tensors
-                # Share operations list (lightweight, no large data) but get new collected_tensors
                 converter = pattern_to_converter[source_pattern]
                 new_converter = WeightConverter(
                     source_patterns=converter.source_patterns,
@@ -407,11 +332,8 @@ def _apply_weight_conversions_to_state_dict(model, state_dict, weight_mapping):
                 mapping = conversion_mapping.setdefault(renamed_key, new_converter)
                 mapping.add_tensor(renamed_key, original_key, source_pattern, tensor)
             else:
-                # No conversion needed - add tensor directly to new_state_dict
-                # (this handles keys like embed_tokens, lm_head, layernorm, attention)
                 new_state_dict[renamed_key] = tensor
 
-    # Apply the conversions and build the new state dict
     for renamed_key, mapping in conversion_mapping.items():
         try:
             realized_value = mapping.convert(
@@ -429,7 +351,6 @@ def _apply_weight_conversions_to_state_dict(model, state_dict, weight_mapping):
                 f"Error: {e}"
             ) from e
 
-    # Attach metadata to the new state dict
     if metadata is not None:
         new_state_dict._metadata = metadata
 
@@ -448,21 +369,17 @@ def _load_state_dict_into_zero3_model(model_to_load, state_dict, load_config=Non
         state_dict: The state dict containing the weights
         load_config: Optional LoadStateDictConfig containing weight_mapping and other loading options
     """
-    # copy state_dict so `_load_state_dict_into_zero3_model` can modify it
     metadata = getattr(state_dict, "_metadata", None)
     state_dict = state_dict.copy()
     if metadata is not None:
         state_dict._metadata = metadata
 
-    # Extract weight_mapping from load_config if provided
     weight_mapping = None
     if load_config is not None:
         weight_mapping = getattr(load_config, "weight_mapping", None)
 
-    # Apply weight conversions if provided
     if weight_mapping is not None and len(weight_mapping) > 0:
         state_dict = _apply_weight_conversions_to_state_dict(model_to_load, state_dict, weight_mapping)
-        # Keep the current weight conversion mapping for later saving (in case it was coming directly from the user)
         model_to_load._weight_conversions = weight_mapping
 
     error_msgs = []
@@ -470,45 +387,33 @@ def _load_state_dict_into_zero3_model(model_to_load, state_dict, load_config=Non
     missing_keys = set(meta_model_state_dict.keys())
 
     prefix_model = getattr(model_to_load, "base_model_prefix", None)
-    # take care of the case where in the checkpoint we don't have the prefix
     state_dict = {
         (f"{prefix_model}.{k}" if meta_model_state_dict.get(f"{prefix_model}.{k}") is not None else k): v
         for k, v in state_dict.items()
     }
 
-    # PyTorch's `_load_from_state_dict` does not copy parameters in a module's descendants
-    # so we need to apply the function recursively.
     def load(module: nn.Module, state_dict, prefix="", assign_to_params_buffers=False):
         local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
         local_metadata["assign_to_params_buffers"] = assign_to_params_buffers
 
         args = (state_dict, prefix, local_metadata, True, [], [], error_msgs)
-        # Parameters of module and children will start with prefix. We can exit early if there are none in this
-        # state_dict
         if is_deepspeed_zero3_enabled():
             import deepspeed
 
-            # In sharded models, each shard has only part of the full state_dict, so only gather
-            # parameters that are in the current state_dict.
             named_parameters = dict(module.named_parameters(prefix=prefix[:-1], recurse=False))
             params_to_gather = []
             for k in named_parameters:
                 if k in state_dict:
                     param = named_parameters[k]
-                    # crucial to not init the weight again
                     param._is_hf_initialized = True
                     params_to_gather.append(param)
                     missing_keys.discard(k)
 
             if len(params_to_gather) > 0:
-                # because zero3 puts placeholders in model params, this context
-                # manager gathers (unpartitions) the params of the current layer, then loads from
-                # the state dict and then re-partitions them again
                 with deepspeed.zero.GatheredParameters(params_to_gather, modifier_rank=0):
                     if torch.distributed.get_rank() == 0:
                         module._load_from_state_dict(*args)
 
-            # Buffers are not partitioned by ZeRO-3, load them directly
             named_buffers = dict(module.named_buffers(prefix=prefix[:-1], recurse=False))
             for k, buf in named_buffers.items():
                 if k in state_dict and buf is not None:
@@ -534,13 +439,6 @@ def deepspeed_optim_sched(trainer, hf_deepspeed_config, args, num_training_steps
 
     config = hf_deepspeed_config.config
 
-    # Mixing and matching DS schedulers and optimizers is supported unless Offload is enabled in which case it's:
-    # 1. DS scheduler + DS optimizer: Yes
-    # 2. HF scheduler + HF optimizer: Mostly*
-    # 3. DS scheduler + HF optimizer: Mostly*
-    # 4. HF scheduler + DS optimizer: Yes
-    #
-    # Mostly*: All non-native DeepSpeed optimizers that have both CPU and GPU implementation should work (except LAMB)
 
     optimizer = None
     if "optimizer" in config:
@@ -552,10 +450,7 @@ def deepspeed_optim_sched(trainer, hf_deepspeed_config, args, num_training_steps
                 " custom optimizer has both CPU and GPU implementation (except LAMB)"
             )
 
-        # ds supports Adam, OneBitAdam, and Lamb optimizers and can import other optimizers from torch.
-        # But trainer uses AdamW by default.
         optimizer = trainer.create_optimizer()
-        # To use other optimizers requires voiding warranty with: `zero_allow_untested_optimizer`
         config["zero_allow_untested_optimizer"] = True
 
     lr_scheduler = None
@@ -565,15 +460,7 @@ def deepspeed_optim_sched(trainer, hf_deepspeed_config, args, num_training_steps
         if isinstance(optimizer, DummyOptim):
 
             def _lr_scheduler_callable(optimizer):
-                # create a shallow copy first, so later modifications do not affect original trainer
-                trainer_copy = copy.copy(trainer)
-                # at the time _lr_scheduler_callable is called, trainer.lr_scheduler has been set
-                # update it to None so that we can re-create a new scheduler
-                trainer_copy.lr_scheduler = None
-                lr_scheduler = trainer_copy.create_scheduler(
-                    num_training_steps=num_training_steps, optimizer=optimizer
-                )
-                return lr_scheduler
+                pass
 
             lr_scheduler = DummyScheduler(optimizer, lr_scheduler_callable=_lr_scheduler_callable)
 
@@ -608,18 +495,14 @@ def deepspeed_init(trainer, num_training_steps, inference=False):
 
     hf_deepspeed_config = trainer.accelerator.state.deepspeed_plugin.hf_ds_config
 
-    # resume config update - some bits like `model` and `num_training_steps` only become available during train
     hf_deepspeed_config.trainer_config_finalize(args, model, num_training_steps)
 
-    # set the Deepspeed log level consistent with the Trainer
     ds_logger.setLevel(args.get_process_log_level())
 
     if inference:
-        # only Z3 makes sense for the inference
         if not hf_deepspeed_config.is_zero3():
             raise ValueError("ZeRO inference only makes sense with ZeRO Stage 3 - please adjust your config")
 
-        # in case the training config is re-used for inference
         hf_deepspeed_config.del_config_sub_tree("optimizer")
         hf_deepspeed_config.del_config_sub_tree("lr_scheduler")
         optimizer, lr_scheduler = None, None
@@ -641,34 +524,12 @@ def deepspeed_init(trainer, num_training_steps, inference=False):
             trainer, hf_deepspeed_config, args, num_training_steps, model_parameters
         )
 
-    # keep for quick debug:
-    # from pprint import pprint; pprint(config)
 
     return optimizer, lr_scheduler
 
 
 def deepspeed_load_checkpoint(deepspeed_engine, checkpoint_path, load_module_strict=True):
-    # it's possible that the user is trying to resume from model_path, which doesn't necessarily
-    # contain a deepspeed checkpoint. e.g. examples just check if the dir exists and assume it's
-    # a resume from a checkpoint and not just a local pretrained weight. So we check here if the
-    # path contains what looks like a deepspeed checkpoint
-    import glob
-
-    deepspeed_checkpoint_dirs = sorted(glob.glob(f"{checkpoint_path}/global_step*"))
-
-    if len(deepspeed_checkpoint_dirs) > 0:
-        logger.info(f"Attempting to resume from {checkpoint_path}")
-        # this magically updates self.optimizer and self.lr_scheduler
-        load_path, _ = deepspeed_engine.load_checkpoint(
-            checkpoint_path,
-            load_module_strict=load_module_strict,
-            load_optimizer_states=True,
-            load_lr_scheduler_states=True,
-        )
-        if load_path is None:
-            raise ValueError(f"[deepspeed] failed to resume from checkpoint {checkpoint_path}")
-    else:
-        raise ValueError(f"Can't find a valid checkpoint at {checkpoint_path}")
+    pass
 
 
 def propagate_args_to_deepspeed(accelerator, args, auto_find_batch_size=False):
@@ -705,18 +566,11 @@ def deepspeed_sp_compute_loss(accelerator, model, inputs, return_outputs, pc):
     Returns:
         The loss, or a tuple of `(loss, outputs)` if `return_outputs` is `True`.
     """
-    # DeepSpeed SP automatically injects shift_labels into inputs (pre-shifted labels for SP).
-    # The model's forward pass receives shift_labels via **kwargs and passes it to the loss function.
-    # Both standard transformer models and Liger-patched models handle shift_labels correctly,
-    # so we can directly use the computed loss from the model output.
-    # See: https://huggingface.co/docs/accelerate/en/concept_guides/sequence_parallelism
     if "labels" not in inputs and "shift_labels" in inputs:
-        # DeepSpeed SP Dataloader removes "labels" but we need it, otherwise, we won't compute the loss.
         inputs["labels"] = inputs["shift_labels"]
     outputs = model(**inputs)
     loss = outputs.loss
 
-    # Prefer DeepSpeed SP groups when using Ulysses; otherwise fall back to torch device mesh.
     if pc.sp_backend == "deepspeed" and pc.sp_size > 1:
         from deepspeed.utils import groups
 
@@ -728,9 +582,7 @@ def deepspeed_sp_compute_loss(accelerator, model, inputs, return_outputs, pc):
             "Sequence parallelism is enabled but no SP process group is available. "
             "Ensure torch_device_mesh is initialized or sp_backend='deepspeed' with sp_size > 1."
         )
-    # differentiable weighted per-shard-loss aggregation across ranks
     losses_per_rank = torch.distributed.nn.functional.all_gather(loss, group=sp_group)
-    # special dealing with SFT that has prompt tokens that aren't used in loss computation
     good_tokens = (inputs["shift_labels"] != -100).view(-1).sum()
     good_tokens_per_rank = torch.distributed.nn.functional.all_gather(good_tokens, group=sp_group)
     losses_stacked = torch.stack(losses_per_rank)

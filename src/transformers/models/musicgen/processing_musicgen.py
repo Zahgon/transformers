@@ -1,19 +1,3 @@
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Text/audio processor class for MusicGen
-"""
 
 from typing import Any
 
@@ -29,7 +13,7 @@ class MusicgenProcessor(ProcessorMixin):
         super().__init__(feature_extractor, tokenizer)
 
     def get_decoder_prompt_ids(self, task=None, language=None, no_timestamps=True):
-        return self.tokenizer.get_decoder_prompt_ids(task=task, language=language, no_timestamps=no_timestamps)
+        pass
 
     @auto_docstring
     def __call__(self, *args, **kwargs):
@@ -67,8 +51,6 @@ class MusicgenProcessor(ProcessorMixin):
 
         padding_mask = to_numpy(padding_mask)
 
-        # match the sequence length of the padding mask to the generated audio arrays by padding with the **non-padding**
-        # token (so that the generated audio values are **not** treated as padded tokens)
         difference = seq_len - padding_mask.shape[-1]
         padding_value = 1 - self.feature_extractor.padding_value
         padding_mask = np.pad(padding_mask, ((0, 0), (0, difference)), "constant", constant_values=padding_value)

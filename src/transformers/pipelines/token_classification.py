@@ -20,9 +20,6 @@ if is_torch_available():
 
 
 class TokenClassificationArgumentHandler(ArgumentHandler):
-    """
-    Handles arguments for token classification.
-    """
 
     def __call__(self, inputs: str | list[str], **kwargs):
         is_split_into_words = kwargs.get("is_split_into_words", False)
@@ -49,7 +46,6 @@ class TokenClassificationArgumentHandler(ArgumentHandler):
 
 
 class AggregationStrategy(ExplicitEnum):
-    """All the valid aggregation strategies for TokenClassificationPipeline"""
 
     NONE = "none"
     SIMPLE = "simple"
@@ -90,41 +86,6 @@ class AggregationStrategy(ExplicitEnum):
                   end up with different tags. Word entity will simply be the token with the maximum score.""",
 )
 class TokenClassificationPipeline(ChunkPipeline):
-    """
-    Named Entity Recognition pipeline using any `ModelForTokenClassification`. See the [named entity recognition
-    examples](../task_summary#named-entity-recognition) for more information.
-
-    Example:
-
-    ```python
-    >>> from transformers import pipeline
-
-    >>> token_classifier = pipeline(model="Jean-Baptiste/camembert-ner", aggregation_strategy="simple")
-    >>> sentence = "Je m'appelle jean-baptiste et je vis à montréal"
-    >>> tokens = token_classifier(sentence)
-    >>> tokens
-    [{'entity_group': 'PER', 'score': 0.9931, 'word': 'jean-baptiste', 'start': 12, 'end': 26}, {'entity_group': 'LOC', 'score': 0.998, 'word': 'montréal', 'start': 38, 'end': 47}]
-
-    >>> token = tokens[0]
-    >>> # Start and end provide an easy way to highlight words in the original text.
-    >>> sentence[token["start"] : token["end"]]
-    ' jean-baptiste'
-
-    >>> # Some models use the same idea to do part of speech.
-    >>> syntaxer = pipeline(model="vblagoje/bert-english-uncased-finetuned-pos", aggregation_strategy="simple")
-    >>> syntaxer("My name is Sarah and I live in London")
-    [{'entity_group': 'PRON', 'score': 0.999, 'word': 'my', 'start': 0, 'end': 2}, {'entity_group': 'NOUN', 'score': 0.997, 'word': 'name', 'start': 3, 'end': 7}, {'entity_group': 'AUX', 'score': 0.994, 'word': 'is', 'start': 8, 'end': 10}, {'entity_group': 'PROPN', 'score': 0.999, 'word': 'sarah', 'start': 11, 'end': 16}, {'entity_group': 'CCONJ', 'score': 0.999, 'word': 'and', 'start': 17, 'end': 20}, {'entity_group': 'PRON', 'score': 0.999, 'word': 'i', 'start': 21, 'end': 22}, {'entity_group': 'VERB', 'score': 0.998, 'word': 'live', 'start': 23, 'end': 27}, {'entity_group': 'ADP', 'score': 0.999, 'word': 'in', 'start': 28, 'end': 30}, {'entity_group': 'PROPN', 'score': 0.999, 'word': 'london', 'start': 31, 'end': 37}]
-    ```
-
-    Learn more about the basics of using a pipeline in the [pipeline tutorial](../pipeline_tutorial)
-
-    This token recognition pipeline can currently be loaded from [`pipeline`] using the following task identifier:
-    `"ner"` (for predicting the classes of tokens in a sequence: person, organisation, location or miscellaneous).
-
-    The models that this pipeline can use are models that have been fine-tuned on a token classification task. See the
-    up-to-date list of available models on
-    [huggingface.co/models](https://huggingface.co/models?filter=token-classification).
-    """
 
     default_input_names = "sequences"
 
@@ -255,7 +216,6 @@ class TokenClassificationPipeline(ChunkPipeline):
                 raise ValueError("When `is_split_into_words=True`, `sentence` must be a list of tokens.")
             words = sentence
             sentence = delimiter.join(words)  # Recreate the sentence string for later display and slicing
-            # This map will allow to convert back word => char indices
             word_to_chars_map = []
             delimiter_len = len(delimiter)
             char_offset = 0
@@ -263,7 +223,6 @@ class TokenClassificationPipeline(ChunkPipeline):
                 word_to_chars_map.append((char_offset, char_offset + len(word)))
                 char_offset += len(word) + delimiter_len
 
-            # We use `words` as the actual input for the tokenizer
             text_to_tokenize = words
             tokenizer_params["is_split_into_words"] = True
         else:
@@ -300,7 +259,6 @@ class TokenClassificationPipeline(ChunkPipeline):
             yield model_inputs
 
     def _forward(self, model_inputs):
-        # Forward
         special_tokens_mask = model_inputs.pop("special_tokens_mask")
         offset_mapping = model_inputs.pop("offset_mapping", None)
         sentence = model_inputs.pop("sentence")
@@ -327,7 +285,6 @@ class TokenClassificationPipeline(ChunkPipeline):
             ignore_labels = ["O"]
         all_entities = []
 
-        # Get map from the first output, it's the same for all chunks
         word_to_chars_map = all_outputs[0].get("word_to_chars_map")
 
         for model_outputs in all_outputs:
@@ -359,7 +316,6 @@ class TokenClassificationPipeline(ChunkPipeline):
                 word_to_chars_map=word_to_chars_map,
             )
             grouped_entities = self.aggregate(pre_entities, aggregation_strategy)
-            # Filter anything that is in self.ignore_labels
             entities = [
                 entity
                 for entity in grouped_entities
@@ -408,7 +364,6 @@ class TokenClassificationPipeline(ChunkPipeline):
         """Fuse various numpy arrays into dicts with all the information needed for aggregation"""
         pre_entities = []
         for idx, token_scores in enumerate(scores):
-            # Filter special_tokens
             if special_tokens_mask[idx]:
                 continue
 
@@ -416,7 +371,6 @@ class TokenClassificationPipeline(ChunkPipeline):
             if offset_mapping is not None:
                 start_ind, end_ind = offset_mapping[idx]
 
-                # If the input is pre-tokenized, we need to rescale the offsets to the absolute sentence.
                 if word_ids is not None and word_to_chars_map is not None:
                     word_index = word_ids[idx]
                     if word_index is not None:
@@ -431,11 +385,8 @@ class TokenClassificationPipeline(ChunkPipeline):
                 if getattr(self.tokenizer, "_tokenizer", None) and getattr(
                     self.tokenizer._tokenizer.model, "continuing_subword_prefix", None
                 ):
-                    # This is a BPE, word aware tokenizer, there is a correct way
-                    # to fuse tokens
                     is_subword = len(word) != len(word_ref)
                 else:
-                    # This is a fallback heuristic. This will fail most likely on any kind of text + punctuation mixtures that will be considered "words". Non word aware models cannot do better than this unfortunately.
                     if aggregation_strategy in {
                         AggregationStrategy.FIRST,
                         AggregationStrategy.AVERAGE,
@@ -541,7 +492,6 @@ class TokenClassificationPipeline(ChunkPipeline):
             else:
                 word_entities.append(self.aggregate_word(word_group, aggregation_strategy))
                 word_group = [entity]
-        # Last item
         if word_group is not None:
             word_entities.append(self.aggregate_word(word_group, aggregation_strategy))
         return word_entities
@@ -553,7 +503,6 @@ class TokenClassificationPipeline(ChunkPipeline):
         Args:
             entities (`dict`): The entities predicted by the pipeline.
         """
-        # Get the first entity in the entity group
         entity = entities[0]["entity"].split("-", 1)[-1]
         scores = np.nanmean([entity["score"] for entity in entities])
         tokens = [entity["word"] for entity in entities]
@@ -575,8 +524,6 @@ class TokenClassificationPipeline(ChunkPipeline):
             bi = "I"
             tag = entity_name[2:]
         else:
-            # It's not in B-, I- format
-            # Default to I- for continuation.
             bi = "I"
             tag = entity_name
         return bi, tag
@@ -597,23 +544,15 @@ class TokenClassificationPipeline(ChunkPipeline):
                 entity_group_disagg.append(entity)
                 continue
 
-            # If the current entity is similar and adjacent to the previous entity,
-            # append it to the disaggregated entity group
-            # The split is meant to account for the "B" and "I" prefixes
-            # Shouldn't merge if both entities are B-type
             bi, tag = self.get_tag(entity["entity"])
             last_bi, last_tag = self.get_tag(entity_group_disagg[-1]["entity"])
 
             if tag == last_tag and bi != "B":
-                # Modify subword type to be previous_type
                 entity_group_disagg.append(entity)
             else:
-                # If the current entity is different from the previous entity
-                # aggregate the disaggregated entity group
                 entity_groups.append(self.group_sub_entities(entity_group_disagg))
                 entity_group_disagg = [entity]
         if entity_group_disagg:
-            # it's the last entity, add it to the entity groups
             entity_groups.append(self.group_sub_entities(entity_group_disagg))
 
         return entity_groups

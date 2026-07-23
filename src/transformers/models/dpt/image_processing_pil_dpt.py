@@ -1,17 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Image processor class for DPT."""
 
 import math
 from collections.abc import Iterable
@@ -45,20 +31,7 @@ if TYPE_CHECKING:
 logger = logging.get_logger(__name__)
 
 
-# Adapted from transformers.models.dpt.image_processing_dpt.DPTImageProcessorKwargs
 class DPTImageProcessorKwargs(ImagesKwargs, total=False):
-    r"""
-    ensure_multiple_of (`int`, *optional*, defaults to 1):
-        If `do_resize` is `True`, the image is resized to a size that is a multiple of this value. Can be overridden
-        by `ensure_multiple_of` in `preprocess`.
-    keep_aspect_ratio (`bool`, *optional*, defaults to `False`):
-        If `True`, the image is resized to the largest possible size such that the aspect ratio is preserved. Can
-        be overridden by `keep_aspect_ratio` in `preprocess`.
-    do_reduce_labels (`bool`, *optional*, defaults to `self.do_reduce_labels`):
-        Whether or not to reduce all label values of segmentation maps by 1. Usually used for datasets where 0
-        is used for background, and background itself is not included in all classes of a dataset (e.g.
-        ADE20k). The background label will be replaced by 255.
-    """
 
     ensure_multiple_of: int
     size_divisor: int
@@ -66,7 +39,6 @@ class DPTImageProcessorKwargs(ImagesKwargs, total=False):
     do_reduce_labels: bool
 
 
-# Adapted from transformers.models.dpt.image_processing_dpt.get_resize_output_image_size
 def get_resize_output_image_size(
     input_image: np.ndarray,
     output_size: int | Iterable[int],
@@ -87,17 +59,13 @@ def get_resize_output_image_size(
     input_height, input_width = input_image.shape[-2:]
     output_height, output_width = output_size
 
-    # determine new height and width
     scale_height = output_height / input_height
     scale_width = output_width / input_width
 
     if keep_aspect_ratio:
-        # scale as little as possible
         if abs(1 - scale_width) < abs(1 - scale_height):
-            # fit width
             scale_height = scale_width
         else:
-            # fit height
             scale_width = scale_height
 
     new_height = constrain_to_multiple_of(scale_height * input_height, multiple=multiple)
@@ -108,7 +76,6 @@ def get_resize_output_image_size(
 
 @auto_docstring
 class DPTImageProcessorPil(PilBackend):
-    """PIL backend for DPT with custom resize and pad."""
 
     valid_kwargs = DPTImageProcessorKwargs
 

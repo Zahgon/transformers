@@ -1,16 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import base64
 import os
@@ -63,7 +50,6 @@ if is_torchvision_available():
         PILImageResampling.BICUBIC: InterpolationMode.BICUBIC,
         PILImageResampling.LANCZOS: InterpolationMode.LANCZOS,
     }
-    # Create inverse mapping: InterpolationMode -> PILImageResampling
     torch_pil_interpolation_mapping = {v: k for k, v in pil_torch_interpolation_mapping.items()}
 else:
     pil_torch_interpolation_mapping = {}
@@ -124,21 +110,14 @@ def is_valid_list_of_images(images: list):
 
 
 def concatenate_list(input_list):
-    if isinstance(input_list[0], list):
-        return [item for sublist in input_list for item in sublist]
-    elif isinstance(input_list[0], np.ndarray):
-        return np.concatenate(input_list, axis=0)
-    elif isinstance(input_list[0], torch.Tensor):
-        return torch.cat(input_list, dim=0)
+    pass
 
 
 def valid_images(imgs):
-    # If we have an list of images, make sure every image is valid
     if isinstance(imgs, (list, tuple)):
         for img in imgs:
             if not valid_images(img):
                 return False
-    # If not a list of tuple, we have been given a single image or batched tensor of images
     elif not is_valid_image(imgs):
         return False
     return True
@@ -157,7 +136,6 @@ def is_scaled_image(image: np.ndarray) -> bool:
     if image.dtype == np.uint8:
         return False
 
-    # It's possible the image has pixel values in [0, 255] but is of floating type
     return np.min(image) >= 0 and np.max(image) <= 1
 
 
@@ -176,17 +154,13 @@ def make_list_of_images(images, expected_ndims: int = 3) -> list[ImageInput]:
     if is_batched(images):
         return images
 
-    # Either the input is a single image, in which case we create a list of length 1
     if is_pil_image(images):
-        # PIL images are never batched
         return [images]
 
     if is_valid_image(images):
         if images.ndim == expected_ndims + 1:
-            # Batch of images
             images = list(images)
         elif images.ndim == expected_ndims:
-            # Single image
             images = [images]
         else:
             raise ValueError(
@@ -214,7 +188,6 @@ def make_flat_list_of_images(
     Returns:
         list: A list of images or a 4d array of images.
     """
-    # If the input is a nested list of images, we flatten it
     if (
         isinstance(images, (list, tuple))
         and all(isinstance(images_i, (list, tuple)) for images_i in images)
@@ -251,7 +224,6 @@ def make_nested_list_of_images(
     Returns:
         list: A list of list of images or a list of 4d array of images.
     """
-    # If it's a list of batches, it's already in the right format
     if (
         isinstance(images, (list, tuple))
         and all(isinstance(images_i, (list, tuple)) for images_i in images)
@@ -259,14 +231,12 @@ def make_nested_list_of_images(
     ):
         return images
 
-    # If it's a list of images, it's a single batch, so convert it to a list of lists
     if isinstance(images, (list, tuple)) and is_valid_list_of_images(images):
         if is_pil_image(images[0]) or images[0].ndim == expected_ndims:
             return [images]
         if images[0].ndim == expected_ndims + 1:
             return [list(image) for image in images]
 
-    # If it's a single image, convert it to a list of lists
     if is_valid_image(images):
         if is_pil_image(images) or images.ndim == expected_ndims:
             return [[images]]
@@ -430,7 +400,6 @@ def is_valid_annotation_coco_detection(annotation: dict[str, list | tuple]) -> b
         and "annotations" in annotation
         and isinstance(annotation["annotations"], (list, tuple))
         and (
-            # an image can have no annotations
             len(annotation["annotations"]) == 0 or isinstance(annotation["annotations"][0], dict)
         )
     ):
@@ -446,7 +415,6 @@ def is_valid_annotation_coco_panoptic(annotation: dict[str, list | tuple]) -> bo
         and "file_name" in annotation
         and isinstance(annotation["segments_info"], (list, tuple))
         and (
-            # an image can have no segments
             len(annotation["segments_info"]) == 0 or isinstance(annotation["segments_info"][0], dict)
         )
     ):
@@ -481,8 +449,6 @@ def load_image(
     requires_backends(load_image, ["vision"])
     if isinstance(image, str):
         if image.startswith("http://") or image.startswith("https://"):
-            # We need to actually check for a real protocol, otherwise it's impossible to use a local file
-            # like http_huggingface_co.png
             image = PIL.Image.open(BytesIO(httpx.get(image, timeout=timeout, follow_redirects=True).content))
         elif os.path.isfile(image):
             image = PIL.Image.open(image)
@@ -490,7 +456,6 @@ def load_image(
             if image.startswith("data:image/"):
                 image = image.split(",")[1]
 
-            # Try to load as base64
             try:
                 b64 = base64.decodebytes(image.encode())
                 image = PIL.Image.open(BytesIO(b64))
@@ -600,12 +565,6 @@ def validate_preprocess_arguments(
         raise ValueError("`rescale_factor` must be specified if `do_rescale` is `True`.")
 
     if do_pad and pad_size is None:
-        # Processors pad images using different args depending on the model, so the below check is pointless
-        # but we keep it for BC for now. TODO: remove in v5
-        # Usually padding can be called with:
-        #   - "pad_size/size" if we're padding to specific values
-        #   - "size_divisor" if we're padding to any value divisible by X
-        #   - "None" if we're padding to the maximum size image in batch
         raise ValueError(
             "Depending on the model, `size_divisor` or `pad_size` or `size` must be specified if `do_pad` is `True`."
         )
@@ -621,9 +580,6 @@ def validate_preprocess_arguments(
 
 
 class ImageFeatureExtractionMixin:
-    """
-    Mixin that contain utilities for preparing image features.
-    """
 
     def _ensure_format_supported(self, image):
         if not isinstance(image, (PIL.Image.Image, np.ndarray)) and not is_torch_tensor(image):
@@ -651,9 +607,7 @@ class ImageFeatureExtractionMixin:
 
         if isinstance(image, np.ndarray):
             if rescale is None:
-                # rescale default to the array being of floating type.
                 rescale = isinstance(image.flat[0], np.floating)
-            # If the channel as been moved to first dim, we put it back at the end.
             if image.ndim == 3 and image.shape[0] in [1, 3]:
                 image = image.transpose(1, 2, 0)
             if rescale:
@@ -663,18 +617,7 @@ class ImageFeatureExtractionMixin:
         return image
 
     def convert_rgb(self, image):
-        """
-        Converts `PIL.Image.Image` to RGB format.
-
-        Args:
-            image (`PIL.Image.Image`):
-                The image to convert.
-        """
-        self._ensure_format_supported(image)
-        if not isinstance(image, PIL.Image.Image):
-            return image
-
-        return image.convert("RGB")
+        pass
 
     def rescale(self, image: np.ndarray, scale: float | int) -> np.ndarray:
         """
@@ -725,7 +668,6 @@ class ImageFeatureExtractionMixin:
         """
         self._ensure_format_supported(image)
 
-        # Do nothing if PIL image
         if isinstance(image, PIL.Image.Image):
             return image
 
@@ -755,8 +697,6 @@ class ImageFeatureExtractionMixin:
 
         if isinstance(image, PIL.Image.Image):
             image = self.to_numpy_array(image, rescale=True)
-        # If the input image is a PIL image, it automatically gets rescaled. If it's another
-        # type it may need rescaling.
         elif rescale:
             if isinstance(image, np.ndarray):
                 image = self.rescale(image.astype(np.float32), 1 / 255.0)
@@ -832,7 +772,6 @@ class ImageFeatureExtractionMixin:
                 size = (size, size) if isinstance(size, int) else (size[0], size[0])
             else:
                 width, height = image.size
-                # specified size only for the smallest edge
                 short, long = (width, height) if width <= height else (height, width)
                 requested_new_short = size if isinstance(size, int) else size[0]
 
@@ -874,7 +813,6 @@ class ImageFeatureExtractionMixin:
         if not isinstance(size, tuple):
             size = (size, size)
 
-        # PIL Image.size is (width, height) but NumPy array and torch Tensors have (height, width)
         if is_torch_tensor(image) or isinstance(image, np.ndarray):
             if image.ndim == 2:
                 image = self.expand_dims(image)
@@ -887,25 +825,20 @@ class ImageFeatureExtractionMixin:
         left = (image_shape[1] - size[1]) // 2
         right = left + size[1]  # In case size is odd, (image_shape[1] + size[1]) // 2 won't give the proper result.
 
-        # For PIL Images we have a method to crop directly.
         if isinstance(image, PIL.Image.Image):
             return image.crop((left, top, right, bottom))
 
-        # Check if image is in (n_channels, height, width) or (height, width, n_channels) format
         channel_first = image.shape[0] in [1, 3]
 
-        # Transpose (height, width, n_channels) format images
         if not channel_first:
             if isinstance(image, np.ndarray):
                 image = image.transpose(2, 0, 1)
             if is_torch_tensor(image):
                 image = image.permute(2, 0, 1)
 
-        # Check if cropped area is within image boundaries
         if top >= 0 and bottom <= image_shape[0] and left >= 0 and right <= image_shape[1]:
             return image[..., top:bottom, left:right]
 
-        # Otherwise, we may need to pad if the image is too small. Oh joy...
         new_shape = image.shape[:-2] + (max(size[0], image_shape[0]), max(size[1], image_shape[1]))
         if isinstance(image, np.ndarray):
             new_image = np.zeros_like(image, shape=new_shape)
@@ -947,28 +880,7 @@ class ImageFeatureExtractionMixin:
         return image[::-1, :, :]
 
     def rotate(self, image, angle, resample=None, expand=0, center=None, translate=None, fillcolor=None):
-        """
-        Returns a rotated copy of `image`. This method returns a copy of `image`, rotated the given number of degrees
-        counter clockwise around its centre.
-
-        Args:
-            image (`PIL.Image.Image` or `np.ndarray` or `torch.Tensor`):
-                The image to rotate. If `np.ndarray` or `torch.Tensor`, will be converted to `PIL.Image.Image` before
-                rotating.
-
-        Returns:
-            image: A rotated `PIL.Image.Image`.
-        """
-        resample = resample if resample is not None else PIL.Image.NEAREST
-
-        self._ensure_format_supported(image)
-
-        if not isinstance(image, PIL.Image.Image):
-            image = self.to_pil_image(image)
-
-        return image.rotate(
-            angle, resample=resample, expand=expand, center=center, translate=translate, fillcolor=fillcolor
-        )
+        pass
 
 
 def validate_annotations(
@@ -1000,15 +912,11 @@ def validate_kwargs(valid_processor_keys: list[str], captured_kwargs: list[str])
     unused_keys = set(captured_kwargs).difference(set(valid_processor_keys))
     if unused_keys:
         unused_key_str = ", ".join(unused_keys)
-        # TODO raise a warning here instead of simply logging?
         logger.warning(f"Unused or unrecognized kwargs: {unused_key_str}.")
 
 
 @dataclass()
 class SizeDict:
-    """
-    Hashable dictionary to store image size information.
-    """
 
     height: int | None = None
     width: int | None = None
@@ -1028,7 +936,6 @@ class SizeDict:
         return default
 
     def __iter__(self):
-        # Yield only non-None (key, value) pairs so dict(self) excludes missing values.
         for f in fields(self):
             val = getattr(self, f.name)
             if val is not None:

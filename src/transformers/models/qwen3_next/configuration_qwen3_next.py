@@ -1,17 +1,3 @@
-# Copyright 2025 The Qwen team, Alibaba Group and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Qwen3-Next model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,37 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="Qwen/Qwen3-Next-80B-A3B-Instruct")
 @strict
 class Qwen3NextConfig(PreTrainedConfig):
-    r"""
-    linear_conv_kernel_dim (`int`, *optional*, defaults to 4):
-        Kernel size of the convolution used in linear attention layers.
-    linear_key_head_dim (`int`, *optional*, defaults to 128):
-        Dimension of each key head in linear attention.
-    linear_value_head_dim (`int`, *optional*, defaults to 128):
-        Dimension of each value head in linear attention.
-    linear_num_key_heads (`int`, *optional*, defaults to 16):
-        Number of key heads used in linear attention layers.
-    linear_num_value_heads (`int`, *optional*, defaults to 32):
-        Number of value heads used in linear attention layers.
-    decoder_sparse_step (`int`, *optional*, defaults to 1):
-        The frequency of the MoE layer.
-    mlp_only_layers (`list[int]`, *optional*, defaults to `[]`):
-        Indicate which layers use Qwen3NextMLP rather than Qwen3NextSparseMoeBlock
-        The list contains layer index, from 0 to num_layers-1 if we have num_layers layers
-        If `mlp_only_layers` is empty, `decoder_sparse_step` is used to determine the sparsity.
-
-    ```python
-    >>> from transformers import Qwen3NextModel, Qwen3NextConfig
-
-    >>> # Initializing a Qwen3Next style configuration
-    >>> configuration =  Qwen3NextConfig()
-
-    >>> # Initializing a model from the Qwen3-Next-80B-A3B style configuration
-    >>> model = Qwen3NextModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "qwen3_next"
     keys_to_ignore_at_inference = ["past_key_values"]

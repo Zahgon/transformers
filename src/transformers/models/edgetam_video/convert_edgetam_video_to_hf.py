@@ -1,21 +1,3 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Convert SAM checkpoints from the original repository.
-
-URL: https://github.com/facebookresearch/segment-anything-2.
-"""
 
 import argparse
 import re
@@ -143,7 +125,6 @@ def replace_keys(state_dict):
             if re.match(pattern, key):
                 key = re.sub(pattern, replacement, key)
 
-        # vision_encoder.blocks.0.mlp.layers.1.weight -> vision_encoder.blocks.0.mlp.proj_out.weight
         if re.match(output_vision_encoder_mlps_pattern, key):
             layer_nb = int(re.match(output_vision_encoder_mlps_pattern, key).group(2))
             if layer_nb == 0:
@@ -155,7 +136,6 @@ def replace_keys(state_dict):
             key = key.replace("linear1", "mlp.up_proj")
             key = key.replace("linear2", "mlp.down_proj")
 
-        # mask_decoder.transformer.layers.0.mlp.layers.1.weight -> mask_decoder.transformer.layers.1.mlp.proj_out.weight
         if re.match(output_mask_decoder_mlps_pattern, key):
             layer_nb = int(re.match(output_mask_decoder_mlps_pattern, key).group(2))
             if layer_nb == 0:
@@ -163,7 +143,6 @@ def replace_keys(state_dict):
             elif layer_nb == 1:
                 key = key.replace("mlp.layers.1", "mlp.proj_out")
 
-        # mask_decoder.pred_obj_score_head.layers.1.weight -> mask_decoder.pred_obj_score_head.proj_in.weight
         if re.match(output_mask_decoder_score_head_pattern, key):
             layer_nb = int(re.match(output_mask_decoder_score_head_pattern, key).group(1))
             if layer_nb == 0:
@@ -182,11 +161,9 @@ def replace_keys(state_dict):
             elif layer_nb == 2:
                 key = key.replace("layers.2", "proj_out")
 
-        # vision_encoder.neck.convs.1.conv.bias -> vision_encoder.neck.convs.1.bias
         if re.match(output_vision_encoder_neck_pattern, key):
             key = key.replace(".conv.", ".")
 
-        # memory_encoder.o_proj.weight -> memory_encoder.projection.weight
         if re.match(output_memory_encoder_projection_pattern, key):
             key = key.replace(".o_proj.", ".projection.")
 
@@ -210,9 +187,7 @@ def replace_keys(state_dict):
             elif layer_nb % 3 == 1:
                 key = key.replace(f"encoder.{layer_nb}", f"layers.{layer_nb // 3}.layer_norm")
         if "kv_proj_combined" in key:
-            # Split the weight tensor in half along dimension 0 (output dimension)
             k_weight, v_weight = torch.chunk(value, 2, dim=0)
-            # Create the k_proj and v_proj keys
             k_key = key.replace("kv_proj_combined", "k_proj")
             v_key = key.replace("kv_proj_combined", "v_proj")
             model_state_dict[k_key] = k_weight
@@ -233,50 +208,7 @@ def replace_keys(state_dict):
 
 
 def convert_edgetam_checkpoint(model_name, checkpoint_path, pytorch_dump_folder, push_to_hub, run_sanity_check):
-    config = get_config(model_name)
-
-    state_dict = torch.load(checkpoint_path, map_location="cpu")["model"]
-    state_dict = replace_keys(state_dict)
-
-    image_processor = Sam2ImageProcessorFast()
-    video_processor = Sam2VideoVideoProcessor()
-    processor = Sam2VideoProcessor(image_processor=image_processor, video_processor=video_processor)
-    hf_model = EdgeTamVideoModel(config)
-    hf_model.eval()
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    missing_keys, unexpected_keys = hf_model.load_state_dict(state_dict, strict=True)
-    hf_model = hf_model.to(device)
-    print("Missing keys:", missing_keys)
-    print("Unexpected keys:", unexpected_keys)
-
-    if run_sanity_check:
-        url = "https://huggingface.co/ybelkada/segment-anything/resolve/main/assets/car.png"
-        with httpx.stream("GET", url) as response:
-            raw_image = Image.open(BytesIO(response.read())).convert("RGB")
-
-        input_points = [[[[1000, 600]]]]
-        input_labels = [[[1]]]
-
-        inputs = processor(
-            images=np.array(raw_image), input_points=input_points, input_labels=input_labels, return_tensors="pt"
-        ).to(device)
-
-        with torch.no_grad():
-            output = hf_model._single_frame_forward(**inputs)
-        scores = output.iou_scores.squeeze()
-
-        assert torch.allclose(scores, torch.tensor([0.0356, 0.2141, 0.9707]).cuda(), atol=1e-3)
-
-    if pytorch_dump_folder is not None:
-        processor.save_pretrained(pytorch_dump_folder)
-        hf_model.save_pretrained(pytorch_dump_folder)
-
-    if push_to_hub:
-        repo_id = f"yonigozlan/{pytorch_dump_folder.split('/')[-1]}"
-        processor.push_to_hub(repo_id)
-        hf_model.push_to_hub(repo_id)
+    pass
 
 
 if __name__ == "__main__":

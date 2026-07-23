@@ -1,18 +1,4 @@
-# Copyright 2025 Apple Inc. and The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""Pytorch implementation of AIMv2 Model"""
 
 import math
 
@@ -41,26 +27,6 @@ from ..vit_mae.modeling_vit_mae import build_2d_sinusoidal_position_embedding
 @auto_docstring(checkpoint="apple/aimv2-large-patch14-224-lit")
 @strict
 class Aimv2VisionConfig(SiglipVisionConfig):
-    r"""
-    use_head (`str`, *optional*, defaults to `True`):
-        Whether to use Attention Pooling Head or Not.
-    is_native (`str`, *optional*, defaults to `False`):
-        Whether to use ckpt trained for image native resolution or not.
-
-    Example:
-
-    ```python
-    >>> from transformers import SiglipVisionConfig, SiglipVisionModel
-
-    >>> # Initializing a Aimv2VisionConfig with apple/aimv2-large-patch14-224 style configuration
-    >>> configuration = Aimv2VisionConfig()
-
-    >>> # Initializing a Aimv2VisionModel (with random weights) from the apple/aimv2-large-patch14-224 style configuration
-    >>> model = Aimv2VisionModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     hidden_size: int = 1024
     intermediate_size: int = 2816
@@ -105,33 +71,6 @@ class Aimv2TextConfig(SiglipTextConfig):
 @auto_docstring(checkpoint="apple/aimv2-large-patch14-224-lit")
 @strict
 class Aimv2Config(SiglipConfig):
-    r"""
-    max_logit_scale (`float`, *optional*, defaults to `100.0`):
-        The maximum logit scale to use
-
-    Example:
-
-    ```python
-    >>> from transformers import Aimv2Config, Aimv2Model
-
-    >>> # Initializing a Aimv2Config with apple/aimv2-large-patch14-224-lit style configuration
-    >>> configuration = Aimv2Config()
-
-    >>> # Initializing a Aimv2Model (with random weights) from the apple/aimv2-large-patch14-224-lit style configuration
-    >>> model = Aimv2Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-
-    >>> # We can also initialize a Aimv2Config from a Aimv2TextConfig and a Aimv2VisionConfig
-    >>> from transformers import Aimv2TextConfig, Aimv2VisionConfig
-
-    >>> # Initializing a AIMv2Text and AIMv2Vision configuration
-    >>> config_text = Aimv2TextConfig()
-    >>> config_vision = Aimv2VisionConfig()
-
-    >>> config = Aimv2Config(text_config=config_text, vision_config=config_vision)
-    ```"""
 
     projection_dim: int = 512
     logit_scale_init_value: float = 2.6592
@@ -178,8 +117,6 @@ class Aimv2VisionEmbeddings(nn.Module):
                 device=hidden_states.device,
                 dtype=hidden_states.dtype,
             )
-            # AIMv2 was trained with [sin_w|cos_w|sin_h|cos_h] layout (matching ViT-MAE's
-            # original naming-bug convention); rotate the canonical h-first embedding to match.
             half = pos_embed.shape[-1] // 2
             pos_embed = torch.cat([pos_embed[..., half:], pos_embed[..., :half]], dim=-1)
             pos_embed = pos_embed.unsqueeze(0)
@@ -268,10 +205,6 @@ class Aimv2AttentionPoolingHead(nn.Module):
 
 @auto_docstring
 class Aimv2PreTrainedModel(PreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-    models. The model is only intended for inference and doesn't support finetuning.
-    """
 
     config: Aimv2Config
     base_model_prefix = "aimv2"
@@ -319,7 +252,6 @@ class Aimv2VisionModel(Aimv2PreTrainedModel):
         self.config = config
         self.embeddings = Aimv2VisionEmbeddings(config)
         self.encoder = Aimv2Encoder(config)
-        # The only change from SiglipVisionTransformer is, layernorm -> rms_norm.
         self.rms_norm = Aimv2RMSNorm(config.hidden_size, config.rms_norm_eps)
 
         self.use_head = config.use_head
@@ -441,7 +373,6 @@ class Aimv2TextModel(Aimv2PreTrainedModel):
         last_hidden_state = encoder_outputs.last_hidden_state
         last_hidden_state = self.rms_norm(last_hidden_state)
 
-        # Get pooled output
         pooled_output = last_hidden_state[
             torch.arange(last_hidden_state.shape[0], device=last_hidden_state.device),
             (input_ids.to(dtype=torch.int, device=last_hidden_state.device) == self.eos_token_id).int().argmax(dim=-1),
@@ -525,7 +456,6 @@ class Aimv2Model(CLIPModel):
         text_embeds = text_outputs.pooler_output
         text_embeds = self.text_projection(text_embeds)
 
-        # normalized features
         image_embeds = image_embeds / _get_vector_norm(image_embeds)
         text_embeds = text_embeds / _get_vector_norm(text_embeds)
 

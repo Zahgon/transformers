@@ -1,26 +1,3 @@
-# Copyright 2025 the HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""DeepSeek-V3.2-Exp: DeepSeek-V3 plus DeepSeek Sparse Attention (DSA).
-
-This is DeepSeek-V3 with a lightning indexer added to each attention layer: the indexer scores every
-query against the cached keys and keeps the top-`index_topk` tokens, which become an additive sparse
-mask folded into the MLA attention mask. Everything else (MoE, MLA projections, RoPE, the decoder /
-model / causal-LM scaffolding) is inherited unchanged from DeepSeek-V3.
-
-The cross-layer top-k *sharing* variant is a GLM-MoE-DSA innovation and lives in that model, which
-inherits from this one (see `models/glm_moe_dsa/modular_glm_moe_dsa.py`).
-"""
 
 from collections.abc import Callable
 
@@ -58,32 +35,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="deepseek-ai/DeepSeek-V3.2-Exp")
 @strict
 class DeepseekV32Config(Glm4MoeLiteConfig, RotaryEmbeddingConfigMixin):
-    r"""
-    n_group (`int`, *optional*, defaults to 1):
-        Number of groups for routed experts.
-    mlp_layer_types (`list`, *optional*):
-        MLP type pattern for each layer (`"dense"` or `"sparse"`). Defaults to 3 dense + rest sparse.
-    index_topk (`int`, *optional*, defaults to 2048):
-        Number of top tokens selected by the indexer for sparse attention.
-    index_head_dim (`int`, *optional*, defaults to 128):
-        Head dimension for the indexer projections (DSA).
-    index_n_heads (`int`, *optional*, defaults to 64):
-        Number of heads for the indexer projections (DSA).
-    first_k_dense_replace (`int`, *optional*, defaults to 3):
-        Number of leading layers that use a dense MLP; the rest use the MoE block.
-
-    ```python
-    >>> from transformers import DeepseekV32Config, DeepseekV32Model
-
-    >>> # Initializing a DeepSeek-V3.2 configuration
-    >>> configuration = DeepseekV32Config()
-
-    >>> # Initializing a model from the configuration
-    >>> model = DeepseekV32Model(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     base_model_tp_plan = {
         "layers.*.self_attn.q_b_proj": "colwise",
@@ -147,17 +98,12 @@ class DeepseekV32Config(Glm4MoeLiteConfig, RotaryEmbeddingConfigMixin):
 
     def __post_init__(self, **kwargs):
         self.qk_head_dim = self.qk_nope_head_dim + self.qk_rope_head_dim
-        # RoPE applies only to the rope slice, so point `head_dim` at it: the inherited (Llama) rotary
-        # embedding reads `config.head_dim` and then computes the right frequencies with no override needed.
         self.head_dim = self.qk_rope_head_dim
-        # MLP layer types: the first `first_k_dense_replace` layers are dense, the rest are MoE.
         if self.mlp_layer_types is None:
             n_dense = min(self.first_k_dense_replace, self.num_hidden_layers)
             self.mlp_layer_types = ["dense"] * n_dense + ["sparse"] * (self.num_hidden_layers - n_dense)
-        # Every layer is DSA — drives cache-class dispatch.
         if self.layer_types is None:
             self.layer_types = ["deepseek_sparse_attention"] * self.num_hidden_layers
-        # BC: re-route `num_experts` to `n_routed_experts`
         if (num_experts := kwargs.get("num_experts")) is not None:
             self.n_routed_experts = num_experts
 
@@ -173,17 +119,6 @@ class DeepseekV32RotaryEmbedding(DeepseekV3RotaryEmbedding):
 
 
 class DeepseekV32Indexer(nn.Module):
-    """
-    DeepSeek Sparse Attention (DSA) indexer for selecting top-k tokens.
-
-    The Indexer has its own lightweight projections (wq_b, wk) separate from the main MLA attention,
-    and returns the additive top-k sparse mask directly (`0` at the selected tokens, `-inf` elsewhere);
-    the raw top-k indices are only ever scattered into that mask, so they are not surfaced.
-
-    **Cache strategy**: the indexer key cache lives on the per-layer `DynamicIndexedLayer` (or the
-    `StaticIndexedLayer` for static caches) inside the shared cache, accessed via
-    `past_key_values.update_indexer()`.
-    """
 
     def __init__(self, config: "DeepseekV32Config", layer_idx: int):
         super().__init__()
@@ -244,7 +179,6 @@ class DeepseekV32Indexer(nn.Module):
         k = self.k_norm(self.wk(hidden_states)).unsqueeze(2)  # [B, S, 1, D]
         k_rot, k_pass = torch.split(k, [self.qk_rope_head_dim, self.head_dim - self.qk_rope_head_dim], dim=-1)
 
-        # The indexer uses NON-interleaved (half-split) RoPE — unlike the main MLA attention
         q_rot, k_rot = apply_rotary_pos_emb(q_rot, k_rot, cos, sin, unsqueeze_dim=2)
         q = torch.cat([q_rot, q_pass], dim=-1)  # [B, S, H, D]
         k = torch.cat([k_rot, k_pass], dim=-1).squeeze(2)  # [B, S, D]
@@ -255,11 +189,9 @@ class DeepseekV32Indexer(nn.Module):
         scores = torch.matmul(q.float(), k.transpose(-1, -2).float().unsqueeze(1)) * self.softmax_scale
         scores = F.relu(scores)
 
-        # Weight per head and sum across heads: [B, S, 1, H] @ [B, S, H, T] → [B, S, T]
         weights = self.weights_proj(hidden_states.to(self.weights_proj.weight.dtype)).float() * (self.n_heads**-0.5)
         index_scores = torch.matmul(weights.unsqueeze(-2), scores).squeeze(-2)
 
-        # Causality needs to be taken into account when computing scores so padding tokens don't affect computation
         if attention_mask is not None:
             index_scores = index_scores + attention_mask
         else:
@@ -272,10 +204,6 @@ class DeepseekV32Indexer(nn.Module):
 
 
 class DeepseekV32Attention(DeepseekV3Attention):
-    """
-    DeepSeek-V3 MLA, with a DSA indexer whose top-k sparse mask is folded into the attention mask.
-    Qlora rank formulation is dropped as it is never used in released models.
-    """
 
     def __init__(self, config: DeepseekV32Config, layer_idx: int):
         super().__init__(config, layer_idx)
@@ -314,7 +242,6 @@ class DeepseekV32Attention(DeepseekV3Attention):
         if past_key_values is not None:
             key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx)
 
-        # The indexer scores against a 3D `[B, S, T]` mask; the attention mask is 4D `[B, 1, S, T]`.
         indexer_mask = attention_mask[:, 0, :, :] if attention_mask is not None else None
         topk_indices = self.indexer(
             hidden_states, q_resid, position_embeddings, indexer_mask, position_ids, past_key_values=past_key_values
@@ -322,7 +249,6 @@ class DeepseekV32Attention(DeepseekV3Attention):
 
         sparse_indices = None
         if self.config._attn_implementation in ("eager", "sdpa"):
-            # Boolean mask: `True` at keys *not* selected by the indexer (to be masked out).
             index_mask = (
                 topk_indices.new_ones((batch_size, seq_length, key_states.shape[2]), dtype=torch.bool)
                 .scatter(-1, topk_indices.long(), False)
@@ -394,7 +320,6 @@ class DeepseekV32Model(DeepseekV3Model):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
             mask_kwargs = {
                 "config": self.config,

@@ -1,16 +1,3 @@
-# Copyright 2025 The rednote-hilab team and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from huggingface_hub.dataclasses import strict
 
 from ...configuration_utils import PreTrainedConfig
@@ -41,22 +28,6 @@ logger = logging.get_logger(__name__)
 @auto_docstring(checkpoint="rednote-hilab/dots.llm1.base")
 @strict
 class Dots1Config(PreTrainedConfig):
-    r"""
-    n_group (`int`, *optional*, defaults to 1):
-        Number of groups for routed experts.
-    first_k_dense_replace (`int`, *optional*, defaults to 0):
-        Number of dense layers at the beginning of the model before the first MoE layer.
-
-    Examples:
-
-    ```python
-    >>> from transformers import Dots1Model, Dots1Config
-    >>> # Initializing a Dots1 style configuration
-    >>> configuration = Dots1Config()
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```
-    """
 
     model_type = "dots1"
     keys_to_ignore_at_inference = ["past_key_values"]

@@ -1,16 +1,3 @@
-# Copyright 2020 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import os
 import time
@@ -35,9 +22,6 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 @dataclass
 class SquadDataTrainingArguments:
-    """
-    Arguments pertaining to what data we are going to input our model for training and eval.
-    """
 
     model_type: str = field(
         default=None, metadata={"help": "Model type selected in the list: " + ", ".join(MODEL_TYPES)}
@@ -130,15 +114,12 @@ class SquadDataset(Dataset):
             except KeyError:
                 raise KeyError("mode is not a valid split name")
         self.mode = mode
-        # Load data features from cache or dataset file
         version_tag = "v2" if args.version_2_with_negative else "v1"
         cached_features_file = os.path.join(
             cache_dir if cache_dir is not None else args.data_dir,
             f"cached_{mode.value}_{tokenizer.__class__.__name__}_{args.max_seq_length}_{version_tag}",
         )
 
-        # Make sure only the first process in distributed training processes the dataset,
-        # and the others will use the cache.
         lock_path = cached_features_file + ".lock"
         with FileLock(lock_path):
             if os.path.exists(cached_features_file) and not args.overwrite_cache:
@@ -146,8 +127,6 @@ class SquadDataset(Dataset):
                 check_torch_load_is_safe()
                 self.old_features = torch.load(cached_features_file, weights_only=True)
 
-                # Legacy cache files have only features, while new cache files
-                # will have dataset and examples also.
                 self.features = self.old_features["features"]
                 self.dataset = self.old_features.get("dataset", None)
                 self.examples = self.old_features.get("examples", None)
@@ -182,7 +161,6 @@ class SquadDataset(Dataset):
                     {"features": self.features, "dataset": self.dataset, "examples": self.examples},
                     cached_features_file,
                 )
-                # ^ This seems to take a lot of time so I want to investigate why and how we can improve.
                 logger.info(
                     f"Saving features into cached file {cached_features_file} [took {time.time() - start:.3f} s]"
                 )
@@ -191,7 +169,6 @@ class SquadDataset(Dataset):
         return len(self.features)
 
     def __getitem__(self, i) -> dict[str, torch.Tensor]:
-        # Convert to Tensors and build dataset
         feature = self.features[i]
 
         input_ids = torch.tensor(feature.input_ids, dtype=torch.long)

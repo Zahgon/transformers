@@ -1,16 +1,3 @@
-# Copyright 2025 Mistral AI and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import torch
@@ -44,21 +31,6 @@ from ..qwen2.modeling_qwen2 import (
 @auto_docstring(checkpoint="mistralai/Ministral-8B-Instruct-2410")
 @strict
 class MinistralConfig(MistralConfig):
-    r"""
-    Example:
-
-    ```python
-    >>> from transformers import MinistralModel, MinistralConfig
-
-    >>> # Initializing a Ministral 8B style configuration
-    >>> configuration = MinistralConfig()
-
-    >>> # Initializing a model from the Ministral 8B style configuration
-    >>> model = MinistralModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "ministral"
 
@@ -83,7 +55,6 @@ class MinistralMLP(Qwen2MLP):
 class MinistralAttention(Qwen2Attention):
     def __init__(self, config, layer_idx: int):
         super().__init__(config, layer_idx)
-        # Match Mistral: q/k/v do not have bias
         self.q_proj = nn.Linear(config.hidden_size, config.num_attention_heads * self.head_dim, bias=False)
         self.k_proj = nn.Linear(config.hidden_size, config.num_key_value_heads * self.head_dim, bias=False)
         self.v_proj = nn.Linear(config.hidden_size, config.num_key_value_heads * self.head_dim, bias=False)
@@ -137,9 +108,7 @@ class MinistralModel(Qwen2Model):
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
 
-        # It may already have been prepared by e.g. `generate`
         if not isinstance(causal_mask_mapping := attention_mask, dict):
-            # Prepare mask arguments
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -147,7 +116,6 @@ class MinistralModel(Qwen2Model):
                 "past_key_values": past_key_values,
                 "position_ids": position_ids,
             }
-            # Create the masks
             causal_mask_mapping = {
                 "full_attention": create_causal_mask(**mask_kwargs),
                 "sliding_attention": create_sliding_window_causal_mask(**mask_kwargs),

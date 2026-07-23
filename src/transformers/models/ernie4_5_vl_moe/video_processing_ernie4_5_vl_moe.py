@@ -1,16 +1,3 @@
-# Copyright 2025 Baidu and HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import os.path
 from functools import partial
 from pathlib import Path
@@ -164,8 +151,6 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
         else:
             video_processor_file = VIDEO_PROCESSOR_NAME
             try:
-                # Try to load with a new config name first and if not successful try with the old file name
-                # NOTE: we save all processor configs as nested dict in PROCESSOR_NAME from v5, which is the standard
                 resolved_processor_file = cached_file(
                     pretrained_model_name_or_path,
                     filename=PROCESSOR_NAME,
@@ -203,11 +188,8 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
                     resolved_video_processor_files[0] if resolved_video_processor_files else None
                 )
             except OSError:
-                # Raise any OS error raise by `cached_file`. It will have a helpful error message adapted to
-                # the original exception.
                 raise
             except Exception:
-                # For any other exception, we throw a generic error.
                 raise OSError(
                     f"Can't load video processor for '{pretrained_model_name_or_path}'. If you were trying to load"
                     " it from 'https://huggingface.co/models', make sure you don't have a local directory with the"
@@ -215,9 +197,6 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
                     f" directory containing a {video_processor_file} file"
                 )
 
-        # Load video_processor dict. Priority goes as (nested config if found -> video processor config -> image processor config)
-        # We are downloading both configs because almost all models have a `processor_config.json` but
-        # not all of these are nested. We need to check if it was saved recebtly as nested or if it is legacy style
         video_processor_dict = None
         if resolved_processor_file is not None:
             processor_dict = safe_load_json_file(resolved_processor_file)
@@ -235,7 +214,6 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
                 f" directory containing a {video_processor_file} file"
             )
 
-        # Specific to Ernie 4.5 VL Moe, we load the font file along the json (if we draw on frames)
         draws_on_frames = video_processor_dict.get("draw_on_frames")
         if (font_name := video_processor_dict.get("font")) is None and draws_on_frames:
             raise AttributeError(
@@ -321,35 +299,7 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
         fps: int | float | None = None,
         **kwargs,
     ):
-        if fps is not None and num_frames is not None:
-            raise ValueError("`num_frames` and `fps` are mutually exclusive arguments, please use only one!")
-
-        num_frames = num_frames if num_frames is not None else self.num_frames
-        min_frames = min_frames if min_frames is not None else self.min_frames
-        max_frames = max_frames if max_frames is not None else self.max_frames
-        total_num_frames = metadata.total_num_frames
-
-        if num_frames is not None:
-            if num_frames < min_frames or num_frames > max_frames:
-                raise ValueError(f"`num_frames` must be {min_frames} <= x <= {max_frames}. Got {num_frames} instead.")
-        else:
-            if fps is not None and (metadata is None or metadata.fps is None):
-                raise ValueError(
-                    "Asked to sample `fps` frames per second but no video metadata was provided which is required when sampling with `fps`. "
-                    "Please pass in `VideoMetadata` object or use a fixed `num_frames` per input video"
-                )
-            num_frames = total_num_frames / metadata.fps * fps if fps is not None else total_num_frames
-            num_frames = min(max(num_frames, min_frames), max_frames, total_num_frames)
-
-        if num_frames > total_num_frames:
-            raise ValueError(
-                f"Video can't be sampled. The inferred `num_frames={num_frames}` exceeds `total_num_frames={total_num_frames}`. "
-                "Decrease `num_frames` or `fps` for sampling."
-            )
-
-        indices = torch.arange(0, total_num_frames, total_num_frames / num_frames).int()
-
-        return indices
+        pass
 
     def _convert_timestamp(self, time_stamp_in_seconds):
         """Convert to `time: hr:min:sec` format"""
@@ -364,18 +314,12 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
         if self.font is None:
             raise AttributeError("To draw on frames with Ernie 4.5 VL, you need an associated font; found nothing")
 
-        # FIXME: conversion `torch->PIL->torch` is inefficient ~6ms per frame
-        # Left for optimization if anyone want to pick it up
-        #
-        # This can take up to ~1s in preprocessing (if default sampling is used):
-        #   180 (frames) x 6ms = 1080ms = ~1,1s
         image = to_pil_image(image)
 
         font_size = int(min(*image.size) * size_factor)
         outline_size = int(font_size * size_factor)
         font = ImageFont.truetype(self.font, font_size)
 
-        # Draw a black text with a white border
         draw = ImageDraw.Draw(image)
         draw.text(
             (0, 0),
@@ -400,7 +344,6 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
         """
         processed_videos = []
         for video, metadata in zip(videos, video_metadata):
-            # Check for attributes that are necessary to draw timestamps on frames
             if draw_on_frames:
                 if metadata is None:
                     raise ValueError("Need video metadata to process videos in Ernie 4.5 VL using `draw_on_frames`")
@@ -411,19 +354,15 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
                         "defaulting to `24`. Please provide `video_metadata` for more accurate results."
                     )
 
-            # `make_batched_videos` always returns a 4D array per video
             if isinstance(video, np.ndarray):
-                # not using F.to_tensor as it doesn't handle (C, H, W) numpy arrays
                 video = torch.from_numpy(video).contiguous()
 
-            # Infer the channel dimension format if not provided
             if input_data_format is None:
                 input_data_format = infer_channel_dimension_format(video)
 
             if input_data_format == ChannelDimension.LAST:
                 video = video.permute(0, 3, 1, 2).contiguous()
 
-            # specific to ernie, draws timestamps on each frame (if enabled)
             if draw_on_frames:
                 if is_tracing(video):
                     raise RuntimeError(
@@ -436,7 +375,6 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
                         frame, self._convert_timestamp(metadata.timestamps[idx])
                     )
 
-            # last frame is copied if uneven (mitigating issues for temporal patch size)
             if video.shape[0] % 2 != 0:
                 video = torch.cat((video, video[-1].detach().clone()[None, ...]), dim=0)
 
@@ -463,7 +401,6 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
         return_tensors: str | TensorType | None = None,
         **kwargs,
     ):
-        # Group videos by size for batched resizing
         grouped_videos, grouped_videos_index = group_videos_by_shape(videos)
         resized_videos_grouped = {}
         for shape, stacked_videos in grouped_videos.items():
@@ -488,15 +425,12 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
             resized_videos_grouped[shape] = stacked_videos
         resized_videos = reorder_videos(resized_videos_grouped, grouped_videos_index)
 
-        # Group videos by size for further processing
-        # Needed in case do_resize is False, or resize returns videos with different sizes
         grouped_videos, grouped_videos_index = group_videos_by_shape(resized_videos)
         processed_videos_grouped = {}
         processed_grids = {}
         for shape, stacked_videos in grouped_videos.items():
             resized_height, resized_width = get_image_size(stacked_videos[0], channel_dim=ChannelDimension.FIRST)
 
-            # Fused rescale and normalize
             stacked_videos = self.rescale_and_normalize(
                 stacked_videos, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
@@ -516,8 +450,6 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
                 merge_size,
                 patch_size,
             )
-            # Reorder dimensions to group grid and patch information for subsequent flattening.
-            # [batch, grid_t, grid_h/merge, grid_w/merge, merge, merge, channel, patch, patch]
             patches = patches.permute(0, 1, 3, 6, 4, 7, 2, 5, 8)
 
             flatten_patches = patches.reshape(
@@ -552,11 +484,8 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
             valid_processor_keys=list(self.valid_kwargs.__annotations__.keys()) + ["return_tensors"],
         )
 
-        # Perform type validation on received kwargs
         validate_typed_dict(self.valid_kwargs, kwargs)
 
-        # Set default kwargs from self. This ensures that if a kwarg is not provided
-        # by the user, it gets its default value from the instance, or is set to None.
         for kwarg_name in self.valid_kwargs.__annotations__:
             kwargs.setdefault(kwarg_name, getattr(self, kwarg_name, None))
 
@@ -584,7 +513,6 @@ class Ernie4_5_VLMoeVideoProcessor(BaseVideoProcessor):
         kwargs = self._standardize_kwargs(**kwargs)
         self._validate_preprocess_kwargs(**kwargs)
 
-        # Pop kwargs that are not needed in _preprocess
         kwargs.pop("data_format")
         return_metadata = kwargs.pop("return_metadata")
 

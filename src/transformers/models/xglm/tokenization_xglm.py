@@ -1,17 +1,3 @@
-# Copyright The HuggingFace Team and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tokenization classes for XGLM."""
 
 from tokenizers import Regex, Tokenizer, decoders, normalizers, pre_tokenizers, processors
 from tokenizers.models import Unigram
@@ -26,34 +12,6 @@ VOCAB_FILES_NAMES = {"tokenizer_file": "tokenizer.json"}
 
 
 class XGLMTokenizer(TokenizersBackend):
-    """
-    Construct a XGLM tokenizer (backed by HuggingFace's tokenizers library). Based on BPE.
-
-    This tokenizer inherits from [`TokenizersBackend`] which contains most of the main methods. Users should
-    refer to this superclass for more information regarding those methods.
-
-    Args:
-        tokenizer_file (`str`, *optional*):
-            Path to a tokenizers JSON file containing the serialization of a tokenizer.
-        bos_token (`str`, *optional*, defaults to `"<s>"`):
-            The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
-        eos_token (`str`, *optional*, defaults to `"</s>"`):
-            The end of sequence token.
-        sep_token (`str`, *optional*, defaults to `"</s>"`):
-            The separator token, which is used when building a sequence from multiple sequences.
-        cls_token (`str`, *optional*, defaults to `"<s>"`):
-            The classifier token which is used when doing sequence classification.
-        unk_token (`str`, *optional*, defaults to `"<unk>"`):
-            The unknown token.
-        pad_token (`str`, *optional*, defaults to `"<pad>"`):
-            The token used for padding.
-        vocab (`str`, `dict` or `list`, *optional*):
-            Custom vocabulary dictionary. If not provided, a minimal vocabulary is created.
-        merges (`list[tuple[str, str]]`, *optional*):
-            Custom merge rules for BPE. If not provided, merges are generated from the vocabulary.
-        add_prefix_space (`bool`, *optional*, defaults to `True`):
-            Whether to add a prefix space before encoding.
-    """
 
     vocab_files_names = VOCAB_FILES_NAMES
     model_input_names = ["input_ids", "attention_mask"]
@@ -93,7 +51,6 @@ class XGLMTokenizer(TokenizersBackend):
 
         self._tokenizer = Tokenizer(Unigram(vocab=self._vocab, unk_id=3, byte_fallback=False))
 
-        #  {"type": "Replace", "pattern": {"Regex": " {2,}"}, "content": " "}]}
         normalizers_ = [normalizers.Replace(Regex(r" {2,}"), " ")]
 
         if _spm_precompiled_charsmap is not None:

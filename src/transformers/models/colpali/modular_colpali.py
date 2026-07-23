@@ -1,16 +1,3 @@
-# Copyright 2024 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 from typing import Optional, Union
@@ -64,12 +51,7 @@ class ColPaliProcessor(PaliGemmaProcessor):
 
     @property
     def query_augmentation_token(self) -> str:
-        """
-        Return the query augmentation token.
-
-        Query augmentation buffers are used as reasoning buffers during inference.
-        """
-        return self.tokenizer.pad_token
+        pass
 
     def __call__(
         self,
@@ -119,7 +101,6 @@ class ColPaliProcessor(PaliGemmaProcessor):
             ]
             pixel_values = self.image_processor(images, **output_kwargs["images_kwargs"])["pixel_values"]
 
-            # max_length has to account for the image tokens
             if output_kwargs["text_kwargs"].get("max_length", None) is not None:
                 output_kwargs["text_kwargs"]["max_length"] += self.image_seq_length
 
@@ -166,65 +147,14 @@ class ColPaliProcessor(PaliGemmaProcessor):
         images: ImageInput | None = None,
         **kwargs: Unpack[ColPaliProcessorKwargs],
     ) -> BatchFeature:
-        """
-        Prepare for the model one or several image(s). This method is a wrapper around the `__call__` method of the ColPaliProcessor's
-        [`ColPaliProcessor.__call__`].
-
-        This method forwards the `images` and `kwargs` arguments to the image processor.
-
-        Args:
-            images (`PIL.Image.Image`, `np.ndarray`, `torch.Tensor`, `list[PIL.Image.Image]`, `list[np.ndarray]`, `list[torch.Tensor]`):
-                The image or batch of images to be prepared. Each image can be a PIL image, NumPy array or PyTorch
-                tensor. In case of a NumPy array/PyTorch tensor, each image should be of shape (C, H, W), where C is a
-                number of channels, H and W are image height and width.
-            return_tensors (`str` or [`~utils.TensorType`], *optional*):
-                If set, will return tensors of a particular framework. Acceptable values are:
-
-                - `'pt'`: Return PyTorch `torch.Tensor` objects.
-                - `'np'`: Return NumPy `np.ndarray` objects.
-
-        Returns:
-            [`BatchFeature`]: A [`BatchFeature`] with the following fields:
-
-            - **input_ids** -- List of token ids to be fed to a model.
-            - **attention_mask** -- List of indices specifying which tokens should be attended to by the model (when
-              `return_attention_mask=True` or if *"attention_mask"* is in `self.model_input_names` and if `text` is not
-              `None`).
-            - **pixel_values** -- Pixel values to be fed to a model. Returned when `images` is not `None`.
-        """
-        return self.__call__(images=images, **kwargs)
+        pass
 
     def process_queries(
         self,
         text: TextInput | list[TextInput],
         **kwargs: Unpack[ColPaliProcessorKwargs],
     ) -> BatchFeature:
-        """
-        Prepare for the model one or several texts. This method is a wrapper around the `__call__` method of the ColPaliProcessor's
-        [`ColPaliProcessor.__call__`].
-
-        This method forwards the `text` and `kwargs` arguments to the tokenizer.
-
-        Args:
-            text (`str`, `list[str]`, `list[list[str]]`):
-                The sequence or batch of sequences to be encoded. Each sequence can be a string or a list of strings
-                (pretokenized string). If the sequences are provided as list of strings (pretokenized), you must set
-                `is_split_into_words=True` (to lift the ambiguity with a batch of sequences).
-            return_tensors (`str` or [`~utils.TensorType`], *optional*):
-                If set, will return tensors of a particular framework. Acceptable values are:
-
-                - `'pt'`: Return PyTorch `torch.Tensor` objects.
-                - `'np'`: Return NumPy `np.ndarray` objects.
-
-        Returns:
-            [`BatchFeature`]: A [`BatchFeature`] with the following fields:
-
-            - **input_ids** -- List of token ids to be fed to a model.
-            - **attention_mask** -- List of indices specifying which tokens should be attended to by the model (when
-              `return_attention_mask=True` or if *"attention_mask"* is in `self.model_input_names` and if `text` is not
-              `None`).
-        """
-        return self.__call__(text=text, **kwargs)
+        pass
 
     def score_retrieval(
         self,
@@ -234,61 +164,7 @@ class ColPaliProcessor(PaliGemmaProcessor):
         output_dtype: Optional["torch.dtype"] = None,
         output_device: Union["torch.device", str] = "cpu",
     ) -> "torch.Tensor":
-        """
-        Compute the late-interaction/MaxSim score (ColBERT-like) for the given multi-vector
-        query embeddings (`qs`) and passage embeddings (`ps`). For ColPali, a passage is the
-        image of a document page.
-
-        Because the embedding tensors are multi-vector and can thus have different shapes, they
-        should be fed as:
-        (1) a list of tensors, where the i-th tensor is of shape (sequence_length_i, embedding_dim)
-        (2) a single tensor of shape (n_passages, max_sequence_length, embedding_dim) -> usually
-            obtained by padding the list of tensors.
-
-        Args:
-            query_embeddings (`Union[torch.Tensor, list[torch.Tensor]`): Query embeddings.
-            passage_embeddings (`Union[torch.Tensor, list[torch.Tensor]`): Passage embeddings.
-            batch_size (`int`, *optional*, defaults to 128): Batch size for computing scores.
-            output_dtype (`torch.dtype`, *optional*, defaults to `torch.float32`): The dtype of the output tensor.
-                If `None`, the dtype of the input embeddings is used.
-            output_device (`torch.device` or `str`, *optional*, defaults to "cpu"): The device of the output tensor.
-
-        Returns:
-            `torch.Tensor`: A tensor of shape `(n_queries, n_passages)` containing the scores. The score
-            tensor is saved on the "cpu" device.
-        """
-
-        if len(query_embeddings) == 0:
-            raise ValueError("No queries provided")
-        if len(passage_embeddings) == 0:
-            raise ValueError("No passages provided")
-
-        if query_embeddings[0].device != passage_embeddings[0].device:
-            raise ValueError("Queries and passages must be on the same device")
-
-        if query_embeddings[0].dtype != passage_embeddings[0].dtype:
-            raise ValueError("Queries and passages must have the same dtype")
-
-        if output_dtype is None:
-            output_dtype = query_embeddings[0].dtype
-
-        scores: list[torch.Tensor] = []
-
-        for i in range(0, len(query_embeddings), batch_size):
-            batch_scores: list[torch.Tensor] = []
-            batch_queries = torch.nn.utils.rnn.pad_sequence(
-                query_embeddings[i : i + batch_size], batch_first=True, padding_value=0
-            )
-            for j in range(0, len(passage_embeddings), batch_size):
-                batch_passages = torch.nn.utils.rnn.pad_sequence(
-                    passage_embeddings[j : j + batch_size], batch_first=True, padding_value=0
-                )
-                batch_scores.append(
-                    torch.einsum("bnd,csd->bcns", batch_queries, batch_passages).max(dim=3)[0].sum(dim=2)
-                )
-            scores.append(torch.cat(batch_scores, dim=1).to(output_dtype).to(output_device))
-
-        return torch.cat(scores, dim=0)
+        pass
 
 
 __all__ = [

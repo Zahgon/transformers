@@ -1,17 +1,3 @@
-# Copyright 2021 Deepmind and The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Perceiver model."""
 
 import abc
 import math
@@ -51,10 +37,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class PerceiverModelOutput(ModelOutput):
-    r"""
-    logits (`torch.FloatTensor` of shape `(batch_size, num_labels)`):
-        Classification (or regression if config.num_labels==1) scores (before SoftMax).
-    """
 
     logits: torch.FloatTensor | None = None
     last_hidden_state: torch.FloatTensor | None = None
@@ -70,10 +52,6 @@ class PerceiverModelOutput(ModelOutput):
 )
 @dataclass
 class PerceiverDecoderOutput(ModelOutput):
-    r"""
-    logits (`torch.FloatTensor` of shape `(batch_size, num_labels)`):
-        Output of the basic decoder.
-    """
 
     logits: torch.FloatTensor | None = None
     cross_attentions: tuple[torch.FloatTensor] | None = None
@@ -86,12 +64,6 @@ class PerceiverDecoderOutput(ModelOutput):
 )
 @dataclass
 class PerceiverMaskedLMOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Masked language modeling (MLM) loss.
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -108,12 +80,6 @@ class PerceiverMaskedLMOutput(ModelOutput):
 )
 @dataclass
 class PerceiverClassifierOutput(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Classification (or regression if config.num_labels==1) loss.
-    logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
-        Classification (or regression if config.num_labels==1) scores (before SoftMax).
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -123,7 +89,6 @@ class PerceiverClassifierOutput(ModelOutput):
 
 
 class PerceiverEmbeddings(nn.Module):
-    """Construct the latent embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -134,7 +99,6 @@ class PerceiverEmbeddings(nn.Module):
 
 
 class PerceiverSelfAttention(nn.Module):
-    """Multi-headed {cross, self}-attention. Can be used both in the encoder as well as in the decoder."""
 
     def __init__(
         self,
@@ -148,12 +112,8 @@ class PerceiverSelfAttention(nn.Module):
     ):
         super().__init__()
         self.num_heads = num_heads
-        # Q and K must have the same number of channels.
-        # Default to preserving Q's input's shape.
         if qk_channels is None:
             qk_channels = q_dim
-        # V's num_channels determines the shape of the output of QKV-attention.
-        # Default to the same number of channels used in the key-query operation.
         if v_channels is None:
             v_channels = qk_channels
         if qk_channels % num_heads != 0:
@@ -166,11 +126,9 @@ class PerceiverSelfAttention(nn.Module):
         self.qk_channels_per_head = self.qk_channels // num_heads
         self.v_channels_per_head = self.v_channels // num_heads
 
-        # Layer normalization
         self.layernorm1 = nn.LayerNorm(q_dim)
         self.layernorm2 = nn.LayerNorm(kv_dim) if is_cross_attention else nn.Identity()
 
-        # Projection matrices
         self.query = nn.Linear(q_dim, qk_channels)
         self.key = nn.Linear(kv_dim, qk_channels)
         self.value = nn.Linear(kv_dim, v_channels)
@@ -193,8 +151,6 @@ class PerceiverSelfAttention(nn.Module):
         hidden_states = self.layernorm1(hidden_states)
         inputs = self.layernorm2(inputs)
 
-        # Project queries, keys and values to a common feature dimension. If this is instantiated as a cross-attention module,
-        # the keys and values come from the inputs; the attention mask needs to be such that the inputs's non-relevant tokens are not attended to.
         is_cross_attention = inputs is not None
         queries = self.query(hidden_states)
 
@@ -206,13 +162,10 @@ class PerceiverSelfAttention(nn.Module):
             keys = self.key(hidden_states)
             values = self.value(hidden_states)
 
-        # Reshape channels for multi-head attention.
-        # We reshape from (batch_size, time, channels) to (batch_size, num_heads, time, channels per head)
         queries = self.transpose_for_scores(queries, self.qk_channels_per_head)
         keys = self.transpose_for_scores(keys, self.qk_channels_per_head)
         values = self.transpose_for_scores(values, self.v_channels_per_head)
 
-        # Take the dot product between the queries and keys to get the raw attention scores.
         attention_scores = torch.matmul(queries, keys.transpose(-1, -2))
 
         batch_size, num_heads, seq_len, q_head_dim = queries.shape
@@ -222,14 +175,10 @@ class PerceiverSelfAttention(nn.Module):
         attention_scores = attention_scores / math.sqrt(q_head_dim)
 
         if attention_mask is not None:
-            # Apply the attention mask (precomputed for all layers in PerceiverModel forward() function)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, values)
@@ -254,7 +203,6 @@ class PerceiverSelfOutput(nn.Module):
 
 
 class PerceiverAttention(nn.Module):
-    """Attention module, including a dense block."""
 
     def __init__(
         self,
@@ -268,7 +216,6 @@ class PerceiverAttention(nn.Module):
         use_query_residual=True,
     ):
         super().__init__()
-        # MultiHead attention
         if is_cross_attention and qk_channels is None:
             if config.cross_attention_shape_for_attention == "q":
                 qk_channels = q_dim
@@ -293,7 +240,6 @@ class PerceiverAttention(nn.Module):
             q_dim=q_dim,
             kv_dim=kv_dim,
         )
-        # dense block
         output_channels = None
         if is_cross_attention:
             output_channels = q_dim
@@ -319,12 +265,8 @@ class PerceiverAttention(nn.Module):
             output_attentions,
         )
 
-        # Output projection
         attention_output = self.output(self_outputs[0])
 
-        # Optionally include a residual to the original queries.
-        # Consider omitting the residual if the semantics of query and output
-        # are different, e.g. if queries are positions and outputs are pixels.
         if self.use_query_residual:
             attention_output = attention_output + hidden_states
 
@@ -333,7 +275,6 @@ class PerceiverAttention(nn.Module):
 
 
 class PerceiverMLP(nn.Module):
-    """A Transformer-style dense module to follow attention."""
 
     def __init__(self, config, input_size, widening_factor):
         super().__init__()
@@ -416,13 +357,11 @@ class PerceiverLayer(nn.Module):
 
 
 class PerceiverEncoder(nn.Module):
-    """The Perceiver Encoder: a scalable, fully attentional encoder."""
 
     def __init__(self, config, kv_dim=None):
         super().__init__()
         self.config = config
 
-        # Check that we can use multihead-attention with these shapes.
         if config.d_latents % config.num_self_attention_heads != 0:
             raise ValueError(
                 f"num_z_channels ({config.d_latents}) must be divisible by"
@@ -434,7 +373,6 @@ class PerceiverEncoder(nn.Module):
                 f" num_cross_attend_heads ({config.num_cross_attention_heads})."
             )
 
-        # Construct the cross attention layer.
         self.cross_attention = PerceiverLayer(
             config,
             is_cross_attention=True,
@@ -447,8 +385,6 @@ class PerceiverEncoder(nn.Module):
             use_query_residual=config.use_query_residual,
         )
 
-        # Construct a single block of self-attention layers.
-        # We get deeper architectures by applying this block more than once.
         self_attention_layers = []
         for _ in range(config.num_self_attends_per_block):
             layer = PerceiverLayer(
@@ -479,7 +415,6 @@ class PerceiverEncoder(nn.Module):
         all_self_attentions = () if output_attentions else None
         all_cross_attentions = () if output_attentions else None
 
-        # Apply the cross-attention between the latents (hidden_states) and inputs:
         layer_outputs = self.cross_attention(
             hidden_states,
             attention_mask=attention_mask,
@@ -492,7 +427,6 @@ class PerceiverEncoder(nn.Module):
         if output_attentions:
             all_cross_attentions = all_cross_attentions + (layer_outputs[1],)
 
-        # Apply the block of self-attention layers more than once:
         for _ in range(self.config.num_blocks):
             for i, layer_module in enumerate(self.self_attends):
                 if output_hidden_states:
@@ -585,7 +519,6 @@ class PerceiverModel(PerceiverPreTrainedModel):
         )
         self.decoder = decoder
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -728,7 +661,6 @@ class PerceiverModel(PerceiverPreTrainedModel):
         batch_size, seq_length, _ = inputs.size()
         device = inputs.device
 
-        # If no attention mask is provided, make them all ones
         if attention_mask is None:
             attention_mask = torch.ones((batch_size, seq_length), device=device)
 
@@ -772,7 +704,6 @@ class PerceiverModel(PerceiverPreTrainedModel):
             )
             logits = decoder_outputs.logits
 
-            # add cross-attentions of decoder
             if output_attentions and decoder_outputs.cross_attentions is not None:
                 if return_dict:
                     encoder_outputs.cross_attentions = (
@@ -833,7 +764,6 @@ class PerceiverForMaskedLM(PerceiverPreTrainedModel):
         )
         self.embedding_decoder = PerceiverEmbeddingDecoder(config)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -959,7 +889,6 @@ class PerceiverForSequenceClassification(PerceiverPreTrainedModel):
             ),
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1091,7 +1020,6 @@ class PerceiverForImageClassificationLearned(PerceiverPreTrainedModel):
             ),
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1217,7 +1145,6 @@ class PerceiverForImageClassificationFourier(PerceiverPreTrainedModel):
             ),
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1341,7 +1268,6 @@ class PerceiverForImageClassificationConvProcessing(PerceiverPreTrainedModel):
             ),
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1472,17 +1398,13 @@ class PerceiverForOpticalFlow(PerceiverPreTrainedModel):
                 num_channels=image_preprocessor.num_channels,
                 output_image_shape=config.train_size,
                 rescale_factor=100.0,
-                # decoder kwargs
                 use_query_residual=False,
                 output_num_channels=2,
-                # We query the decoder using the first frame features
-                # rather than a standard decoder position encoding.
                 position_encoding_type="fourier",
                 fourier_position_encoding_kwargs=fourier_position_encoding_kwargs_decoder,
             ),
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1637,8 +1559,6 @@ class PerceiverForMultimodalAutoencoding(PerceiverPreTrainedModel):
             config,
             # Autoencoding, don't pass inputs to the queries.
             concat_preprocessed_input=False,
-            # Modality specific decoders are used ONLY to generate queries.
-            # All modalties are decoded together using a unified decoder.
             modalities={
                 "audio": PerceiverBasicDecoder(
                     config,
@@ -1690,7 +1610,6 @@ class PerceiverForMultimodalAutoencoding(PerceiverPreTrainedModel):
             output_postprocessor=output_postprocessor,
         )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     @auto_docstring
@@ -1807,24 +1726,20 @@ def build_position_encoding(
             raise ValueError("Make sure to pass trainable_position_encoding_kwargs")
         output_pos_enc = PerceiverTrainablePositionEncoding(**trainable_position_encoding_kwargs)
     elif position_encoding_type == "fourier":
-        # We don't use the index_dims argument, as this is only known during the forward pass
         if not fourier_position_encoding_kwargs:
             raise ValueError("Make sure to pass fourier_position_encoding_kwargs")
         output_pos_enc = PerceiverFourierPositionEncoding(**fourier_position_encoding_kwargs)
     else:
         raise ValueError(f"Unknown position encoding type: {position_encoding_type}.")
 
-    # Optionally, project the position encoding to a target dimension:
     positions_projection = nn.Linear(out_channels, project_pos_dim) if project_pos_dim > 0 else nn.Identity()
 
     return output_pos_enc, positions_projection
 
 
-# Below: Perceiver decoders
 
 
 class PerceiverAbstractDecoder(nn.Module, metaclass=abc.ABCMeta):
-    """Perceiver abstract decoder."""
 
     @abc.abstractmethod
     def decoder_query(self, inputs, modality_sizes=None, inputs_without_pos=None, subsampled_points=None):
@@ -1841,13 +1756,6 @@ class PerceiverAbstractDecoder(nn.Module, metaclass=abc.ABCMeta):
 
 
 class PerceiverProjectionDecoder(PerceiverAbstractDecoder):
-    """
-    Baseline projection decoder (no cross-attention).
-
-    Args:
-        config ([`PerceiverConfig`]):
-            Model configuration.
-    """
 
     def __init__(self, config):
         super().__init__()
@@ -1859,55 +1767,18 @@ class PerceiverProjectionDecoder(PerceiverAbstractDecoder):
     def forward(
         self, query: torch.Tensor, z: torch.FloatTensor, query_mask: torch.FloatTensor | None = None
     ) -> torch.FloatTensor:
-        # (batch_size, num_latents, d_latents) -> (batch_size, d_latents)
         z = torch.mean(z, dim=1)
-        # (batch_size, d_latents) -> (batch_size, config.num_labels)
         logits = self.classifier(z)
         return logits
 
 
 class PerceiverBasicDecoder(PerceiverAbstractDecoder):
-    """
-    Cross-attention-based decoder. This class can be used to decode the final hidden states of the latents using a
-    cross-attention operation, in which the latents produce keys and values.
-
-    The shape of the output of this class depends on how one defines the output queries (also called decoder queries).
-
-    Args:
-        config ([*PerceiverConfig*]):
-            Model configuration.
-        output_num_channels (`int`, *optional*):
-            The number of channels in the output. Will only be used in case *final_project* is set to `True`.
-        position_encoding_type (`str`, *optional*, defaults to "trainable"):
-            The type of position encoding to use. Can be either "trainable", "fourier", or "none".
-        output_index_dims (`int`, *optional*):
-            The number of dimensions of the output queries. Ignored if 'position_encoding_type' == 'none'.
-        num_channels (`int`, *optional*, defaults to 128):
-            The number of channels of the decoder queries. Ignored if 'position_encoding_type' == 'none'.
-        qk_channels (`int`, *optional*):
-            The number of channels of the queries and keys in the cross-attention layer.
-        v_channels (`int`, *optional*):
-            The number of channels of the values in the cross-attention layer.
-        num_heads (`int`, *optional*, defaults to 1):
-            The number of attention heads in the cross-attention layer.
-        widening_factor (`int`, *optional*, defaults to 1):
-            The widening factor of the cross-attention layer.
-        use_query_residual (`bool`, *optional*, defaults to `False`):
-            Whether to use a residual connection between the query and the output of the cross-attention layer.
-        concat_preprocessed_input (`bool`, *optional*, defaults to `False`):
-            Whether to concatenate the preprocessed input to the query.
-        final_project (`bool`, *optional*, defaults to `True`):
-            Whether to project the output of the cross-attention layer to a target dimension.
-        position_encoding_only (`bool`, *optional*, defaults to `False`):
-            Whether to only use this class to define output queries.
-    """
 
     def __init__(
         self,
         config: PerceiverConfig,
         output_num_channels: int,
         position_encoding_type: str | None = "trainable",
-        # The following 2 arguments are ignored if position_encoding_type == 'none':
         output_index_dims: int | None = None,
         num_channels: int | None = 128,
         subsampled_index_dims: int | None = None,
@@ -1924,8 +1795,6 @@ class PerceiverBasicDecoder(PerceiverAbstractDecoder):
         super().__init__()
 
         self.output_num_channels = output_num_channels
-        # If `none`, the decoder will not construct any position encodings.
-        # You should construct your own when querying the decoder.
         self.output_position_encodings = None
         self.position_encoding_type = position_encoding_type
         self.position_encoding_kwargs = position_encoding_kwargs
@@ -1944,7 +1813,6 @@ class PerceiverBasicDecoder(PerceiverAbstractDecoder):
         self.position_encoding_only = position_encoding_only
 
         # for multimodal autoencoding, we don't need the decoder cross-attention and final layer
-        # so then we will set position_encoding_only to True
         if not self.position_encoding_only:
             self.decoding_cross_attention = PerceiverLayer(
                 config,
@@ -1961,34 +1829,17 @@ class PerceiverBasicDecoder(PerceiverAbstractDecoder):
 
     @property
     def num_query_channels(self) -> int:
-        if self.position_encoding_type == "none":  # Queries come from elsewhere
-            raise ValueError(
-                "You cannot calculate number of decoder query channels when position_encoding_type is set to none"
-            )
-        if self.position_encoding_only:
-            if "project_pos_dim" in self.position_encoding_kwargs:
-                return self.position_encoding_kwargs["project_pos_dim"]
-            return self.output_position_encodings.output_size()
-        if self.final_project:
-            return self.output_num_channels
-        return self.num_channels
+        pass
 
     def decoder_query(self, inputs, modality_sizes=None, inputs_without_pos=None, subsampled_points=None):
         if self.position_encoding_type == "none":  # Queries come from elsewhere
             raise ValueError("You cannot construct decoder queries when position_encoding_type is set to none")
         if subsampled_points is not None:
-            # subsampled_points are the indices if the inputs would be flattened
-            # however, the inputs aren't flattened, that's why we use unravel_index
-            # to get the indices for the unflattened array
-            # unravel_index returns a tuple (x_idx, y_idx, ...)
-            # stack to get the [n, d] tensor of coordinates
             indices = torch.unravel_index(subsampled_points, self.output_index_dims)
             pos = torch.stack(indices, dim=1)
             batch_size = inputs.shape[0]
-            # Map these coordinates to [-1, 1]
             pos = -1 + 2 * pos / torch.tensor(self.output_index_dims, device=pos.device)[None, :]
             pos = torch.broadcast_to(pos[None], [batch_size, pos.shape[0], pos.shape[1]])
-            # Construct the position encoding.
             if self.position_encoding_type == "trainable":
                 pos_emb = self.output_position_encodings(batch_size)
             elif self.position_encoding_type == "fourier":
@@ -1996,14 +1847,12 @@ class PerceiverBasicDecoder(PerceiverAbstractDecoder):
                     self.output_index_dims, batch_size=batch_size, device=inputs.device, dtype=inputs.dtype, pos=pos
                 )
 
-            # Optionally project them to a target dimension.
             pos_emb = self.positions_projection(pos_emb)
             pos_emb = torch.reshape(pos_emb, [pos_emb.shape[0], -1, pos_emb.shape[-1]])
         else:
             batch_size = inputs.shape[0]
             index_dims = inputs.shape[2:]
 
-            # Construct the position encoding.
             if self.position_encoding_type == "trainable":
                 pos_emb = self.output_position_encodings(batch_size)
             elif self.position_encoding_type == "fourier":
@@ -2011,7 +1860,6 @@ class PerceiverBasicDecoder(PerceiverAbstractDecoder):
                     index_dims, batch_size, device=inputs.device, dtype=inputs.dtype
                 )
 
-            # Optionally project them to a target dimension.
             pos_emb = self.positions_projection(pos_emb)
 
         if self.concat_preprocessed_input:
@@ -2029,9 +1877,6 @@ class PerceiverBasicDecoder(PerceiverAbstractDecoder):
         output_attentions: bool | None = False,
     ) -> PerceiverDecoderOutput:
         # Cross-attention decoding.
-        # key, value: B x N x K; query: B x M x K
-        # Attention maps -> B x N x M
-        # Output -> B x M x K
         cross_attentions = () if output_attentions else None
 
         layer_outputs = self.decoding_cross_attention(
@@ -2052,15 +1897,6 @@ class PerceiverBasicDecoder(PerceiverAbstractDecoder):
 
 
 class PerceiverClassificationDecoder(PerceiverAbstractDecoder):
-    """
-    Cross-attention based classification decoder. Light-weight wrapper of [`PerceiverBasicDecoder`] for logit output.
-    Will turn the output of the Perceiver encoder which is of shape (batch_size, num_latents, d_latents) to a tensor of
-    shape (batch_size, num_labels). The queries are of shape (batch_size, 1, num_labels).
-
-    Args:
-        config ([`PerceiverConfig`]):
-            Model configuration.
-    """
 
     def __init__(self, config, **decoder_kwargs):
         super().__init__()
@@ -2075,7 +1911,7 @@ class PerceiverClassificationDecoder(PerceiverAbstractDecoder):
 
     @property
     def num_query_channels(self) -> int:
-        return self.decoder.num_query_channels
+        pass
 
     def decoder_query(self, inputs, modality_sizes=None, inputs_without_pos=None, subsampled_points=None):
         return self.decoder.decoder_query(
@@ -2091,14 +1927,12 @@ class PerceiverClassificationDecoder(PerceiverAbstractDecoder):
     ) -> PerceiverDecoderOutput:
         decoder_outputs = self.decoder(query, z, output_attentions=output_attentions)
 
-        # B x 1 x num_classes -> B x num_classes
         logits = decoder_outputs.logits[:, 0, :]
 
         return PerceiverDecoderOutput(logits=logits, cross_attentions=decoder_outputs.cross_attentions)
 
 
 class PerceiverOpticalFlowDecoder(PerceiverAbstractDecoder):
-    """Cross-attention based optical flow decoder."""
 
     def __init__(self, config, output_image_shape, output_num_channels=2, rescale_factor=100.0, **decoder_kwargs):
         super().__init__()
@@ -2110,7 +1944,7 @@ class PerceiverOpticalFlowDecoder(PerceiverAbstractDecoder):
 
     @property
     def num_query_channels(self) -> int:
-        return self.decoder.num_query_channels
+        pass
 
     def decoder_query(self, inputs, modality_sizes=None, inputs_without_pos=None, subsampled_points=None):
         if subsampled_points is not None:
@@ -2126,25 +1960,12 @@ class PerceiverOpticalFlowDecoder(PerceiverAbstractDecoder):
     ) -> PerceiverDecoderOutput:
         decoder_outputs = self.decoder(query, z, output_attentions=output_attentions)
         preds = decoder_outputs.logits
-        # Output flow and rescale.
         preds /= self.rescale_factor
         preds = preds.reshape([preds.shape[0]] + list(self.output_image_shape) + [preds.shape[-1]])
         return PerceiverDecoderOutput(logits=preds, cross_attentions=decoder_outputs.cross_attentions)
 
 
 class PerceiverBasicVideoAutoencodingDecoder(PerceiverAbstractDecoder):
-    """
-    Cross-attention based video-autoencoding decoder. Light-weight wrapper of [*PerceiverBasicDecoder*] with video
-    reshaping logic.
-
-    Args:
-        config ([*PerceiverConfig*]):
-            Model configuration.
-        output_shape (`list[int]`):
-            Shape of the output as (batch_size, num_frames, height, width), excluding the channel dimension.
-        position_encoding_type (`str`):
-            The type of position encoding to use. Can be either "trainable", "fourier", or "none".
-    """
 
     def __init__(
         self, config: PerceiverConfig, output_shape: list[int], position_encoding_type: str, **decoder_kwargs
@@ -2152,7 +1973,6 @@ class PerceiverBasicVideoAutoencodingDecoder(PerceiverAbstractDecoder):
         super().__init__()
         if len(output_shape) != 4:  # B, T, H, W
             raise ValueError(f"Expected rank 4 output_shape, got {output_shape}.")
-        # Build the decoder components:
         self.output_shape = output_shape
         self.output_num_channels = decoder_kwargs["output_num_channels"]
 
@@ -2165,7 +1985,7 @@ class PerceiverBasicVideoAutoencodingDecoder(PerceiverAbstractDecoder):
 
     @property
     def num_query_channels(self) -> int:
-        return self.decoder.num_query_channels
+        pass
 
     def decoder_query(self, inputs, modality_sizes=None, inputs_without_pos=None, subsampled_points=None):
         return self.decoder.decoder_query(
@@ -2200,7 +2020,6 @@ def restructure(modality_sizes: ModalitySizeType, inputs: torch.Tensor) -> Mappi
     """
     outputs = {}
     index = 0
-    # Apply a predictable ordering to the modalities
     for modality in sorted(modality_sizes.keys()):
         size = modality_sizes[modality]
         inp = inputs[:, index : index + size]
@@ -2210,30 +2029,6 @@ def restructure(modality_sizes: ModalitySizeType, inputs: torch.Tensor) -> Mappi
 
 
 class PerceiverMultimodalDecoder(PerceiverAbstractDecoder):
-    """
-    Multimodal decoding by composing uni-modal decoders. The *modalities* argument of the constructor is a dictionary
-    mapping modality name to the decoder of that modality. That decoder will be used to construct queries for that
-    modality. Modality-specific queries are padded with trainable modality-specific parameters, after which they are
-    concatenated along the time dimension.
-
-    Next, there is a shared cross attention operation across all modalities.
-
-    Args:
-        config ([*PerceiverConfig*]):
-            Model configuration.
-        modalities (`dict[str, PerceiverAbstractDecoder]`):
-            Dictionary mapping modality name to the decoder of that modality.
-        num_outputs (`int`):
-            The number of outputs of the decoder.
-        output_num_channels (`int`):
-            The number of channels in the output.
-        min_padding_size (`int`, *optional*, defaults to 2):
-            The minimum padding size for all modalities. The final output will have num_channels equal to the maximum
-            channels across all modalities plus min_padding_size.
-        subsampled_index_dims (`dict[str, PerceiverAbstractDecoder]`, *optional*):
-            Dictionary mapping modality name to the subsampled index dimensions to use for the decoder query of that
-            modality.
-    """
 
     def __init__(
         self,
@@ -2268,20 +2063,15 @@ class PerceiverMultimodalDecoder(PerceiverAbstractDecoder):
 
     @property
     def num_query_channels(self) -> int:
-        max_channel_size = max(decoder.num_query_channels for _, decoder in self.modalities.items())
-        common_channel_size = max_channel_size + self.min_padding_size
-        return common_channel_size
+        pass
 
     def decoder_query(self, inputs, modality_sizes, inputs_without_pos=None, subsampled_points=None):
-        # Partition the flat inputs among the different modalities
         inputs = restructure(modality_sizes, inputs)
 
-        # Obtain modality-specific decoders' queries
         subsampled_points = subsampled_points or {}
 
         decoder_queries = {}
         for modality, decoder in self.modalities.items():
-            # Get input_without_pos for this modality if it exists.
             input_without_pos = None
             if inputs_without_pos is not None:
                 input_without_pos = inputs_without_pos.get(modality, None)
@@ -2293,7 +2083,6 @@ class PerceiverMultimodalDecoder(PerceiverAbstractDecoder):
             )
             decoder_queries[modality] = query
 
-        # Pad all queries with trainable position encodings to make them have the same channels
 
         def embed(modality, x):
             x = torch.reshape(x, [x.shape[0], np.prod(x.shape[1:-1]), x.shape[-1]])
@@ -2301,7 +2090,6 @@ class PerceiverMultimodalDecoder(PerceiverAbstractDecoder):
             pos = torch.broadcast_to(pos, [x.shape[0], x.shape[1], self.num_query_channels - x.shape[2]])
             return torch.cat([x, pos], dim=2)
 
-        # Apply a predictable ordering to the modalities
         return torch.cat(
             [embed(modality, decoder_queries[modality]) for modality in sorted(self.modalities.keys())], dim=1
         )
@@ -2313,13 +2101,11 @@ class PerceiverMultimodalDecoder(PerceiverAbstractDecoder):
         query_mask: torch.FloatTensor | None = None,
         output_attentions: bool | None = False,
     ) -> torch.Tensor:
-        # B x 1 x num_classes -> B x num_classes
         decoder_outputs = self.decoder(query, z, output_attentions=output_attentions)
 
         return decoder_outputs
 
 
-# Below: IO pre- and post-processor classes for Perceiver.
 def space_to_depth(frames: torch.Tensor, temporal_block_size: int = 1, spatial_block_size: int = 1) -> torch.Tensor:
     """
     Space to depth transform. Rearranges blocks of spatial data, into depth.
@@ -2328,7 +2114,6 @@ def space_to_depth(frames: torch.Tensor, temporal_block_size: int = 1, spatial_b
     """
     if len(frames.shape) == 4:
         batch_size, num_channels, height, width = frames.shape
-        # split up dimensions (height by spatial_block_size, width by spatial_block_size)
         frames = frames.view(
             batch_size,
             num_channels,
@@ -2337,9 +2122,7 @@ def space_to_depth(frames: torch.Tensor, temporal_block_size: int = 1, spatial_b
             width // spatial_block_size,
             spatial_block_size,
         )
-        # move blocks to last dimension: (batch_size, H//bs, W//bs, bs, bs, C)
         frames = frames.permute(0, 2, 4, 3, 5, 1).contiguous()
-        # concatenate blocks along channel dimension: (batch_size, H//bs, W//bs, bs*bs*C)
         frames = frames.view(
             batch_size,
             height // spatial_block_size,
@@ -2349,7 +2132,6 @@ def space_to_depth(frames: torch.Tensor, temporal_block_size: int = 1, spatial_b
         return frames
     elif len(frames.shape) == 5:
         batch_size, time, num_channels, height, width = frames.shape
-        # split up dimensions (time by temporal_block_size, height by spatial_block_size, width by spatial_block_size)
         frames = frames.view(
             batch_size,
             time // temporal_block_size,
@@ -2360,9 +2142,7 @@ def space_to_depth(frames: torch.Tensor, temporal_block_size: int = 1, spatial_b
             width // spatial_block_size,
             spatial_block_size,
         )
-        # move blocks to last dimension: (batch_size, T//ts, H//bs, W//bs, ts, bs, bs, C)
         frames = frames.permute(0, 1, 4, 6, 2, 5, 7, 3).contiguous()
-        # concatenate blocks along channel dimension: (batch_size, T//ts, H//bs, W//bs, ts*bs*bs*C)
         frames = frames.view(
             batch_size,
             time // temporal_block_size,
@@ -2379,10 +2159,6 @@ def space_to_depth(frames: torch.Tensor, temporal_block_size: int = 1, spatial_b
 
 
 class Conv2dSamePadding(nn.Conv2d):
-    """
-    Conv2d layer with padding="same" support. Source:
-    https://gist.github.com/sumanmichael/4de9dee93f972d47c80c4ade8e149ea6
-    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -2395,7 +2171,6 @@ class Conv2dSamePadding(nn.Conv2d):
 
 
 class Conv2DDownsample(nn.Module):
-    """Downsamples 4x by applying a 2D convolution and doing max pooling."""
 
     def __init__(
         self,
@@ -2459,25 +2234,19 @@ def generate_fourier_features(pos, num_bands, max_resolution=(224, 224), concat_
     batch_size = pos.shape[0]
 
     min_freq = 1.0
-    # Nyquist frequency at the target resolution:
     freq_bands = torch.stack(
         [torch.linspace(start=min_freq, end=res / 2, steps=num_bands, device=pos.device) for res in max_resolution]
     )
 
-    # Get frequency bands for each spatial dimension.
-    # Output is size [n, d * num_bands]
     per_pos_features = pos[0, :, :][:, :, None] * freq_bands[None, :, :]
     per_pos_features = torch.reshape(per_pos_features, [-1, np.prod(per_pos_features.shape[1:])])
 
     if sine_only:
-        # Output is size [n, d * num_bands]
         per_pos_features = torch.sin(np.pi * (per_pos_features))
     else:
-        # Output is size [n, 2 * d * num_bands]
         per_pos_features = torch.cat(
             [torch.sin(np.pi * per_pos_features), torch.cos(np.pi * per_pos_features)], dim=-1
         )
-    # Concatenate the raw input positions.
     if concat_pos:
         # Adds d bands to the encoding.
         per_pos_features = torch.cat([pos, per_pos_features.expand(batch_size, -1, -1)], dim=-1)
@@ -2508,7 +2277,6 @@ def build_linear_positions(index_dims, output_range=(-1.0, 1.0)):
 
 
 class PerceiverAbstractPositionEncoding(nn.Module, metaclass=abc.ABCMeta):
-    """Perceiver abstract position encoding."""
 
     @property
     @abc.abstractmethod
@@ -2525,7 +2293,6 @@ class PerceiverAbstractPositionEncoding(nn.Module, metaclass=abc.ABCMeta):
 
 
 class PerceiverTrainablePositionEncoding(PerceiverAbstractPositionEncoding):
-    """Trainable position encoding."""
 
     def __init__(self, index_dims, num_channels=128):
         super().__init__()
@@ -2536,18 +2303,15 @@ class PerceiverTrainablePositionEncoding(PerceiverAbstractPositionEncoding):
 
     @property
     def num_dimensions(self) -> int:
-        if isinstance(self._index_dims, int):
-            return 1
-        return len(self._index_dims)
+        pass
 
     def output_size(self, *args, **kwargs) -> int:
-        return self._num_channels
+        pass
 
     def interpolate_pos_encoding(self, position_embeddings: torch.Tensor, height: int, width: int) -> torch.Tensor:
         num_positions = position_embeddings.shape[0]
         new_height = new_width = torch_int(num_positions**0.5)
 
-        # always interpolate when tracing to ensure the exported model works for dynamic input shapes
         if not torch.jit.is_tracing() and height == new_height and width == new_width:
             return position_embeddings
 
@@ -2595,21 +2359,15 @@ def _check_or_build_spatial_positions(pos, index_dims, batch_size):
     """
     if pos is None:
         pos = build_linear_positions(index_dims)
-        # equivalent to `torch.broadcast_to(pos[None], (batch_size,) + pos.shape)`
-        # but `torch.broadcast_to` cannot be converted to ONNX
         pos = pos[None].expand((batch_size,) + pos.shape)
         pos = torch.reshape(pos, [batch_size, np.prod(index_dims), -1])
     else:
-        # Just a warning label: you probably don't want your spatial features to
-        # have a different spatial layout than your pos coordinate system.
-        # But feel free to override if you think it'll work!
         if pos.shape[-1] != len(index_dims):
             raise ValueError("Spatial features have the wrong number of dimensions.")
     return pos
 
 
 class PerceiverFourierPositionEncoding(PerceiverAbstractPositionEncoding):
-    """Fourier (Sinusoidal) position encoding."""
 
     def __init__(self, num_bands, max_resolution, concat_pos=True, sine_only=False):
         super().__init__()
@@ -2620,18 +2378,10 @@ class PerceiverFourierPositionEncoding(PerceiverAbstractPositionEncoding):
 
     @property
     def num_dimensions(self) -> int:
-        return len(self.max_resolution)
+        pass
 
     def output_size(self):
-        """Returns size of positional encodings last dimension."""
-        num_dims = len(self.max_resolution)
-        encoding_size = self.num_bands * num_dims
-        if not self.sine_only:
-            encoding_size *= 2
-        if self.concat_pos:
-            encoding_size += self.num_dimensions
-
-        return encoding_size
+        pass
 
     def forward(
         self,
@@ -2660,15 +2410,6 @@ class AbstractPreprocessor(nn.Module):
 
 
 class PerceiverTextPreprocessor(AbstractPreprocessor):
-    """
-    Text preprocessing for Perceiver Encoder. Can be used to embed `inputs` and add positional encodings.
-
-    The dimensionality of the embeddings is determined by the `d_model` attribute of the configuration.
-
-    Args:
-        config ([`PerceiverConfig`]):
-            Model configuration.
-    """
 
     def __init__(self, config: PerceiverConfig) -> None:
         super().__init__()
@@ -2678,7 +2419,7 @@ class PerceiverTextPreprocessor(AbstractPreprocessor):
 
     @property
     def num_channels(self) -> int:
-        return self.config.d_model
+        pass
 
     def forward(
         self,
@@ -2697,13 +2438,6 @@ class PerceiverTextPreprocessor(AbstractPreprocessor):
 
 
 class PerceiverEmbeddingDecoder(nn.Module):
-    """
-    Module to decode embeddings (for masked language modeling).
-
-    Args:
-        config ([`PerceiverConfig`]):
-            Model configuration.
-    """
 
     def __init__(self, config: PerceiverConfig) -> None:
         super().__init__()
@@ -2713,7 +2447,6 @@ class PerceiverEmbeddingDecoder(nn.Module):
 
     def forward(self, hidden_states: torch.Tensor, embedding_layer: torch.Tensor) -> torch.Tensor:
         batch_size, seq_len, d_model = hidden_states.shape
-        # Flatten batch dim
         output = torch.matmul(hidden_states.reshape([-1, d_model]), embedding_layer.weight.transpose(0, 1))
         output = output + self.bias
 
@@ -2721,17 +2454,6 @@ class PerceiverEmbeddingDecoder(nn.Module):
 
 
 class PerceiverMultimodalPostprocessor(nn.Module):
-    """
-    Multimodal postprocessing for Perceiver. Can be used to combine modality-specific postprocessors into a single
-    postprocessor.
-
-    Args:
-          modalities (`Mapping[str, PostprocessorType]`):
-            Dictionary mapping modality name to postprocessor class for that modality.
-          input_is_dict (`bool`, *optional*, defaults to `False`):
-            If True, input is assumed to be dictionary structured, and outputs keep the same dictionary shape. If
-            False, input is a tensor which is sliced up during postprocessing by *modality_sizes*.
-    """
 
     def __init__(self, modalities: Mapping[str, PostprocessorType], input_is_dict: bool = False):
         super().__init__()
@@ -2742,7 +2464,6 @@ class PerceiverMultimodalPostprocessor(nn.Module):
         self, inputs: torch.Tensor, pos: torch.Tensor | None = None, modality_sizes=None
     ) -> Mapping[str, torch.Tensor]:
         if not self.input_is_dict:
-            # Slice up modalities by their sizes.
             if modality_sizes is None:
                 raise ValueError("Modality sizes should be specified if input is not a dictionary.")
             inputs = restructure(modality_sizes=modality_sizes, inputs=inputs)
@@ -2755,15 +2476,6 @@ class PerceiverMultimodalPostprocessor(nn.Module):
 
 
 class PerceiverClassificationPostprocessor(nn.Module):
-    """
-    Classification postprocessing for Perceiver. Can be used to convert the decoder output to classification logits.
-
-    Args:
-        config ([*PerceiverConfig*]):
-            Model configuration.
-        in_channels (`int`):
-            Number of channels in the input.
-    """
 
     def __init__(self, config: PerceiverConfig, in_channels: int) -> None:
         super().__init__()
@@ -2775,17 +2487,6 @@ class PerceiverClassificationPostprocessor(nn.Module):
 
 
 class PerceiverAudioPostprocessor(nn.Module):
-    """
-    Audio postprocessing for Perceiver. Can be used to convert the decoder output to audio features.
-
-    Args:
-        config ([*PerceiverConfig*]):
-            Model configuration.
-        in_channels (`int`):
-            Number of channels in the input.
-        postproc_type (`str`, *optional*, defaults to `"patches"`):
-            Postprocessor type to use. Currently, only "patches" is supported.
-    """
 
     def __init__(self, config: PerceiverConfig, in_channels: int, postproc_type: str = "patches") -> None:
         super().__init__()
@@ -2793,7 +2494,6 @@ class PerceiverAudioPostprocessor(nn.Module):
         if postproc_type != "patches":  # to be supported: 'conv', 'patches', 'pixels'
             raise ValueError("Invalid postproc_type!")
 
-        # Architecture parameters:
         self.classifier = nn.Linear(in_channels, config.samples_per_patch)
 
     def forward(self, inputs: torch.Tensor, pos: torch.Tensor | None = None, modality_sizes=None) -> torch.Tensor:
@@ -2802,16 +2502,6 @@ class PerceiverAudioPostprocessor(nn.Module):
 
 
 class PerceiverProjectionPostprocessor(nn.Module):
-    """
-    Projection postprocessing for Perceiver. Can be used to project the channels of the decoder output to a lower
-    dimension.
-
-    Args:
-        in_channels (`int`):
-            Number of channels in the input.
-        out_channels (`int`):
-            Number of channels in the output.
-    """
 
     def __init__(self, in_channels: int, out_channels: int) -> None:
         super().__init__()
@@ -2823,41 +2513,6 @@ class PerceiverProjectionPostprocessor(nn.Module):
 
 
 class PerceiverImagePreprocessor(AbstractPreprocessor):
-    """
-    Image preprocessing for Perceiver Encoder.
-
-    Note: the *out_channels* argument refers to the output channels of a convolutional layer, if *prep_type* is set to
-    "conv1x1" or "conv". If one adds absolute position embeddings, one must make sure the *num_channels* of the
-    position encoding kwargs are set equal to the *out_channels*.
-
-    Args:
-        config ([*PerceiverConfig*]):
-            Model configuration.
-        prep_type (`str`, *optional*, defaults to `"conv"`):
-            Preprocessing type. Can be "conv1x1", "conv", "patches", "pixels".
-        spatial_downsample (`int`, *optional*, defaults to 4):
-            Spatial downsampling factor.
-        temporal_downsample (`int`, *optional*, defaults to 1):
-            Temporal downsampling factor (only relevant in case a time dimension is present).
-        position_encoding_type (`str`, *optional*, defaults to `"fourier"`):
-            Position encoding type. Can be "fourier" or "trainable".
-        in_channels (`int`, *optional*, defaults to 3):
-            Number of channels in the input.
-        out_channels (`int`, *optional*, defaults to 64):
-            Number of channels in the output.
-        conv_after_patching (`bool`, *optional*, defaults to `False`):
-            Whether to apply a convolutional layer after patching.
-        conv_after_patching_in_channels (`int`, *optional*, defaults to 54):
-            Number of channels in the input of the convolutional layer after patching.
-        conv2d_use_batchnorm (`bool`, *optional*, defaults to `True`):
-            Whether to use batch normalization in the convolutional layer.
-        concat_or_add_pos (`str`, *optional*, defaults to `"concat"`):
-            How to concatenate the position encoding to the input. Can be "concat" or "add".
-        project_pos_dim (`int`, *optional*, defaults to -1):
-            Dimension of the position encoding to project to. If -1, no projection is applied.
-        **position_encoding_kwargs (`Dict`, *optional*):
-            Keyword arguments for the position encoding.
-    """
 
     def __init__(
         self,
@@ -2894,7 +2549,6 @@ class PerceiverImagePreprocessor(AbstractPreprocessor):
         self.out_channels = out_channels
 
         if self.prep_type == "conv":
-            # Downsampling with conv is currently restricted
             convnet_num_layers = math.log(spatial_downsample, 4)
             convnet_num_layers_is_int = convnet_num_layers == np.round(convnet_num_layers)
             if not convnet_num_layers_is_int or temporal_downsample != 1:
@@ -2915,11 +2569,9 @@ class PerceiverImagePreprocessor(AbstractPreprocessor):
                 in_channels=in_channels,
                 out_channels=out_channels,
                 kernel_size=(1, 1),
-                # spatial_downsample is unconstrained for 1x1 convolutions.
                 stride=(spatial_downsample, spatial_downsample),
             )
 
-        # Position embeddings
         self.project_pos_dim = project_pos_dim
         self.position_embeddings, self.positions_projection = build_position_encoding(
             position_encoding_type=position_encoding_type,
@@ -2928,43 +2580,13 @@ class PerceiverImagePreprocessor(AbstractPreprocessor):
             **position_encoding_kwargs,
         )
 
-        # Optional convolutional layer after patches.
         self.conv_after_patches = (
             nn.Linear(conv_after_patching_in_channels, self.out_channels) if conv_after_patching else nn.Identity()
         )
 
     @property
     def num_channels(self) -> int:
-        # Let's assume that the number of resolutions (in the context of image preprocessing)
-        # of the input data is 2 or 3 depending on whether we are processing image or video respectively.
-        # In this case, for convenience, we will declare is_temporal variable,
-        # which will show whether the data has a temporal dimension or not.
-        is_temporal = self.position_embeddings.num_dimensions > 2
-
-        # position embedding
-        if self.project_pos_dim > 0:
-            pos_dim = self.project_pos_dim
-        else:
-            pos_dim = self.position_embeddings.output_size()
-        if self.concat_or_add_pos == "add":
-            return pos_dim
-
-        # inputs
-        if self.conv_after_patching or self.prep_type in ("conv1x1", "conv"):
-            inp_dim = self.out_channels
-        elif self.prep_type == "pixels":
-            inp_dim = self.in_channels
-            if not is_temporal:
-                inp_dim = math.ceil(inp_dim / self.spatial_downsample)
-        elif self.prep_type == "patches":
-            if self.conv_after_patching:
-                inp_dim = self.out_channels
-            else:
-                inp_dim = self.in_channels * self.spatial_downsample**2
-                if is_temporal:
-                    inp_dim *= self.temporal_downsample
-
-        return inp_dim + pos_dim
+        pass
 
     def _build_network_inputs(
         self, inputs: torch.Tensor, network_input_is_1d: bool = True, interpolate_pos_encoding: bool = False
@@ -2980,22 +2602,17 @@ class PerceiverImagePreprocessor(AbstractPreprocessor):
         index_dims = inputs.shape[1:-1]
         indices = np.prod(index_dims)
 
-        # Flatten input features to a 1D index dimension if necessary.
         if len(inputs.shape) > 3 and network_input_is_1d:
             inputs = torch.reshape(inputs, [batch_size, indices, -1])
 
-        # Construct the position encoding.
         if self.position_encoding_type == "trainable":
             pos_enc = self.position_embeddings(batch_size, interpolate_pos_encoding, input_size)
         elif self.position_encoding_type == "fourier":
             pos_enc = self.position_embeddings(index_dims, batch_size, device=inputs.device, dtype=inputs.dtype)
 
-        # Optionally project them to a target dimension.
         pos_enc = self.positions_projection(pos_enc)
 
         if not network_input_is_1d:
-            # Reshape pos to match the input feature shape
-            # if the network takes non-1D inputs
             sh = inputs.shape
             pos_enc = torch.reshape(pos_enc, list(sh)[:-1] + [-1])
         if self.concat_or_add_pos == "concat":
@@ -3012,16 +2629,12 @@ class PerceiverImagePreprocessor(AbstractPreprocessor):
         interpolate_pos_encoding: bool = False,
     ):
         if self.prep_type == "conv":
-            # Convnet image featurization.
-            # Downsamples spatially by a factor of 4
             inputs = self.convnet(inputs)
 
         elif self.prep_type == "conv1x1":
-            # map inputs to self.out_channels
             inputs = self.convnet_1x1(inputs)
 
         elif self.prep_type == "pixels":
-            # if requested, downsamples in the crudest way
             if inputs.ndim == 4:
                 inputs = inputs[:: self.spatial_downsample, :: self.spatial_downsample]
             elif inputs.ndim == 5:
@@ -3032,21 +2645,16 @@ class PerceiverImagePreprocessor(AbstractPreprocessor):
                 raise ValueError("Unsupported data format for pixels.")
 
         elif self.prep_type == "patches":
-            # Space2depth featurization.
-            # Video: B x T x C x H x W
             inputs = space_to_depth(
                 inputs, temporal_block_size=self.temporal_downsample, spatial_block_size=self.spatial_downsample
             )
 
             if inputs.ndim == 5 and inputs.shape[1] == 1:
-                # for flow
                 inputs = inputs.squeeze(dim=1)
 
-            # Optionally apply conv layer.
             inputs = self.conv_after_patches(inputs)
 
         if self.prep_type != "patches":
-            # move channels to last dimension, as the _build_network_inputs method below expects this
             if inputs.ndim == 4:
                 inputs = inputs.permute(0, 2, 3, 1)
             elif inputs.ndim == 5:
@@ -3061,13 +2669,6 @@ class PerceiverImagePreprocessor(AbstractPreprocessor):
 
 
 class PerceiverOneHotPreprocessor(AbstractPreprocessor):
-    """
-    One-hot preprocessor for Perceiver Encoder. Can be used to add a dummy index dimension to the input.
-
-    Args:
-        config ([`PerceiverConfig`]):
-            Model configuration.
-    """
 
     def __init__(self, config: PerceiverConfig) -> None:
         super().__init__()
@@ -3075,39 +2676,16 @@ class PerceiverOneHotPreprocessor(AbstractPreprocessor):
 
     @property
     def num_channels(self) -> int:
-        return self.config.num_labels
+        pass
 
     def forward(self, inputs: torch.Tensor, pos: torch.Tensor | None = None, network_input_is_1d: bool = True):
-        # Add a dummy index dimension.
         inputs = inputs[:, None, :]
 
         # No position encodings, so the 1st (input) and 3rd (inputs_without_pos)
-        # outputs are identical.
         return inputs, None, inputs
 
 
 class PerceiverAudioPreprocessor(AbstractPreprocessor):
-    """
-    Audio preprocessing for Perceiver Encoder.
-
-    Args:
-        config ([*PerceiverConfig*]):
-            Model configuration.
-        prep_type (`str`, *optional*, defaults to `"patches"`):
-            Preprocessor type to use. Only "patches" is supported.
-        samples_per_patch (`int`, *optional*, defaults to 96):
-            Number of samples per patch.
-        position_encoding_type (`str`, *optional*, defaults to `"fourier"`):
-            Type of position encoding to use. Can be "trainable" or "fourier".
-        concat_or_add_pos (`str`, *optional*, defaults to `"concat"`):
-            How to concatenate the position encoding to the input. Can be "concat" or "add".
-        out_channels (`int`, *optional*, defaults to 64):
-            Number of channels in the output.
-        project_pos_dim (`int`, *optional*, defaults to -1):
-            Dimension of the position encoding to project to. If -1, no projection is applied.
-        **position_encoding_kwargs (`Dict`, *optional*):
-            Keyword arguments for the position encoding.
-    """
 
     def __init__(
         self,
@@ -3134,7 +2712,6 @@ class PerceiverAudioPreprocessor(AbstractPreprocessor):
         self.concat_or_add_pos = concat_or_add_pos
         self.project_pos_dim = project_pos_dim
 
-        # Position embeddings
         self.position_embeddings, self.positions_projection = build_position_encoding(
             position_encoding_type=position_encoding_type,
             out_channels=out_channels,
@@ -3144,27 +2721,18 @@ class PerceiverAudioPreprocessor(AbstractPreprocessor):
 
     @property
     def num_channels(self) -> int:
-        # position embedding
-        if self.project_pos_dim > 0:
-            pos_dim = self.project_pos_dim
-        else:
-            pos_dim = self.position_embeddings.output_size()
-        if self.concat_or_add_pos == "add":
-            return pos_dim
-        return self.samples_per_patch + pos_dim
+        pass
 
     def _build_network_inputs(self, inputs):
         """Construct the final input, including position encoding."""
         batch_size = inputs.shape[0]
         index_dims = inputs.shape[1:-1]
 
-        # Construct the position encoding.
         if self.position_encoding_type == "trainable":
             pos_enc = self.position_embeddings(batch_size)
         elif self.position_encoding_type == "fourier":
             pos_enc = self.position_embeddings(index_dims, batch_size, device=inputs.device, dtype=inputs.dtype)
 
-        # Optionally project them to a target dimension.
         pos_enc = self.positions_projection(pos_enc)
 
         if self.concat_or_add_pos == "concat":
@@ -3190,21 +2758,6 @@ class PerceiverAudioPreprocessor(AbstractPreprocessor):
 
 
 class PerceiverMultimodalPreprocessor(AbstractPreprocessor):
-    """
-    Multimodal preprocessing for Perceiver Encoder.
-
-    Inputs for each modality are preprocessed, then padded with trainable position embeddings to have the same number
-    of channels.
-
-    Args:
-        modalities (`Mapping[str, PreprocessorType]`):
-            Dict mapping modality name to preprocessor.
-        mask_probs (`dict[str, float]`):
-            Dict mapping modality name to masking probability of that modality.
-        min_padding_size (`int`, *optional*, defaults to 2):
-            The minimum padding size for all modalities. The final output will have num_channels equal to the maximum
-            channels across all modalities plus min_padding_size.
-    """
 
     def __init__(
         self,
@@ -3228,9 +2781,7 @@ class PerceiverMultimodalPreprocessor(AbstractPreprocessor):
 
     @property
     def num_channels(self) -> int:
-        max_channel_size = max(processor.num_channels for _, processor in self.modalities.items())
-        common_channel_size = max_channel_size + self.min_padding_size
-        return common_channel_size
+        pass
 
     def forward(
         self,
@@ -3243,12 +2794,10 @@ class PerceiverMultimodalPreprocessor(AbstractPreprocessor):
         modality_sizes = {}
         inputs_without_pos = {}
         for modality, preprocessor in self.modalities.items():
-            # preprocess each modality using the respective preprocessor.
             output, _, inputs_without_pos[modality] = preprocessor(
                 inputs[modality], pos=pos, network_input_is_1d=network_input_is_1d
             )
 
-            # pad to the same common_channel_size.
             batch_size, num_samples, num_channels = output.shape
             pos_enc = self.padding[modality].expand(batch_size, -1, -1)
 
@@ -3258,7 +2807,6 @@ class PerceiverMultimodalPreprocessor(AbstractPreprocessor):
             )
             output_padded = torch.cat([output, padding], dim=2)
 
-            # mask if required
             if modality in self.mask_probs:
                 mask_token = self.mask[modality].expand(batch_size, -1, -1)
                 mask_prob = self.mask_probs[modality]
@@ -3269,10 +2817,8 @@ class PerceiverMultimodalPreprocessor(AbstractPreprocessor):
             padded[modality] = output_padded
             modality_sizes[modality] = output_padded.shape[1]
 
-        # Apply a predictable ordering to the modalities
         padded_ls = [padded[k] for k in sorted(padded.keys())]
 
-        # Finally, concatenate along the time dimension
         final_inputs = torch.cat(padded_ls, dim=1)
 
         return final_inputs, modality_sizes, inputs_without_pos

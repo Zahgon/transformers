@@ -1,17 +1,3 @@
-# Copyright 2026 OpenBMB and the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PIL Image processor class for MiniCPM-V 4.6."""
 
 import math
 
@@ -39,23 +25,6 @@ def ensure_divide(length: int, divisor: int) -> int:
 
 
 class MiniCPMV4_6ImageProcessorPilKwargs(ImagesKwargs, total=False):
-    r"""
-    max_slice_nums (`int`, *optional*, defaults to 9):
-        Maximum number of slices when splitting a high-resolution image.
-    scale_resolution (`int`, *optional*, defaults to 448):
-        Target resolution for individual slices.
-    patch_size (`int`, *optional*, defaults to 14):
-        Spatial patch size of the vision encoder.
-    slice_mode (`bool`, *optional*, defaults to `True`):
-        Whether to split images into multiple slices for higher resolution.
-    downsample_mode (`str`, *optional*, defaults to `"16x"`):
-        Visual token downsampling mode. `"16x"` applies full merge; `"4x"` keeps
-        4x more tokens.
-    use_image_id (`bool`, *optional*, defaults to `True`):
-        Whether to prepend an image-id tag (``<image_id>N</image_id>``) before
-        each image placeholder. Consumed by the Processor for placeholder
-        generation, not by the image processing pipeline itself.
-    """
 
     max_slice_nums: int
     scale_resolution: int
@@ -87,7 +56,6 @@ class MiniCPMV4_6ImageProcessorPil(PilBackend):
         super().__init__(**kwargs)
 
     def _validate_preprocess_kwargs(self, **kwargs):
-        # Drop `do_resize`, model resizes based on auto-inferred size at run-time
         kwargs.pop("do_resize")
         super()._validate_preprocess_kwargs(**kwargs)
 
@@ -103,7 +71,6 @@ class MiniCPMV4_6ImageProcessorPil(PilBackend):
             aspect_ratio = width / height
             height = int(scale_resolution / math.sqrt(aspect_ratio))
             width = int(height * aspect_ratio)
-        # factor 4 = two successive 2×2 spatial merges (ViT insert merger + downsample MLP)
         best_width = ensure_divide(width, patch_size * 4)
         best_height = ensure_divide(height, patch_size * 4)
         return best_height, best_width

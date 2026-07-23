@@ -1,18 +1,3 @@
-# Copyright 2021 The I-BERT Authors (Sehoon Kim, Amir Gholami, Zhewei Yao,
-# Michael Mahoney, Kurt Keutzer - UC Berkeley) and The HuggingFace Inc. team.
-# Copyright (c) 20121, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import decimal
 
@@ -28,17 +13,6 @@ logger = logging.get_logger(__name__)
 
 
 class QuantEmbedding(nn.Module):
-    """
-    Quantized version of `torch.nn.Embedding`. Adds quantization-specific arguments on top of `torch.nn.Embedding`.
-
-    Args:
-        weight_bit (`int`, *optional*, defaults to `8`):
-            Bitwidth for the quantized weight.
-        momentum (`float`, *optional*, defaults to `0.95`):
-            Momentum for updating the activation quantization range.
-        quant_mode (`bool`, *optional*, defaults to `False`):
-            Whether or not the layer is quantized.
-    """
 
     def __init__(
         self,
@@ -111,21 +85,6 @@ class QuantEmbedding(nn.Module):
 
 
 class QuantAct(nn.Module):
-    """
-    Quantizes the given activation.
-
-    Args:
-        activation_bit (`int`):
-            Bitwidth for the quantized activation.
-        act_range_momentum (`float`, *optional*, defaults to `0.95`):
-            Momentum for updating the activation quantization range.
-        per_channel (`bool`, *optional*, defaults to `False`):
-            Whether to or not use channel-wise quantization.
-        channel_len (`int`, *optional*):
-            Specify the channel length when set the *per_channel* True.
-        quant_mode (`bool`, *optional*, defaults to `False`):
-            Whether or not the layer is quantized.
-    """
 
     def __init__(self, activation_bit, act_range_momentum=0.95, per_channel=False, channel_len=None, quant_mode=False):
         super().__init__()
@@ -163,7 +122,6 @@ class QuantAct(nn.Module):
         specified_max=None,
     ):
         x_act = x if identity is None else identity + x
-        # collect running stats if training
         if self.training:
             assert not self.percentile, "percentile mode is not currently supported for activation."
             assert not self.per_channel, "per-channel mode is not currently supported for activation."
@@ -174,13 +132,10 @@ class QuantAct(nn.Module):
                 "NaN detected when computing min/max of the activation"
             )
 
-            # Initialization
             if self.x_min.min() > -1.1e-5 and self.x_max.max() < 1.1e-5:
                 self.x_min = self.x_min + x_min
                 self.x_max = self.x_max + x_max
 
-            # exponential moving average (EMA)
-            # use momentum to prevent the quantized values change greatly every iteration
             elif self.act_range_momentum == -1:
                 self.x_min = torch.min(self.x_min, x_min)
                 self.x_max = torch.max(self.x_max, x_max)
@@ -199,7 +154,6 @@ class QuantAct(nn.Module):
         )
 
         if pre_act_scaling_factor is None:
-            # this is for the input quantization
             quant_act_int = self.act_function(x, self.activation_bit, self.percentile, self.act_scaling_factor)
         else:
             quant_act_int = FixedPointMul.apply(
@@ -217,19 +171,6 @@ class QuantAct(nn.Module):
 
 
 class QuantLinear(nn.Module):
-    """
-    Quantized version of `torch.nn.Linear`. Adds quantization-specific arguments on top of `torch.nn.Linear`.
-
-    Args:
-        weight_bit (`int`, *optional*, defaults to `8`):
-            Bitwidth for the quantized weight.
-        bias_bit (`int`, *optional*, defaults to `32`):
-            Bitwidth for the quantized bias.
-        per_channel (`bool`, *optional*, defaults to `False`):
-            Whether or not to use channel-wise quantization.
-        quant_mode (`bool`, *optional*, defaults to `False`):
-            Whether or not the layer is quantized.
-    """
 
     def __init__(
         self, in_features, out_features, bias=True, weight_bit=8, bias_bit=32, per_channel=False, quant_mode=False
@@ -262,7 +203,6 @@ class QuantLinear(nn.Module):
         if not self.quant_mode:
             return nn.functional.linear(x, weight=self.weight, bias=self.bias), None
 
-        # assert that prev_act_scaling_factor is a scalar tensor
         assert prev_act_scaling_factor is not None and prev_act_scaling_factor.shape == (1,), (
             "Input activation to the QuantLinear layer should be globally (non-channel-wise) quantized. "
             "Please add a QuantAct layer with `per_channel = True` before this QuantAct layer"
@@ -297,15 +237,6 @@ class QuantLinear(nn.Module):
 
 
 class IntGELU(nn.Module):
-    """
-    Quantized version of `torch.nn.GELU`. Adds quantization-specific arguments on top of `torch.nn.GELU`.
-
-    Args:
-        quant_mode (`bool`, *optional*, defaults to `False`):
-            Whether or not the layer is quantized.
-        force_dequant (`str`, *optional*, defaults to `"none"`):
-            Force dequantize the layer if either "gelu" or "nonlinear" is given.
-    """
 
     def __init__(self, quant_mode=True, force_dequant="none"):
         super().__init__()
@@ -332,7 +263,6 @@ class IntGELU(nn.Module):
         y_int = sign * ((abs_int + b_int) ** 2 + c_int)
         scaling_factor = scaling_factor**2 * self.coeff[0]
 
-        # avoid overflow
         y_int = floor_ste.apply(y_int / 2**self.const)
         scaling_factor = scaling_factor * 2**self.const
 
@@ -354,17 +284,6 @@ class IntGELU(nn.Module):
 
 
 class IntSoftmax(nn.Module):
-    """
-    Quantized version of `torch.nn.Softmax`. Adds quantization-specific arguments on top of `torch.nn.Softmax`.
-
-    Args:
-        output_bit (`int`):
-            Bitwidth for the layer output activation.
-        quant_mode (`bool`, *optional*, defaults to `False`):
-            Whether or not the layer is quantized.
-        force_dequant (`str`, *optional*, defaults to `"none"`):
-            Force dequantize the layer if either "softmax" or "nonlinear" is given.
-    """
 
     def __init__(self, output_bit, quant_mode=False, force_dequant="none"):
         super().__init__()
@@ -413,7 +332,6 @@ class IntSoftmax(nn.Module):
         x_int = x_int - x_int_max
         exp_int, exp_scaling_factor = self.int_exp(x_int, scaling_factor)
 
-        # Avoid overflow
         exp, exp_scaling_factor = self.act(exp_int, exp_scaling_factor)
         exp_int = exp / exp_scaling_factor
 
@@ -425,17 +343,6 @@ class IntSoftmax(nn.Module):
 
 
 class IntLayerNorm(nn.Module):
-    """
-    Quantized version of `torch.nn.LayerNorm`. Adds quantization-specific arguments on top of `torch.nn.LayerNorm`.
-
-    Args:
-        output_bit (`int`, *optional*, defaults to `8`):
-            Bitwidth for the layer output activation.
-        quant_mode (`bool`, *optional*, defaults to `False`):
-            Whether or not the layer is quantized.
-        force_dequant (`str`, *optional*, defaults to `"none"`):
-            Force dequantize the layer if either "layernorm" or "nonlinear" is given.
-    """
 
     def __init__(self, normalized_shape, eps, output_bit=8, quant_mode=False, force_dequant="none"):
         super().__init__()
@@ -485,12 +392,10 @@ class IntLayerNorm(nn.Module):
             x = x * self.weight + self.bias
             return x, None
 
-        # compute sqrt of the feature dimension if it is the first run
         if self.dim_sqrt is None:
             n = torch.tensor(x.shape[2], dtype=torch.float)
             self.dim_sqrt = torch.sqrt(n).to(x.device)
 
-        # Normalization: computes mean and variance(std)
         x_int = x / scaling_factor
         mean_int = round_ste.apply(x_int.mean(axis=2, keepdim=True))
         y_int = x_int - mean_int
@@ -498,9 +403,7 @@ class IntLayerNorm(nn.Module):
         y_sq_int = y_int_shifted**2
         var_int = torch.sum(y_sq_int, axis=2, keepdim=True)
 
-        # overflow handling in training time
         if self.training:
-            # if overflow is detected
             if var_int.max() >= 2**self.max_bit:
                 var_int = self.overflow_fallback(y_int)
                 assert var_int.max() < 2**self.max_bit + 0.1, (
@@ -508,13 +411,11 @@ class IntLayerNorm(nn.Module):
                     "`var_int` exceeds `self.max_bit` (the maximum possible bit width)"
                 )
 
-        # To be replaced with integer-sqrt kernel that produces the same output
         std_int = floor_ste.apply(torch.sqrt(var_int)) * 2**self.shift
         factor = floor_ste.apply(2**31 / std_int)
         y_int = floor_ste.apply(y_int * factor / 2)
         scaling_factor = self.dim_sqrt / 2**30
 
-        # scaling and shifting
         bias = self.bias.data.detach() / (self.weight.data.detach())
         bias_int = floor_ste.apply(bias / scaling_factor)
 
@@ -526,39 +427,7 @@ class IntLayerNorm(nn.Module):
 
 
 def get_percentile_min_max(input, lower_percentile, upper_percentile, output_tensor=False):
-    """
-    Calculate the percentile max and min values in a given tensor
-
-    Args:
-        input (`torch.Tensor`):
-            The target tensor to calculate percentile max and min.
-        lower_percentile (`float`):
-            If 0.1, means we return the value of the smallest 0.1% value in the tensor as percentile min.
-        upper_percentile (`float`):
-            If 99.9, means we return the value of the largest 0.1% value in the tensor as percentile max.
-        output_tensor (`bool`, *optional*, defaults to `False`):
-            If True, this function returns tensors, otherwise it returns values.
-
-    Returns:
-        `Tuple(torch.Tensor, torch.Tensor)`: Percentile min and max value of *input*
-    """
-    input_length = input.shape[0]
-
-    lower_index = round(input_length * (1 - lower_percentile * 0.01))
-    upper_index = round(input_length * upper_percentile * 0.01)
-
-    upper_bound = torch.kthvalue(input, k=upper_index).values
-
-    if lower_percentile == 0:
-        lower_bound = upper_bound * 0
-        # lower_index += 1
-    else:
-        lower_bound = -torch.kthvalue(-input, k=lower_index).values
-
-    if not output_tensor:
-        lower_bound = lower_bound.item()
-        upper_bound = upper_bound.item()
-    return lower_bound, upper_bound
+    pass
 
 
 def linear_quantize(input, scale, zero_point, inplace=False):
@@ -578,18 +447,15 @@ def linear_quantize(input, scale, zero_point, inplace=False):
     Returns:
         `torch.Tensor`: Linearly quantized value of *input* according to *scale* and *zero_point*.
     """
-    # reshape scale and zeropoint for convolutional weights and activation
     if len(input.shape) == 4:
         scale = scale.view(-1, 1, 1, 1)
         zero_point = zero_point.view(-1, 1, 1, 1)
-    # reshape scale and zeropoint for linear weights
     elif len(input.shape) == 2:
         scale = scale.view(-1, 1)
         zero_point = zero_point.view(-1, 1)
     else:
         scale = scale.view(-1)
         zero_point = zero_point.view(-1)
-    # quantized = float / scale + zero_point
     if inplace:
         input.mul_(1.0 / scale).add_(zero_point).round_()
         return input
@@ -612,8 +478,6 @@ def symmetric_linear_quantization_params(num_bits, saturation_min, saturation_ma
         `torch.Tensor`: Scaling factor that linearly quantizes the given range between *saturation_min* and
         *saturation_max*.
     """
-    # in this part, we do not need any gradient computation,
-    # in order to enforce this, we put torch.no_grad()
     with torch.no_grad():
         n = 2 ** (num_bits - 1) - 1
 
@@ -629,9 +493,6 @@ def symmetric_linear_quantization_params(num_bits, saturation_min, saturation_ma
 
 
 class SymmetricQuantFunction(Function):
-    """
-    Class to quantize the given floating-point values using symmetric quantization with given range and bitwidth.
-    """
 
     @staticmethod
     def forward(ctx, x, k, percentile_mode, scale):
@@ -661,22 +522,10 @@ class SymmetricQuantFunction(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        scale = ctx.scale
-        if len(grad_output.shape) == 4:
-            scale = scale.view(-1, 1, 1, 1)
-        # reshape scale and zeropoint for linear weights
-        elif len(grad_output.shape) == 2:
-            scale = scale.view(-1, 1)
-        else:
-            scale = scale.view(-1)
-
-        return grad_output.clone() / scale, None, None, None, None
+        pass
 
 
 class floor_ste(Function):
-    """
-    Straight-through Estimator(STE) for torch.floor()
-    """
 
     @staticmethod
     def forward(ctx, x):
@@ -684,13 +533,10 @@ class floor_ste(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        return grad_output.clone()
+        pass
 
 
 class round_ste(Function):
-    """
-    Straight-through Estimator(STE) for torch.round()
-    """
 
     @staticmethod
     def forward(ctx, x):
@@ -698,7 +544,7 @@ class round_ste(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        return grad_output.clone()
+        pass
 
 
 def batch_frexp(inputs, max_bit=31):
@@ -715,7 +561,6 @@ def batch_frexp(inputs, max_bit=31):
 
     shape_of_input = inputs.size()
 
-    # trans the input to be a 1-d tensor
     inputs = inputs.view(-1)
 
     output_m, output_e = np.frexp(inputs.cpu().numpy())
@@ -736,27 +581,6 @@ def batch_frexp(inputs, max_bit=31):
 
 
 class FixedPointMul(Function):
-    """
-    Function to perform fixed-point arithmetic that can match integer arithmetic on hardware.
-
-    Args:
-        pre_act (`torch.Tensor`):
-            Input tensor.
-        pre_act_scaling_factor (`torch.Tensor`):
-            Scaling factor of the input tensor *pre_act*.
-        bit_num (`int`):
-            Quantization bitwidth.
-        z_scaling_factor (`torch.Tensor`):
-            Scaling factor of the output tensor.
-        identity (`torch.Tensor`, *optional*):
-            Identity tensor, if exists.
-        identity_scaling_factor (`torch.Tensor`, *optional*):
-            Scaling factor of the identity tensor *identity*, if exists.
-
-    Returns:
-        `torch.Tensor`: Output tensor(*pre_act* if *identity* is not given, otherwise the addition of *pre_act* and
-        *identity*), whose scale is rescaled to *z_scaling_factor*.
-    """
 
     @staticmethod
     def forward(
@@ -795,7 +619,6 @@ class FixedPointMul(Function):
             output = torch.round(output / (2.0**e))
 
             if identity is not None:
-                # needs addition of identity activation
                 wx_int = torch.round(identity / identity_scaling_factor)
 
                 _A = identity_scaling_factor.type(torch.double)
@@ -813,7 +636,4 @@ class FixedPointMul(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        identity_grad = None
-        if ctx.identity is not None:
-            identity_grad = grad_output.clone() / ctx.z_scaling_factor
-        return grad_output.clone() / ctx.z_scaling_factor, None, None, None, None, identity_grad, None
+        pass

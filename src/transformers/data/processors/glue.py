@@ -1,18 +1,3 @@
-# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""GLUE processors and helpers"""
 
 import os
 import warnings
@@ -122,20 +107,13 @@ class OutputMode(Enum):
 
 
 class MrpcProcessor(DataProcessor):
-    """Processor for the MRPC data set (GLUE version)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         warnings.warn(DEPRECATION_WARNING.format("processor"), FutureWarning)
 
     def get_example_from_tensor_dict(self, tensor_dict):
-        """See base class."""
-        return InputExample(
-            tensor_dict["idx"].numpy(),
-            tensor_dict["sentence1"].numpy().decode("utf-8"),
-            tensor_dict["sentence2"].numpy().decode("utf-8"),
-            str(tensor_dict["label"].numpy()),
-        )
+        pass
 
     def get_train_examples(self, data_dir):
         """See base class."""
@@ -169,20 +147,13 @@ class MrpcProcessor(DataProcessor):
 
 
 class MnliProcessor(DataProcessor):
-    """Processor for the MultiNLI data set (GLUE version)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         warnings.warn(DEPRECATION_WARNING.format("processor"), FutureWarning)
 
     def get_example_from_tensor_dict(self, tensor_dict):
-        """See base class."""
-        return InputExample(
-            tensor_dict["idx"].numpy(),
-            tensor_dict["premise"].numpy().decode("utf-8"),
-            tensor_dict["hypothesis"].numpy().decode("utf-8"),
-            str(tensor_dict["label"].numpy()),
-        )
+        pass
 
     def get_train_examples(self, data_dir):
         """See base class."""
@@ -215,7 +186,6 @@ class MnliProcessor(DataProcessor):
 
 
 class MnliMismatchedProcessor(MnliProcessor):
-    """Processor for the MultiNLI Mismatched data set (GLUE version)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -231,20 +201,13 @@ class MnliMismatchedProcessor(MnliProcessor):
 
 
 class ColaProcessor(DataProcessor):
-    """Processor for the CoLA data set (GLUE version)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         warnings.warn(DEPRECATION_WARNING.format("processor"), FutureWarning)
 
     def get_example_from_tensor_dict(self, tensor_dict):
-        """See base class."""
-        return InputExample(
-            tensor_dict["idx"].numpy(),
-            tensor_dict["sentence"].numpy().decode("utf-8"),
-            None,
-            str(tensor_dict["label"].numpy()),
-        )
+        pass
 
     def get_train_examples(self, data_dir):
         """See base class."""
@@ -278,20 +241,13 @@ class ColaProcessor(DataProcessor):
 
 
 class Sst2Processor(DataProcessor):
-    """Processor for the SST-2 data set (GLUE version)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         warnings.warn(DEPRECATION_WARNING.format("processor"), FutureWarning)
 
     def get_example_from_tensor_dict(self, tensor_dict):
-        """See base class."""
-        return InputExample(
-            tensor_dict["idx"].numpy(),
-            tensor_dict["sentence"].numpy().decode("utf-8"),
-            None,
-            str(tensor_dict["label"].numpy()),
-        )
+        pass
 
     def get_train_examples(self, data_dir):
         """See base class."""
@@ -324,20 +280,13 @@ class Sst2Processor(DataProcessor):
 
 
 class StsbProcessor(DataProcessor):
-    """Processor for the STS-B data set (GLUE version)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         warnings.warn(DEPRECATION_WARNING.format("processor"), FutureWarning)
 
     def get_example_from_tensor_dict(self, tensor_dict):
-        """See base class."""
-        return InputExample(
-            tensor_dict["idx"].numpy(),
-            tensor_dict["sentence1"].numpy().decode("utf-8"),
-            tensor_dict["sentence2"].numpy().decode("utf-8"),
-            str(tensor_dict["label"].numpy()),
-        )
+        pass
 
     def get_train_examples(self, data_dir):
         """See base class."""
@@ -370,20 +319,13 @@ class StsbProcessor(DataProcessor):
 
 
 class QqpProcessor(DataProcessor):
-    """Processor for the QQP data set (GLUE version)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         warnings.warn(DEPRECATION_WARNING.format("processor"), FutureWarning)
 
     def get_example_from_tensor_dict(self, tensor_dict):
-        """See base class."""
-        return InputExample(
-            tensor_dict["idx"].numpy(),
-            tensor_dict["question1"].numpy().decode("utf-8"),
-            tensor_dict["question2"].numpy().decode("utf-8"),
-            str(tensor_dict["label"].numpy()),
-        )
+        pass
 
     def get_train_examples(self, data_dir):
         """See base class."""
@@ -422,20 +364,13 @@ class QqpProcessor(DataProcessor):
 
 
 class QnliProcessor(DataProcessor):
-    """Processor for the QNLI data set (GLUE version)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         warnings.warn(DEPRECATION_WARNING.format("processor"), FutureWarning)
 
     def get_example_from_tensor_dict(self, tensor_dict):
-        """See base class."""
-        return InputExample(
-            tensor_dict["idx"].numpy(),
-            tensor_dict["question"].numpy().decode("utf-8"),
-            tensor_dict["sentence"].numpy().decode("utf-8"),
-            str(tensor_dict["label"].numpy()),
-        )
+        pass
 
     def get_train_examples(self, data_dir):
         """See base class."""
@@ -468,20 +403,13 @@ class QnliProcessor(DataProcessor):
 
 
 class RteProcessor(DataProcessor):
-    """Processor for the RTE data set (GLUE version)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         warnings.warn(DEPRECATION_WARNING.format("processor"), FutureWarning)
 
     def get_example_from_tensor_dict(self, tensor_dict):
-        """See base class."""
-        return InputExample(
-            tensor_dict["idx"].numpy(),
-            tensor_dict["sentence1"].numpy().decode("utf-8"),
-            tensor_dict["sentence2"].numpy().decode("utf-8"),
-            str(tensor_dict["label"].numpy()),
-        )
+        pass
 
     def get_train_examples(self, data_dir):
         """See base class."""
@@ -514,20 +442,13 @@ class RteProcessor(DataProcessor):
 
 
 class WnliProcessor(DataProcessor):
-    """Processor for the WNLI data set (GLUE version)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         warnings.warn(DEPRECATION_WARNING.format("processor"), FutureWarning)
 
     def get_example_from_tensor_dict(self, tensor_dict):
-        """See base class."""
-        return InputExample(
-            tensor_dict["idx"].numpy(),
-            tensor_dict["sentence1"].numpy().decode("utf-8"),
-            tensor_dict["sentence2"].numpy().decode("utf-8"),
-            str(tensor_dict["label"].numpy()),
-        )
+        pass
 
     def get_train_examples(self, data_dir):
         """See base class."""

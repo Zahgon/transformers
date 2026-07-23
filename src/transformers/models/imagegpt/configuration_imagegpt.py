@@ -1,17 +1,3 @@
-# Copyright 2021 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""OpenAI ImageGPT configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -22,27 +8,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="openai/imagegpt-small")
 @strict
 class ImageGPTConfig(PreTrainedConfig):
-    r"""
-    scale_attn_by_inverse_layer_idx (`bool`, *optional*, defaults to `False`):
-        Whether to additionally scale attention weights by `1 / layer_idx + 1`.
-    reorder_and_upcast_attn (`bool`, *optional*, defaults to `False`):
-        Whether to scale keys (K) prior to computing attention (dot-product) and upcast attention
-        dot-product/softmax to float() when training with mixed precision.
-
-    Example:
-
-    ```python
-    >>> from transformers import ImageGPTConfig, ImageGPTModel
-
-    >>> # Initializing a ImageGPT configuration
-    >>> configuration = ImageGPTConfig()
-
-    >>> # Initializing a model (with random weights) from the configuration
-    >>> model = ImageGPTModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "imagegpt"
     keys_to_ignore_at_inference = ["past_key_values"]

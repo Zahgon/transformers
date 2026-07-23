@@ -1,17 +1,3 @@
-# Copyright 2022 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Swin Transformer model configuration"""
 
 from huggingface_hub.dataclasses import strict
 
@@ -23,30 +9,6 @@ from ...utils import auto_docstring
 @auto_docstring(checkpoint="microsoft/swin-tiny-patch4-window7-224")
 @strict
 class SwinConfig(BackboneConfigMixin, PreTrainedConfig):
-    r"""
-    depths (`list(int)`, *optional*, defaults to `[2, 2, 6, 2]`):
-        Depth of each layer in the Transformer encoder.
-    num_heads (`list(int)`, *optional*, defaults to `[3, 6, 12, 24]`):
-        Number of attention heads in each layer of the Transformer encoder.
-    window_size (`int`, *optional*, defaults to 7):
-        Size of windows.
-    encoder_stride (`int`, *optional*, defaults to 32):
-        Factor to increase the spatial resolution by in the decoder head for masked image modeling.
-
-    Example:
-
-    ```python
-    >>> from transformers import SwinConfig, SwinModel
-
-    >>> # Initializing a Swin microsoft/swin-tiny-patch4-window7-224 style configuration
-    >>> configuration = SwinConfig()
-
-    >>> # Initializing a model (with random weights) from the microsoft/swin-tiny-patch4-window7-224 style configuration
-    >>> model = SwinModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
 
     model_type = "swin"
 
@@ -77,8 +39,6 @@ class SwinConfig(BackboneConfigMixin, PreTrainedConfig):
 
     def __post_init__(self, **kwargs):
         self.num_layers = len(self.depths)
-        # we set the hidden_size attribute in order to make Swin work with VisionEncoderDecoderModel
-        # this indicates the channel dimension after the last stage of the model
         self.hidden_size = int(self.embed_dim * 2 ** (len(self.depths) - 1))
         self.stage_names = ["stem"] + [f"stage{idx}" for idx in range(1, len(self.depths) + 1)]
         self.set_output_features_output_indices(

@@ -1,17 +1,3 @@
-# Copyright 2023 the HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch Llava model."""
 
 from dataclasses import dataclass
 
@@ -40,16 +26,6 @@ logger = logging.get_logger(__name__)
 )
 @dataclass
 class LlavaModelOutputWithPast(BaseModelOutputWithPast):
-    r"""
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size `(batch_size, num_images, sequence_length, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
 
     image_hidden_states: torch.FloatTensor | None = None
 
@@ -61,20 +37,6 @@ class LlavaModelOutputWithPast(BaseModelOutputWithPast):
 )
 @dataclass
 class LlavaCausalLMOutputWithPast(ModelOutput):
-    r"""
-    loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-        Language modeling loss (for next-token prediction).
-    logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, config.vocab_size)`):
-        Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    past_key_values (`Cache`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
-        It is a [`~cache_utils.Cache`] instance. For more details, see our [kv cache guide](https://huggingface.co/docs/transformers/en/kv_cache).
-
-        Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
-        `past_key_values` input) to speed up sequential decoding.
-    image_hidden_states (`torch.FloatTensor`, *optional*):
-        A `torch.FloatTensor` of size `(batch_size, num_images, sequence_length, hidden_size)`.
-        image_hidden_states of the model produced by the vision encoder and after projecting the last hidden state.
-    """
 
     loss: torch.FloatTensor | None = None
     logits: torch.FloatTensor | None = None
@@ -87,7 +49,6 @@ class LlavaCausalLMOutputWithPast(ModelOutput):
 class LlavaMultiModalProjector(nn.Module):
     def __init__(self, config: LlavaConfig):
         super().__init__()
-        # We have hidden_size * the number of vision feature layers
         num_feature_layers = 1 if isinstance(config.vision_feature_layer, int) else len(config.vision_feature_layer)
         self.linear_1 = nn.Linear(
             config.vision_config.hidden_size * num_feature_layers,
@@ -150,7 +111,6 @@ class LlavaModel(LlavaPreTrainedModel):
         **kwargs: Unpack[TransformersKwargs],
     ) -> tuple | BaseModelOutputWithPooling:
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
-        # this is not memory efficient at all (output_hidden_states=True) will save all the hidden states.
         image_outputs = self.vision_tower(
             pixel_values,
             output_hidden_states=True,  # Ignore arg on purpose
@@ -158,23 +118,18 @@ class LlavaModel(LlavaPreTrainedModel):
             **kwargs,
         )
 
-        # If we have one vision feature layer, return the corresponding hidden states,
-        # otherwise, select the hidden states of each feature layer and concatenate them
         if isinstance(vision_feature_layer, int):
             selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
             if vision_feature_select_strategy == "default":
                 selected_image_feature = selected_image_feature[:, 1:]
         else:
             hs_pool = [image_outputs.hidden_states[layer_idx] for layer_idx in vision_feature_layer]
-            # For default; crop CLS from each hidden state in the hidden state pool
             if vision_feature_select_strategy == "default":
                 hs_pool = [hs[:, 1:] for hs in hs_pool]
             selected_image_feature = torch.cat(hs_pool, dim=-1)
 
         image_features = self.multi_modal_projector(selected_image_feature)
 
-        # If image_sizes is provided, we need to split the image features accordingly,
-        # but only if the image_sizes is not None (the default in this and related architectures)
         if kwargs.get("image_sizes") is not None:
             split_sizes = (
                 (torch.as_tensor(kwargs["image_sizes"], device=image_features.device) // self.vision_tower.patch_size)
@@ -356,7 +311,6 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs[0]
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
@@ -386,7 +340,6 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel, GenerationMixin):
         is_first_iteration=False,
         **kwargs,
     ):
-        # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
 
         model_inputs = super().prepare_inputs_for_generation(
             input_ids,
@@ -399,10 +352,6 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel, GenerationMixin):
         )
 
         if is_first_iteration or not kwargs.get("use_cache", True):
-            # Pixel values are used only in the first iteration if available
-            # In subsequent iterations, they are already merged with text and cached
-            # NOTE: first iteration doesn't have to be prefill, it can be the first
-            # iteration with a question and cached system prompt (continue generate from cache)
             model_inputs["pixel_values"] = pixel_values
 
         return model_inputs
